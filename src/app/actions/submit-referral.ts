@@ -11,7 +11,7 @@ export type SubmitReferralResult =
 export async function submitReferral(data: ReferralFormData): Promise<SubmitReferralResult> {
   const parsed = referralSchema.safeParse(data)
   if (!parsed.success) {
-    return { success: false, error: parsed.error.errors[0]?.message ?? 'Validation failed' }
+    return { success: false, error: parsed.error.issues[0]?.message ?? 'Validation failed' }
   }
 
   const form = parsed.data
@@ -53,6 +53,17 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       return { success: false, error: 'Failed to save referral. Please try again.' }
     }
 
+    return {
+      success: true,
+      referral_id: referral.id,
+      client_name: `${form.client_first_name} ${form.client_last_name}`,
+      assigned_to,
+    }
+  } catch (err) {
+    console.error('Unexpected error:', err)
+    return { success: false, error: 'Something went wrong. Please try again.' }
+  }
+}
     return {
       success: true,
       referral_id: referral.id,
