@@ -64,14 +64,3 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
     return { success: false, error: 'Something went wrong. Please try again.' }
   }
 }
-    return {
-      success: true,
-      referral_id: referral.id,
-      client_name: `${form.client_first_name} ${form.client_last_name}`,
-      assigned_to,
-    }
-  } catch (err) {
-    console.error('Unexpected error:', err)
-    return { success: false, error: 'Something went wrong. Please try again.' }
-  }
-}
