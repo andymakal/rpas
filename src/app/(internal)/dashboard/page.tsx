@@ -10,7 +10,7 @@ type RecentReferral = {
   referral_type: string
   status: string
   intake_timestamp: string
-  agencies: { agency_name: string } | null
+  agencies: { agency_name: string }[] | null
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -58,7 +58,6 @@ const TYPE_LABELS: Record<string, string> = {
   general:             'General',
 }
 
-// Moved outside component — fixes ESLint impure function warning
 function getSevenDaysAgo(): string {
   return new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
 }
@@ -96,7 +95,7 @@ export default async function DashboardPage() {
 
   const activeCount = activeResult.count ?? 0
   const weekCount = weekResult.count ?? 0
-  const recentReferrals = (recentResult.data ?? []) as RecentReferral[]
+  const recentReferrals = (recentResult.data ?? []) as unknown as RecentReferral[]
 
   return (
     <div className="p-6 space-y-6">
@@ -157,7 +156,7 @@ export default async function DashboardPage() {
                       {r.client_first_name} {r.client_last_name}
                     </p>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      {r.agencies?.agency_name ?? '—'} · {TYPE_LABELS[r.referral_type] ?? r.referral_type}
+                      {r.agencies?.[0]?.agency_name ?? '—'} · {TYPE_LABELS[r.referral_type] ?? r.referral_type}
                     </p>
                   </div>
                   <span className={`text-xs font-semibold ${STATUS_COLORS[r.status] ?? 'text-slate-400'}`}>
