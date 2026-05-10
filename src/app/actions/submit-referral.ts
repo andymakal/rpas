@@ -24,23 +24,27 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
     const { data: referral, error } = await supabase
       .from('referrals')
       .insert({
-        agency_id: form.agency_id,
-        lsp_name: form.lsp_name,
-        client_first_name: form.client_first_name,
-        client_last_name: form.client_last_name,
-        client_phone: form.client_phone,
-        client_email: form.client_email || null,
-        client_dob: form.client_dob || null,
-        client_marital_status: form.client_marital_status || null,
-        client_address: form.client_address,
-        client_city: form.client_city,
-        client_state: form.client_state,
-        client_zip: form.client_zip,
-        referral_type: form.referral_type,
-        is_existing_client: form.is_existing_client,
-        preferred_contact: form.preferred_contact || null,
-        best_contact_time: form.best_contact_time || null,
-        notes: form.notes || null,
+        agency_id:                    form.agency_id,
+        lsp_name:                     form.lsp_name,
+        client_first_name:            form.client_first_name,
+        client_last_name:             form.client_last_name,
+        client_phone:                 form.client_phone,
+        client_email:                 form.client_email || null,
+        client_dob:                   form.client_dob || null,
+        client_marital_status:        form.client_marital_status || null,
+        client_address:               form.client_address,
+        client_city:                  form.client_city,
+        client_state:                 form.client_state,
+        client_zip:                   form.client_zip,
+        referral_type:                form.referral_type,
+        is_existing_client:           form.is_existing_client,
+        preferred_contact:            form.preferred_contact || null,
+        best_contact_time:            form.best_contact_time || null,
+        notes:                        form.notes || null,
+        life_insurance_outside_work:  form.life_insurance_outside_work,
+        job_change_last_5_years:      form.job_change_last_5_years,
+        review_401k:                  form.review_401k,
+        retirement_prep:              form.retirement_prep,
         assigned_to,
         requires_escalation,
         status: 'new',
@@ -52,6 +56,16 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       console.error('Supabase insert error:', error)
       return { success: false, error: 'Failed to save referral. Please try again.' }
     }
+
+    // Build trigger summary for notification log
+    const triggers = [
+      form.life_insurance_outside_work && 'Life insurance outside work',
+      form.job_change_last_5_years     && 'Job change in last 5 years',
+      form.review_401k                 && '401(k) review',
+      form.retirement_prep             && 'Retirement prep',
+    ].filter(Boolean)
+
+    console.log(`[RPAS] New referral: ${form.client_first_name} ${form.client_last_name} | Triggers: ${triggers.length > 0 ? triggers.join(', ') : 'none'}`)
 
     return {
       success: true,

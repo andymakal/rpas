@@ -12,15 +12,68 @@ import {
 type Agency = { id: string; name: string }
 type FieldErrors = Partial<Record<keyof ReferralFormData, string>>
 
+type QualifyingFlags = {
+  life_insurance_outside_work: boolean
+  job_change_last_5_years: boolean
+  review_401k: boolean
+  retirement_prep: boolean
+}
+
 const EMPTY_FORM: ReferralFormData = {
   agency_id: '', lsp_name: '', client_first_name: '', client_last_name: '',
   client_phone: '', client_email: '', client_dob: '', client_marital_status: '',
   client_address: '', client_city: '', client_state: '', client_zip: '',
   referral_type: '', is_existing_client: false,
   preferred_contact: undefined, best_contact_time: undefined, notes: '',
+  life_insurance_outside_work: false,
+  job_change_last_5_years: false,
+  review_401k: false,
+  retirement_prep: false,
 }
 
 const STEP_SCHEMAS = [step1Schema, step2Schema, step3Schema]
+
+const QUALIFYING_TRIGGERS = [
+  {
+    key: 'life_insurance_outside_work' as const,
+    label: 'Do you have life insurance outside of work?',
+    subtext: 'Employer coverage ends when employment does.',
+  },
+  {
+    key: 'job_change_last_5_years' as const,
+    label: 'Have you changed jobs in the last 5 years?',
+    subtext: 'Job changes often leave 401(k)s and benefit gaps behind.',
+  },
+  {
+    key: 'review_401k' as const,
+    label: 'Would a second look at your 401(k) be valuable?',
+    subtext: 'Many people are in the wrong funds for their timeline.',
+  },
+  {
+    key: 'retirement_prep' as const,
+    label: 'Are you actively preparing for retirement?',
+    subtext: 'Social Security timing, RMDs, and Medicare have critical decision windows.',
+  },
+]
+
+function getTalkPath(flags: QualifyingFlags) {
+  if (flags.retirement_prep) return {
+    icon: '🗓️',
+    headline: 'Retirement Planning Conversation',
+    body: 'Social Security timing, Medicare enrollment, and RMD planning all have critical decision windows. Your advisor will walk through the Right Path retirement sequence.',
+  }
+  if (flags.review_401k || flags.job_change_last_5_years) return {
+    icon: '💼',
+    headline: '401(k) & Benefits Review',
+    body: 'Old retirement accounts and benefit gaps from job changes are some of the most overlooked financial risks. Your advisor will help get a clear picture.',
+  }
+  if (flags.life_insurance_outside_work) return {
+    icon: '🛡️',
+    headline: 'Personal Life Insurance Review',
+    body: 'Group coverage through work is a starting point — not a plan. Your advisor will help identify what\'s actually needed.',
+  }
+  return null
+}
 
 function StepBar({ current, total }: { current: number; total: number }) {
   return (
@@ -139,9 +192,32 @@ function OptionGrid({ options, value, onChange }: {
   )
 }
 
-function ConfirmationScreen({ result, onAnother }: {
-  result: Extract<SubmitReferralResult, { success: true }>; onAnother: () => void
+function CheckboxTrigger({ checked, onChange, label, subtext }: {
+  checked: boolean; onChange: (v: boolean) => void; label: string; subtext: string
 }) {
+  return (
+    <label className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-400 cursor-pointer transition-colors">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-slate-800"
+      />
+      <div>
+        <p className="text-sm font-medium text-slate-800">{label}</p>
+        <p className="text-xs text-slate-500 mt-0.5">{subtext}</p>
+      </div>
+    </label>
+  )
+}
+
+function ConfirmationScreen({ result, qualifyingFlags, onAnother }: {
+  result: Extract<SubmitReferralResult, { success: true }>
+  qualifyingFlags: QualifyingFlags
+  onAnother: () => void
+}) {
+  const talkPath = getTalkPath(qualifyingFlags)
+
   return (
     <div className="text-center py-8 space-y-6">
       <div className="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mx-auto">
@@ -156,6 +232,17 @@ function ConfirmationScreen({ result, onAnother }: {
           <span className="font-semibold text-slate-900">{result.client_name}</span>.
         </p>
       </div>
+
+      {talkPath && (
+        <div className="bg-blue-50 border border-blue-100 rounded-xl p-5 text-left space-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">{talkPath.icon}</span>
+            <p className="text-sm font-semibold text-blue-900">{talkPath.headline}</p>
+          </div>
+          <p className="text-sm text-blue-800">{talkPath.body}</p>
+        </div>
+      )}
+
       <div className="bg-slate-50 rounded-xl p-5 text-left space-y-3">
         <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">What happens next</p>
         <div className="space-y-2 text-sm text-slate-700">
@@ -235,7 +322,18 @@ export function ReferralIntakeForm() {
 
   function reset() { setForm(EMPTY_FORM); setErrors({}); setStep(0); setResult(null) }
 
-  if (result?.success) return <ConfirmationScreen result={result} onAnother={reset} />
+  if (result?.success) return (
+    <ConfirmationScreen
+      result={result}
+      qualifyingFlags={{
+        life_insurance_outside_work: form.life_insurance_outside_work,
+        job_change_last_5_years:     form.job_change_last_5_years,
+        review_401k:                 form.review_401k,
+        retirement_prep:             form.retirement_prep,
+      }}
+      onAnother={reset}
+    />
+  )
 
   const stepContent = [
     <div key="step1" className="space-y-5">
@@ -344,6 +442,23 @@ export function ReferralIntakeForm() {
             focus:border-transparent hover:border-slate-400 transition-colors resize-none" />
         <p className="text-xs text-slate-400 text-right mt-1">{(form.notes ?? '').length}/500</p>
       </Field>
+
+      <div className="space-y-2">
+        <p className="text-sm font-medium text-slate-700">Quick Check-In</p>
+        <p className="text-xs text-slate-500">Check any that apply — helps us start the right conversation</p>
+        <div className="space-y-2 pt-1">
+          {QUALIFYING_TRIGGERS.map(({ key, label, subtext }) => (
+            <CheckboxTrigger
+              key={key}
+              checked={form[key]}
+              onChange={(v) => set(key, v)}
+              label={label}
+              subtext={subtext}
+            />
+          ))}
+        </div>
+      </div>
+
       {result && !result.success && (
         <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
           {result.error}

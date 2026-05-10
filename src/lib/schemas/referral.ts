@@ -18,6 +18,10 @@ export const referralSchema = z.object({
   preferred_contact: z.enum(['phone', 'text', 'email']).optional(),
   best_contact_time: z.enum(['morning', 'afternoon', 'evening']).optional(),
   notes: z.string().max(500, 'Keep notes under 500 characters').optional(),
+  life_insurance_outside_work: z.boolean().default(false),
+  job_change_last_5_years: z.boolean().default(false),
+  review_401k: z.boolean().default(false),
+  retirement_prep: z.boolean().default(false),
 })
 
 export type ReferralFormData = z.infer<typeof referralSchema>
@@ -33,4 +37,6 @@ export const step2Schema = referralSchema.pick({
 export const step3Schema = referralSchema.pick({
   referral_type: true, is_existing_client: true,
   preferred_contact: true, best_contact_time: true, notes: true,
+  life_insurance_outside_work: true, job_change_last_5_years: true,
+  review_401k: true, retirement_prep: true,
 })
