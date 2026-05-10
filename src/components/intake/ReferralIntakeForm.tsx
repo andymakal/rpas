@@ -51,12 +51,29 @@ function Field({ label, error, required, hint, children }: {
   )
 }
 
-function Input({ value, onChange, error, ...props }: React.InputHTMLAttributes<HTMLInputElement> & {
-  value: string; onChange: (v: string) => void; error?: string
+function Input({
+  value, onChange, error, type, placeholder, autoComplete, inputMode, maxLength, disabled,
+}: {
+  value: string
+  onChange: (v: string) => void
+  error?: string
+  type?: string
+  placeholder?: string
+  autoComplete?: string
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode']
+  maxLength?: number
+  disabled?: boolean
 }) {
   return (
     <input
-      {...props} value={value} onChange={(e) => onChange(e.target.value)}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      type={type}
+      placeholder={placeholder}
+      autoComplete={autoComplete}
+      inputMode={inputMode}
+      maxLength={maxLength}
+      disabled={disabled}
       className={`w-full rounded-lg border px-4 py-3 text-base text-slate-900 placeholder-slate-400
         focus:outline-none focus:ring-2 focus:ring-slate-800 focus:border-transparent transition-colors
         ${error ? 'border-red-400 bg-red-50' : 'border-slate-300 bg-white hover:border-slate-400'}`}
@@ -181,8 +198,8 @@ export function ReferralIntakeForm() {
     async function loadAgencies() {
       const supabase = createClient()
       const { data, error } = await supabase
-        .from('agencies').select('id, name').eq('active', true).order('name')
-      if (!error && data) setAgencies(data)
+        .from('agencies').select('id, agency_name').eq('is_active', true).order('agency_name')
+      if (!error && data) setAgencies(data.map(a => ({ id: a.id, name: a.agency_name })))
       setAgenciesLoading(false)
     }
     loadAgencies()
