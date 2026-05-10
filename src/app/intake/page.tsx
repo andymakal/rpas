@@ -2,7 +2,7 @@ import { ReferralIntakeForm } from '@/components/intake/ReferralIntakeForm'
 
 export const metadata = {
   title: 'Submit a Referral | Right Path Agency System',
-  description: 'Submit a financial services referral to Team Makal.',
+  description: 'Submit a financial services referral to Makal Financial Services.',
   robots: { index: false, follow: false },
 }
 
@@ -12,8 +12,8 @@ export default function IntakePage() {
       <header className="bg-slate-900 px-6 py-4 flex-shrink-0">
         <div className="max-w-lg mx-auto flex items-center justify-between">
           <div>
-            <p className="text-xs font-semibold text-slate-400 tracking-widest uppercase">Right Path</p>
-            <p className="text-white font-bold text-lg leading-tight">Team Makal</p>
+            <p className="text-xs font-semibold text-slate-400 tracking-widest uppercase">Right Path Agency System</p>
+            <p className="text-white font-bold text-lg leading-tight">Makal Financial Services, LLC</p>
           </div>
           <div className="text-right">
             <p className="text-xs text-slate-400">Questions?</p>
