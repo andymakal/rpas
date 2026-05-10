@@ -12,6 +12,9 @@ import { ArrowLeft, Loader2 } from 'lucide-react'
 type Agency = { id: string; agency_name: string }
 type LSP = { id: string; agency_id: string; first_name: string; last_name: string }
 
+// Moved outside component — gives useEffect a stable reference, fixes ESLint deps warning
+const supabase = createClient()
+
 const REFERRAL_TYPES: { value: string; label: string }[] = [
   { value: 'mortgage_protection', label: 'Mortgage Protection' },
   { value: 'life_review',         label: 'Life Review' },
@@ -29,7 +32,6 @@ const REFERRAL_TYPES: { value: string; label: string }[] = [
 
 export default function NewReferralPage() {
   const router = useRouter()
-  const supabase = createClient()
 
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [lsps, setLsps] = useState<LSP[]>([])

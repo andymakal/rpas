@@ -5,144 +5,171 @@ import { Plus } from 'lucide-react'
 
 type RecentReferral = {
   id: string
-  contact_first_name: string
-  contact_last_name: string
+  client_first_name: string
+  client_last_name: string
   referral_type: string
   status: string
   intake_timestamp: string
-  agencies: { name: string } | null
+  agencies: { agency_name: string } | null
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  Working: 'text-blue-400',
-  'Appt Set': 'text-emerald-400',
-  'Appt Missed': 'text-yellow-400',
-  Quoted: 'text-purple-400',
-  'App Submitted': 'text-indigo-400',
-  Placed: 'text-emerald-400',
-  'Not Interested': 'text-slate-500',
-  'LSP Contact Needed': 'text-orange-400',
+  working:              'text-blue-400',
+  attempting_contact:   'text-blue-400',
+  appt_set:             'text-emerald-400',
+  appt_kept:            'text-emerald-400',
+  appt_missed:          'text-yellow-400',
+  quoted:               'text-purple-400',
+  app_submitted:        'text-indigo-400',
+  pending_underwriting: 'text-indigo-400',
+  placed:               'text-emerald-400',
+  not_interested:       'text-slate-500',
+  declined:             'text-red-400',
+  lost:                 'text-slate-500',
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  working:              'Working',
+  attempting_contact:   'Attempting Contact',
+  appt_set:             'Appt Set',
+  appt_kept:            'Appt Kept',
+  appt_missed:          'Appt Missed',
+  quoted:               'Quoted',
+  app_submitted:        'App Submitted',
+  pending_underwriting: 'Pending UW',
+  placed:               'Placed',
+  not_interested:       'Not Interested',
+  declined:             'Declined',
+  lost:                 'Lost',
+}
+
+const TYPE_LABELS: Record<string, string> = {
+  mortgage_protection: 'Mortgage Protection',
+  life_review:         'Life Review',
+  financial_planning:  'Financial Planning',
+  business_owner:      'Business Owner',
+  umbrella_flagged:    'Umbrella Flagged',
+  wanderer_review:     'Wanderer Review',
+  '1035_exchange':     '1035 Exchange',
+  tobacco_rerate:      'Tobacco Rerate',
+  term_expiry:         'Term Expiry',
+  annuity_review:      'Annuity Review',
+  uit_rollover:        'UIT Rollover',
+  general:             'General',
+}
+
+// Moved outside component — fixes ESLint impure function warning
+function getSevenDaysAgo(): string {
+  return new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
 }
 
 export default async function DashboardPage() {
   const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
+  const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+  const sevenDaysAgo = getSevenDaysAgo()
 
   const [activeResult, weekResult, recentResult] = await Promise.all([
     supabase
       .from('referrals')
       .select('id', { count: 'exact', head: true })
-      .not('status', 'in', '("Not Interested","Placed")'),
+      .eq('is_active', true),
     supabase
       .from('referrals')
       .select('id', { count: 'exact', head: true })
       .gte('intake_timestamp', sevenDaysAgo),
     supabase
       .from('referrals')
-      .select(
-        `id, contact_first_name, contact_last_name, referral_type, status, intake_timestamp, agencies ( name )`
-      )
+      .select(`
+        id,
+        client_first_name,
+        client_last_name,
+        referral_type,
+        status,
+        intake_timestamp,
+        agencies ( agency_name )
+      `)
       .order('intake_timestamp', { ascending: false })
-      .limit(8),
+      .limit(10),
   ])
 
   const activeCount = activeResult.count ?? 0
   const weekCount = weekResult.count ?? 0
-  const recent = (recentResult.data as unknown as RecentReferral[]) ?? []
-
-  const today = new Date().toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-  })
+  const recentReferrals = (recentResult.data ?? []) as RecentReferral[]
 
   return (
-    <div className="p-8">
-      <div className="max-w-5xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
-          <div>
-            <h1 className="text-white text-2xl font-semibold">Dashboard</h1>
-            <p className="text-slate-400 text-sm mt-0.5">{today}</p>
-          </div>
+    <div className="p-6 space-y-6">
+
+      {/* Stats Row */}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="bg-slate-800 rounded-xl p-5">
+          <p className="text-xs text-slate-400 uppercase tracking-wide font-semibold mb-1">
+            Active Referrals
+          </p>
+          <p className="text-3xl font-bold text-white">{activeCount}</p>
+        </div>
+        <div className="bg-slate-800 rounded-xl p-5">
+          <p className="text-xs text-slate-400 uppercase tracking-wide font-semibold mb-1">
+            New This Week
+          </p>
+          <p className="text-3xl font-bold text-white">{weekCount}</p>
+        </div>
+      </div>
+
+      {/* Recent Referrals */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">
+            Recent Referrals
+          </h2>
           <Link
             href="/referrals/new"
-            className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
-            style={{ backgroundColor: '#1F3864' }}
+            className="flex items-center gap-1 text-xs font-semibold text-blue-400 hover:text-blue-300 transition-colors"
           >
-            <Plus className="w-4 h-4" />
-            Log Referral
+            <Plus className="w-3.5 h-3.5" />
+            New
           </Link>
         </div>
 
-        <div className="grid grid-cols-2 gap-4 mb-6">
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-            <p className="text-sm text-slate-400">Active Referrals</p>
-            <p className="mt-1 text-3xl font-semibold text-white">{activeCount}</p>
-            <p className="mt-1 text-xs text-slate-500">in pipeline</p>
-          </div>
-          <div className="rounded-xl border border-slate-800 bg-slate-900 p-5">
-            <p className="text-sm text-slate-400">New This Week</p>
-            <p className="mt-1 text-3xl font-semibold text-white">{weekCount}</p>
-            <p className="mt-1 text-xs text-slate-500">last 7 days</p>
-          </div>
-        </div>
-
-        <div className="rounded-xl border border-slate-800 bg-slate-900">
-          <div className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
-            <h2 className="text-sm font-medium text-white">Recent Referrals</h2>
-            <Link href="/referrals" className="text-xs text-slate-400 hover:text-slate-200">
-              View all →
+        {recentReferrals.length === 0 ? (
+          <div className="bg-slate-800 rounded-xl p-8 text-center">
+            <p className="text-slate-500 text-sm">No referrals yet.</p>
+            <Link
+              href="/referrals/new"
+              className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-blue-400 hover:text-blue-300"
+            >
+              <Plus className="w-4 h-4" />
+              Add your first referral
             </Link>
           </div>
-          {recent.length === 0 ? (
-            <div className="py-12 text-center">
-              <p className="text-sm text-slate-500">No referrals yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {recentReferrals.map((r) => (
               <Link
-                href="/referrals/new"
-                className="mt-3 inline-flex items-center gap-1.5 text-sm text-slate-300 hover:text-white"
+                key={r.id}
+                href={`/referrals/${r.id}`}
+                className="block bg-slate-800 rounded-xl px-4 py-3 hover:bg-slate-700 transition-colors"
               >
-                <Plus className="w-3.5 h-3.5" />
-                Log your first referral
-              </Link>
-            </div>
-          ) : (
-            <div className="divide-y divide-slate-800/50">
-              {recent.map(r => (
-                <div
-                  key={r.id}
-                  className="flex items-center justify-between px-5 py-3 hover:bg-slate-800/20 transition-colors"
-                >
+                <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm text-white">
-                      {r.contact_first_name} {r.contact_last_name}
+                    <p className="text-sm font-semibold text-white">
+                      {r.client_first_name} {r.client_last_name}
                     </p>
-                    <p className="mt-0.5 text-xs text-slate-500">
-                      {r.agencies?.name ?? '—'} · {r.referral_type}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className={`text-xs font-medium ${STATUS_COLORS[r.status] ?? 'text-slate-400'}`}>
-                      {r.status}
-                    </p>
-                    <p className="mt-0.5 text-xs text-slate-600">
-                      {new Date(r.intake_timestamp).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric',
-                      })}
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {r.agencies?.agency_name ?? '—'} · {TYPE_LABELS[r.referral_type] ?? r.referral_type}
                     </p>
                   </div>
+                  <span className={`text-xs font-semibold ${STATUS_COLORS[r.status] ?? 'text-slate-400'}`}>
+                    {STATUS_LABELS[r.status] ?? r.status}
+                  </span>
                 </div>
-              ))}
-            </div>
-          )}
-        </div>
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
+
     </div>
   )
 }
