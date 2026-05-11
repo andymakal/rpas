@@ -32,16 +32,13 @@ export default async function SlugIntakePage({
           </div>
           <div className="text-right">
             <p className="text-xs text-slate-400">Questions?</p>
-            
-              href="tel:+18148087526"
-              className="text-sm text-slate-300 font-medium hover:text-white transition-colors"
-            >
+            <a href="tel:+18148087526"
+              className="text-sm text-slate-300 font-medium hover:text-white transition-colors">
               (814) 808-7526
             </a>
           </div>
         </div>
       </header>
-
       <div className="flex-1 flex flex-col items-center justify-start px-4 py-8">
         <div className="w-full max-w-lg">
           <div className="mb-6">
