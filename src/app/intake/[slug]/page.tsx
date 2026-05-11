@@ -5,14 +5,15 @@ import { ReferralIntakeForm } from '@/components/intake/ReferralIntakeForm'
 export default async function SlugIntakePage({
   params,
 }: {
-  params: { slug: string }
+  params: Promise<{ slug: string }>
 }) {
+  const { slug } = await params
   const supabase = createAdminClient()
 
   const { data: agency } = await supabase
     .from('agencies')
     .select('id, agency_name, principal_first_name, principal_last_name')
-    .eq('slug', params.slug)
+    .eq('slug', slug)
     .eq('is_active', true)
     .single()
 
@@ -51,7 +52,7 @@ export default async function SlugIntakePage({
             <ReferralIntakeForm
               prefilledAgencyId={agency.id}
               prefilledAgencyName={`${agency.principal_first_name} ${agency.principal_last_name}`}
-              agencySlug={params.slug}
+              agencySlug={slug}
             />
           </div>
           <p className="text-center text-xs text-slate-400 mt-6 px-4">

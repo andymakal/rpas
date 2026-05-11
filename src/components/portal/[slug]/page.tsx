@@ -5,14 +5,15 @@ import { AgencyPortal } from '@/components/portal/AgencyPortal'
 export default async function PortalPage({
   params,
 }: {
-  params: { slug: string }
+  params: Promise<{ slug: string }>
 }) {
+  const { slug } = await params
   const supabase = createAdminClient()
 
   const { data: agency } = await supabase
     .from('agencies')
     .select('id, agency_name, principal_first_name, principal_last_name, allstate_agent_id, slug')
-    .eq('slug', params.slug)
+    .eq('slug', slug)
     .eq('is_active', true)
     .single()
 
