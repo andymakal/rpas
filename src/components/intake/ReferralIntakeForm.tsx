@@ -19,6 +19,12 @@ type QualifyingFlags = {
   retirement_prep: boolean
 }
 
+interface ReferralIntakeFormProps {
+  prefilledAgencyId?: string
+  prefilledAgencyName?: string
+  agencySlug?: string
+}
+
 const EMPTY_FORM: ReferralFormData = {
   agency_id: '', lsp_name: '', client_first_name: '', client_last_name: '',
   client_phone: '', client_email: '', client_dob: '', client_marital_status: '',
@@ -36,22 +42,22 @@ const STEP_SCHEMAS = [step1Schema, step2Schema, step3Schema]
 const QUALIFYING_TRIGGERS = [
   {
     key: 'life_insurance_outside_work' as const,
-    label: 'Do you have life insurance outside of work?',
+    label: 'Did the client mention life insurance outside of work?',
     subtext: 'Employer coverage ends when employment does.',
   },
   {
     key: 'job_change_last_5_years' as const,
-    label: 'Have you changed jobs in the last 5 years?',
+    label: 'Did the client change jobs in the last 5 years?',
     subtext: 'Job changes often leave 401(k)s and benefit gaps behind.',
   },
   {
     key: 'review_401k' as const,
-    label: 'Would a second look at your 401(k) be valuable?',
+    label: 'Did the client mention wanting a 401(k) review?',
     subtext: 'Many people are in the wrong funds for their timeline.',
   },
   {
     key: 'retirement_prep' as const,
-    label: 'Are you actively preparing for retirement?',
+    label: 'Is the client actively preparing for retirement?',
     subtext: 'Social Security timing, RMDs, and Medicare have critical decision windows.',
   },
 ]
@@ -70,7 +76,7 @@ function getTalkPath(flags: QualifyingFlags) {
   if (flags.life_insurance_outside_work) return {
     icon: '🛡️',
     headline: 'Personal Life Insurance Review',
-    body: 'Group coverage through work is a starting point — not a plan. Your advisor will help identify what\'s actually needed.',
+    body: "Group coverage through work is a starting point — not a plan. Your advisor will help identify what's actually needed.",
   }
   return null
 }
@@ -107,26 +113,16 @@ function Field({ label, error, required, hint, children }: {
 function Input({
   value, onChange, error, type, placeholder, autoComplete, inputMode, maxLength, disabled,
 }: {
-  value: string
-  onChange: (v: string) => void
-  error?: string
-  type?: string
-  placeholder?: string
-  autoComplete?: string
-  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode']
-  maxLength?: number
-  disabled?: boolean
+  value: string; onChange: (v: string) => void; error?: string; type?: string;
+  placeholder?: string; autoComplete?: string;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
+  maxLength?: number; disabled?: boolean
 }) {
   return (
     <input
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      type={type}
-      placeholder={placeholder}
-      autoComplete={autoComplete}
-      inputMode={inputMode}
-      maxLength={maxLength}
-      disabled={disabled}
+      value={value} onChange={(e) => onChange(e.target.value)}
+      type={type} placeholder={placeholder} autoComplete={autoComplete}
+      inputMode={inputMode} maxLength={maxLength} disabled={disabled}
       className={`w-full rounded-lg border px-4 py-3 text-base text-slate-900 placeholder-slate-400
         focus:outline-none focus:ring-2 focus:ring-slate-800 focus:border-transparent transition-colors
         ${error ? 'border-red-400 bg-red-50' : 'border-slate-300 bg-white hover:border-slate-400'}`}
@@ -198,8 +194,7 @@ function CheckboxTrigger({ checked, onChange, label, subtext }: {
   return (
     <label className="flex items-start gap-3 p-3 rounded-lg border border-slate-200 hover:border-slate-400 cursor-pointer transition-colors">
       <input
-        type="checkbox"
-        checked={checked}
+        type="checkbox" checked={checked}
         onChange={(e) => onChange(e.target.checked)}
         className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-slate-800"
       />
@@ -272,16 +267,32 @@ function ConfirmationScreen({ result, qualifyingFlags, onAnother }: {
   )
 }
 
-export function ReferralIntakeForm() {
+export function ReferralIntakeForm({
+  prefilledAgencyId,
+  prefilledAgencyName,
+  agencySlug,
+}: ReferralIntakeFormProps = {}) {
   const [step, setStep] = useState(0)
-  const [form, setForm] = useState<ReferralFormData>(EMPTY_FORM)
+  const [form, setForm] = useState<ReferralFormData>({
+    ...EMPTY_FORM,
+    agency_id: prefilledAgencyId ?? '',
+  })
   const [errors, setErrors] = useState<FieldErrors>({})
   const [agencies, setAgencies] = useState<Agency[]>([])
-  const [agenciesLoading, setAgenciesLoading] = useState(true)
+  const [agenciesLoading, setAgenciesLoading] = useState(!prefilledAgencyId)
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<SubmitReferralResult | null>(null)
 
+  // Pre-fill LSP name from localStorage
   useEffect(() => {
+    if (!agencySlug) return
+    const savedName = localStorage.getItem(`rpas_lsp_${agencySlug}`)
+    if (savedName) setForm((prev) => ({ ...prev, lsp_name: savedName }))
+  }, [agencySlug])
+
+  // Load agencies only if not prefilled
+  useEffect(() => {
+    if (prefilledAgencyId) return
     async function loadAgencies() {
       const supabase = createClient()
       const { data, error } = await supabase
@@ -290,7 +301,7 @@ export function ReferralIntakeForm() {
       setAgenciesLoading(false)
     }
     loadAgencies()
-  }, [])
+  }, [prefilledAgencyId])
 
   function set<K extends keyof ReferralFormData>(key: K, value: ReferralFormData[K]) {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -316,11 +327,19 @@ export function ReferralIntakeForm() {
     if (!validateStep(2)) return
     setSubmitting(true)
     const res = await submitReferral(form)
+    if (res.success && agencySlug && form.lsp_name) {
+      localStorage.setItem(`rpas_lsp_${agencySlug}`, form.lsp_name)
+    }
     setResult(res)
     setSubmitting(false)
   }
 
-  function reset() { setForm(EMPTY_FORM); setErrors({}); setStep(0); setResult(null) }
+  function reset() { 
+    setForm({ ...EMPTY_FORM, agency_id: prefilledAgencyId ?? '' })
+    setErrors({})
+    setStep(0)
+    setResult(null)
+  }
 
   if (result?.success) return (
     <ConfirmationScreen
@@ -341,14 +360,23 @@ export function ReferralIntakeForm() {
         <h2 className="text-xl font-bold text-slate-900">Who's referring?</h2>
         <p className="text-sm text-slate-500 mt-1">Your agency and name, so we credit the right team</p>
       </div>
+
       <Field label="Agency" required error={errors.agency_id}>
-        {agenciesLoading
-          ? <div className="w-full rounded-lg border border-slate-300 px-4 py-3 text-slate-400">Loading agencies...</div>
-          : <Select value={form.agency_id} onChange={(v) => set('agency_id', v)}
-              options={agencies.map((a) => ({ value: a.id, label: a.name }))}
-              placeholder="Select your agency" error={errors.agency_id} />
-        }
+        {prefilledAgencyId ? (
+          <div className="w-full rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-base text-slate-700">
+            {prefilledAgencyName}
+          </div>
+        ) : agenciesLoading ? (
+          <div className="w-full rounded-lg border border-slate-300 px-4 py-3 text-slate-400">
+            Loading agencies...
+          </div>
+        ) : (
+          <Select value={form.agency_id} onChange={(v) => set('agency_id', v)}
+            options={agencies.map((a) => ({ value: a.id, label: a.name }))}
+            placeholder="Select your agency" error={errors.agency_id} />
+        )}
       </Field>
+
       <Field label="Your Name" required hint="First Last — exactly as you want it recorded" error={errors.lsp_name}>
         <Input value={form.lsp_name} onChange={(v) => set('lsp_name', v)}
           placeholder="e.g. Kris Aley" autoComplete="name" error={errors.lsp_name} />
@@ -448,13 +476,8 @@ export function ReferralIntakeForm() {
         <p className="text-xs text-slate-500">Check any that apply — helps us start the right conversation</p>
         <div className="space-y-2 pt-1">
           {QUALIFYING_TRIGGERS.map(({ key, label, subtext }) => (
-            <CheckboxTrigger
-              key={key}
-              checked={form[key]}
-              onChange={(v) => set(key, v)}
-              label={label}
-              subtext={subtext}
-            />
+            <CheckboxTrigger key={key} checked={form[key]}
+              onChange={(v) => set(key, v)} label={label} subtext={subtext} />
           ))}
         </div>
       </div>
@@ -491,4 +514,5 @@ export function ReferralIntakeForm() {
       </p>
     </div>
   )
+  
 }
