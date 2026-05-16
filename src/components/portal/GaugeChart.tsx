@@ -32,11 +32,10 @@ function arcPath(cx: number, cy: number, r: number, pct: number): string {
     // Full semicircle: two arcs to avoid degenerate case
     return `M ${cx - r} ${cy} A ${r} ${r} 0 0 0 ${cx} ${cy - r} A ${r} ${r} 0 0 0 ${cx + r} ${cy}`
   }
-  const θ = (Math.PI - Math.PI * pct)          // from left toward right
+  const θ = Math.PI - Math.PI * pct            // from left toward right
   const ex = cx + r * Math.cos(θ)
   const ey = cy - r * Math.sin(θ)
-  const large = pct > 0.5 ? 1 : 0
-  return `M ${cx - r} ${cy} A ${r} ${r} 0 ${large} 0 ${ex} ${ey}`
+  return `M ${cx - r} ${cy} A ${r} ${r} 0 0 0 ${ex} ${ey}`
 }
 
 interface GaugeChartProps {
