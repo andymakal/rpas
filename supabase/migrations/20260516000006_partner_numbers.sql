@@ -12,13 +12,15 @@
 -- VERIFY BEFORE RUNNING: Confirm one known partner number (e.g. Kris Aley's)
 -- against the Allstate agent portal to ensure the A0 prefix format is correct.
 --
--- MATCH SUMMARY (37 unique partner numbers found in comp report)
---   Confirmed          : 35  (34 name matches + McQuoid typo confirmed)
---   Pending            :  2  (Tom Birks PA vs NJ — see bottom)
+-- MATCH SUMMARY (37 unique partner numbers found in comp report + 1 manual add)
+--   All 38 resolved — no pending items.
 --
--- McCall note:
---   Only A0C6074 found for "NEW TOWN INSURANCE AGENCY INC" in this period.
---   Assigned to mccall-amanda-va. Add Michael McCall's number separately once known.
+--   Notes:
+--   - McQuoid: Allstate typo (MCQUIOD in system) — confirmed same person
+--   - Tom Birks: 0B2987 = NJ, 0D9474 = PA
+--   - Amanda McCall: 0C6074 (New Town Insurance Agency Inc)
+--   - Michael McCall: 057842 (different number series, no letter prefix;
+--     no business placed yet so not in comp report — added manually)
 -- =============================================================================
 
 
@@ -61,12 +63,12 @@ update public.agencies set allstate_partner_number = 'A0E0535' where slug = 'rad
 update public.agencies set allstate_partner_number = 'A0F0299' where slug = 'bin-danny';
 
 
--- ── Pending confirmation — uncomment once PA vs NJ is verified ───────────────
+-- ── Remaining confirmed matches ───────────────────────────────────────────────
 
--- Tom Birks: two partner numbers, two agencies. Assign once confirmed.
--- (swap the slugs if the PA/NJ assignment below turns out to be reversed)
--- update public.agencies set allstate_partner_number = 'A0B2987' where slug = 'birks-thomas-pa';
--- update public.agencies set allstate_partner_number = 'A0D9474' where slug = 'birks-thomas-nj';
+-- Tom Birks: 0B2987 = NJ, 0D9474 = PA (confirmed)
+update public.agencies set allstate_partner_number = 'A0B2987' where slug = 'birks-thomas-nj';
+update public.agencies set allstate_partner_number = 'A0D9474' where slug = 'birks-thomas-pa';
 
--- Michael McCall: add once his partner number is known.
--- update public.agencies set allstate_partner_number = 'A0XXXXXX' where slug = 'mccall-mike-va';
+-- Michael McCall: number is 057842 (no letter prefix — different Allstate series)
+-- No business placed yet so won't appear in comp report; added for future matching.
+update public.agencies set allstate_partner_number = 'A057842' where slug = 'mccall-mike-va';
