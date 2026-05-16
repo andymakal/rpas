@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
+import { GaugeChart, GDC_BANDS, APP_BANDS } from './GaugeChart'
 
 type StageTranslation = {
   agency_label: string
@@ -38,7 +39,26 @@ function statusBadgeClass(st: StageTranslation | null, internal_status: string):
   return TIER_BADGE[st?.tier ?? 1]?.color ?? 'bg-slate-100 text-slate-500'
 }
 
-export function AgencyPortal({ agency, cases }: { agency: AgencyProps; cases: Case[] }) {
+function formatGdc(v: number) {
+  if (v >= 1000) return `$${(v / 1000).toFixed(1)}K`
+  return `$${Math.round(v)}`
+}
+
+function formatApps(v: number) {
+  return String(Math.round(v))
+}
+
+export function AgencyPortal({
+  agency,
+  cases,
+  gdcYtd,
+  appCount,
+}: {
+  agency: AgencyProps
+  cases: Case[]
+  gdcYtd: number
+  appCount: number
+}) {
   const [agentFilter, setAgentFilter] = useState('')
 
   useEffect(() => {
@@ -61,12 +81,16 @@ export function AgencyPortal({ agency, cases }: { agency: AgencyProps; cases: Ca
       })
     : cases
 
-  const activeCount = cases.filter(c => c.stage_translations?.is_active_case === true).length
-  const placedCount = cases.filter(c => c.stage_translations?.is_won === true).length
+  // KPI counts (unfiltered — always show agency-wide totals)
+  const totalReferrals   = cases.length
+  const keptAppts        = cases.filter(c => (c.stage_translations?.tier ?? 0) >= 2 || c.stage_translations?.is_won).length
+  const pendingCases     = cases.filter(c => c.stage_translations?.tier === 2 && c.stage_translations?.is_active_case).length
+  const placedCount      = cases.filter(c => c.stage_translations?.is_won === true).length
 
-  const activeCases  = filtered.filter(c => c.stage_translations?.is_active_case === true)
-  const placedCases  = filtered.filter(c => c.stage_translations?.is_won === true)
-  const closedCases  = filtered.filter(c =>
+  // Case lists (filtered by agent)
+  const activeCases = filtered.filter(c => c.stage_translations?.is_active_case === true)
+  const placedCases = filtered.filter(c => c.stage_translations?.is_won === true)
+  const closedCases = filtered.filter(c =>
     c.stage_translations?.is_lost === true || c.internal_status === 'snoozed'
   )
 
@@ -123,16 +147,44 @@ export function AgencyPortal({ agency, cases }: { agency: AgencyProps; cases: Ca
 
       <div className="max-w-2xl mx-auto px-4 py-6 space-y-6">
 
-        <div className="grid grid-cols-3 gap-3">
-          <div className="bg-white rounded-xl border border-slate-100 p-4 text-center">
-            <p className="text-2xl font-bold text-slate-900">{cases.length}</p>
-            <p className="text-xs text-slate-500 mt-1">Total</p>
+        {/* Gauges */}
+        <div className="bg-white rounded-2xl border border-slate-100 px-6 py-5">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4 text-center">
+            {new Date().getFullYear()} Goal Progress
+          </p>
+          <div className="grid grid-cols-2 gap-6">
+            <GaugeChart
+              value={gdcYtd}
+              max={100000}
+              bands={GDC_BANDS}
+              label="GDC Year-to-Date"
+              formatValue={formatGdc}
+            />
+            <GaugeChart
+              value={appCount}
+              max={50}
+              bands={APP_BANDS}
+              label="App Count"
+              formatValue={formatApps}
+            />
           </div>
-          <div className="bg-white rounded-xl border border-slate-100 p-4 text-center">
-            <p className="text-2xl font-bold text-blue-600">{activeCount}</p>
-            <p className="text-xs text-slate-500 mt-1">In Progress</p>
+        </div>
+
+        {/* KPI cards */}
+        <div className="grid grid-cols-4 gap-3">
+          <div className="bg-white rounded-xl border border-slate-100 p-3 text-center">
+            <p className="text-2xl font-bold text-slate-900">{totalReferrals}</p>
+            <p className="text-xs text-slate-500 mt-1">Referrals</p>
           </div>
-          <div className="bg-white rounded-xl border border-slate-100 p-4 text-center">
+          <div className="bg-white rounded-xl border border-slate-100 p-3 text-center">
+            <p className="text-2xl font-bold text-blue-600">{keptAppts}</p>
+            <p className="text-xs text-slate-500 mt-1">Kept Appts</p>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-100 p-3 text-center">
+            <p className="text-2xl font-bold text-indigo-600">{pendingCases}</p>
+            <p className="text-xs text-slate-500 mt-1">Pending</p>
+          </div>
+          <div className="bg-white rounded-xl border border-slate-100 p-3 text-center">
             <p className="text-2xl font-bold text-green-600">{placedCount}</p>
             <p className="text-xs text-slate-500 mt-1">Placed</p>
           </div>
@@ -142,7 +194,7 @@ export function AgencyPortal({ agency, cases }: { agency: AgencyProps; cases: Ca
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                Filter by Agent
+                Filter by LSP
               </p>
               {agentFilter && (
                 <button onClick={() => setAgentFilter('')}

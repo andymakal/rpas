@@ -10,18 +10,20 @@ import {
   Building2,
   FolderKanban,
   CalendarDays,
+  Upload,
   Settings,
   LogOut,
   Plus,
 } from 'lucide-react'
 
 const navItems = [
-  { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { href: '/referrals', icon: GitMerge, label: 'Referrals' },
-  { href: '/agencies', icon: Building2, label: 'Agencies' },
-  { href: '/cases', icon: FolderKanban, label: 'Cases' },
-  { href: '/production', icon: CalendarDays, label: 'Production' },
-  { href: '/settings', icon: Settings, label: 'Settings' },
+  { href: '/dashboard',       icon: LayoutDashboard, label: 'Dashboard'   },
+  { href: '/referrals',       icon: GitMerge,        label: 'Referrals'   },
+  { href: '/agencies',        icon: Building2,       label: 'Agencies'    },
+  { href: '/cases',           icon: FolderKanban,    label: 'Cases'       },
+  { href: '/production',      icon: CalendarDays,    label: 'Production'  },
+  { href: '/admin/gdc-import', icon: Upload,         label: 'GDC Import'  },
+  { href: '/settings',        icon: Settings,        label: 'Settings'    },
 ]
 
 export function Sidebar({ userEmail }: { userEmail: string }) {
