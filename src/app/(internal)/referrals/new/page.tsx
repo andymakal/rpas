@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
-import { logCase } from '@/app/actions/log-case'
+import { logCase, type LeadSource } from '@/app/actions/log-case'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -14,6 +14,12 @@ type Agency = { id: string; name: string }
 type Agent = { id: string; agency_id: string; first_name: string; last_name: string }
 
 const supabase = createClient()
+
+const LEAD_SOURCES: { value: LeadSource; label: string; description: string }[] = [
+  { value: 'agency_referral', label: 'Agency Referral',   description: 'Submitted by an LSP at a partner P&C agency' },
+  { value: 'allstate_web',    label: 'Allstate.com Lead', description: 'Agency assigned at app-submitted stage' },
+  { value: 'self_generated',  label: 'Self Generated',    description: 'Makal-sourced, no partner agency' },
+]
 
 const REFERRAL_TYPES: { value: string; label: string }[] = [
   { value: 'mortgage_protection', label: 'Mortgage Protection' },
@@ -33,6 +39,7 @@ const REFERRAL_TYPES: { value: string; label: string }[] = [
 export default function NewReferralPage() {
   const router = useRouter()
 
+  const [leadSource, setLeadSource] = useState<LeadSource>('agency_referral')
   const [agencies, setAgencies] = useState<Agency[]>([])
   const [agents, setAgents] = useState<Agent[]>([])
   const [loadingAgencies, setLoadingAgencies] = useState(true)
@@ -49,6 +56,8 @@ export default function NewReferralPage() {
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  const needsAgency = leadSource === 'agency_referral'
 
   useEffect(() => {
     async function loadAgencies() {
@@ -80,20 +89,30 @@ export default function NewReferralPage() {
     loadAgents()
   }, [agencyId])
 
+  function handleLeadSourceChange(source: LeadSource) {
+    setLeadSource(source)
+    if (source !== 'agency_referral') {
+      setAgencyId('')
+      setAgentId('')
+      setAgents([])
+    }
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setSubmitting(true)
     setError(null)
 
     const result = await logCase({
-      agency_id:    agencyId,
-      agent_id:     agentId || undefined,
-      first_name:   firstName.trim(),
-      last_name:    lastName.trim(),
-      phone:        phone.trim(),
-      email:        email.trim() || undefined,
+      agency_id:     needsAgency ? agencyId : undefined,
+      agent_id:      agentId || undefined,
+      first_name:    firstName.trim(),
+      last_name:     lastName.trim(),
+      phone:         phone.trim(),
+      email:         email.trim() || undefined,
       referral_type: referralType,
-      notes:        notes.trim() || undefined,
+      lead_source:   leadSource,
+      notes:         notes.trim() || undefined,
     })
 
     if (!result.success) { setError(result.error); setSubmitting(false); return }
@@ -111,60 +130,90 @@ export default function NewReferralPage() {
             <ArrowLeft className="w-4 h-4" /> Back to Cases
           </Link>
           <h1 className="text-white text-2xl font-semibold">Log a Case</h1>
-          <p className="text-slate-400 text-sm mt-1">Record a new referral from an agency partner</p>
+          <p className="text-slate-400 text-sm mt-1">Record a new referral or lead</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-            <h2 className="text-white text-sm font-medium">Referral Source</h2>
 
-            <div className="space-y-1.5">
-              <Label className="text-slate-300 text-sm">Agency *</Label>
-              {loadingAgencies ? (
-                <p className="text-slate-500 text-sm py-2">Loading agencies...</p>
-              ) : (
-                <select required value={agencyId} onChange={e => setAgencyId(e.target.value)} className={selectCls}>
-                  <option value="">Select agency...</option>
-                  {agencies.map(a => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
-                  ))}
-                </select>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-slate-300 text-sm">
-                Agent <span className="text-slate-500 font-normal">— optional</span>
-              </Label>
-              <select
-                value={agentId}
-                onChange={e => setAgentId(e.target.value)}
-                disabled={!agencyId || loadingAgents}
-                className={selectCls}
-              >
-                <option value="">
-                  {!agencyId ? 'Select an agency first'
-                    : loadingAgents ? 'Loading...'
-                    : agents.length === 0 ? 'No agents on file for this agency'
-                    : 'Select agent...'}
-                </option>
-                {agents.map(a => (
-                  <option key={a.id} value={a.id}>{a.first_name} {a.last_name}</option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-slate-300 text-sm">Referral Type *</Label>
-              <select required value={referralType} onChange={e => setReferralType(e.target.value)} className={selectCls}>
-                <option value="">Select type...</option>
-                {REFERRAL_TYPES.map(t => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
-                ))}
-              </select>
+          {/* Lead Source */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+            <h2 className="text-white text-sm font-medium">Lead Source</h2>
+            <div className="grid grid-cols-3 gap-2">
+              {LEAD_SOURCES.map(s => (
+                <button
+                  key={s.value}
+                  type="button"
+                  onClick={() => handleLeadSourceChange(s.value)}
+                  className={`flex flex-col gap-1 p-3 rounded-lg border-2 text-left transition-all ${
+                    leadSource === s.value
+                      ? 'border-blue-500 bg-blue-950/40'
+                      : 'border-slate-700 hover:border-slate-600'
+                  }`}
+                >
+                  <span className={`text-xs font-semibold ${leadSource === s.value ? 'text-blue-300' : 'text-slate-300'}`}>
+                    {s.label}
+                  </span>
+                  <span className="text-xs text-slate-500 leading-snug">{s.description}</span>
+                </button>
+              ))}
             </div>
           </div>
 
+          {/* Referral Source — only for agency referrals */}
+          {needsAgency && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+              <h2 className="text-white text-sm font-medium">Referral Source</h2>
+
+              <div className="space-y-1.5">
+                <Label className="text-slate-300 text-sm">Agency *</Label>
+                {loadingAgencies ? (
+                  <p className="text-slate-500 text-sm py-2">Loading agencies...</p>
+                ) : (
+                  <select required={needsAgency} value={agencyId} onChange={e => setAgencyId(e.target.value)} className={selectCls}>
+                    <option value="">Select agency...</option>
+                    {agencies.map(a => (
+                      <option key={a.id} value={a.id}>{a.name}</option>
+                    ))}
+                  </select>
+                )}
+              </div>
+
+              <div className="space-y-1.5">
+                <Label className="text-slate-300 text-sm">
+                  LSP <span className="text-slate-500 font-normal">— optional</span>
+                </Label>
+                <select
+                  value={agentId}
+                  onChange={e => setAgentId(e.target.value)}
+                  disabled={!agencyId || loadingAgents}
+                  className={selectCls}
+                >
+                  <option value="">
+                    {!agencyId ? 'Select an agency first'
+                      : loadingAgents ? 'Loading...'
+                      : agents.length === 0 ? 'No LSPs on file for this agency'
+                      : 'Select LSP...'}
+                  </option>
+                  {agents.map(a => (
+                    <option key={a.id} value={a.id}>{a.first_name} {a.last_name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
+          {/* Referral Type */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+            <h2 className="text-white text-sm font-medium">Referral Type</h2>
+            <select required value={referralType} onChange={e => setReferralType(e.target.value)} className={selectCls}>
+              <option value="">Select type...</option>
+              {REFERRAL_TYPES.map(t => (
+                <option key={t.value} value={t.value}>{t.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Contact Information */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
             <h2 className="text-white text-sm font-medium">Contact Information</h2>
 
@@ -193,6 +242,7 @@ export default function NewReferralPage() {
             </div>
           </div>
 
+          {/* Notes */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
             <h2 className="text-white text-sm font-medium">
               Notes <span className="text-slate-500 font-normal">— optional</span>
@@ -200,7 +250,7 @@ export default function NewReferralPage() {
             <textarea
               value={notes}
               onChange={e => setNotes(e.target.value)}
-              placeholder="Context, mortgage amount, urgency, anything useful for the first call..."
+              placeholder="Context, urgency, anything useful for the first call..."
               rows={3}
               className="w-full rounded-md border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500 resize-none"
             />
