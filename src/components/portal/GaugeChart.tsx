@@ -36,49 +36,63 @@ interface GaugeChartProps {
 
 export function GaugeChart({ value, bands, max, label, formatValue }: GaugeChartProps) {
   const cx = 100, cy = 108, r = 82, sw = 20
-  const pct   = Math.min(Math.max(value / max, 0), 1)
-  const band  = activeBand(value, bands)
+  const pct    = Math.min(Math.max(value / max, 0), 1)
+  const band   = activeBand(value, bands)
   const isGoal = value >= max
 
-  // stroke-dasharray technique: circle starts at right (0°) going clockwise.
-  // offset = half circumference shifts the visible dash start to the left endpoint,
-  // so the arc runs left → up → right (the top semicircle).
-  const half = Math.PI * r          // semicircle arc length ≈ 257.6
-  const full = 2 * Math.PI * r      // full circumference ≈ 515.2
+  // Arc lengths for stroke-dasharray positioning.
+  // SVG circle strokes clockwise from (cx+r, cy).
+  // offset = half shifts the visible window to the top semicircle (left → top → right).
+  // Formula for a segment [startFrac, endFrac] of the gauge:
+  //   dasharray : `${(endFrac - startFrac) * half} ${full}`
+  //   dashoffset: `${(1 - startFrac) * half}`
+  const half = Math.PI * r
+  const full = 2 * Math.PI * r
+
+  // Pre-compute each band's start/end as fractions of max (capped at 1)
+  const segments = bands.map((b, i) => {
+    const lo = i === 0 ? 0 : Math.min(bands[i - 1].threshold, max)
+    const hi = Math.min(b.threshold, max)
+    return { color: b.color, label: b.label, startFrac: lo / max, endFrac: hi / max }
+  })
 
   return (
     <div className="flex flex-col items-center">
       <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-1">{label}</p>
       <svg viewBox="0 0 200 128" className="w-full max-w-[220px]" aria-label={`${label}: ${formatValue(value)}`}>
 
-        {/* Background track */}
-        <circle
-          cx={cx} cy={cy} r={r}
-          fill="none"
-          stroke="#E2E8F0"
-          strokeWidth={sw}
-          strokeLinecap="butt"
-          strokeDasharray={`${half} ${half}`}
-          strokeDashoffset={half}
-        />
-
-        {/* Progress arc */}
-        {pct > 0 && (
+        {/* Background: all band zones at low opacity so thresholds are visible */}
+        {segments.map(seg => (
           <circle
+            key={`bg-${seg.label}`}
             cx={cx} cy={cy} r={r}
             fill="none"
-            stroke={band.color}
+            stroke={seg.color}
             strokeWidth={sw}
             strokeLinecap="butt"
-            strokeDasharray={`${pct * half} ${full}`}
-            strokeDashoffset={half}
+            strokeDasharray={`${(seg.endFrac - seg.startFrac) * half} ${full}`}
+            strokeDashoffset={(1 - seg.startFrac) * half}
+            opacity={0.25}
           />
-        )}
+        ))}
 
-        {/* End caps at left and right endpoints */}
-        <circle cx={cx - r} cy={cy} r={sw / 2} fill="#E2E8F0" />
-        <circle cx={cx + r} cy={cy} r={sw / 2} fill="#E2E8F0" />
-        {pct > 0 && <circle cx={cx - r} cy={cy} r={sw / 2} fill={band.color} />}
+        {/* Progress: filled band segments at full opacity, up to current value */}
+        {segments.map(seg => {
+          const filledEnd = Math.min(pct, seg.endFrac)
+          if (filledEnd <= seg.startFrac) return null
+          return (
+            <circle
+              key={`fg-${seg.label}`}
+              cx={cx} cy={cy} r={r}
+              fill="none"
+              stroke={seg.color}
+              strokeWidth={sw}
+              strokeLinecap="butt"
+              strokeDasharray={`${(filledEnd - seg.startFrac) * half} ${full}`}
+              strokeDashoffset={(1 - seg.startFrac) * half}
+            />
+          )
+        })}
 
         {/* Value */}
         <text
