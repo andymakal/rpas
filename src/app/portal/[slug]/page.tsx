@@ -12,27 +12,31 @@ export default async function PortalPage({
 
   const { data: agency } = await supabase
     .from('agencies')
-    .select('id, agency_name, principal_first_name, principal_last_name, allstate_agent_id, slug')
+    .select('id, name, slug')
     .eq('slug', slug)
     .eq('is_active', true)
     .single()
 
   if (!agency) notFound()
 
-  const { data: referrals } = await supabase
-    .from('referrals')
-    .select('id, client_first_name, client_last_name, referral_type, status, intake_timestamp, lsp_name')
+  const { data: cases } = await supabase
+    .from('cases')
+    .select(`
+      id,
+      internal_status,
+      created_at,
+      customers ( first_name, last_name ),
+      agents ( first_name, last_name ),
+      stage_translations ( agency_label, tier, is_active_case, is_won, is_lost )
+    `)
     .eq('agency_id', agency.id)
-    .order('intake_timestamp', { ascending: false })
+    .eq('is_test', false)
+    .order('created_at', { ascending: false })
 
   return (
     <AgencyPortal
-      agency={{
-        name: `${agency.principal_first_name} ${agency.principal_last_name}`,
-        agentId: agency.allstate_agent_id ?? '',
-        slug: agency.slug ?? '',
-      }}
-      referrals={referrals ?? []}
+      agency={{ name: agency.name, slug: agency.slug }}
+      cases={cases ?? []}
     />
   )
 }

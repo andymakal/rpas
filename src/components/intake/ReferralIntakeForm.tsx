@@ -296,8 +296,8 @@ export function ReferralIntakeForm({
     async function loadAgencies() {
       const supabase = createClient()
       const { data, error } = await supabase
-        .from('agencies').select('id, agency_name').eq('is_active', true).order('agency_name')
-      if (!error && data) setAgencies(data.map(a => ({ id: a.id, name: a.agency_name })))
+        .from('agencies').select('id, name').eq('is_active', true).order('name')
+      if (!error && data) setAgencies(data.map(a => ({ id: a.id, name: a.name })))
       setAgenciesLoading(false)
     }
     loadAgencies()

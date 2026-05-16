@@ -3,16 +3,16 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { logCase } from '@/app/actions/log-case'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import Link from 'next/link'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 
-type Agency = { id: string; agency_name: string }
-type LSP = { id: string; agency_id: string; first_name: string; last_name: string }
+type Agency = { id: string; name: string }
+type Agent = { id: string; agency_id: string; first_name: string; last_name: string }
 
-// Moved outside component — gives useEffect a stable reference, fixes ESLint deps warning
 const supabase = createClient()
 
 const REFERRAL_TYPES: { value: string; label: string }[] = [
@@ -34,12 +34,12 @@ export default function NewReferralPage() {
   const router = useRouter()
 
   const [agencies, setAgencies] = useState<Agency[]>([])
-  const [lsps, setLsps] = useState<LSP[]>([])
+  const [agents, setAgents] = useState<Agent[]>([])
   const [loadingAgencies, setLoadingAgencies] = useState(true)
-  const [loadingLsps, setLoadingLsps] = useState(false)
+  const [loadingAgents, setLoadingAgents] = useState(false)
 
   const [agencyId, setAgencyId] = useState('')
-  const [lspId, setLspId] = useState('')
+  const [agentId, setAgentId] = useState('')
   const [referralType, setReferralType] = useState('')
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
@@ -54,9 +54,9 @@ export default function NewReferralPage() {
     async function loadAgencies() {
       const { data } = await supabase
         .from('agencies')
-        .select('id, agency_name')
+        .select('id, name')
         .eq('is_active', true)
-        .order('agency_name')
+        .order('name')
       if (data) setAgencies(data)
       setLoadingAgencies(false)
     }
@@ -64,20 +64,20 @@ export default function NewReferralPage() {
   }, [])
 
   useEffect(() => {
-    if (!agencyId) { setLsps([]); setLspId(''); return }
-    setLoadingLsps(true)
-    setLspId('')
-    async function loadLsps() {
+    if (!agencyId) { setAgents([]); setAgentId(''); return }
+    setLoadingAgents(true)
+    setAgentId('')
+    async function loadAgents() {
       const { data } = await supabase
-        .from('lsps')
+        .from('agents')
         .select('id, agency_id, first_name, last_name')
         .eq('agency_id', agencyId)
         .eq('is_active', true)
         .order('last_name')
-      if (data) setLsps(data)
-      setLoadingLsps(false)
+      if (data) setAgents(data)
+      setLoadingAgents(false)
     }
-    loadLsps()
+    loadAgents()
   }, [agencyId])
 
   async function handleSubmit(e: React.FormEvent) {
@@ -85,19 +85,18 @@ export default function NewReferralPage() {
     setSubmitting(true)
     setError(null)
 
-    const { error } = await supabase.from('referrals').insert({
-      agency_id:         agencyId,
-      lsp_id:            lspId || null,
-      referral_type:     referralType,
-      client_first_name: firstName.trim(),
-      client_last_name:  lastName.trim(),
-      client_phone:      phone.trim(),
-      client_email:      email.trim() || null,
-      referral_notes:    notes.trim() || null,
-      status:            'working',
+    const result = await logCase({
+      agency_id:    agencyId,
+      agent_id:     agentId || undefined,
+      first_name:   firstName.trim(),
+      last_name:    lastName.trim(),
+      phone:        phone.trim(),
+      email:        email.trim() || undefined,
+      referral_type: referralType,
+      notes:        notes.trim() || undefined,
     })
 
-    if (error) { setError(error.message); setSubmitting(false); return }
+    if (!result.success) { setError(result.error); setSubmitting(false); return }
     router.push('/referrals?success=1')
   }
 
@@ -109,9 +108,9 @@ export default function NewReferralPage() {
       <div className="max-w-2xl mx-auto">
         <div className="mb-6">
           <Link href="/referrals" className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-200 mb-4">
-            <ArrowLeft className="w-4 h-4" /> Back to Referrals
+            <ArrowLeft className="w-4 h-4" /> Back to Cases
           </Link>
-          <h1 className="text-white text-2xl font-semibold">Log a Referral</h1>
+          <h1 className="text-white text-2xl font-semibold">Log a Case</h1>
           <p className="text-slate-400 text-sm mt-1">Record a new referral from an agency partner</p>
         </div>
 
@@ -127,7 +126,7 @@ export default function NewReferralPage() {
                 <select required value={agencyId} onChange={e => setAgencyId(e.target.value)} className={selectCls}>
                   <option value="">Select agency...</option>
                   {agencies.map(a => (
-                    <option key={a.id} value={a.id}>{a.agency_name}</option>
+                    <option key={a.id} value={a.id}>{a.name}</option>
                   ))}
                 </select>
               )}
@@ -135,22 +134,22 @@ export default function NewReferralPage() {
 
             <div className="space-y-1.5">
               <Label className="text-slate-300 text-sm">
-                Staff Member <span className="text-slate-500 font-normal">— optional</span>
+                Agent <span className="text-slate-500 font-normal">— optional</span>
               </Label>
               <select
-                value={lspId}
-                onChange={e => setLspId(e.target.value)}
-                disabled={!agencyId || loadingLsps}
+                value={agentId}
+                onChange={e => setAgentId(e.target.value)}
+                disabled={!agencyId || loadingAgents}
                 className={selectCls}
               >
                 <option value="">
                   {!agencyId ? 'Select an agency first'
-                    : loadingLsps ? 'Loading...'
-                    : lsps.length === 0 ? 'No staff on file for this agency'
-                    : 'Select staff member...'}
+                    : loadingAgents ? 'Loading...'
+                    : agents.length === 0 ? 'No agents on file for this agency'
+                    : 'Select agent...'}
                 </option>
-                {lsps.map(l => (
-                  <option key={l.id} value={l.id}>{l.first_name} {l.last_name}</option>
+                {agents.map(a => (
+                  <option key={a.id} value={a.id}>{a.first_name} {a.last_name}</option>
                 ))}
               </select>
             </div>
@@ -216,7 +215,7 @@ export default function NewReferralPage() {
               Cancel
             </Link>
             <Button type="submit" disabled={submitting} className="text-white px-6 font-medium" style={{ backgroundColor: '#1F3864' }}>
-              {submitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Logging...</> : 'Log Referral →'}
+              {submitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Logging...</> : 'Log Case →'}
             </Button>
           </div>
         </form>

@@ -12,7 +12,7 @@ export default async function SlugIntakePage({
 
   const { data: agency } = await supabase
     .from('agencies')
-    .select('id, agency_name, principal_first_name, principal_last_name')
+    .select('id, name')
     .eq('slug', slug)
     .eq('is_active', true)
     .single()
@@ -51,7 +51,7 @@ export default async function SlugIntakePage({
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-6">
             <ReferralIntakeForm
               prefilledAgencyId={agency.id}
-              prefilledAgencyName={`${agency.principal_first_name} ${agency.principal_last_name}`}
+              prefilledAgencyName={agency.name}
               agencySlug={slug}
             />
           </div>

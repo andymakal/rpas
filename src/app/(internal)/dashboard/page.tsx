@@ -3,59 +3,19 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { Plus } from 'lucide-react'
 
-type RecentReferral = {
+type RecentCase = {
   id: string
-  client_first_name: string
-  client_last_name: string
-  referral_type: string
-  status: string
-  intake_timestamp: string
-  agencies: { agency_name: string }[] | null
+  internal_status: string
+  created_at: string
+  customers: { first_name: string; last_name: string } | null
+  agencies: { name: string } | null
+  stage_translations: { agency_label: string; tier: number; is_active_case: boolean; is_won: boolean } | null
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  working:              'text-blue-400',
-  attempting_contact:   'text-blue-400',
-  appt_set:             'text-emerald-400',
-  appt_kept:            'text-emerald-400',
-  appt_missed:          'text-yellow-400',
-  quoted:               'text-purple-400',
-  app_submitted:        'text-indigo-400',
-  pending_underwriting: 'text-indigo-400',
-  placed:               'text-emerald-400',
-  not_interested:       'text-slate-500',
-  declined:             'text-red-400',
-  lost:                 'text-slate-500',
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  working:              'Working',
-  attempting_contact:   'Attempting Contact',
-  appt_set:             'Appt Set',
-  appt_kept:            'Appt Kept',
-  appt_missed:          'Appt Missed',
-  quoted:               'Quoted',
-  app_submitted:        'App Submitted',
-  pending_underwriting: 'Pending UW',
-  placed:               'Placed',
-  not_interested:       'Not Interested',
-  declined:             'Declined',
-  lost:                 'Lost',
-}
-
-const TYPE_LABELS: Record<string, string> = {
-  mortgage_protection: 'Mortgage Protection',
-  life_review:         'Life Review',
-  financial_planning:  'Financial Planning',
-  business_owner:      'Business Owner',
-  umbrella_flagged:    'Umbrella Flagged',
-  wanderer_review:     'Wanderer Review',
-  '1035_exchange':     '1035 Exchange',
-  tobacco_rerate:      'Tobacco Rerate',
-  term_expiry:         'Term Expiry',
-  annuity_review:      'Annuity Review',
-  uit_rollover:        'UIT Rollover',
-  general:             'General',
+const TIER_COLORS: Record<number, string> = {
+  1: 'text-blue-400',
+  2: 'text-indigo-400',
+  3: 'text-emerald-400',
 }
 
 function getSevenDaysAgo(): string {
@@ -71,40 +31,41 @@ export default async function DashboardPage() {
 
   const [activeResult, weekResult, recentResult] = await Promise.all([
     supabase
-      .from('referrals')
+      .from('cases')
       .select('id', { count: 'exact', head: true })
-      .eq('is_active', true),
+      .eq('is_test', false)
+      .not('internal_status', 'in', '(placed,carrier_declined,client_withdrew,snoozed)'),
     supabase
-      .from('referrals')
+      .from('cases')
       .select('id', { count: 'exact', head: true })
-      .gte('intake_timestamp', sevenDaysAgo),
+      .eq('is_test', false)
+      .gte('created_at', sevenDaysAgo),
     supabase
-      .from('referrals')
+      .from('cases')
       .select(`
         id,
-        client_first_name,
-        client_last_name,
-        referral_type,
-        status,
-        intake_timestamp,
-        agencies ( agency_name )
+        internal_status,
+        created_at,
+        customers ( first_name, last_name ),
+        agencies ( name ),
+        stage_translations ( agency_label, tier, is_active_case, is_won )
       `)
-      .order('intake_timestamp', { ascending: false })
+      .eq('is_test', false)
+      .order('created_at', { ascending: false })
       .limit(10),
   ])
 
   const activeCount = activeResult.count ?? 0
   const weekCount = weekResult.count ?? 0
-  const recentReferrals = (recentResult.data ?? []) as unknown as RecentReferral[]
+  const recentCases = (recentResult.data ?? []) as unknown as RecentCase[]
 
   return (
     <div className="p-6 space-y-6">
 
-      {/* Stats Row */}
       <div className="grid grid-cols-2 gap-4">
         <div className="bg-slate-800 rounded-xl p-5">
           <p className="text-xs text-slate-400 uppercase tracking-wide font-semibold mb-1">
-            Active Referrals
+            Active Cases
           </p>
           <p className="text-3xl font-bold text-white">{activeCount}</p>
         </div>
@@ -116,11 +77,10 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Recent Referrals */}
       <div>
         <div className="flex items-center justify-between mb-3">
           <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wide">
-            Recent Referrals
+            Recent Cases
           </h2>
           <Link
             href="/referrals/new"
@@ -131,40 +91,49 @@ export default async function DashboardPage() {
           </Link>
         </div>
 
-        {recentReferrals.length === 0 ? (
+        {recentCases.length === 0 ? (
           <div className="bg-slate-800 rounded-xl p-8 text-center">
-            <p className="text-slate-500 text-sm">No referrals yet.</p>
+            <p className="text-slate-500 text-sm">No cases yet.</p>
             <Link
               href="/referrals/new"
               className="mt-3 inline-flex items-center gap-1.5 text-sm font-semibold text-blue-400 hover:text-blue-300"
             >
               <Plus className="w-4 h-4" />
-              Add your first referral
+              Log your first case
             </Link>
           </div>
         ) : (
           <div className="space-y-2">
-            {recentReferrals.map((r) => (
-              <Link
-                key={r.id}
-                href={`/referrals/${r.id}`}
-                className="block bg-slate-800 rounded-xl px-4 py-3 hover:bg-slate-700 transition-colors"
-              >
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-semibold text-white">
-                      {r.client_first_name} {r.client_last_name}
-                    </p>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      {r.agencies?.[0]?.agency_name ?? '—'} · {TYPE_LABELS[r.referral_type] ?? r.referral_type}
-                    </p>
+            {recentCases.map((c) => {
+              const st = c.stage_translations
+              const statusColor = st?.is_won
+                ? 'text-emerald-400'
+                : st?.is_active_case
+                  ? (TIER_COLORS[st.tier] ?? 'text-slate-400')
+                  : 'text-slate-500'
+
+              return (
+                <Link
+                  key={c.id}
+                  href={`/referrals/${c.id}`}
+                  className="block bg-slate-800 rounded-xl px-4 py-3 hover:bg-slate-700 transition-colors"
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-semibold text-white">
+                        {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
+                      </p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {c.agencies?.name ?? '—'}
+                      </p>
+                    </div>
+                    <span className={`text-xs font-semibold ${statusColor}`}>
+                      {st?.agency_label ?? c.internal_status}
+                    </span>
                   </div>
-                  <span className={`text-xs font-semibold ${STATUS_COLORS[r.status] ?? 'text-slate-400'}`}>
-                    {STATUS_LABELS[r.status] ?? r.status}
-                  </span>
-                </div>
-              </Link>
-            ))}
+                </Link>
+              )
+            })}
           </div>
         )}
       </div>
