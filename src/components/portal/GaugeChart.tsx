@@ -29,13 +29,17 @@ function activeBand(value: number, bands: GaugeBand[]): GaugeBand {
 function arcPath(cx: number, cy: number, r: number, pct: number): string {
   if (pct <= 0) return ''
   if (pct >= 1) {
-    // Full semicircle: two arcs to avoid degenerate case
     return `M ${cx - r} ${cy} A ${r} ${r} 0 0 0 ${cx} ${cy - r} A ${r} ${r} 0 0 0 ${cx + r} ${cy}`
   }
-  const θ = Math.PI - Math.PI * pct            // from left toward right
+  const θ = Math.PI - Math.PI * pct
   const ex = cx + r * Math.cos(θ)
   const ey = cy - r * Math.sin(θ)
-  return `M ${cx - r} ${cy} A ${r} ${r} 0 0 0 ${ex} ${ey}`
+  if (pct <= 0.5) {
+    // First half: single arc from left to endpoint
+    return `M ${cx - r} ${cy} A ${r} ${r} 0 0 0 ${ex} ${ey}`
+  }
+  // Second half: arc left→top, then top→endpoint (mirrors the background path)
+  return `M ${cx - r} ${cy} A ${r} ${r} 0 0 0 ${cx} ${cy - r} A ${r} ${r} 0 0 0 ${ex} ${ey}`
 }
 
 interface GaugeChartProps {
