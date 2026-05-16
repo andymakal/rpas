@@ -1,7 +1,7 @@
 'use client'
 
 export type GaugeBand = {
-  threshold: number  // upper bound (exclusive) for this band
+  threshold: number
   color: string
   label: string
 }
@@ -26,22 +26,6 @@ function activeBand(value: number, bands: GaugeBand[]): GaugeBand {
   return bands.find(b => value < b.threshold) ?? bands[bands.length - 1]
 }
 
-function arcPath(cx: number, cy: number, r: number, pct: number): string {
-  if (pct <= 0) return ''
-  if (pct >= 1) {
-    return `M ${cx - r} ${cy} A ${r} ${r} 0 0 0 ${cx} ${cy - r} A ${r} ${r} 0 0 0 ${cx + r} ${cy}`
-  }
-  const θ = Math.PI - Math.PI * pct
-  const ex = cx + r * Math.cos(θ)
-  const ey = cy - r * Math.sin(θ)
-  if (pct <= 0.5) {
-    // First half: single arc from left to endpoint
-    return `M ${cx - r} ${cy} A ${r} ${r} 0 0 0 ${ex} ${ey}`
-  }
-  // Second half: arc left→top, then top→endpoint (mirrors the background path)
-  return `M ${cx - r} ${cy} A ${r} ${r} 0 0 0 ${cx} ${cy - r} A ${r} ${r} 0 0 0 ${ex} ${ey}`
-}
-
 interface GaugeChartProps {
   value: number
   max: number
@@ -52,28 +36,49 @@ interface GaugeChartProps {
 
 export function GaugeChart({ value, bands, max, label, formatValue }: GaugeChartProps) {
   const cx = 100, cy = 108, r = 82, sw = 20
-  const pct = Math.min(Math.max(value / max, 0), 1)
-  const band = activeBand(value, bands)
+  const pct   = Math.min(Math.max(value / max, 0), 1)
+  const band  = activeBand(value, bands)
   const isGoal = value >= max
-  const bg = `M ${cx - r} ${cy} A ${r} ${r} 0 0 0 ${cx} ${cy - r} A ${r} ${r} 0 0 0 ${cx + r} ${cy}`
-  const fg = arcPath(cx, cy, r, pct)
+
+  // stroke-dasharray technique: circle starts at right (0°) going clockwise.
+  // offset = half circumference shifts the visible dash start to the left endpoint,
+  // so the arc runs left → up → right (the top semicircle).
+  const half = Math.PI * r          // semicircle arc length ≈ 257.6
+  const full = 2 * Math.PI * r      // full circumference ≈ 515.2
 
   return (
     <div className="flex flex-col items-center">
       <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-1">{label}</p>
       <svg viewBox="0 0 200 128" className="w-full max-w-[220px]" aria-label={`${label}: ${formatValue(value)}`}>
+
         {/* Background track */}
-        <path d={bg} fill="none" stroke="#E2E8F0" strokeWidth={sw} strokeLinecap="butt" />
+        <circle
+          cx={cx} cy={cy} r={r}
+          fill="none"
+          stroke="#E2E8F0"
+          strokeWidth={sw}
+          strokeLinecap="butt"
+          strokeDasharray={`${half} ${half}`}
+          strokeDashoffset={half}
+        />
 
         {/* Progress arc */}
-        {fg && (
-          <path d={fg} fill="none" stroke={band.color} strokeWidth={sw} strokeLinecap="butt" />
+        {pct > 0 && (
+          <circle
+            cx={cx} cy={cy} r={r}
+            fill="none"
+            stroke={band.color}
+            strokeWidth={sw}
+            strokeLinecap="butt"
+            strokeDasharray={`${pct * half} ${full}`}
+            strokeDashoffset={half}
+          />
         )}
 
-        {/* End caps — small circles at start and end of track */}
+        {/* End caps at left and right endpoints */}
         <circle cx={cx - r} cy={cy} r={sw / 2} fill="#E2E8F0" />
         <circle cx={cx + r} cy={cy} r={sw / 2} fill="#E2E8F0" />
-        {fg && <circle cx={cx - r} cy={cy} r={sw / 2} fill={band.color} />}
+        {pct > 0 && <circle cx={cx - r} cy={cy} r={sw / 2} fill={band.color} />}
 
         {/* Value */}
         <text
