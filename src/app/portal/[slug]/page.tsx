@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notFound } from 'next/navigation'
-import { AgencyPortal } from '@/components/portal/AgencyPortal'
+import { AgencyPortal, type Case } from '@/components/portal/AgencyPortal'
 
 export default async function PortalPage({
   params,
@@ -36,7 +36,7 @@ export default async function PortalPage({
   return (
     <AgencyPortal
       agency={{ name: agency.name, slug: agency.slug }}
-      cases={cases ?? []}
+      cases={(cases ?? []) as unknown as Case[]}
     />
   )
 }

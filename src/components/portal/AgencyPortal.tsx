@@ -11,7 +11,7 @@ type StageTranslation = {
   is_lost: boolean
 }
 
-type Case = {
+export type Case = {
   id: string
   internal_status: string
   created_at: string
