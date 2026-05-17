@@ -40,8 +40,10 @@ export function GaugeChart({ value, bands, max, label, formatValue }: GaugeChart
   const band   = activeBand(value, bands)
   const isGoal = value >= max
 
-  // stroke-dasharray segment positioning for a clockwise SVG circle.
-  // offset = (1 - startFrac) * half positions each band correctly along the top arc.
+  // SVG circle starts at 3 o'clock and goes clockwise. The top semicircle
+  // (9 o'clock → 12 → 3) occupies path positions [half, full]. A band at
+  // [startFrac, endFrac] of the gauge maps to path [(1+startFrac)*half, (1+endFrac)*half].
+  // Correct dashoffset = (1 + endFrac - 2*startFrac) * half positions each band there.
   const half = Math.PI * r
   const full = 2 * Math.PI * r
 
@@ -67,7 +69,18 @@ export function GaugeChart({ value, bands, max, label, formatValue }: GaugeChart
       <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-1">{label}</p>
       <svg viewBox="0 0 200 120" className="w-full max-w-[240px]" aria-label={`${label}: ${formatValue(value)}`}>
 
-        {/* Band segments — all zones always visible */}
+        {/* Background arc — full gauge shape always visible */}
+        <circle
+          cx={cx} cy={cy} r={r}
+          fill="none"
+          stroke="#E2E8F0"
+          strokeWidth={sw}
+          strokeLinecap="butt"
+          strokeDasharray={`${half} ${full}`}
+          strokeDashoffset={full}
+        />
+
+        {/* Band segments */}
         {segments.map(seg => (
           <circle
             key={seg.label}
@@ -77,7 +90,7 @@ export function GaugeChart({ value, bands, max, label, formatValue }: GaugeChart
             strokeWidth={sw}
             strokeLinecap="butt"
             strokeDasharray={`${(seg.endFrac - seg.startFrac) * half} ${full}`}
-            strokeDashoffset={(1 - seg.startFrac) * half}
+            strokeDashoffset={(1 + seg.endFrac - 2 * seg.startFrac) * half}
           />
         ))}
 
