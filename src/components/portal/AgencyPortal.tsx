@@ -56,6 +56,24 @@ type AgencyProps = {
   zip:    string | null
 }
 
+function daysAgo(dateStr: string) {
+  return Math.floor((Date.now() - new Date(dateStr).getTime()) / 86_400_000)
+}
+
+function AgeBadge({ dateStr }: { dateStr: string }) {
+  const d = daysAgo(dateStr)
+  const cls = d < 14
+    ? 'bg-green-50 text-green-600 border border-green-100'
+    : d < 31
+      ? 'bg-amber-50 text-amber-600 border border-amber-100'
+      : 'bg-red-50 text-red-600 border border-red-100'
+  return (
+    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${cls}`}>
+      {d}d
+    </span>
+  )
+}
+
 function formatCurrency(v: number | null) {
   if (!v) return null
   if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`
@@ -98,9 +116,12 @@ function ReferralCard({ c }: { c: Case }) {
           </p>
           <p className="text-xs text-slate-400 mt-0.5">{date}</p>
         </div>
-        <span className="text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0 bg-blue-100 text-blue-700">
-          {label}
-        </span>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <AgeBadge dateStr={c.created_at} />
+          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">
+            {label}
+          </span>
+        </div>
       </div>
     </div>
   )
@@ -122,9 +143,12 @@ function PendingCard({ c }: { c: Case }) {
             {carrier ?? '—'}{product ? ` · ${product}` : ''}{face ? ` · ${face}` : ''}
           </p>
         </div>
-        <span className="text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0 bg-indigo-100 text-indigo-700">
-          {label}
-        </span>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <AgeBadge dateStr={c.created_at} />
+          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-100 text-indigo-700">
+            {label}
+          </span>
+        </div>
       </div>
     </div>
   )
@@ -314,7 +338,16 @@ export function AgencyPortal({
             </div>
             <div className="text-center">
               <p className="text-2xl font-bold text-slate-400">{serviceRequests.length}</p>
-              <p className="text-xs text-slate-500 mt-0.5">Service Reqs</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Service Reqs
+                {serviceRequests.length > 0 && (
+                  <span className="block text-slate-400">
+                    {serviceRequests.filter(s => !s.resolved_at).length} open
+                    {' · '}
+                    {serviceRequests.filter(s => !!s.resolved_at).length} closed
+                  </span>
+                )}
+              </p>
             </div>
           </div>
         </div>
@@ -430,9 +463,12 @@ export function AgencyPortal({
                         {sr.carriers?.short_name ? ` · ${sr.carriers.short_name}` : ''}
                       </p>
                     </div>
-                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0 ${srStatusClass(sr.request_statuses?.name)}`}>
-                      {sr.request_statuses?.name ?? '—'}
-                    </span>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {!sr.resolved_at && <AgeBadge dateStr={sr.created_at} />}
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${srStatusClass(sr.request_statuses?.name)}`}>
+                        {sr.request_statuses?.name ?? '—'}
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>
