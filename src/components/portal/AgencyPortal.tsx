@@ -21,6 +21,26 @@ export type Case = {
   stage_translations: StageTranslation | null
 }
 
+export type ServiceRequest = {
+  id: string
+  created_at: string
+  resolved_at: string | null
+  customers: { first_name: string; last_name: string } | null
+  carriers: { short_name: string } | null
+  service_request_types: { name: string } | null
+  request_statuses: { name: string } | null
+}
+
+export type PolicyReview = {
+  id: string
+  created_at: string
+  reviewed_at: string | null
+  customers: { first_name: string; last_name: string } | null
+  carriers: { short_name: string } | null
+  review_statuses: { name: string } | null
+  opportunity_types: { name: string } | null
+}
+
 type AgencyProps = {
   name: string
   slug: string
@@ -48,16 +68,36 @@ function formatApps(v: number) {
   return String(Math.round(v))
 }
 
+function srStatusClass(statusName: string | undefined): string {
+  if (!statusName) return 'bg-slate-100 text-slate-500'
+  if (statusName === 'Resolved' || statusName === 'Converted to Review') return 'bg-green-100 text-green-700'
+  if (statusName === 'Awaiting Carrier' || statusName === 'Pending Client Response') return 'bg-amber-100 text-amber-700'
+  return 'bg-blue-100 text-blue-700'
+}
+
+function prStatusClass(statusName: string | undefined): string {
+  if (!statusName) return 'bg-slate-100 text-slate-500'
+  if (statusName.startsWith('New Policy') || statusName.startsWith('Completed')) return 'bg-green-100 text-green-700'
+  if (statusName === 'Client Declined' || statusName === 'Complete — No Changes') return 'bg-slate-100 text-slate-500'
+  if (statusName === 'Quoted — Follow Up' || statusName === 'Follow-Up Needed') return 'bg-amber-100 text-amber-700'
+  if (statusName === 'In Progress') return 'bg-blue-100 text-blue-700'
+  return 'bg-slate-100 text-slate-600'
+}
+
 export function AgencyPortal({
   agency,
   cases,
   gdcYtd,
   appCount,
+  serviceRequests,
+  policyReviews,
 }: {
   agency: AgencyProps
   cases: Case[]
   gdcYtd: number
   appCount: number
+  serviceRequests: ServiceRequest[]
+  policyReviews: PolicyReview[]
 }) {
   const [agentFilter, setAgentFilter] = useState('')
 
@@ -254,6 +294,83 @@ export function AgencyPortal({
         {filtered.length === 0 && (
           <div className="bg-white rounded-xl border border-slate-100 p-8 text-center">
             <p className="text-slate-400 text-sm">No cases found.</p>
+          </div>
+        )}
+
+        {/* Client Services — transparency panel */}
+        {(serviceRequests.length > 0 || policyReviews.length > 0) && (
+          <div className="bg-white rounded-2xl border border-slate-100 px-5 py-5 space-y-5">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">
+              Client Services
+            </p>
+
+            {serviceRequests.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  Service Requests
+                  <span className="ml-2 font-normal normal-case">
+                    ({serviceRequests.filter(r => !r.resolved_at).length} open)
+                  </span>
+                </p>
+                {serviceRequests.map(sr => {
+                  const clientName = sr.customers
+                    ? `${sr.customers.first_name} ${sr.customers.last_name}`
+                    : '—'
+                  const status = sr.request_statuses?.name
+                  const type   = sr.service_request_types?.name ?? '—'
+                  const carrier = sr.carriers?.short_name
+                  return (
+                    <div key={sr.id} className="flex items-center justify-between gap-3 py-2
+                      border-b border-slate-50 last:border-0">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-900 truncate">{clientName}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {type}{carrier ? ` · ${carrier}` : ''}
+                        </p>
+                      </div>
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0
+                        ${srStatusClass(status)}`}>
+                        {status ?? '—'}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+
+            {policyReviews.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  Policy Reviews
+                  <span className="ml-2 font-normal normal-case">
+                    ({policyReviews.filter(r => !r.reviewed_at).length} open)
+                  </span>
+                </p>
+                {policyReviews.map(pr => {
+                  const clientName = pr.customers
+                    ? `${pr.customers.first_name} ${pr.customers.last_name}`
+                    : '—'
+                  const status = pr.review_statuses?.name
+                  const carrier = pr.carriers?.short_name
+                  const opportunity = pr.opportunity_types?.name
+                  return (
+                    <div key={pr.id} className="flex items-center justify-between gap-3 py-2
+                      border-b border-slate-50 last:border-0">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-slate-900 truncate">{clientName}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          {carrier ?? '—'}{opportunity ? ` · ${opportunity}` : ''}
+                        </p>
+                      </div>
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0
+                        ${prStatusClass(status)}`}>
+                        {status ?? '—'}
+                      </span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
           </div>
         )}
 

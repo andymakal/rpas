@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notFound } from 'next/navigation'
-import { AgencyPortal, type Case } from '@/components/portal/AgencyPortal'
+import { AgencyPortal, type Case, type ServiceRequest, type PolicyReview } from '@/components/portal/AgencyPortal'
 
 export default async function PortalPage({
   params,
@@ -23,7 +23,7 @@ export default async function PortalPage({
   const yearStart = `${year}-01-01`
   const yearEnd   = `${year}-12-31`
 
-  const [casesResult, gdcResult, appResult] = await Promise.all([
+  const [casesResult, gdcResult, appResult, srResult, prResult] = await Promise.all([
     supabase
       .from('cases')
       .select(`
@@ -52,6 +52,38 @@ export default async function PortalPage({
       .gte('process_date', yearStart)
       .lte('process_date', yearEnd)
       .gt('production_credit', 0),
+
+    supabase
+      .from('service_requests')
+      .select(`
+        id,
+        created_at,
+        resolved_at,
+        customers ( first_name, last_name ),
+        carriers ( short_name ),
+        service_request_types ( name ),
+        request_statuses ( name )
+      `)
+      .eq('agency_id', agency.id)
+      .eq('is_test', false)
+      .order('created_at', { ascending: false })
+      .limit(20),
+
+    supabase
+      .from('policy_reviews')
+      .select(`
+        id,
+        created_at,
+        reviewed_at,
+        customers ( first_name, last_name ),
+        carriers ( short_name ),
+        review_statuses ( name ),
+        opportunity_types ( name )
+      `)
+      .eq('agency_id', agency.id)
+      .eq('is_test', false)
+      .order('created_at', { ascending: false })
+      .limit(20),
   ])
 
   const gdcYtd = (gdcResult.data ?? []).reduce(
@@ -67,6 +99,8 @@ export default async function PortalPage({
       cases={(casesResult.data ?? []) as unknown as Case[]}
       gdcYtd={gdcYtd}
       appCount={appCount}
+      serviceRequests={(srResult.data ?? []) as unknown as ServiceRequest[]}
+      policyReviews={(prResult.data ?? []) as unknown as PolicyReview[]}
     />
   )
 }
