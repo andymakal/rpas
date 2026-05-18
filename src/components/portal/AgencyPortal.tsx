@@ -45,7 +45,16 @@ export type PolicyReview = {
   opportunity_types: { name: string } | null
 }
 
-type AgencyProps = { name: string; slug: string }
+type AgencyProps = {
+  name:   string
+  slug:   string
+  phone:  string | null
+  email:  string | null
+  street: string | null
+  city:   string | null
+  state:  string | null
+  zip:    string | null
+}
 
 function formatCurrency(v: number | null) {
   if (!v) return null
@@ -200,20 +209,43 @@ export function AgencyPortal({
 
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="bg-slate-900 px-6 py-4">
-        <div className="max-w-2xl mx-auto flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold text-slate-400 tracking-widest uppercase">
-              Right Path Agency System
-            </p>
-            <p className="text-white font-bold text-lg leading-tight">{agency.name}</p>
+      <header className="bg-slate-900 px-6 py-5">
+        <div className="max-w-2xl mx-auto">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-semibold text-slate-400 tracking-widest uppercase mb-1">
+                Right Path Agency System
+              </p>
+              <p className="text-white font-bold text-xl leading-tight">{agency.name}</p>
+              {(agency.street || agency.phone || agency.email) && (
+                <div className="mt-2 space-y-0.5">
+                  {agency.street && (
+                    <p className="text-slate-400 text-xs">
+                      {agency.street}{agency.city ? `, ${agency.city}` : ''}{agency.state ? `, ${agency.state}` : ''}{agency.zip ? ` ${agency.zip}` : ''}
+                    </p>
+                  )}
+                  <div className="flex items-center gap-4">
+                    {agency.phone && (
+                      <a href={`tel:${agency.phone}`} className="text-slate-300 text-xs hover:text-white transition-colors">
+                        {agency.phone}
+                      </a>
+                    )}
+                    {agency.email && (
+                      <a href={`mailto:${agency.email}`} className="text-slate-300 text-xs hover:text-white transition-colors">
+                        {agency.email}
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+            <Link
+              href={`/intake/${agency.slug}`}
+              className="text-xs font-semibold text-slate-300 border border-slate-600 rounded-lg px-3 py-2 hover:bg-slate-800 transition-colors shrink-0"
+            >
+              + Submit Referral
+            </Link>
           </div>
-          <Link
-            href={`/intake/${agency.slug}`}
-            className="text-xs font-semibold text-slate-300 border border-slate-600 rounded-lg px-3 py-2 hover:bg-slate-800 transition-colors"
-          >
-            + Submit Referral
-          </Link>
         </div>
       </header>
 

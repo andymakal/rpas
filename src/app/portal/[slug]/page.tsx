@@ -27,7 +27,7 @@ export default async function PortalPage({
 
   const { data: agency } = await supabase
     .from('agencies')
-    .select('id, name, display_name, slug')
+    .select('id, name, display_name, slug, contact_phone, contact_email, contact_street, contact_city, contact_state, contact_zip')
     .eq('slug', slug)
     .eq('is_active', true)
     .single()
@@ -112,9 +112,25 @@ export default async function PortalPage({
     (appResult.data ?? []).map(r => r.policy_number).filter(Boolean)
   ).size
 
+  const agencyContact = agency as {
+    display_name: string | null; name: string; slug: string
+    contact_phone: string | null; contact_email: string | null
+    contact_street: string | null; contact_city: string | null
+    contact_state: string | null; contact_zip: string | null
+  }
+
   return (
     <AgencyPortal
-      agency={{ name: agency.display_name ?? agency.name, slug: agency.slug }}
+      agency={{
+        name:   agencyContact.display_name ?? agencyContact.name,
+        slug:   agencyContact.slug,
+        phone:  agencyContact.contact_phone,
+        email:  agencyContact.contact_email,
+        street: agencyContact.contact_street,
+        city:   agencyContact.contact_city,
+        state:  agencyContact.contact_state,
+        zip:    agencyContact.contact_zip,
+      }}
       cases={(casesResult.data ?? []) as unknown as Case[]}
       gdcYtd={gdcYtd}
       appCount={appCount}
