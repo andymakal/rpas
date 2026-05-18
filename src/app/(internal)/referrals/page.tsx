@@ -16,7 +16,7 @@ type CaseRow = {
   id: string
   internal_status: string
   created_at: string
-  agencies: { name: string } | null
+  agencies: { name: string; display_name: string | null } | null
   customers: { first_name: string; last_name: string; phone: string } | null
   agents: { first_name: string; last_name: string } | null
   stage_translations: StageTranslation | null
@@ -68,14 +68,24 @@ export default async function ReferralsPage({
       id,
       internal_status,
       created_at,
-      agencies ( name ),
+      agencies ( name, display_name ),
       customers ( first_name, last_name, phone ),
       agents ( first_name, last_name ),
       stage_translations ( agency_label, tier, is_active_case )
     `)
     .eq('is_test', false)
+    .in('internal_status', [
+      'lsp_contact_needed',
+      'appointment_set',
+      'appointment_missed',
+      'appointment_kept',
+      'quoted',
+      'carrier_declined',
+      'client_withdrew',
+      'snoozed',
+    ])
     .order('created_at', { ascending: false })
-    .limit(50)
+    .limit(200)
 
   const rows = (cases as unknown as CaseRow[]) ?? []
   const activeCount = rows.filter(r => r.stage_translations?.is_active_case === true).length
@@ -85,7 +95,7 @@ export default async function ReferralsPage({
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-white text-2xl font-semibold">Cases</h1>
+            <h1 className="text-white text-2xl font-semibold">Referrals</h1>
             <p className="text-slate-400 text-sm mt-0.5">{activeCount} active · {rows.length} shown</p>
           </div>
           <Link
@@ -93,7 +103,7 @@ export default async function ReferralsPage({
             className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
             style={{ backgroundColor: '#1F3864' }}
           >
-            <Plus className="w-4 h-4" /> Log Case
+            <Plus className="w-4 h-4" /> Log Referral
           </Link>
         </div>
 
@@ -107,13 +117,13 @@ export default async function ReferralsPage({
           {rows.length === 0 ? (
             <div className="py-16 text-center">
               <p className="text-base font-medium text-slate-400">No cases yet</p>
-              <p className="mt-1 text-sm text-slate-500">Log your first case to get started.</p>
+              <p className="mt-1 text-sm text-slate-500">Log your first referral to get started.</p>
               <Link
                 href="/referrals/new"
                 className="mt-4 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white"
                 style={{ backgroundColor: '#1F3864' }}
               >
-                <Plus className="w-4 h-4" /> Log First Case
+                <Plus className="w-4 h-4" /> Log First Referral
               </Link>
             </div>
           ) : (
@@ -137,7 +147,7 @@ export default async function ReferralsPage({
                       </p>
                       <p className="text-xs text-slate-500">{r.customers?.phone ?? ''}</p>
                     </td>
-                    <td className="px-4 py-3 text-slate-300">{r.agencies?.name ?? '—'}</td>
+                    <td className="px-4 py-3 text-slate-300">{r.agencies?.display_name ?? r.agencies?.name ?? '—'}</td>
                     <td className="px-4 py-3 text-slate-400">
                       {r.agents ? `${r.agents.first_name} ${r.agents.last_name}` : '—'}
                     </td>
