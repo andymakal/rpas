@@ -45,6 +45,14 @@ export type PolicyReview = {
   opportunity_types: { name: string } | null
 }
 
+export type SpiffRecord = {
+  id: string
+  earned_at: string
+  paid_at: string | null
+  amount: number
+  agents: { first_name: string; last_name: string } | null
+}
+
 type AgencyProps = {
   name:   string
   slug:   string
@@ -192,7 +200,7 @@ function SectionHeader({ label, count }: { label: string; count: number }) {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function AgencyPortal({
-  agency, cases, gdcYtd, appCount, serviceRequests, policyReviews,
+  agency, cases, gdcYtd, appCount, serviceRequests, policyReviews, spiffRecords,
 }: {
   agency:          AgencyProps
   cases:           Case[]
@@ -200,6 +208,7 @@ export function AgencyPortal({
   appCount:        number
   serviceRequests: ServiceRequest[]
   policyReviews:   PolicyReview[]
+  spiffRecords:    SpiffRecord[]
 }) {
   const [agentFilter, setAgentFilter] = useState('')
 
@@ -502,6 +511,58 @@ export function AgencyPortal({
             )}
           </div>
         )}
+
+        {/* SPIFF earnings */}
+        {spiffRecords.length > 0 && (() => {
+          // Summarise by LSP
+          const byAgent = new Map<string, { name: string; earned: number; paid: number; count: number }>()
+          for (const r of spiffRecords) {
+            const key  = r.agents ? `${r.agents.first_name} ${r.agents.last_name}` : 'Unknown'
+            const prev = byAgent.get(key) ?? { name: key, earned: 0, paid: 0, count: 0 }
+            byAgent.set(key, {
+              name:    key,
+              earned:  prev.earned + Number(r.amount),
+              paid:    prev.paid   + (r.paid_at ? Number(r.amount) : 0),
+              count:   prev.count  + 1,
+            })
+          }
+          const rows = Array.from(byAgent.values()).sort((a, b) => b.earned - a.earned)
+          const totalEarned      = spiffRecords.reduce((s, r) => s + Number(r.amount), 0)
+          const totalOutstanding = spiffRecords.filter(r => !r.paid_at).reduce((s, r) => s + Number(r.amount), 0)
+
+          return (
+            <div className="bg-white rounded-2xl border border-slate-100 px-5 py-5 space-y-4">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">SPIFF Earnings</p>
+                <div className="text-right">
+                  <p className="text-xs text-slate-400">
+                    ${totalEarned.toFixed(2)} earned
+                    {totalOutstanding > 0 && <span className="text-amber-600 ml-2">${totalOutstanding.toFixed(2)} pending</span>}
+                  </p>
+                </div>
+              </div>
+              <div className="space-y-2">
+                {rows.map(r => (
+                  <div key={r.name} className="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+                    <div>
+                      <p className="text-sm font-semibold text-slate-900">{r.name}</p>
+                      <p className="text-xs text-slate-400">{r.count} qualified conversation{r.count !== 1 ? 's' : ''}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-slate-900">${r.earned.toFixed(2)}</p>
+                      {r.paid < r.earned && (
+                        <p className="text-xs text-amber-600">${(r.earned - r.paid).toFixed(2)} pending</p>
+                      )}
+                      {r.paid >= r.earned && r.paid > 0 && (
+                        <p className="text-xs text-emerald-600">All paid ✓</p>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )
+        })()}
 
         <p className="text-center text-xs text-slate-400 pb-4">
           Right Path Agency System · Makal Financial Services, LLC

@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notFound, redirect } from 'next/navigation'
 import { cookies } from 'next/headers'
-import { AgencyPortal, type Case, type ServiceRequest, type PolicyReview } from '@/components/portal/AgencyPortal'
+import { AgencyPortal, type Case, type ServiceRequest, type PolicyReview, type SpiffRecord } from '@/components/portal/AgencyPortal'
 
 export async function generateMetadata(
   { params }: { params: Promise<{ slug: string }> }
@@ -48,7 +48,7 @@ export default async function PortalPage({
   const yearStart = `${year}-01-01`
   const yearEnd   = `${year}-12-31`
 
-  const [casesResult, gdcResult, appResult, srResult, prResult] = await Promise.all([
+  const [casesResult, gdcResult, appResult, srResult, prResult, spiffResult] = await Promise.all([
     supabase
       .from('cases')
       .select(`
@@ -113,6 +113,12 @@ export default async function PortalPage({
       .eq('is_test', false)
       .order('created_at', { ascending: false })
       .limit(20),
+
+    supabase
+      .from('spiff_records')
+      .select('id, earned_at, paid_at, amount, agents ( first_name, last_name )')
+      .eq('agency_id', agency.id)
+      .order('earned_at', { ascending: false }),
   ])
 
   const gdcYtd = (gdcResult.data ?? []).reduce(
@@ -146,6 +152,7 @@ export default async function PortalPage({
       appCount={appCount}
       serviceRequests={(srResult.data ?? []) as unknown as ServiceRequest[]}
       policyReviews={(prResult.data ?? []) as unknown as PolicyReview[]}
+      spiffRecords={(spiffResult.data ?? []) as unknown as SpiffRecord[]}
     />
   )
 }

@@ -17,11 +17,13 @@ import {
   ClipboardList,
   LogOut,
   Plus,
+  DollarSign,
 } from 'lucide-react'
 
 const navItems = [
   { href: '/dashboard',              icon: LayoutDashboard, label: 'Dashboard'        },
   { href: '/referrals',              icon: GitMerge,        label: 'Referrals'        },
+  { href: '/spiff',                  icon: DollarSign,      label: 'SPIFF'            },
   { href: '/agencies',               icon: Building2,       label: 'Agencies'         },
   { href: '/cases',                  icon: FolderKanban,    label: 'Cases'            },
   { href: '/production',             icon: CalendarDays,    label: 'Production'       },

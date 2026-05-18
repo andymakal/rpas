@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Phone, Building2, User, Calendar, Clock,
   MessageSquare, Mail, AlertCircle, PhoneCall, PhoneOff,
-  MessageCircle, ChevronDown, ChevronUp,
+  MessageCircle, ChevronDown, ChevronUp, DollarSign,
 } from 'lucide-react'
 import type { ReferralDetail, Tier1Stage, TouchLog } from './page'
 
@@ -115,6 +115,9 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
   // History expand
   const [historyOpen, setHistoryOpen] = useState(touchLog.length > 0)
 
+  const [spiffEarned, setSpiffEarned] = useState(referral.spiff_earned)
+  const [spiffSaving, setSpiffSaving] = useState(false)
+
   const [saving, setSaving]   = useState(false)
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -132,6 +135,18 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
   const rewarmMailto = showRewarmEmail
     ? buildRewarmMailto(clientName, clientFirstName, agentFirstName, agentEmail, agencyEmail)
     : null
+
+  async function handleSpiffToggle(checked: boolean) {
+    setSpiffSaving(true)
+    try {
+      const res = await fetch(`/api/cases/${referral.id}/spiff`, {
+        method: checked ? 'POST' : 'DELETE',
+      })
+      if (res.ok) setSpiffEarned(checked)
+    } finally {
+      setSpiffSaving(false)
+    }
+  }
 
   async function handleSave() {
     setSaving(true)
@@ -369,6 +384,38 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
                 ))}
               </select>
             </div>
+
+            {/* Kept Appointment / SPIFF */}
+            <label className={`flex items-start gap-3 rounded-lg border-2 p-4 cursor-pointer transition-all ${
+              spiffEarned
+                ? 'border-emerald-700 bg-emerald-950/30'
+                : 'border-slate-700 hover:border-slate-600'
+            }`}>
+              <input
+                type="checkbox"
+                checked={spiffEarned}
+                disabled={spiffSaving}
+                onChange={e => handleSpiffToggle(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded accent-emerald-500 cursor-pointer"
+              />
+              <div className="flex-1">
+                <div className="flex items-center gap-2">
+                  <p className={`text-sm font-medium ${spiffEarned ? 'text-emerald-300' : 'text-slate-200'}`}>
+                    Kept Appointment
+                  </p>
+                  {spiffEarned && (
+                    <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-emerald-900/60 text-emerald-300 border border-emerald-800">
+                      <DollarSign className="w-3 h-3" />SPIFF earned
+                    </span>
+                  )}
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {spiffEarned
+                    ? `$10 SPIFF logged for ${agentName ?? 'this LSP'}`
+                    : 'Check when the referral has a qualified conversation with us — triggers $10 SPIFF for the LSP'}
+                </p>
+              </div>
+            </label>
 
             {/* Rewarm email prompt */}
             {showRewarmEmail && (
