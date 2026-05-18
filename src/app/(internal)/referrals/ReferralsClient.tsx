@@ -28,8 +28,22 @@ function StatusBadge({ translation, internal_status }: { translation: StageTrans
 }
 
 export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
-  const [search, setSearch] = useState('')
-  const [tab, setTab]       = useState<'active' | 'all' | 'closed'>('active')
+  const [search, setSearch]           = useState('')
+  const [tab, setTab]                 = useState<'active' | 'all' | 'closed'>('active')
+  const [statusFilter, setStatusFilter] = useState('')
+
+  // Unique statuses present in the full data set, sorted by label
+  const statusOptions = useMemo(() => {
+    const seen = new Map<string, string>()
+    for (const r of rows) {
+      if (r.internal_status && r.stage_translations?.agency_label) {
+        seen.set(r.internal_status, r.stage_translations.agency_label)
+      }
+    }
+    return Array.from(seen.entries())
+      .map(([value, label]) => ({ value, label }))
+      .sort((a, b) => a.label.localeCompare(b.label))
+  }, [rows])
 
   const filtered = useMemo(() => {
     let list = rows
@@ -43,6 +57,10 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
       )
     }
 
+    if (statusFilter) {
+      list = list.filter(r => r.internal_status === statusFilter)
+    }
+
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       list = list.filter(r => {
@@ -53,7 +71,7 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
     }
 
     return list
-  }, [rows, tab, search])
+  }, [rows, tab, statusFilter, search])
 
   const activeCount = rows.filter(r => r.stage_translations?.is_active_case === true).length
 
@@ -65,13 +83,13 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
 
   return (
     <div className="space-y-4">
-      {/* Tabs + search */}
-      <div className="flex items-center justify-between gap-4">
+      {/* Tabs + filters */}
+      <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="flex gap-1 bg-slate-800 rounded-lg p-1">
           {tabs.map(t => (
             <button
               key={t.key}
-              onClick={() => setTab(t.key)}
+              onClick={() => { setTab(t.key); setStatusFilter('') }}
               className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                 tab === t.key
                   ? 'bg-slate-700 text-white'
@@ -83,15 +101,28 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
           ))}
         </div>
 
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
-          <input
-            type="text"
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="Search client or agency…"
-            className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg pl-9 pr-3 py-2 w-64 focus:outline-none focus:border-slate-500 placeholder-slate-600"
-          />
+        <div className="flex items-center gap-2">
+          <select
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.target.value)}
+            className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-slate-500"
+          >
+            <option value="">All statuses</option>
+            {statusOptions.map(s => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search client or agency…"
+              className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg pl-9 pr-3 py-2 w-56 focus:outline-none focus:border-slate-500 placeholder-slate-600"
+            />
+          </div>
         </div>
       </div>
 
