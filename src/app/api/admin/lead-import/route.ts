@@ -190,8 +190,10 @@ export async function POST(req: NextRequest) {
           customersCreated++
         }
 
-        customerCache.set(cacheKey, customerId)
+        customerCache.set(cacheKey, customerId as string)
       }
+
+      if (!customerId) continue
 
       // Determine case status and lead source from folder tags
       const internalStatus = statusFromFolders(folders)
