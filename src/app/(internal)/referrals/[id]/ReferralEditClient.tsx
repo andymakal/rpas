@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Phone, Building2, User, Calendar, Clock,
   MessageSquare, Mail, AlertCircle, PhoneCall, PhoneOff,
-  MessageCircle, ChevronDown, ChevronUp, DollarSign,
+  MessageCircle, ChevronDown, ChevronUp, DollarSign, Pencil,
 } from 'lucide-react'
 import type { ReferralDetail, Tier1Stage, TouchLog } from './page'
 
@@ -377,15 +377,19 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
 
         {/* Right — editable fields */}
         <div className="md:col-span-2 space-y-5">
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-5">
-            <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide">Update Referral</h2>
+          <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-5 ring-1 ring-slate-700/50">
+            <div className="flex items-center gap-2">
+              <Pencil className="w-4 h-4 text-slate-400" />
+              <h2 className="text-sm font-semibold text-slate-200">Edit Referral</h2>
+              <span className="text-xs text-slate-500 ml-1">— make changes below and hit Save</span>
+            </div>
 
             <div>
-              <label className="block text-xs text-slate-400 mb-1.5">Status</label>
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">Status</label>
               <select
                 value={status}
                 onChange={e => setStatus(e.target.value)}
-                className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-slate-500"
+                className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 cursor-pointer"
               >
                 {stages.map(s => (
                   <option key={s.id} value={s.internal_status}>{s.agency_label}</option>
@@ -466,18 +470,18 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
 
             {showApptDate && (
               <div>
-                <label className="block text-xs text-slate-400 mb-1.5">Appointment Date</label>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">Appointment Date</label>
                 <input
                   type="date"
                   value={appointmentDate}
                   onChange={e => setAppointmentDate(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-slate-500"
+                  className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30"
                 />
               </div>
             )}
 
             <div>
-              <label className="block text-xs text-slate-400 mb-1.5 flex items-center gap-1.5">
+              <label className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
                 <MessageSquare className="w-3.5 h-3.5" /> Notes
               </label>
               <textarea
@@ -485,7 +489,7 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
                 onChange={e => setNotes(e.target.value)}
                 rows={6}
                 placeholder="Add notes about this referral…"
-                className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-slate-500 placeholder-slate-600 resize-none"
+                className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 placeholder-slate-600 resize-none"
               />
             </div>
 
