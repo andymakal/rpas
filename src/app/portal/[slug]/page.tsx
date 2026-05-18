@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { notFound } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
+import { cookies } from 'next/headers'
 import { AgencyPortal, type Case, type ServiceRequest, type PolicyReview } from '@/components/portal/AgencyPortal'
 
 export async function generateMetadata(
@@ -27,12 +28,21 @@ export default async function PortalPage({
 
   const { data: agency } = await supabase
     .from('agencies')
-    .select('id, name, display_name, slug, contact_phone, contact_email, contact_street, contact_city, contact_state, contact_zip')
+    .select('id, name, display_name, slug, contact_phone, contact_email, contact_street, contact_city, contact_state, contact_zip, portal_pin, dashboard_token')
     .eq('slug', slug)
     .eq('is_active', true)
     .single()
 
   if (!agency) notFound()
+
+  // If a PIN is set, require the portal cookie to match the dashboard_token
+  if (agency.portal_pin) {
+    const cookieStore = await cookies()
+    const token = cookieStore.get(`rpas_portal_${slug}`)?.value
+    if (token !== agency.dashboard_token) {
+      redirect(`/portal/${slug}/login`)
+    }
+  }
 
   const year = new Date().getFullYear()
   const yearStart = `${year}-01-01`

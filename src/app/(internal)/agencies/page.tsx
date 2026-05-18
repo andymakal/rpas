@@ -21,6 +21,7 @@ export type AgencyRow = {
   contact_city:   string | null
   contact_state:  string | null
   contact_zip:    string | null
+  portal_pin:     string | null
 }
 
 export type SmlTeamOption = { id: string; code: string; display_name: string }
@@ -31,7 +32,7 @@ export default async function AgenciesPage() {
   const [{ data: agencies }, { data: teams }] = await Promise.all([
     supabase
       .from('agencies')
-      .select('id, name, display_name, slug, is_active, sml_team_id, sml_teams(display_name), agent_number, contact_phone, contact_email, contact_street, contact_city, contact_state, contact_zip')
+      .select('id, name, display_name, slug, is_active, sml_team_id, sml_teams(display_name), agent_number, contact_phone, contact_email, contact_street, contact_city, contact_state, contact_zip, portal_pin')
       .eq('is_test', false)
       .order('name'),
     supabase
@@ -56,6 +57,7 @@ export default async function AgenciesPage() {
     contact_city:   a.contact_city as string | null,
     contact_state:  a.contact_state as string | null,
     contact_zip:    a.contact_zip as string | null,
+    portal_pin:     a.portal_pin as string | null,
   }))
 
   return (

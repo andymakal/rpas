@@ -21,6 +21,7 @@ type EditState = {
   contact_city:   string
   contact_state:  string
   contact_zip:    string
+  portal_pin:     string
 }
 
 type RowStatus = 'idle' | 'saving' | 'saved' | 'error'
@@ -37,6 +38,7 @@ function toEdit(a: AgencyRow): EditState {
     contact_city:   a.contact_city ?? '',
     contact_state:  a.contact_state ?? '',
     contact_zip:    a.contact_zip ?? '',
+    portal_pin:     a.portal_pin ?? '',
   }
 }
 
@@ -64,7 +66,8 @@ function isDirty(a: AgencyRow, e: EditState) {
     (e.contact_street || null) !== (a.contact_street ?? null) ||
     (e.contact_city   || null) !== (a.contact_city   ?? null) ||
     (e.contact_state  || null) !== (a.contact_state  ?? null) ||
-    (e.contact_zip    || null) !== (a.contact_zip    ?? null)
+    (e.contact_zip    || null) !== (a.contact_zip    ?? null) ||
+    (e.portal_pin     || null) !== (a.portal_pin     ?? null)
   )
 }
 
@@ -117,6 +120,7 @@ export function AgenciesClient({ agencies, teams }: Props) {
         contact_city:   edit.contact_city   || null,
         contact_state:  edit.contact_state  || null,
         contact_zip:    edit.contact_zip    || null,
+        portal_pin:     edit.portal_pin     || null,
       }),
     })
 
@@ -472,6 +476,21 @@ export function AgenciesClient({ agencies, teams }: Props) {
                                 className={INPUT}
                               />
                             </div>
+                          </div>
+                          <div className="col-span-7 border-t border-slate-700/50 pt-3 flex items-end gap-3">
+                            <div className="w-40">
+                              <label className="text-xs text-slate-500 mb-1 block">Portal PIN</label>
+                              <input
+                                type="text"
+                                value={edit?.portal_pin ?? ''}
+                                onChange={e => update(agency.id, 'portal_pin', e.target.value)}
+                                placeholder="Leave blank = public"
+                                className={INPUT}
+                              />
+                            </div>
+                            <p className="text-xs text-slate-600 pb-2">
+                              If set, agencies must enter this PIN to view their portal. Leave blank to keep the portal publicly accessible by URL.
+                            </p>
                           </div>
                         </div>
                       </td>

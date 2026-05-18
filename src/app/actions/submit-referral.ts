@@ -14,37 +14,93 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
   }
 
   const form = parsed.data
+  const supabase = createAdminClient()
 
   try {
-    const supabase = createAdminClient()
+    // 1. Find or create customer by phone within this agency
+    let customerId: string
 
-    const { data: raw, error } = await supabase
-      .from('intake_raw')
-      .insert({
-        agency_id: form.agency_id,
-        source: 'form',
-        raw_data: form,
-      })
+    const { data: existing } = await supabase
+      .from('customers')
       .select('id')
-      .single()
+      .eq('agency_id', form.agency_id)
+      .eq('phone', form.client_phone)
+      .eq('is_test', false)
+      .maybeSingle()
 
-    if (error) {
-      console.error('Supabase insert error:', error)
-      return { success: false, error: 'Failed to save referral. Please try again.' }
+    if (existing) {
+      customerId = existing.id
+    } else {
+      const { data: newCustomer, error: custErr } = await supabase
+        .from('customers')
+        .insert({
+          agency_id:     form.agency_id,
+          first_name:    form.client_first_name,
+          last_name:     form.client_last_name,
+          phone:         form.client_phone,
+          email:         form.client_email || null,
+          date_of_birth: form.client_dob   || null,
+          is_test:       false,
+        })
+        .select('id')
+        .single()
+
+      if (custErr || !newCustomer) {
+        console.error('Customer insert error:', custErr)
+        return { success: false, error: 'Failed to save referral. Please try again.' }
+      }
+
+      customerId = newCustomer.id
     }
 
-    const triggers = [
+    // 2. Compose notes from form context
+    const flags = [
       form.life_insurance_outside_work && 'Life insurance outside work',
       form.job_change_last_5_years     && 'Job change in last 5 years',
       form.review_401k                 && '401(k) review',
       form.retirement_prep             && 'Retirement prep',
+    ].filter(Boolean) as string[]
+
+    const noteLines = [
+      `Referred by: ${form.lsp_name}`,
+      form.referral_type ? `Type: ${form.referral_type}` : null,
+      form.preferred_contact  ? `Contact: ${form.preferred_contact}` : null,
+      form.best_contact_time  ? `Best time: ${form.best_contact_time}` : null,
+      form.notes              ? `Notes: ${form.notes}` : null,
+      flags.length > 0        ? `Flags: ${flags.join(', ')}` : null,
     ].filter(Boolean)
 
-    console.log(`[RPAS] New intake: ${form.client_first_name} ${form.client_last_name} | Triggers: ${triggers.length > 0 ? triggers.join(', ') : 'none'}`)
+    // 3. Create case
+    const { data: newCase, error: caseErr } = await supabase
+      .from('cases')
+      .insert({
+        agency_id:       form.agency_id,
+        customer_id:     customerId,
+        internal_status: 'lsp_contact_needed',
+        notes:           noteLines.join('\n'),
+        is_test:         false,
+      })
+      .select('id')
+      .single()
+
+    if (caseErr || !newCase) {
+      console.error('Case insert error:', caseErr)
+      return { success: false, error: 'Failed to save referral. Please try again.' }
+    }
+
+    // 4. Save to intake_raw as audit trail (already processed — case_id set)
+    await supabase.from('intake_raw').insert({
+      agency_id:    form.agency_id,
+      source:       'form',
+      raw_data:     form,
+      case_id:      newCase.id,
+      processed_at: new Date().toISOString(),
+      is_test:      false,
+    })
 
     return {
-      success: true,
-      referral_id: raw.id,
+      success:     true,
+      referral_id: newCase.id,
       client_name: `${form.client_first_name} ${form.client_last_name}`,
     }
   } catch (err) {
