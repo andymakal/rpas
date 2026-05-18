@@ -3,10 +3,11 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Phone, Building2, User, Calendar, Clock, MessageSquare } from 'lucide-react'
+import { ArrowLeft, Phone, Building2, User, Calendar, Clock, MessageSquare, Mail, AlertCircle } from 'lucide-react'
 import type { ReferralDetail, Tier1Stage } from './page'
 
-const APPT_STATUSES = new Set(['appointment_set', 'appointment_kept', 'appointment_missed'])
+const APPT_STATUSES  = new Set(['appointment_set', 'appointment_kept', 'appointment_missed'])
+const REWARM_STATUS  = 'back_to_agency'
 
 function daysAgo(iso: string | null): number | null {
   if (!iso) return null
@@ -29,13 +30,44 @@ function fmtRelative(iso: string | null): string {
 function StatusBadge({ st }: { st: ReferralDetail['stage_translations'] }) {
   if (!st) return null
   let cls = 'bg-blue-900/50 text-blue-300 border border-blue-800'
-  if (st.is_won) cls = 'bg-emerald-900/60 text-emerald-300 border border-emerald-700'
+  if (st.is_won)  cls = 'bg-emerald-900/60 text-emerald-300 border border-emerald-700'
   if (st.is_lost) cls = 'bg-slate-800/70 text-slate-400 border border-slate-700'
   return (
     <span className={`inline-flex items-center rounded px-2.5 py-1 text-xs font-medium ${cls}`}>
       {st.agency_label}
     </span>
   )
+}
+
+function buildRewarmMailto(
+  clientName: string,
+  clientFirstName: string,
+  agentFirstName: string,
+  agentEmail: string | null,
+  agencyEmail: string | null,
+): string {
+  const to      = agentEmail ?? ''
+  const cc      = agencyEmail ?? ''
+  const subject = `Referral Follow-Up – ${clientName}`
+  const body = [
+    `Hi ${agentFirstName},`,
+    '',
+    `I wanted to reach out regarding the referral you sent over for ${clientName}. Unfortunately, we've been unable to make contact with ${clientFirstName} at this time.`,
+    '',
+    `Would you be able to help re-engage them on your end? We'd love to connect when the timing is right. Please let us know if there's anything you can do to help facilitate that conversation.`,
+    '',
+    'Thank you for thinking of us — we appreciate the partnership!',
+    '',
+    'Best,',
+    'Makal Financial Services',
+  ].join('\n')
+
+  const params = new URLSearchParams()
+  if (cc)      params.set('cc', cc)
+  params.set('subject', subject)
+  params.set('body', body)
+
+  return `mailto:${to}?${params.toString()}`
 }
 
 type Props = {
@@ -50,25 +82,30 @@ export function ReferralEditClient({ referral, stages }: Props) {
   const [appointmentDate, setAppointmentDate] = useState(
     referral.appointment_date ? referral.appointment_date.split('T')[0] : ''
   )
-  const [notes, setNotes] = useState(referral.notes ?? '')
-  const [touches, setTouches] = useState(referral.touches ?? 0)
+  const [notes, setNotes]       = useState(referral.notes ?? '')
+  const [touches, setTouches]   = useState(referral.touches ?? 0)
   const [lastContact, setLastContact] = useState(referral.last_contact_at)
 
-  const [saving, setSaving] = useState(false)
+  const [saving, setSaving]   = useState(false)
   const [logging, setLogging] = useState(false)
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
-  const showApptDate = APPT_STATUSES.has(status)
+  const showApptDate   = APPT_STATUSES.has(status)
+  const showRewarmEmail = status === REWARM_STATUS
 
-  const clientName = referral.customers
-    ? `${referral.customers.first_name} ${referral.customers.last_name}`
-    : 'Unknown'
+  const clientName      = referral.customers ? `${referral.customers.first_name} ${referral.customers.last_name}` : 'Unknown'
+  const clientFirstName = referral.customers?.first_name ?? 'them'
+  const agencyName      = referral.agencies?.display_name ?? referral.agencies?.name ?? '—'
+  const agentName       = referral.agents ? `${referral.agents.first_name} ${referral.agents.last_name}` : null
+  const agentFirstName  = referral.agents?.first_name ?? 'there'
+  const agentEmail      = referral.agents?.email ?? null
+  const agencyEmail     = referral.agencies?.contact_email ?? null
 
-  const agencyName = referral.agencies?.display_name ?? referral.agencies?.name ?? '—'
-
-  const agentName = referral.agents
-    ? `${referral.agents.first_name} ${referral.agents.last_name}`
+  const rewarmMailto = showRewarmEmail
+    ? buildRewarmMailto(clientName, clientFirstName, agentFirstName, agentEmail, agencyEmail)
     : null
+
+  const missingEmails = showRewarmEmail && (!agentEmail || !agencyEmail)
 
   async function handleSave() {
     setSaving(true)
@@ -212,6 +249,43 @@ export function ReferralEditClient({ referral, stages }: Props) {
                 ))}
               </select>
             </div>
+
+            {/* Rewarm email prompt */}
+            {showRewarmEmail && (
+              <div className="rounded-lg border border-amber-800/60 bg-amber-950/30 p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                  <p className="text-sm font-medium text-amber-300">Send rewarm email to the LSP</p>
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Let the LSP know you couldn't reach {clientFirstName} and ask them to help re-engage.
+                  {agencyEmail && <> The agency contact will be copied.</>}
+                </p>
+
+                {missingEmails && (
+                  <div className="flex items-start gap-2 text-xs text-amber-500/80">
+                    <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                    <span>
+                      {!agentEmail && 'No email on file for this LSP. '}
+                      {!agencyEmail && 'No contact email on file for this agency. '}
+                      Add them in the Agencies admin page to enable this feature.
+                    </span>
+                  </div>
+                )}
+
+                <a
+                  href={rewarmMailto ?? '#'}
+                  className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                    agentEmail
+                      ? 'bg-amber-700 hover:bg-amber-600 text-white'
+                      : 'bg-slate-700 text-slate-500 cursor-not-allowed pointer-events-none'
+                  }`}
+                >
+                  <Mail className="w-4 h-4" />
+                  Open in Outlook
+                </a>
+              </div>
+            )}
 
             {/* Appointment date — only when relevant */}
             {showApptDate && (

@@ -19,8 +19,8 @@ export type ReferralDetail = {
     phone: string | null
     email: string | null
   } | null
-  agencies: { name: string; display_name: string | null } | null
-  agents: { first_name: string; last_name: string } | null
+  agencies: { name: string; display_name: string | null; contact_email: string | null } | null
+  agents: { first_name: string; last_name: string; email: string | null } | null
   stage_translations: {
     agency_label: string
     tier: number
@@ -61,8 +61,8 @@ export default async function ReferralDetailPage({
         id, internal_status, created_at, appointment_date,
         notes, touches, last_contact_at,
         customers ( first_name, last_name, phone, email ),
-        agencies ( name, display_name ),
-        agents ( first_name, last_name ),
+        agencies ( name, display_name, contact_email ),
+        agents ( first_name, last_name, email ),
         stage_translations ( agency_label, tier, is_active_case, is_won, is_lost )
       `)
       .eq('id', id)
