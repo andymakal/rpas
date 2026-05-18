@@ -209,9 +209,16 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
                     }`}
                   >
                     <td className="px-4 py-3">
-                      <p className="font-medium text-white">
-                        {r.customers?.first_name ?? '—'} {r.customers?.last_name ?? ''}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="font-medium text-white">
+                          {r.customers?.first_name ?? '—'} {r.customers?.last_name ?? ''}
+                        </p>
+                        {r.is_owner_referral && (
+                          <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-violet-900/50 text-violet-300 border border-violet-800 flex-shrink-0">
+                            Owner
+                          </span>
+                        )}
+                      </div>
                       <p className="text-xs text-slate-500">{r.customers?.phone ?? ''}</p>
                     </td>
                     <td className="px-4 py-3 text-slate-300">

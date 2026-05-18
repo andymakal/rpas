@@ -74,15 +74,30 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       flags.length > 0        ? `Flags: ${flags.join(', ')}` : null,
     ].filter(Boolean)
 
-    // 3. Create case
+    // 3. Check if submitted by the agency owner (email match)
+    let isOwnerReferral = false
+    if (form.lsp_email) {
+      const { data: agencyRow } = await supabase
+        .from('agencies')
+        .select('contact_email')
+        .eq('id', form.agency_id)
+        .single()
+      if (agencyRow?.contact_email &&
+          agencyRow.contact_email.toLowerCase() === form.lsp_email.toLowerCase()) {
+        isOwnerReferral = true
+      }
+    }
+
+    // 4. Create case
     const { data: newCase, error: caseErr } = await supabase
       .from('cases')
       .insert({
-        agency_id:       form.agency_id,
-        customer_id:     customerId,
-        internal_status: 'lsp_contact_needed',
-        notes:           noteLines.join('\n'),
-        is_test:         false,
+        agency_id:        form.agency_id,
+        customer_id:      customerId,
+        internal_status:  'lsp_contact_needed',
+        notes:            noteLines.join('\n'),
+        is_owner_referral: isOwnerReferral,
+        is_test:           false,
       })
       .select('id')
       .single()
@@ -92,7 +107,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       return { success: false, error: 'Failed to save referral. Please try again.' }
     }
 
-    // 4. Back-fill agent email if provided and not already on file
+    // 5. Back-fill agent email if provided and not already on file
     if (form.lsp_email && form.lsp_name) {
       const parts     = form.lsp_name.trim().split(/\s+/)
       const firstName = parts[0]
@@ -114,7 +129,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       }
     }
 
-    // 5. Save to intake_raw as audit trail (already processed — case_id set)
+    // 6. Save to intake_raw as audit trail (already processed — case_id set)
     await supabase.from('intake_raw').insert({
       agency_id:    form.agency_id,
       source:       'form',

@@ -131,6 +131,7 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
   const agentFirstName  = referral.agents?.first_name ?? 'there'
   const agentEmail      = referral.agents?.email ?? null
   const agencyEmail     = referral.agencies?.contact_email ?? null
+  const isOwner         = referral.is_owner_referral
 
   const rewarmMailto = showRewarmEmail
     ? buildRewarmMailto(clientName, clientFirstName, agentFirstName, agentEmail, agencyEmail)
@@ -207,7 +208,14 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
         </Link>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <h1 className="text-white text-2xl font-semibold">{clientName}</h1>
+            <div className="flex items-center gap-2.5">
+              <h1 className="text-white text-2xl font-semibold">{clientName}</h1>
+              {isOwner && (
+                <span className="inline-flex items-center rounded px-2 py-1 text-xs font-medium bg-violet-900/50 text-violet-300 border border-violet-800">
+                  Agency Owner
+                </span>
+              )}
+            </div>
             <div className="mt-1.5"><StatusBadge st={referral.stage_translations} /></div>
           </div>
           <button
@@ -414,6 +422,11 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
                     ? `$10 SPIFF logged for ${agentName ?? 'this LSP'}`
                     : 'Check when the referral has a qualified conversation with us — triggers $10 SPIFF for the LSP'}
                 </p>
+                {isOwner && (
+                  <p className="text-xs text-violet-400 mt-1">
+                    ⚠ This referral was submitted by the agency owner — SPIFF applies to LSPs only
+                  </p>
+                )}
               </div>
             </label>
 
