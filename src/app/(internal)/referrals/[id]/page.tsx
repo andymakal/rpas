@@ -32,6 +32,7 @@ export type ReferralDetail = {
 }
 
 export type Tier1Stage = { id: string; internal_status: string; agency_label: string }
+export type TouchLog   = { id: string; touch_type: string; notes: string | null; touched_at: string }
 
 export async function generateMetadata(
   { params }: { params: Promise<{ id: string }> }
@@ -55,7 +56,7 @@ export default async function ReferralDetailPage({
   const { id } = await params
   const supabase = createAdminClient()
 
-  const [{ data: caseData, error }, { data: stages }] = await Promise.all([
+  const [{ data: caseData, error }, { data: stages }, { data: touchLog }] = await Promise.all([
     supabase
       .from('cases')
       .select(`
@@ -73,6 +74,11 @@ export default async function ReferralDetailPage({
       .select('id, internal_status, agency_label')
       .eq('tier', 1)
       .order('stage_order'),
+    supabase
+      .from('case_touches')
+      .select('id, touch_type, notes, touched_at')
+      .eq('case_id', id)
+      .order('touched_at', { ascending: false }),
   ])
 
   if (error || !caseData) notFound()
@@ -81,6 +87,7 @@ export default async function ReferralDetailPage({
     <ReferralEditClient
       referral={caseData as unknown as ReferralDetail}
       stages={(stages as unknown as Tier1Stage[]) ?? []}
+      touchLog={(touchLog as unknown as TouchLog[]) ?? []}
     />
   )
 }

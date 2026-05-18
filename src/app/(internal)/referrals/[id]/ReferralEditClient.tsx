@@ -3,20 +3,44 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Phone, Building2, User, Calendar, Clock, MessageSquare, Mail, AlertCircle } from 'lucide-react'
-import type { ReferralDetail, Tier1Stage } from './page'
+import {
+  ArrowLeft, Phone, Building2, User, Calendar, Clock,
+  MessageSquare, Mail, AlertCircle, PhoneCall, PhoneOff,
+  MessageCircle, ChevronDown, ChevronUp,
+} from 'lucide-react'
+import type { ReferralDetail, Tier1Stage, TouchLog } from './page'
 
 const APPT_STATUSES  = new Set(['appointment_set', 'appointment_kept', 'appointment_missed'])
 const REWARM_STATUS  = 'back_to_agency'
 
-function daysAgo(iso: string | null): number | null {
-  if (!iso) return null
+const TOUCH_TYPES: { value: string; label: string; icon: React.ReactNode; short: string }[] = [
+  { value: 'call',      label: 'Call',      short: 'Called',    icon: <PhoneCall    className="w-4 h-4" /> },
+  { value: 'voicemail', label: 'Voicemail', short: 'Voicemail', icon: <PhoneOff     className="w-4 h-4" /> },
+  { value: 'text',      label: 'Text',      short: 'Texted',    icon: <MessageCircle className="w-4 h-4" /> },
+  { value: 'email',     label: 'Email',     short: 'Emailed',   icon: <Mail         className="w-4 h-4" /> },
+]
+
+const TOUCH_COLORS: Record<string, string> = {
+  call:      'bg-emerald-900/40 text-emerald-300 border-emerald-800',
+  voicemail: 'bg-slate-800/60  text-slate-400   border-slate-700',
+  text:      'bg-blue-900/40   text-blue-300    border-blue-800',
+  email:     'bg-indigo-900/40 text-indigo-300  border-indigo-800',
+}
+
+function daysAgo(iso: string | null): number {
+  if (!iso) return 0
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
 }
 
 function fmt(iso: string | null): string {
   if (!iso) return '—'
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function fmtTime(iso: string): string {
+  return new Date(iso).toLocaleString('en-US', {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+  })
 }
 
 function fmtRelative(iso: string | null): string {
@@ -40,14 +64,9 @@ function StatusBadge({ st }: { st: ReferralDetail['stage_translations'] }) {
 }
 
 function buildRewarmMailto(
-  clientName: string,
-  clientFirstName: string,
-  agentFirstName: string,
-  agentEmail: string | null,
-  agencyEmail: string | null,
+  clientName: string, clientFirstName: string,
+  agentFirstName: string, agentEmail: string | null, agencyEmail: string | null,
 ): string {
-  const to      = agentEmail ?? ''
-  const cc      = agencyEmail ?? ''
   const subject = `Referral Follow-Up – ${clientName}`
   const body = [
     `Hi ${agentFirstName},`,
@@ -63,34 +82,43 @@ function buildRewarmMailto(
   ].join('\n')
 
   const params = new URLSearchParams()
-  if (cc)      params.set('cc', cc)
+  if (agencyEmail) params.set('cc', agencyEmail)
   params.set('subject', subject)
   params.set('body', body)
-
-  return `mailto:${to}?${params.toString()}`
+  return `mailto:${agentEmail ?? ''}?${params.toString()}`
 }
 
 type Props = {
-  referral: ReferralDetail
-  stages: Tier1Stage[]
+  referral:  ReferralDetail
+  stages:    Tier1Stage[]
+  touchLog:  TouchLog[]
 }
 
-export function ReferralEditClient({ referral, stages }: Props) {
+export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog }: Props) {
   const router = useRouter()
 
-  const [status, setStatus] = useState(referral.internal_status)
+  const [status, setStatus]       = useState(referral.internal_status)
   const [appointmentDate, setAppointmentDate] = useState(
     referral.appointment_date ? referral.appointment_date.split('T')[0] : ''
   )
-  const [notes, setNotes]       = useState(referral.notes ?? '')
-  const [touches, setTouches]   = useState(referral.touches ?? 0)
+  const [notes, setNotes]         = useState(referral.notes ?? '')
+  const [touches, setTouches]     = useState(referral.touches ?? 0)
   const [lastContact, setLastContact] = useState(referral.last_contact_at)
+  const [touchLog, setTouchLog]   = useState<TouchLog[]>(initialTouchLog)
+
+  // Touch logger state
+  const [logOpen, setLogOpen]     = useState(false)
+  const [touchType, setTouchType] = useState('call')
+  const [touchNote, setTouchNote] = useState('')
+  const [logging, setLogging]     = useState(false)
+
+  // History expand
+  const [historyOpen, setHistoryOpen] = useState(touchLog.length > 0)
 
   const [saving, setSaving]   = useState(false)
-  const [logging, setLogging] = useState(false)
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
-  const showApptDate   = APPT_STATUSES.has(status)
+  const showApptDate    = APPT_STATUSES.has(status)
   const showRewarmEmail = status === REWARM_STATUS
 
   const clientName      = referral.customers ? `${referral.customers.first_name} ${referral.customers.last_name}` : 'Unknown'
@@ -105,15 +133,11 @@ export function ReferralEditClient({ referral, stages }: Props) {
     ? buildRewarmMailto(clientName, clientFirstName, agentFirstName, agentEmail, agencyEmail)
     : null
 
-  const missingEmails = showRewarmEmail && (!agentEmail || !agencyEmail)
-
   async function handleSave() {
     setSaving(true)
     setSaveMsg(null)
-
     const body: Record<string, unknown> = { internal_status: status, notes: notes || null }
     if (showApptDate) body.appointment_date = appointmentDate || null
-
     try {
       const res = await fetch(`/api/cases/${referral.id}`, {
         method: 'PATCH',
@@ -138,11 +162,21 @@ export function ReferralEditClient({ referral, stages }: Props) {
   async function handleLogTouch() {
     setLogging(true)
     try {
-      const res = await fetch(`/api/cases/${referral.id}/touch`, { method: 'POST' })
+      const res = await fetch(`/api/cases/${referral.id}/touch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ touch_type: touchType, notes: touchNote.trim() || undefined }),
+      })
       if (res.ok) {
         const { data } = await res.json()
         setTouches(data.touches)
         setLastContact(data.last_contact_at)
+        if (data.touch) {
+          setTouchLog(prev => [data.touch, ...prev])
+          setHistoryOpen(true)
+        }
+        setTouchNote('')
+        setLogOpen(false)
       }
     } finally {
       setLogging(false)
@@ -153,57 +187,97 @@ export function ReferralEditClient({ referral, stages }: Props) {
     <div className="p-8 max-w-4xl mx-auto">
       {/* Header */}
       <div className="mb-6">
-        <Link
-          href="/referrals"
-          className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-200 mb-4 transition-colors"
-        >
+        <Link href="/referrals" className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-200 mb-4 transition-colors">
           <ArrowLeft className="w-4 h-4" /> Back to Referrals
         </Link>
-
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-white text-2xl font-semibold">{clientName}</h1>
-            <div className="mt-1.5">
-              <StatusBadge st={referral.stage_translations} />
-            </div>
+            <div className="mt-1.5"><StatusBadge st={referral.stage_translations} /></div>
           </div>
-
           <button
-            onClick={handleLogTouch}
-            disabled={logging}
-            className="flex-shrink-0 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white bg-slate-700 hover:bg-slate-600 transition-colors disabled:opacity-50"
+            onClick={() => setLogOpen(o => !o)}
+            className="flex-shrink-0 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white bg-slate-700 hover:bg-slate-600 transition-colors"
           >
             <Phone className="w-4 h-4" />
-            {logging ? 'Logging…' : 'Log a Touch'}
+            Log a Touch
+            {logOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
           </button>
         </div>
+
+        {/* Touch logger panel */}
+        {logOpen && (
+          <div className="mt-4 bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-4">
+            <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Log a Touch</p>
+
+            {/* Type picker */}
+            <div className="flex gap-2 flex-wrap">
+              {TOUCH_TYPES.map(t => (
+                <button
+                  key={t.value}
+                  type="button"
+                  onClick={() => setTouchType(t.value)}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium border transition-all ${
+                    touchType === t.value
+                      ? 'border-white/20 bg-slate-700 text-white'
+                      : 'border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                  }`}
+                >
+                  {t.icon} {t.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Optional note */}
+            <textarea
+              value={touchNote}
+              onChange={e => setTouchNote(e.target.value)}
+              rows={2}
+              placeholder="Optional note — left VM, will try again Thursday, etc."
+              className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600 resize-none"
+            />
+
+            <div className="flex items-center justify-end gap-3">
+              <button
+                onClick={() => setLogOpen(false)}
+                className="text-sm text-slate-400 hover:text-slate-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleLogTouch}
+                disabled={logging}
+                className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 transition-opacity hover:opacity-90"
+                style={{ backgroundColor: '#1F3864' }}
+              >
+                {logging ? 'Logging…' : 'Log it'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        {/* Left — read-only info */}
+        {/* Left — info + activity */}
         <div className="space-y-5">
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
             <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide">Contact Info</h2>
-
             {referral.customers?.phone && (
               <div className="flex items-center gap-2.5">
                 <Phone className="w-4 h-4 text-slate-500 flex-shrink-0" />
                 <span className="text-slate-200 text-sm">{referral.customers.phone}</span>
               </div>
             )}
-
             <div className="flex items-center gap-2.5">
               <Building2 className="w-4 h-4 text-slate-500 flex-shrink-0" />
               <span className="text-slate-200 text-sm">{agencyName}</span>
             </div>
-
             {agentName && (
               <div className="flex items-center gap-2.5">
                 <User className="w-4 h-4 text-slate-500 flex-shrink-0" />
                 <span className="text-slate-200 text-sm">{agentName}</span>
               </div>
             )}
-
             <div className="flex items-center gap-2.5">
               <Calendar className="w-4 h-4 text-slate-500 flex-shrink-0" />
               <span className="text-slate-200 text-sm">{fmt(referral.created_at)}</span>
@@ -212,22 +286,20 @@ export function ReferralEditClient({ referral, stages }: Props) {
 
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
             <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide">Activity</h2>
-
-            <div className="flex items-center gap-2.5">
-              <Phone className="w-4 h-4 text-slate-500 flex-shrink-0" />
+            <div className="flex items-start gap-2.5">
+              <Phone className="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="text-slate-200 text-sm">{touches} touch{touches !== 1 ? 'es' : ''}</p>
                 <p className="text-xs text-slate-500">Last: {fmtRelative(lastContact)}</p>
               </div>
             </div>
-
-            <div className="flex items-center gap-2.5">
-              <Clock className="w-4 h-4 text-slate-500 flex-shrink-0" />
+            <div className="flex items-start gap-2.5">
+              <Clock className="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5" />
               <div className="space-y-1.5">
                 <div>
                   <p className="text-xs text-slate-500">In system</p>
                   <p className="text-slate-200 text-sm">
-                    {daysAgo(referral.created_at)} day{daysAgo(referral.created_at) !== 1 ? 's' : ''}
+                    {daysAgo(referral.created_at)}d
                     <span className="text-slate-500 text-xs ml-1.5">since {fmt(referral.created_at)}</span>
                   </p>
                 </div>
@@ -235,7 +307,7 @@ export function ReferralEditClient({ referral, stages }: Props) {
                   <div>
                     <p className="text-xs text-slate-500">In current status</p>
                     <p className="text-slate-200 text-sm">
-                      {daysAgo(referral.status_entered_at)} day{daysAgo(referral.status_entered_at) !== 1 ? 's' : ''}
+                      {daysAgo(referral.status_entered_at)}d
                       <span className="text-slate-500 text-xs ml-1.5">since {fmt(referral.status_entered_at)}</span>
                     </p>
                   </div>
@@ -243,6 +315,41 @@ export function ReferralEditClient({ referral, stages }: Props) {
               </div>
             </div>
           </div>
+
+          {/* Touch history */}
+          {touchLog.length > 0 && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+              <button
+                onClick={() => setHistoryOpen(o => !o)}
+                className="w-full flex items-center justify-between px-5 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide hover:text-slate-200 transition-colors"
+              >
+                <span>Touch History ({touchLog.length})</span>
+                {historyOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+              </button>
+
+              {historyOpen && (
+                <div className="border-t border-slate-800 divide-y divide-slate-800/50">
+                  {touchLog.map(t => {
+                    const typeInfo = TOUCH_TYPES.find(x => x.value === t.touch_type)
+                    return (
+                      <div key={t.id} className="px-5 py-3 space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium border ${TOUCH_COLORS[t.touch_type] ?? TOUCH_COLORS.call}`}>
+                            {typeInfo?.icon}
+                            {typeInfo?.short ?? t.touch_type}
+                          </span>
+                          <span className="text-xs text-slate-500 flex-shrink-0">{fmtTime(t.touched_at)}</span>
+                        </div>
+                        {t.notes && (
+                          <p className="text-xs text-slate-400 pl-0.5">{t.notes}</p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Right — editable fields */}
@@ -250,7 +357,6 @@ export function ReferralEditClient({ referral, stages }: Props) {
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-5">
             <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide">Update Referral</h2>
 
-            {/* Status */}
             <div>
               <label className="block text-xs text-slate-400 mb-1.5">Status</label>
               <select
@@ -275,8 +381,7 @@ export function ReferralEditClient({ referral, stages }: Props) {
                   Let the LSP know you couldn't reach {clientFirstName} and ask them to help re-engage.
                   {agencyEmail && <> The agency contact will be copied.</>}
                 </p>
-
-                {missingEmails && (
+                {(!agentEmail || !agencyEmail) && (
                   <div className="flex items-start gap-2 text-xs text-amber-500/80">
                     <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
                     <span>
@@ -286,7 +391,6 @@ export function ReferralEditClient({ referral, stages }: Props) {
                     </span>
                   </div>
                 )}
-
                 <a
                   href={rewarmMailto ?? '#'}
                   className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
@@ -295,13 +399,11 @@ export function ReferralEditClient({ referral, stages }: Props) {
                       : 'bg-slate-700 text-slate-500 cursor-not-allowed pointer-events-none'
                   }`}
                 >
-                  <Mail className="w-4 h-4" />
-                  Open in Outlook
+                  <Mail className="w-4 h-4" /> Open in Outlook
                 </a>
               </div>
             )}
 
-            {/* Appointment date — only when relevant */}
             {showApptDate && (
               <div>
                 <label className="block text-xs text-slate-400 mb-1.5">Appointment Date</label>
@@ -314,7 +416,6 @@ export function ReferralEditClient({ referral, stages }: Props) {
               </div>
             )}
 
-            {/* Notes */}
             <div>
               <label className="block text-xs text-slate-400 mb-1.5 flex items-center gap-1.5">
                 <MessageSquare className="w-3.5 h-3.5" /> Notes
@@ -330,12 +431,8 @@ export function ReferralEditClient({ referral, stages }: Props) {
 
             <div className="flex items-center justify-between pt-1">
               {saveMsg ? (
-                <p className={`text-sm ${saveMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {saveMsg.text}
-                </p>
-              ) : (
-                <span />
-              )}
+                <p className={`text-sm ${saveMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{saveMsg.text}</p>
+              ) : <span />}
               <button
                 onClick={handleSave}
                 disabled={saving}
