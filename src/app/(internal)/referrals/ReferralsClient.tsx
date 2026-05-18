@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Search } from 'lucide-react'
+import { Search, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
 import type { CaseRow, StageTranslation } from './page'
 
 const TIER_BADGE: Record<number, string> = {
@@ -28,9 +28,10 @@ function StatusBadge({ translation, internal_status }: { translation: StageTrans
 }
 
 export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
-  const [search, setSearch]           = useState('')
-  const [tab, setTab]                 = useState<'active' | 'all' | 'closed'>('active')
+  const [search, setSearch]             = useState('')
+  const [tab, setTab]                   = useState<'active' | 'all' | 'closed'>('active')
   const [statusFilter, setStatusFilter] = useState('')
+  const [sortDir, setSortDir]           = useState<'desc' | 'asc'>('desc')
 
   // Unique statuses present in the full data set, sorted by label
   const statusOptions = useMemo(() => {
@@ -70,8 +71,13 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
       })
     }
 
+    list = [...list].sort((a, b) => {
+      const diff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      return sortDir === 'asc' ? diff : -diff
+    })
+
     return list
-  }, [rows, tab, statusFilter, search])
+  }, [rows, tab, statusFilter, search, sortDir])
 
   const activeCount = rows.filter(r => r.stage_translations?.is_active_case === true).length
 
@@ -136,9 +142,21 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-800">
-                {['Contact', 'Agency', 'Status', 'Date In'].map(h => (
+                {['Contact', 'Agency', 'Status'].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-medium text-slate-400">{h}</th>
                 ))}
+                <th className="px-4 py-3 text-left">
+                  <button
+                    onClick={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-200 transition-colors"
+                  >
+                    Date In
+                    {sortDir === 'desc'
+                      ? <ChevronDown className="w-3.5 h-3.5" />
+                      : <ChevronUp className="w-3.5 h-3.5" />
+                    }
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody>
