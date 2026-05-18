@@ -17,6 +17,7 @@ export type CaseRow = {
   id: string
   internal_status: string
   created_at: string
+  status_entered_at: string | null
   agencies: { name: string; display_name: string | null } | null
   customers: { first_name: string; last_name: string; phone: string } | null
   agents: { first_name: string; last_name: string } | null
@@ -36,6 +37,7 @@ export default async function ReferralsPage() {
       id,
       internal_status,
       created_at,
+      status_entered_at,
       agencies ( name, display_name ),
       customers ( first_name, last_name, phone ),
       agents ( first_name, last_name ),

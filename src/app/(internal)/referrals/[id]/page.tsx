@@ -9,6 +9,7 @@ export type ReferralDetail = {
   id: string
   internal_status: string
   created_at: string
+  status_entered_at: string | null
   appointment_date: string | null
   notes: string | null
   touches: number | null
@@ -58,7 +59,7 @@ export default async function ReferralDetailPage({
     supabase
       .from('cases')
       .select(`
-        id, internal_status, created_at, appointment_date,
+        id, internal_status, created_at, status_entered_at, appointment_date,
         notes, touches, last_contact_at,
         customers ( first_name, last_name, phone, email ),
         agencies ( name, display_name, contact_email ),

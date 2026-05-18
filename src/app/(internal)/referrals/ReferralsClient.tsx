@@ -2,13 +2,31 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Search, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
+import { Search, ChevronUp, ChevronDown } from 'lucide-react'
 import type { CaseRow, StageTranslation } from './page'
 
 const TIER_BADGE: Record<number, string> = {
   1: 'bg-blue-900/50 text-blue-300 border border-blue-800',
   2: 'bg-indigo-900/50 text-indigo-300 border border-indigo-800',
   3: 'bg-emerald-900/50 text-emerald-300 border border-emerald-800',
+}
+
+function daysAgo(iso: string | null): number {
+  if (!iso) return 0
+  return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
+}
+
+function AgeBadge({ iso, label }: { iso: string | null; label?: string }) {
+  const d = daysAgo(iso)
+  const cls =
+    d < 14  ? 'bg-emerald-900/50 text-emerald-300 border-emerald-800' :
+    d < 30  ? 'bg-amber-900/50  text-amber-300  border-amber-800'  :
+              'bg-red-900/50    text-red-300    border-red-800'
+  return (
+    <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium border ${cls}`}>
+      {label ?? `${d}d`}
+    </span>
+  )
 }
 
 function StatusBadge({ translation, internal_status }: { translation: StageTranslation | null; internal_status: string }) {
@@ -179,8 +197,18 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
                     <td className="px-4 py-3">
                       <StatusBadge translation={r.stage_translations} internal_status={r.internal_status} />
                     </td>
-                    <td className="px-4 py-3 text-xs text-slate-400">
-                      {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    <td className="px-4 py-3">
+                      <p className="text-xs text-slate-400">
+                        {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      </p>
+                      <div className="flex items-center gap-1 mt-1">
+                        <AgeBadge iso={r.created_at} />
+                        {r.status_entered_at && r.status_entered_at !== r.created_at && (
+                          <span className="text-slate-600 text-xs" title="Days in current status">
+                            <AgeBadge iso={r.status_entered_at} label={`${daysAgo(r.status_entered_at)}d here`} />
+                          </span>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 </Link>

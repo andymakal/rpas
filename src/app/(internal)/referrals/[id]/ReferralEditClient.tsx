@@ -223,9 +223,23 @@ export function ReferralEditClient({ referral, stages }: Props) {
 
             <div className="flex items-center gap-2.5">
               <Clock className="w-4 h-4 text-slate-500 flex-shrink-0" />
-              <div>
-                <p className="text-xs text-slate-500">In system since</p>
-                <p className="text-slate-200 text-sm">{fmt(referral.created_at)}</p>
+              <div className="space-y-1.5">
+                <div>
+                  <p className="text-xs text-slate-500">In system</p>
+                  <p className="text-slate-200 text-sm">
+                    {daysAgo(referral.created_at)} day{daysAgo(referral.created_at) !== 1 ? 's' : ''}
+                    <span className="text-slate-500 text-xs ml-1.5">since {fmt(referral.created_at)}</span>
+                  </p>
+                </div>
+                {referral.status_entered_at && (
+                  <div>
+                    <p className="text-xs text-slate-500">In current status</p>
+                    <p className="text-slate-200 text-sm">
+                      {daysAgo(referral.status_entered_at)} day{daysAgo(referral.status_entered_at) !== 1 ? 's' : ''}
+                      <span className="text-slate-500 text-xs ml-1.5">since {fmt(referral.status_entered_at)}</span>
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </div>
