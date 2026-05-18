@@ -195,11 +195,21 @@ export function AgencyPortal({
       })
     : cases
 
-  // KPI counts — always agency-wide
-  const totalReferrals = cases.length
-  const keptAppts      = cases.filter(c => (c.stage_translations?.tier ?? 0) >= 2 || c.stage_translations?.is_won).length
-  const pendingCount   = cases.filter(c => c.stage_translations?.tier === 2 && c.stage_translations?.is_active_case).length
+  // KPI counts — always agency-wide (not filtered by agent)
+  const now         = new Date()
+  const d30         = new Date(now); d30.setDate(d30.getDate() - 30)
+  const d60         = new Date(now); d60.setDate(d60.getDate() - 60)
+
+  const tier1          = cases.filter(c => c.stage_translations?.tier === 1)
+  const totalReferrals = tier1.length
+  const activeReferrals= tier1.filter(c => c.stage_translations?.is_active_case).length
+  const referrals30d   = tier1.filter(c => new Date(c.created_at) >= d30).length
+  const referrals60d   = tier1.filter(c => new Date(c.created_at) >= d60).length
+  const keptAppts      = cases.filter(c => c.internal_status === 'appointment_kept').length
+  const apptRate       = totalReferrals > 0 ? Math.round(keptAppts / totalReferrals * 100) : null
+  const pendingCount   = cases.filter(c => (c.stage_translations?.tier ?? 0) >= 2 && c.stage_translations?.is_active_case).length
   const placedCount    = cases.filter(c => c.stage_translations?.is_won === true).length
+  const placementRate  = totalReferrals > 0 ? Math.round(placedCount / totalReferrals * 100) : null
 
   // Filtered lists
   const referrals    = filtered.filter(c => c.stage_translations?.tier === 1 && c.stage_translations?.is_active_case)
@@ -262,23 +272,50 @@ export function AgencyPortal({
           </div>
         </div>
 
-        {/* KPI cards */}
-        <div className="grid grid-cols-4 gap-3">
-          <div className="bg-white rounded-xl border border-slate-100 p-3 text-center">
-            <p className="text-2xl font-bold text-slate-900">{totalReferrals}</p>
-            <p className="text-xs text-slate-500 mt-1">Referrals</p>
+        {/* Pipeline stats */}
+        <div className="bg-white rounded-2xl border border-slate-100 px-6 py-5">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">
+            Referral Pipeline — {new Date().getFullYear()}
+          </p>
+          <div className="grid grid-cols-4 gap-4 mb-4">
+            <div className="text-center">
+              <p className="text-2xl font-bold text-slate-900">{totalReferrals}</p>
+              <p className="text-xs text-slate-500 mt-0.5">Total YTD</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-blue-600">{activeReferrals}</p>
+              <p className="text-xs text-slate-500 mt-0.5">Active</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-slate-700">{referrals30d}</p>
+              <p className="text-xs text-slate-500 mt-0.5">Last 30 Days</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-slate-700">{referrals60d}</p>
+              <p className="text-xs text-slate-500 mt-0.5">Last 60 Days</p>
+            </div>
           </div>
-          <div className="bg-white rounded-xl border border-slate-100 p-3 text-center">
-            <p className="text-2xl font-bold text-blue-600">{keptAppts}</p>
-            <p className="text-xs text-slate-500 mt-1">Kept Appts</p>
-          </div>
-          <div className="bg-white rounded-xl border border-slate-100 p-3 text-center">
-            <p className="text-2xl font-bold text-indigo-600">{pendingCount}</p>
-            <p className="text-xs text-slate-500 mt-1">Pending</p>
-          </div>
-          <div className="bg-white rounded-xl border border-slate-100 p-3 text-center">
-            <p className="text-2xl font-bold text-green-600">{placedCount}</p>
-            <p className="text-xs text-slate-500 mt-1">Placed</p>
+          <div className="border-t border-slate-100 pt-4 grid grid-cols-4 gap-4">
+            <div className="text-center">
+              <p className="text-2xl font-bold text-blue-500">{keptAppts}</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Kept Appts{apptRate !== null ? <span className="text-slate-400"> · {apptRate}%</span> : ''}
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-indigo-600">{pendingCount}</p>
+              <p className="text-xs text-slate-500 mt-0.5">In Underwriting</p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-emerald-600">{placedCount}</p>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Placed{placementRate !== null ? <span className="text-slate-400"> · {placementRate}%</span> : ''}
+              </p>
+            </div>
+            <div className="text-center">
+              <p className="text-2xl font-bold text-slate-400">{serviceRequests.length}</p>
+              <p className="text-xs text-slate-500 mt-0.5">Service Reqs</p>
+            </div>
           </div>
         </div>
 
