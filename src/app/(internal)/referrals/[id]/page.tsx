@@ -7,6 +7,9 @@ export const dynamic = 'force-dynamic'
 
 export type ReferralDetail = {
   id: string
+  customer_id: string
+  agent_id: string | null
+  agency_id: string
   internal_status: string
   created_at: string
   status_entered_at: string | null
@@ -24,7 +27,7 @@ export type ReferralDetail = {
     email: string | null
   } | null
   agencies: { name: string; display_name: string | null; contact_email: string | null } | null
-  agents: { first_name: string; last_name: string; email: string | null } | null
+  agents: { id: string; first_name: string; last_name: string; email: string | null } | null
   stage_translations: {
     agency_label: string
     tier: number
@@ -34,8 +37,9 @@ export type ReferralDetail = {
   } | null
 }
 
-export type Tier1Stage = { id: string; internal_status: string; agency_label: string }
-export type TouchLog   = { id: string; touch_type: string; notes: string | null; touched_at: string }
+export type Tier1Stage   = { id: string; internal_status: string; agency_label: string }
+export type TouchLog     = { id: string; touch_type: string; notes: string | null; touched_at: string }
+export type AgentOption  = { id: string; first_name: string; last_name: string; email: string | null }
 
 export async function generateMetadata(
   { params }: { params: Promise<{ id: string }> }
@@ -59,19 +63,26 @@ export default async function ReferralDetailPage({
   const { id } = await params
   const supabase = createAdminClient()
 
-  const [{ data: caseData, error }, { data: stages }, { data: touchLog }] = await Promise.all([
-    supabase
-      .from('cases')
-      .select(`
-        id, internal_status, created_at, status_entered_at, appointment_date,
-        notes, touches, last_contact_at, spiff_earned, spiff_earned_at, is_owner_referral,
-        customers ( first_name, last_name, phone, email ),
-        agencies ( name, display_name, contact_email ),
-        agents ( first_name, last_name, email ),
-        stage_translations ( agency_label, tier, is_active_case, is_won, is_lost )
-      `)
-      .eq('id', id)
-      .single(),
+  // Fetch case first so we have agency_id for the agents query
+  const { data: caseData, error } = await supabase
+    .from('cases')
+    .select(`
+      id, customer_id, agent_id, agency_id,
+      internal_status, created_at, status_entered_at, appointment_date,
+      notes, touches, last_contact_at, spiff_earned, spiff_earned_at, is_owner_referral,
+      customers ( first_name, last_name, phone, email ),
+      agencies ( name, display_name, contact_email ),
+      agents ( id, first_name, last_name, email ),
+      stage_translations ( agency_label, tier, is_active_case, is_won, is_lost )
+    `)
+    .eq('id', id)
+    .single()
+
+  if (error || !caseData) notFound()
+
+  const cd = caseData as unknown as ReferralDetail
+
+  const [{ data: stages }, { data: touchLog }, { data: agentsList }] = await Promise.all([
     supabase
       .from('stage_translations')
       .select('id, internal_status, agency_label')
@@ -82,15 +93,19 @@ export default async function ReferralDetailPage({
       .select('id, touch_type, notes, touched_at')
       .eq('case_id', id)
       .order('touched_at', { ascending: false }),
+    supabase
+      .from('agents')
+      .select('id, first_name, last_name, email')
+      .eq('agency_id', cd.agency_id)
+      .order('first_name'),
   ])
-
-  if (error || !caseData) notFound()
 
   return (
     <ReferralEditClient
-      referral={caseData as unknown as ReferralDetail}
+      referral={cd}
       stages={(stages as unknown as Tier1Stage[]) ?? []}
       touchLog={(touchLog as unknown as TouchLog[]) ?? []}
+      agentsList={(agentsList as unknown as AgentOption[]) ?? []}
     />
   )
 }
