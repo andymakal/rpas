@@ -15,6 +15,11 @@ export async function logCase(data: {
   last_name: string
   phone: string
   email?: string
+  dob?: string
+  street?: string
+  city?: string
+  state?: string
+  zip?: string
   referral_type: string
   lead_source: LeadSource
   notes?: string
@@ -29,11 +34,16 @@ export async function logCase(data: {
     const { data: customer, error: custError } = await supabase
       .from('customers')
       .insert({
-        agency_id:  data.agency_id ?? null,
-        first_name: data.first_name.trim(),
-        last_name:  data.last_name.trim(),
-        phone:      data.phone.trim(),
-        email:      data.email?.trim() || null,
+        agency_id:     data.agency_id ?? null,
+        first_name:    data.first_name.trim(),
+        last_name:     data.last_name.trim(),
+        phone:         data.phone.trim(),
+        email:         data.email?.trim() || null,
+        date_of_birth: data.dob || null,
+        street:        data.street?.trim() || null,
+        city:          data.city?.trim() || null,
+        state:         data.state || null,
+        zip:           data.zip?.trim() || null,
       })
       .select('id')
       .single()

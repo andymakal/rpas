@@ -40,6 +40,10 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
           phone:         form.client_phone,
           email:         form.client_email || null,
           date_of_birth: form.client_dob   || null,
+          street:        form.client_address || null,
+          city:          form.client_city   || null,
+          state:         form.client_state  || null,
+          zip:           form.client_zip    || null,
           is_test:       false,
         })
         .select('id')

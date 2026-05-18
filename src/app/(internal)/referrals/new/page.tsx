@@ -9,9 +9,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import Link from 'next/link'
 import { ArrowLeft, Loader2 } from 'lucide-react'
+import { US_STATES } from '@/lib/constants/referral-options'
 
-type Agency = { id: string; name: string }
-type Agent = { id: string; agency_id: string; first_name: string; last_name: string }
+type Agency = { id: string; name: string; display_name: string | null }
+type Agent  = { id: string; agency_id: string; first_name: string; last_name: string }
 
 const supabase = createClient()
 
@@ -40,22 +41,27 @@ export default function NewReferralPage() {
   const router = useRouter()
 
   const [leadSource, setLeadSource] = useState<LeadSource>('agency_referral')
-  const [agencies, setAgencies] = useState<Agency[]>([])
-  const [agents, setAgents] = useState<Agent[]>([])
+  const [agencies, setAgencies]     = useState<Agency[]>([])
+  const [agents, setAgents]         = useState<Agent[]>([])
   const [loadingAgencies, setLoadingAgencies] = useState(true)
-  const [loadingAgents, setLoadingAgents] = useState(false)
+  const [loadingAgents, setLoadingAgents]     = useState(false)
 
-  const [agencyId, setAgencyId] = useState('')
-  const [agentId, setAgentId] = useState('')
-  const [referralType, setReferralType] = useState('')
-  const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName] = useState('')
-  const [phone, setPhone] = useState('')
-  const [email, setEmail] = useState('')
-  const [notes, setNotes] = useState('')
+  const [agencyId,      setAgencyId]      = useState('')
+  const [agentId,       setAgentId]       = useState('')
+  const [referralType,  setReferralType]  = useState('')
+  const [firstName,     setFirstName]     = useState('')
+  const [lastName,      setLastName]      = useState('')
+  const [phone,         setPhone]         = useState('')
+  const [email,         setEmail]         = useState('')
+  const [dob,           setDob]           = useState('')
+  const [street,        setStreet]        = useState('')
+  const [city,          setCity]          = useState('')
+  const [state,         setState]         = useState('')
+  const [zip,           setZip]           = useState('')
+  const [notes,         setNotes]         = useState('')
 
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError]           = useState<string | null>(null)
 
   const needsAgency = leadSource === 'agency_referral'
 
@@ -63,7 +69,7 @@ export default function NewReferralPage() {
     async function loadAgencies() {
       const { data } = await supabase
         .from('agencies')
-        .select('id, name')
+        .select('id, name, display_name')
         .eq('is_active', true)
         .order('name')
       if (data) setAgencies(data)
@@ -110,6 +116,11 @@ export default function NewReferralPage() {
       last_name:     lastName.trim(),
       phone:         phone.trim(),
       email:         email.trim() || undefined,
+      dob:           dob || undefined,
+      street:        street.trim() || undefined,
+      city:          city.trim() || undefined,
+      state:         state || undefined,
+      zip:           zip.trim() || undefined,
       referral_type: referralType,
       lead_source:   leadSource,
       notes:         notes.trim() || undefined,
@@ -127,9 +138,9 @@ export default function NewReferralPage() {
       <div className="max-w-2xl mx-auto">
         <div className="mb-6">
           <Link href="/referrals" className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-200 mb-4">
-            <ArrowLeft className="w-4 h-4" /> Back to Cases
+            <ArrowLeft className="w-4 h-4" /> Back to Referrals
           </Link>
-          <h1 className="text-white text-2xl font-semibold">Log a Case</h1>
+          <h1 className="text-white text-2xl font-semibold">Log a Referral</h1>
           <p className="text-slate-400 text-sm mt-1">Record a new referral or lead</p>
         </div>
 
@@ -172,17 +183,16 @@ export default function NewReferralPage() {
                   <select required={needsAgency} value={agencyId} onChange={e => setAgencyId(e.target.value)} className={selectCls}>
                     <option value="">Select agency...</option>
                     {agencies.map(a => (
-                      <option key={a.id} value={a.id}>{a.name}</option>
+                      <option key={a.id} value={a.id}>{a.display_name ?? a.name}</option>
                     ))}
                   </select>
                 )}
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-slate-300 text-sm">
-                  LSP <span className="text-slate-500 font-normal">— optional</span>
-                </Label>
+                <Label className="text-slate-300 text-sm">LSP Name *</Label>
                 <select
+                  required={needsAgency}
                   value={agentId}
                   onChange={e => setAgentId(e.target.value)}
                   disabled={!agencyId || loadingAgents}
@@ -230,14 +240,44 @@ export default function NewReferralPage() {
 
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
+                <Label className="text-slate-300 text-sm">Date of Birth *</Label>
+                <Input required type="date" value={dob} onChange={e => setDob(e.target.value)} className={inputCls} />
+              </div>
+              <div className="space-y-1.5">
                 <Label className="text-slate-300 text-sm">Phone *</Label>
                 <Input required type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="(570) 555-0100" className={inputCls} />
               </div>
-              <div className="space-y-1.5">
-                <Label className="text-slate-300 text-sm">
-                  Email <span className="text-slate-500 font-normal">— optional</span>
-                </Label>
-                <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@email.com" className={inputCls} />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-slate-300 text-sm">
+                Email <span className="text-slate-500 font-normal">— optional</span>
+              </Label>
+              <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@email.com" className={inputCls} />
+            </div>
+
+            <div className="space-y-1.5">
+              <Label className="text-slate-300 text-sm">Street Address</Label>
+              <Input value={street} onChange={e => setStreet(e.target.value)} placeholder="123 Main St" className={inputCls} />
+            </div>
+
+            <div className="grid grid-cols-6 gap-3">
+              <div className="col-span-3 space-y-1.5">
+                <Label className="text-slate-300 text-sm">City</Label>
+                <Input value={city} onChange={e => setCity(e.target.value)} placeholder="Scranton" className={inputCls} />
+              </div>
+              <div className="col-span-2 space-y-1.5">
+                <Label className="text-slate-300 text-sm">State</Label>
+                <select value={state} onChange={e => setState(e.target.value)} className={selectCls}>
+                  <option value="">—</option>
+                  {US_STATES.map(s => (
+                    <option key={s.value} value={s.value}>{s.value}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="col-span-1 space-y-1.5">
+                <Label className="text-slate-300 text-sm">ZIP</Label>
+                <Input value={zip} onChange={e => setZip(e.target.value)} placeholder="18503" className={inputCls} />
               </div>
             </div>
           </div>
@@ -265,7 +305,7 @@ export default function NewReferralPage() {
               Cancel
             </Link>
             <Button type="submit" disabled={submitting} className="text-white px-6 font-medium" style={{ backgroundColor: '#1F3864' }}>
-              {submitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Logging...</> : 'Log Case →'}
+              {submitting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving...</> : 'Log Referral →'}
             </Button>
           </div>
         </form>
