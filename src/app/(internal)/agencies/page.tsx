@@ -7,13 +7,20 @@ export const metadata: Metadata = { title: 'Agencies' }
 export const dynamic = 'force-dynamic'
 
 export type AgencyRow = {
-  id:           string
-  name:         string
-  display_name: string | null
-  slug:         string
-  is_active:    boolean
-  sml_team_id:  string | null
-  sml_team:     string | null
+  id:             string
+  name:           string
+  display_name:   string | null
+  slug:           string
+  is_active:      boolean
+  sml_team_id:    string | null
+  sml_team:       string | null
+  agent_number:   string | null
+  contact_phone:  string | null
+  contact_email:  string | null
+  contact_street: string | null
+  contact_city:   string | null
+  contact_state:  string | null
+  contact_zip:    string | null
 }
 
 export type SmlTeamOption = { id: string; code: string; display_name: string }
@@ -24,7 +31,7 @@ export default async function AgenciesPage() {
   const [{ data: agencies }, { data: teams }] = await Promise.all([
     supabase
       .from('agencies')
-      .select('id, name, display_name, slug, is_active, sml_team_id, sml_teams(display_name)')
+      .select('id, name, display_name, slug, is_active, sml_team_id, sml_teams(display_name), agent_number, contact_phone, contact_email, contact_street, contact_city, contact_state, contact_zip')
       .eq('is_test', false)
       .order('name'),
     supabase
@@ -35,13 +42,20 @@ export default async function AgenciesPage() {
   ])
 
   const rows: AgencyRow[] = (agencies ?? []).map((a: Record<string, unknown>) => ({
-    id:           a.id as string,
-    name:         a.name as string,
-    display_name: a.display_name as string | null,
-    slug:         a.slug as string,
-    is_active:    a.is_active as boolean,
-    sml_team_id:  a.sml_team_id as string | null,
-    sml_team:     (a.sml_teams as { display_name: string } | null)?.display_name ?? null,
+    id:             a.id as string,
+    name:           a.name as string,
+    display_name:   a.display_name as string | null,
+    slug:           a.slug as string,
+    is_active:      a.is_active as boolean,
+    sml_team_id:    a.sml_team_id as string | null,
+    sml_team:       (a.sml_teams as { display_name: string } | null)?.display_name ?? null,
+    agent_number:   a.agent_number as string | null,
+    contact_phone:  a.contact_phone as string | null,
+    contact_email:  a.contact_email as string | null,
+    contact_street: a.contact_street as string | null,
+    contact_city:   a.contact_city as string | null,
+    contact_state:  a.contact_state as string | null,
+    contact_zip:    a.contact_zip as string | null,
   }))
 
   return (
