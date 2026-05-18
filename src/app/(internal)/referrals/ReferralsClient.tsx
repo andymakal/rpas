@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Search, ChevronUp, ChevronDown } from 'lucide-react'
 import type { CaseRow, StageTranslation } from './page'
 
@@ -46,6 +46,7 @@ function StatusBadge({ translation, internal_status }: { translation: StageTrans
 }
 
 export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
+  const router = useRouter()
   const [search, setSearch]             = useState('')
   const [tab, setTab]                   = useState<'active' | 'all' | 'closed'>('active')
   const [statusFilter, setStatusFilter] = useState('')
@@ -202,8 +203,9 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
             </thead>
             <tbody>
               {filtered.map((r, i) => (
-                <Link key={r.id} href={`/referrals/${r.id}`} legacyBehavior>
                   <tr
+                    key={r.id}
+                    onClick={() => router.push(`/referrals/${r.id}`)}
                     className={`cursor-pointer transition-colors hover:bg-slate-800/40 ${
                       i < filtered.length - 1 ? 'border-b border-slate-800/50' : ''
                     }`}
@@ -252,7 +254,6 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
                       </div>
                     </td>
                   </tr>
-                </Link>
               ))}
             </tbody>
           </table>
