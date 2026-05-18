@@ -2,7 +2,6 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest } from 'next/server'
 import * as XLSX from 'xlsx'
 
-// Maps spreadsheet Status values to internal_status codes
 const STATUS_MAP: Record<string, string> = {
   'quote':       'quoted',
   'application': 'app_submitted',
@@ -15,17 +14,16 @@ const STATUS_MAP: Record<string, string> = {
 
 function parseName(raw: string): { first: string; last: string } | null {
   if (!raw?.trim()) return null
-  // "Lastname, Firstname" or "Lastname-Compound, Firstname"
-  const parts = raw.trim().split(',')
-  if (parts.length < 2) return null
+  // Handle "Lastname, Firstname" — split on first comma only
+  const idx = raw.indexOf(',')
+  if (idx === -1) return null
   return {
-    last:  parts[0].trim(),
-    first: parts[1].trim(),
+    last:  raw.slice(0, idx).trim(),
+    first: raw.slice(idx + 1).trim().split(' ')[0], // take first word only ("and child" etc.)
   }
 }
 
 function normalizeAgentName(raw: string): string {
-  // "Lastname, Firstname - STATE" → "lastname firstname"
   return raw
     .replace(/\s*-\s*(PA|NJ|VA|AL|RI|CT|NH|KS|MO)\s*$/i, '')
     .replace(',', '')
@@ -48,10 +46,10 @@ type SheetRow = {
 }
 
 type RowResult = {
-  row:     number
-  client:  string
-  outcome: 'updated' | 'no_case' | 'no_customer' | 'skipped'
-  detail:  string
+  row:      number
+  client:   string
+  outcome:  'updated' | 'created' | 'skipped'
+  detail:   string
 }
 
 export async function POST(request: NextRequest) {
@@ -66,7 +64,6 @@ export async function POST(request: NextRequest) {
   const ws = wb.Sheets[wb.SheetNames[0]]
   const raw = XLSX.utils.sheet_to_json<SheetRow>(ws, { defval: null, range: 2 })
 
-  // Pre-load all lookup data in parallel
   const [
     { data: customers },
     { data: agencies },
@@ -79,19 +76,18 @@ export async function POST(request: NextRequest) {
     supabase.from('products').select('id, name'),
   ])
 
+  // Customer lookup — key: "last|first"
   const customerMap = new Map<string, string>()
   for (const c of customers ?? []) {
     const key = `${c.last_name.toLowerCase().trim()}|${c.first_name.toLowerCase().trim()}`
     customerMap.set(key, c.id)
   }
 
+  // Agency lookup — normalized display name and slug
   const agencyMap = new Map<string, string>()
   for (const a of agencies ?? []) {
-    const displayNorm = normalizeAgentName(a.display_name ?? a.name)
-    agencyMap.set(displayNorm, a.id)
-    // Also index by slug words for broader matching
-    const slugNorm = (a.slug ?? '').replace(/-/g, ' ')
-    agencyMap.set(slugNorm, a.id)
+    agencyMap.set(normalizeAgentName(a.display_name ?? a.name), a.id)
+    agencyMap.set((a.slug ?? '').replace(/-/g, ' '), a.id)
   }
 
   const requirementMap = new Map<string, string>()
@@ -106,8 +102,7 @@ export async function POST(request: NextRequest) {
 
   const results: RowResult[] = []
   let updated = 0
-  let noCustomer = 0
-  let noCase = 0
+  let created = 0
   let skipped = 0
 
   for (let i = 0; i < raw.length; i++) {
@@ -118,56 +113,18 @@ export async function POST(request: NextRequest) {
     const name = parseName(clientRaw)
     if (!name) {
       skipped++
-      results.push({ row: i + 4, client: clientRaw, outcome: 'skipped', detail: 'Could not parse name' })
+      results.push({ row: i + 4, client: clientRaw, outcome: 'skipped', detail: 'Could not parse name — fix manually' })
       continue
     }
 
-    const customerKey = `${name.last.toLowerCase()}|${name.first.toLowerCase()}`
-    const customerId = customerMap.get(customerKey)
-
-    if (!customerId) {
-      noCustomer++
-      results.push({ row: i + 4, client: clientRaw, outcome: 'no_customer', detail: 'Customer not found in database' })
-      continue
-    }
-
-    // Find case for this customer — prefer most recent non-placed case
-    const { data: cases } = await supabase
-      .from('cases')
-      .select('id, internal_status, agency_id')
-      .eq('customer_id', customerId)
-      .eq('is_test', false)
-      .order('created_at', { ascending: false })
-
-    if (!cases || cases.length === 0) {
-      noCase++
-      results.push({ row: i + 4, client: clientRaw, outcome: 'no_case', detail: 'No case found for this customer' })
-      continue
-    }
-
-    // Pick best matching case: prefer one not already placed/lost/snoozed
-    const targetCase = cases.find(c =>
-      c.internal_status !== 'placed' &&
-      c.internal_status !== 'carrier_declined' &&
-      c.internal_status !== 'client_withdrew'
-    ) ?? cases[0]
-
-    const statusRaw = String(row['Status'] ?? '').trim().toLowerCase()
-    const internalStatus = STATUS_MAP[statusRaw] ?? 'app_submitted'
-
-    // Resolve agency from agent name
+    // Resolve agency
     const agentRaw = String(row['Agent'] ?? '').trim()
     const agentNorm = normalizeAgentName(agentRaw)
     let agencyId: string | null = agencyMap.get(agentNorm) ?? null
-
-    // Fallback: match on last name only
     if (!agencyId && agentNorm) {
-      const lastName = agentNorm.split(',')[0]?.trim() ?? agentNorm.split(' ')[0]
+      const lastName = agentNorm.split(' ')[0]
       for (const [key, id] of agencyMap) {
-        if (key.startsWith(lastName) || key.includes(lastName)) {
-          agencyId = id
-          break
-        }
+        if (lastName.length >= 4 && key.startsWith(lastName)) { agencyId = id; break }
       }
     }
 
@@ -175,57 +132,127 @@ export async function POST(request: NextRequest) {
     const productRaw = String(row['Product'] ?? '').trim().toLowerCase()
     const productId = productMap.get(productRaw) ?? null
 
-    // Build update
-    const updates: Record<string, unknown> = {
+    const statusRaw = String(row['Status'] ?? '').trim().toLowerCase()
+    const internalStatus = STATUS_MAP[statusRaw] ?? 'app_submitted'
+
+    const account     = String(row['Account'] ?? '').trim() || null
+    const notes       = String(row['Notes'] ?? '').trim() || null
+    const faceAmount  = row['Face Amount']   ? Number(row['Face Amount'])   : null
+    const premium     = row['Target Premium'] ? Number(row['Target Premium']) : null
+    const reqRaw      = String(row['Requirements Needed'] ?? '').trim()
+
+    // ── Find or create customer ──────────────────────────────────────────────
+    const customerKey = `${name.last.toLowerCase()}|${name.first.toLowerCase()}`
+    let customerId = customerMap.get(customerKey) ?? null
+
+    if (!customerId) {
+      const { data: newCustomer } = await supabase
+        .from('customers')
+        .insert({
+          first_name: name.first,
+          last_name:  name.last,
+          agency_id:  agencyId,
+        })
+        .select('id')
+        .single()
+
+      if (newCustomer) {
+        customerId = newCustomer.id
+        customerMap.set(customerKey, customerId)
+      }
+    }
+
+    if (!customerId) {
+      skipped++
+      results.push({ row: i + 4, client: clientRaw, outcome: 'skipped', detail: 'Could not create customer' })
+      continue
+    }
+
+    // ── Find or create case ──────────────────────────────────────────────────
+    const { data: cases } = await supabase
+      .from('cases')
+      .select('id, internal_status, agency_id')
+      .eq('customer_id', customerId)
+      .eq('is_test', false)
+      .order('created_at', { ascending: false })
+
+    const caseFields: Record<string, unknown> = {
       internal_status:   internalStatus,
       status_entered_at: new Date().toISOString(),
       updated_at:        new Date().toISOString(),
     }
+    if (productId)   caseFields.product_id    = productId
+    if (faceAmount)  caseFields.face_amount   = faceAmount
+    if (premium)     caseFields.annual_premium = premium
+    if (account)     caseFields.policy_number = account
+    if (notes)       caseFields.notes         = notes
+    if (internalStatus === 'placed') caseFields.placed_at = new Date().toISOString()
 
-    if (agencyId && !targetCase.agency_id) updates.agency_id = agencyId
-    if (productId)                           updates.product_id = productId
-    if (row['Face Amount'])                  updates.face_amount = Number(row['Face Amount'])
-    if (row['Target Premium'])               updates.annual_premium = Number(row['Target Premium'])
+    let caseId: string
 
-    const account = String(row['Account'] ?? '').trim()
-    if (account) updates.policy_number = account
+    const existingCase = cases?.find(c =>
+      c.internal_status !== 'placed' &&
+      c.internal_status !== 'carrier_declined' &&
+      c.internal_status !== 'client_withdrew'
+    ) ?? cases?.[0]
 
-    const notes = String(row['Notes'] ?? '').trim()
-    if (notes) updates.notes = notes
+    if (existingCase) {
+      if (agencyId && !existingCase.agency_id) caseFields.agency_id = agencyId
+      await supabase.from('cases').update(caseFields).eq('id', existingCase.id)
+      caseId = existingCase.id
+      updated++
+      results.push({
+        row: i + 4, client: clientRaw, outcome: 'updated',
+        detail: `→ ${internalStatus}${agencyId ? '' : ' (agency unmatched)'}`,
+      })
+    } else {
+      // Create a brand new case
+      if (agencyId) caseFields.agency_id = agencyId
+      caseFields.customer_id  = customerId
+      caseFields.lead_source  = 'agency_referral'
+      caseFields.is_test      = false
+      caseFields.created_at   = new Date().toISOString()
 
-    if (internalStatus === 'placed') updates.placed_at = new Date().toISOString()
+      const { data: newCase } = await supabase
+        .from('cases')
+        .insert(caseFields)
+        .select('id')
+        .single()
 
-    await supabase.from('cases').update(updates).eq('id', targetCase.id)
+      if (!newCase) {
+        skipped++
+        results.push({ row: i + 4, client: clientRaw, outcome: 'skipped', detail: 'Could not create case' })
+        continue
+      }
+      caseId = newCase.id
+      created++
+      results.push({
+        row: i + 4, client: clientRaw, outcome: 'created',
+        detail: `→ ${internalStatus}${agencyId ? '' : ' (agency unmatched)'}`,
+      })
+    }
 
-    // Add pending requirement if present
-    const reqRaw = String(row['Requirements Needed'] ?? '').trim().toLowerCase()
+    // ── Attach pending requirement ────────────────────────────────────────────
     if (reqRaw) {
-      const reqId = requirementMap.get(reqRaw)
+      const reqId = requirementMap.get(reqRaw.toLowerCase())
       if (reqId) {
         await supabase
           .from('case_pending_requirements')
           .upsert(
-            { case_id: targetCase.id, pending_requirement_id: reqId, resolved_at: null },
+            { case_id: caseId, pending_requirement_id: reqId, resolved_at: null },
             { onConflict: 'case_id,pending_requirement_id' }
           )
       }
     }
-
-    updated++
-    results.push({
-      row:     i + 4,
-      client:  clientRaw,
-      outcome: 'updated',
-      detail:  `→ ${internalStatus}${agencyId ? '' : ' (agency unmatched)'}`,
-    })
   }
 
+  const skippedRows = results.filter(r => r.outcome === 'skipped')
+
   return Response.json({
-    total:       raw.length,
+    total:   raw.length,
     updated,
-    no_customer: noCustomer,
-    no_case:     noCase,
+    created,
     skipped,
-    rows:        results,
+    skipped_rows: skippedRows,
   })
 }

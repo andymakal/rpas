@@ -12,12 +12,11 @@ type RowResult = {
 }
 
 type ImportResult = {
-  total:       number
-  updated:     number
-  no_customer: number
-  no_case:     number
-  skipped:     number
-  rows:        RowResult[]
+  total:        number
+  updated:      number
+  created:      number
+  skipped:      number
+  skipped_rows: RowResult[]
 }
 
 export default function PendingImportPage() {
@@ -54,7 +53,7 @@ export default function PendingImportPage() {
     setLoading(false)
   }
 
-  const unmatched = result?.rows.filter(r => r.outcome !== 'updated') ?? []
+  const skippedRows = result?.skipped_rows ?? []
 
   return (
     <div className="p-8">
@@ -142,22 +141,22 @@ export default function PendingImportPage() {
                 <p className="text-xs text-slate-400 mt-1">Updated</p>
               </div>
               <div className="bg-slate-800 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-amber-400">{result.no_customer}</p>
-                <p className="text-xs text-slate-400 mt-1">No customer</p>
+                <p className="text-2xl font-bold text-blue-400">{result.created}</p>
+                <p className="text-xs text-slate-400 mt-1">Created</p>
               </div>
               <div className="bg-slate-800 rounded-lg p-3 text-center">
-                <p className="text-2xl font-bold text-amber-400">{result.no_case}</p>
-                <p className="text-xs text-slate-400 mt-1">No case</p>
+                <p className="text-2xl font-bold text-amber-400">{result.skipped}</p>
+                <p className="text-xs text-slate-400 mt-1">Skipped</p>
               </div>
             </div>
 
-            {unmatched.length > 0 && (
+            {skippedRows.length > 0 && (
               <div className="bg-amber-950 border border-amber-800 rounded-lg p-4">
                 <p className="text-amber-300 text-sm font-semibold mb-2">
-                  Unmatched rows ({unmatched.length}) — update these manually
+                  Skipped rows ({skippedRows.length}) — fix manually
                 </p>
                 <div className="space-y-1 max-h-64 overflow-y-auto">
-                  {unmatched.map(r => (
+                  {skippedRows.map(r => (
                     <div key={r.row} className="flex items-start gap-3 text-xs">
                       <span className="text-amber-600 font-mono shrink-0">Row {r.row}</span>
                       <span className="text-amber-200 font-medium shrink-0">{r.client}</span>
