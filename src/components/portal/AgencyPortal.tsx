@@ -16,9 +16,13 @@ export type Case = {
   id: string
   internal_status: string
   created_at: string
+  placed_at: string | null
+  face_amount: number | null
+  annual_premium: number | null
   customers: { first_name: string; last_name: string } | null
   agents: { first_name: string; last_name: string } | null
   stage_translations: StageTranslation | null
+  products: { name: string; carriers: { short_name: string } | null } | null
 }
 
 export type ServiceRequest = {
@@ -41,22 +45,13 @@ export type PolicyReview = {
   opportunity_types: { name: string } | null
 }
 
-type AgencyProps = {
-  name: string
-  slug: string
-}
+type AgencyProps = { name: string; slug: string }
 
-const TIER_BADGE: Record<number, { color: string }> = {
-  1: { color: 'bg-blue-100 text-blue-700' },
-  2: { color: 'bg-indigo-100 text-indigo-700' },
-  3: { color: 'bg-emerald-100 text-emerald-700' },
-}
-
-function statusBadgeClass(st: StageTranslation | null, internal_status: string): string {
-  if (internal_status === 'placed' || st?.is_won) return 'bg-green-100 text-green-700'
-  if (st?.is_lost) return 'bg-slate-100 text-slate-500'
-  if (internal_status === 'snoozed') return 'bg-yellow-100 text-yellow-700'
-  return TIER_BADGE[st?.tier ?? 1]?.color ?? 'bg-slate-100 text-slate-500'
+function formatCurrency(v: number | null) {
+  if (!v) return null
+  if (v >= 1_000_000) return `$${(v / 1_000_000).toFixed(1)}M`
+  if (v >= 1_000)     return `$${Math.round(v / 1_000)}K`
+  return `$${Math.round(v)}`
 }
 
 function formatGdc(v: number) {
@@ -64,40 +59,114 @@ function formatGdc(v: number) {
   return `$${Math.round(v)}`
 }
 
-function formatApps(v: number) {
-  return String(Math.round(v))
-}
-
-function srStatusClass(statusName: string | undefined): string {
-  if (!statusName) return 'bg-slate-100 text-slate-500'
-  if (statusName === 'Resolved' || statusName === 'Converted to Review') return 'bg-green-100 text-green-700'
-  if (statusName === 'Awaiting Carrier' || statusName === 'Pending Client Response') return 'bg-amber-100 text-amber-700'
+function srStatusClass(s: string | undefined) {
+  if (!s) return 'bg-slate-100 text-slate-500'
+  if (s === 'Resolved' || s === 'Converted to Review') return 'bg-green-100 text-green-700'
+  if (s === 'Awaiting Carrier' || s === 'Pending Client Response') return 'bg-amber-100 text-amber-700'
   return 'bg-blue-100 text-blue-700'
 }
 
-function prStatusClass(statusName: string | undefined): string {
-  if (!statusName) return 'bg-slate-100 text-slate-500'
-  if (statusName.startsWith('New Policy') || statusName.startsWith('Completed')) return 'bg-green-100 text-green-700'
-  if (statusName === 'Client Declined' || statusName === 'Complete — No Changes') return 'bg-slate-100 text-slate-500'
-  if (statusName === 'Quoted — Follow Up' || statusName === 'Follow-Up Needed') return 'bg-amber-100 text-amber-700'
-  if (statusName === 'In Progress') return 'bg-blue-100 text-blue-700'
+function prStatusClass(s: string | undefined) {
+  if (!s) return 'bg-slate-100 text-slate-500'
+  if (s.startsWith('New Policy') || s.startsWith('Completed')) return 'bg-green-100 text-green-700'
+  if (s === 'Client Declined' || s === 'Complete — No Changes') return 'bg-slate-100 text-slate-500'
+  if (s === 'Quoted — Follow Up' || s === 'Follow-Up Needed') return 'bg-amber-100 text-amber-700'
+  if (s === 'In Progress') return 'bg-blue-100 text-blue-700'
   return 'bg-slate-100 text-slate-600'
 }
 
+// ── Case cards ────────────────────────────────────────────────────────────────
+
+function ReferralCard({ c }: { c: Case }) {
+  const label = c.stage_translations?.agency_label ?? c.internal_status
+  const date  = new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return (
+    <div className="bg-white rounded-xl border border-slate-100 px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">
+            {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
+          </p>
+          <p className="text-xs text-slate-400 mt-0.5">{date}</p>
+        </div>
+        <span className="text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0 bg-blue-100 text-blue-700">
+          {label}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function PendingCard({ c }: { c: Case }) {
+  const label    = c.stage_translations?.agency_label ?? c.internal_status
+  const carrier  = c.products?.carriers?.short_name
+  const product  = c.products?.name
+  const face     = formatCurrency(c.face_amount)
+  return (
+    <div className="bg-white rounded-xl border border-slate-100 px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">
+            {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
+          </p>
+          <p className="text-xs text-slate-400 mt-0.5">
+            {carrier ?? '—'}{product ? ` · ${product}` : ''}{face ? ` · ${face}` : ''}
+          </p>
+        </div>
+        <span className="text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0 bg-indigo-100 text-indigo-700">
+          {label}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function PlacedCard({ c }: { c: Case }) {
+  const carrier = c.products?.carriers?.short_name
+  const product = c.products?.name
+  const face    = formatCurrency(c.face_amount)
+  const date    = c.placed_at
+    ? new Date(c.placed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+    : new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return (
+    <div className="bg-emerald-50 rounded-xl border border-emerald-100 px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold text-slate-900">
+            {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
+          </p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            {carrier ?? '—'}{product ? ` · ${product}` : ''}{face ? ` · ${face}` : ''}
+          </p>
+          <p className="text-xs text-emerald-600 mt-0.5">Placed {date}</p>
+        </div>
+        <span className="text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0 bg-emerald-100 text-emerald-700">
+          Policy Placed
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function SectionHeader({ label, count }: { label: string; count: number }) {
+  return (
+    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">
+      {label} <span className="ml-2 font-normal normal-case">({count})</span>
+    </p>
+  )
+}
+
+// ── Main component ────────────────────────────────────────────────────────────
+
 export function AgencyPortal({
-  agency,
-  cases,
-  gdcYtd,
-  appCount,
-  serviceRequests,
-  policyReviews,
+  agency, cases, gdcYtd, appCount, serviceRequests, policyReviews,
 }: {
-  agency: AgencyProps
-  cases: Case[]
-  gdcYtd: number
-  appCount: number
+  agency:          AgencyProps
+  cases:           Case[]
+  gdcYtd:          number
+  appCount:        number
   serviceRequests: ServiceRequest[]
-  policyReviews: PolicyReview[]
+  policyReviews:   PolicyReview[]
 }) {
   const [agentFilter, setAgentFilter] = useState('')
 
@@ -106,13 +175,9 @@ export function AgencyPortal({
     if (saved) setAgentFilter(saved)
   }, [agency.slug])
 
-  const agentNames = Array.from(
-    new Set(
-      cases
-        .map(c => c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null)
-        .filter(Boolean)
-    )
-  ) as string[]
+  const agentNames = Array.from(new Set(
+    cases.map(c => c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null).filter(Boolean)
+  )) as string[]
 
   const filtered = agentFilter
     ? cases.filter(c => {
@@ -121,49 +186,17 @@ export function AgencyPortal({
       })
     : cases
 
-  // KPI counts (unfiltered — always show agency-wide totals)
-  const totalReferrals   = cases.length
-  const keptAppts        = cases.filter(c => (c.stage_translations?.tier ?? 0) >= 2 || c.stage_translations?.is_won).length
-  const pendingCases     = cases.filter(c => c.stage_translations?.tier === 2 && c.stage_translations?.is_active_case).length
-  const placedCount      = cases.filter(c => c.stage_translations?.is_won === true).length
+  // KPI counts — always agency-wide
+  const totalReferrals = cases.length
+  const keptAppts      = cases.filter(c => (c.stage_translations?.tier ?? 0) >= 2 || c.stage_translations?.is_won).length
+  const pendingCount   = cases.filter(c => c.stage_translations?.tier === 2 && c.stage_translations?.is_active_case).length
+  const placedCount    = cases.filter(c => c.stage_translations?.is_won === true).length
 
-  // Case lists (filtered by agent)
-  const activeCases = filtered.filter(c => c.stage_translations?.is_active_case === true)
-  const placedCases = filtered.filter(c => c.stage_translations?.is_won === true)
-  const closedCases = filtered.filter(c =>
-    c.stage_translations?.is_lost === true || c.internal_status === 'snoozed'
-  )
-
-  function CaseCard({ c }: { c: Case }) {
-    const st = c.stage_translations
-    const badgeCls = statusBadgeClass(st, c.internal_status)
-    const label = st?.agency_label ?? c.internal_status
-    const date = new Date(c.created_at).toLocaleDateString('en-US', {
-      month: 'short', day: 'numeric', year: 'numeric',
-    })
-    const agentName = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
-
-    return (
-      <div className="bg-white rounded-xl border border-slate-100 px-4 py-3">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-sm font-semibold text-slate-900">
-              {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
-            </p>
-            <p className="text-xs text-slate-500 mt-0.5">
-              {agentName && !agentFilter && (
-                <span className="text-slate-400">{agentName} · </span>
-              )}
-              {date}
-            </p>
-          </div>
-          <span className={`text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0 ${badgeCls}`}>
-            {label}
-          </span>
-        </div>
-      </div>
-    )
-  }
+  // Filtered lists
+  const referrals    = filtered.filter(c => c.stage_translations?.tier === 1 && c.stage_translations?.is_active_case)
+  const pendingCases = filtered.filter(c => (c.stage_translations?.tier ?? 0) >= 2 && c.stage_translations?.is_active_case)
+  const placedCases  = filtered.filter(c => c.stage_translations?.is_won === true)
+  const closedCases  = filtered.filter(c => c.stage_translations?.is_lost === true || c.internal_status === 'snoozed')
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -177,8 +210,7 @@ export function AgencyPortal({
           </div>
           <Link
             href={`/intake/${agency.slug}`}
-            className="text-xs font-semibold text-slate-300 border border-slate-600
-              rounded-lg px-3 py-2 hover:bg-slate-800 transition-colors"
+            className="text-xs font-semibold text-slate-300 border border-slate-600 rounded-lg px-3 py-2 hover:bg-slate-800 transition-colors"
           >
             + Submit Referral
           </Link>
@@ -193,20 +225,8 @@ export function AgencyPortal({
             {new Date().getFullYear()} Goal Progress
           </p>
           <div className="grid grid-cols-2 gap-6">
-            <GaugeChart
-              value={gdcYtd}
-              max={100000}
-              bands={GDC_BANDS}
-              label="GDC Year-to-Date"
-              formatValue={formatGdc}
-            />
-            <GaugeChart
-              value={appCount}
-              max={50}
-              bands={APP_BANDS}
-              label="App Count"
-              formatValue={formatApps}
-            />
+            <GaugeChart value={gdcYtd} max={100000} bands={GDC_BANDS} label="GDC Year-to-Date" formatValue={formatGdc} />
+            <GaugeChart value={appCount} max={50} bands={APP_BANDS} label="App Count" formatValue={v => String(Math.round(v))} />
           </div>
         </div>
 
@@ -221,7 +241,7 @@ export function AgencyPortal({
             <p className="text-xs text-slate-500 mt-1">Kept Appts</p>
           </div>
           <div className="bg-white rounded-xl border border-slate-100 p-3 text-center">
-            <p className="text-2xl font-bold text-indigo-600">{pendingCases}</p>
+            <p className="text-2xl font-bold text-indigo-600">{pendingCount}</p>
             <p className="text-xs text-slate-500 mt-1">Pending</p>
           </div>
           <div className="bg-white rounded-xl border border-slate-100 p-3 text-center">
@@ -230,15 +250,13 @@ export function AgencyPortal({
           </div>
         </div>
 
+        {/* Agent filter */}
         {agentNames.length > 1 && (
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                Filter by LSP
-              </p>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Filter by LSP</p>
               {agentFilter && (
-                <button onClick={() => setAgentFilter('')}
-                  className="text-xs text-slate-400 hover:text-slate-600">
+                <button onClick={() => setAgentFilter('')} className="text-xs text-slate-400 hover:text-slate-600">
                   Show all
                 </button>
               )}
@@ -258,46 +276,66 @@ export function AgencyPortal({
           </div>
         )}
 
-        {activeCases.length > 0 && (
+        {/* Referrals — Tier 1 active */}
+        {referrals.length > 0 && (
           <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">
-              In Progress <span className="ml-2 font-normal normal-case">({activeCases.length})</span>
-            </p>
+            <SectionHeader label="Referrals" count={referrals.length} />
             <div className="space-y-2">
-              {activeCases.map(c => <CaseCard key={c.id} c={c} />)}
+              {referrals.map(c => <ReferralCard key={c.id} c={c} />)}
             </div>
           </div>
         )}
 
+        {/* Pending Business — Tier 2+ active */}
+        {pendingCases.length > 0 && (
+          <div>
+            <SectionHeader label="Pending Business" count={pendingCases.length} />
+            <div className="space-y-2">
+              {pendingCases.map(c => <PendingCard key={c.id} c={c} />)}
+            </div>
+          </div>
+        )}
+
+        {/* Placed — wins */}
         {placedCases.length > 0 && (
           <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">
-              Placed <span className="ml-2 font-normal normal-case">({placedCases.length})</span>
+            <p className="text-xs font-semibold text-emerald-600 uppercase tracking-wide mb-3">
+              Placed Policies <span className="ml-2 font-normal normal-case text-slate-500">({placedCases.length})</span>
             </p>
             <div className="space-y-2">
-              {placedCases.map(c => <CaseCard key={c.id} c={c} />)}
+              {placedCases.map(c => <PlacedCard key={c.id} c={c} />)}
             </div>
           </div>
         )}
 
+        {/* Closed / Paused */}
         {closedCases.length > 0 && (
           <div>
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">
-              Closed / Paused <span className="ml-2 font-normal normal-case">({closedCases.length})</span>
-            </p>
+            <SectionHeader label="Closed / Paused" count={closedCases.length} />
             <div className="space-y-2">
-              {closedCases.map(c => <CaseCard key={c.id} c={c} />)}
+              {closedCases.map(c => (
+                <div key={c.id} className="bg-white rounded-xl border border-slate-100 px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <p className="text-sm font-medium text-slate-500">
+                      {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
+                    </p>
+                    <span className="text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0 bg-slate-100 text-slate-500">
+                      {c.stage_translations?.agency_label ?? c.internal_status}
+                    </span>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
 
         {filtered.length === 0 && (
           <div className="bg-white rounded-xl border border-slate-100 p-8 text-center">
-            <p className="text-slate-400 text-sm">No cases found.</p>
+            <p className="text-slate-400 text-sm">No activity to show yet.</p>
           </div>
         )}
 
-        {/* Client Services — transparency panel */}
+        {/* Client Services */}
         {(serviceRequests.length > 0 || policyReviews.length > 0) && (
           <div className="bg-white rounded-2xl border border-slate-100 px-5 py-5 space-y-5">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">
@@ -312,29 +350,22 @@ export function AgencyPortal({
                     ({serviceRequests.filter(r => !r.resolved_at).length} open)
                   </span>
                 </p>
-                {serviceRequests.map(sr => {
-                  const clientName = sr.customers
-                    ? `${sr.customers.first_name} ${sr.customers.last_name}`
-                    : '—'
-                  const status = sr.request_statuses?.name
-                  const type   = sr.service_request_types?.name ?? '—'
-                  const carrier = sr.carriers?.short_name
-                  return (
-                    <div key={sr.id} className="flex items-center justify-between gap-3 py-2
-                      border-b border-slate-50 last:border-0">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-900 truncate">{clientName}</p>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          {type}{carrier ? ` · ${carrier}` : ''}
-                        </p>
-                      </div>
-                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0
-                        ${srStatusClass(status)}`}>
-                        {status ?? '—'}
-                      </span>
+                {serviceRequests.map(sr => (
+                  <div key={sr.id} className="flex items-center justify-between gap-3 py-2 border-b border-slate-50 last:border-0">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-900 truncate">
+                        {sr.customers ? `${sr.customers.first_name} ${sr.customers.last_name}` : '—'}
+                      </p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {sr.service_request_types?.name ?? '—'}
+                        {sr.carriers?.short_name ? ` · ${sr.carriers.short_name}` : ''}
+                      </p>
                     </div>
-                  )
-                })}
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0 ${srStatusClass(sr.request_statuses?.name)}`}>
+                      {sr.request_statuses?.name ?? '—'}
+                    </span>
+                  </div>
+                ))}
               </div>
             )}
 
@@ -346,29 +377,22 @@ export function AgencyPortal({
                     ({policyReviews.filter(r => !r.reviewed_at).length} open)
                   </span>
                 </p>
-                {policyReviews.map(pr => {
-                  const clientName = pr.customers
-                    ? `${pr.customers.first_name} ${pr.customers.last_name}`
-                    : '—'
-                  const status = pr.review_statuses?.name
-                  const carrier = pr.carriers?.short_name
-                  const opportunity = pr.opportunity_types?.name
-                  return (
-                    <div key={pr.id} className="flex items-center justify-between gap-3 py-2
-                      border-b border-slate-50 last:border-0">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-900 truncate">{clientName}</p>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          {carrier ?? '—'}{opportunity ? ` · ${opportunity}` : ''}
-                        </p>
-                      </div>
-                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0
-                        ${prStatusClass(status)}`}>
-                        {status ?? '—'}
-                      </span>
+                {policyReviews.map(pr => (
+                  <div key={pr.id} className="flex items-center justify-between gap-3 py-2 border-b border-slate-50 last:border-0">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-slate-900 truncate">
+                        {pr.customers ? `${pr.customers.first_name} ${pr.customers.last_name}` : '—'}
+                      </p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {pr.carriers?.short_name ?? '—'}
+                        {pr.opportunity_types?.name ? ` · ${pr.opportunity_types.name}` : ''}
+                      </p>
                     </div>
-                  )
-                })}
+                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0 ${prStatusClass(pr.review_statuses?.name)}`}>
+                      {pr.review_statuses?.name ?? '—'}
+                    </span>
+                  </div>
+                ))}
               </div>
             )}
           </div>

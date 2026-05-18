@@ -27,7 +27,7 @@ export default async function PortalPage({
 
   const { data: agency } = await supabase
     .from('agencies')
-    .select('id, name, slug')
+    .select('id, name, display_name, slug')
     .eq('slug', slug)
     .eq('is_active', true)
     .single()
@@ -45,9 +45,13 @@ export default async function PortalPage({
         id,
         internal_status,
         created_at,
+        placed_at,
+        face_amount,
+        annual_premium,
         customers ( first_name, last_name ),
         agents ( first_name, last_name ),
-        stage_translations ( agency_label, tier, is_active_case, is_won, is_lost )
+        stage_translations ( agency_label, tier, is_active_case, is_won, is_lost ),
+        products ( name, carriers ( short_name ) )
       `)
       .eq('agency_id', agency.id)
       .eq('is_test', false)
@@ -110,7 +114,7 @@ export default async function PortalPage({
 
   return (
     <AgencyPortal
-      agency={{ name: agency.name, slug: agency.slug }}
+      agency={{ name: agency.display_name ?? agency.name, slug: agency.slug }}
       cases={(casesResult.data ?? []) as unknown as Case[]}
       gdcYtd={gdcYtd}
       appCount={appCount}
