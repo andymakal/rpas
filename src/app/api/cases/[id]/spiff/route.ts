@@ -11,12 +11,16 @@ export async function POST(
 
   const { data: caseRow, error: fetchErr } = await supabase
     .from('cases')
-    .select('spiff_earned, agent_id, agency_id')
+    .select('spiff_earned, agent_id, agency_id, is_owner_referral')
     .eq('id', id)
     .single()
 
   if (fetchErr || !caseRow) {
     return Response.json({ error: 'Case not found' }, { status: 404 })
+  }
+
+  if (caseRow.is_owner_referral) {
+    return Response.json({ error: 'SPIFF does not apply to owner referrals' }, { status: 400 })
   }
 
   if (caseRow.spiff_earned) {

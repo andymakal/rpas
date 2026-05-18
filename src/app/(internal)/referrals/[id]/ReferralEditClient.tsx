@@ -551,39 +551,51 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
             </div>
 
             {/* SPIFF */}
-            <label className={`flex items-start gap-3 rounded-lg border-2 p-4 cursor-pointer transition-all ${
-              spiffEarned ? 'border-emerald-700 bg-emerald-950/30' : 'border-slate-700 hover:border-slate-600'
-            }`}>
-              <input
-                type="checkbox"
-                checked={spiffEarned}
-                disabled={spiffSaving}
-                onChange={e => handleSpiffToggle(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded accent-emerald-500 cursor-pointer"
-              />
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <p className={`text-sm font-medium ${spiffEarned ? 'text-emerald-300' : 'text-slate-200'}`}>
-                    Kept Appointment
-                  </p>
-                  {spiffEarned && (
-                    <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-emerald-900/60 text-emerald-300 border border-emerald-800">
-                      <DollarSign className="w-3 h-3" />SPIFF earned
+            {isOwner ? (
+              <div className="flex items-start gap-3 rounded-lg border-2 border-slate-800 bg-slate-800/30 p-4">
+                <input type="checkbox" disabled className="mt-0.5 h-4 w-4 rounded opacity-30 cursor-not-allowed" />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-slate-500">Kept Appointment</p>
+                    <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-violet-900/40 text-violet-400 border border-violet-800">
+                      Owner referral — no SPIFF
                     </span>
-                  )}
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5">
-                  {spiffEarned
-                    ? `$10 SPIFF logged for ${displayAgent ?? 'this LSP'}`
-                    : 'Check when the referral has a qualified conversation — triggers $10 SPIFF for the LSP'}
-                </p>
-                {isOwner && (
-                  <p className="text-xs text-violet-400 mt-1">
-                    ⚠ This referral was submitted by the agency owner — SPIFF applies to LSPs only
+                  </div>
+                  <p className="text-xs text-slate-600 mt-0.5">
+                    SPIFF applies to LSPs only. Agency owner referrals are not eligible.
                   </p>
-                )}
+                </div>
               </div>
-            </label>
+            ) : (
+              <label className={`flex items-start gap-3 rounded-lg border-2 p-4 cursor-pointer transition-all ${
+                spiffEarned ? 'border-emerald-700 bg-emerald-950/30' : 'border-slate-700 hover:border-slate-600'
+              }`}>
+                <input
+                  type="checkbox"
+                  checked={spiffEarned}
+                  disabled={spiffSaving}
+                  onChange={e => handleSpiffToggle(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded accent-emerald-500 cursor-pointer"
+                />
+                <div className="flex-1">
+                  <div className="flex items-center gap-2">
+                    <p className={`text-sm font-medium ${spiffEarned ? 'text-emerald-300' : 'text-slate-200'}`}>
+                      Kept Appointment
+                    </p>
+                    {spiffEarned && (
+                      <span className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium bg-emerald-900/60 text-emerald-300 border border-emerald-800">
+                        <DollarSign className="w-3 h-3" />SPIFF earned
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {spiffEarned
+                      ? `$10 SPIFF logged for ${displayAgent ?? 'this LSP'}`
+                      : 'Check when the referral has a qualified conversation — triggers $10 SPIFF for the LSP'}
+                  </p>
+                </div>
+              </label>
+            )}
 
             {/* Rewarm email */}
             {showRewarmEmail && (
