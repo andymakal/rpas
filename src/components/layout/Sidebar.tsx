@@ -13,6 +13,7 @@ import {
   Upload,
   Users,
   Settings,
+  Package,
   LogOut,
   Plus,
 } from 'lucide-react'
@@ -25,6 +26,7 @@ const navItems = [
   { href: '/production',           icon: CalendarDays,    label: 'Production'     },
   { href: '/admin/gdc-import',     icon: Upload,          label: 'GDC Import'     },
   { href: '/admin/lead-import',    icon: Users,           label: 'Lead Import'    },
+  { href: '/settings/products',    icon: Package,         label: 'Products'       },
   { href: '/settings',             icon: Settings,        label: 'Settings'       },
 ]
 
