@@ -158,7 +158,7 @@ export async function POST(request: NextRequest) {
 
       if (newCustomer) {
         customerId = newCustomer.id
-        customerMap.set(customerKey, customerId)
+        customerMap.set(customerKey, newCustomer.id)
       }
     }
 
