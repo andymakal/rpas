@@ -1,4 +1,4 @@
--- Contact info update — matched by slug prefix (last-first)
+-- Contact info update ï¿½ matched by slug prefix (last-first)
 -- Run AFTER 20260517000005_agencies_contact_fields.sql
 
 update public.agencies set
@@ -97,14 +97,14 @@ update public.agencies set
   contact_street = '329 Belleville Ave', contact_city = 'Bloomfield',
   contact_state = 'NJ', contact_zip = '7003',
   agent_number = 'A0B2987'
-where slug like 'birks-thomas%';
+where slug = 'birks-thomas-nj';
 
 update public.agencies set
   contact_phone = '570-839-2270', contact_email = null,
   contact_street = '2647 Route 940', contact_city = 'Pocono Summit',
   contact_state = 'PA', contact_zip = '18346',
   agent_number = 'A0D9474'
-where slug like 'birks-thomas%';
+where slug = 'birks-thomas-pa';
 
 update public.agencies set
   contact_phone = '412-967-7655', contact_email = 'scottblack4@allstate.com',
@@ -398,14 +398,14 @@ update public.agencies set
   contact_street = '130 Almshouse Rd', contact_city = 'Richboro',
   contact_state = 'PA', contact_zip = '18954',
   agent_number = 'A0D9929'
-where slug like 'lieberman-dave%';
+where slug = 'lieberman-david-pa';
 
 update public.agencies set
   contact_phone = '609-927-3400', contact_email = 'davidl@allstate.com',
   contact_street = '112 Woodland Ave', contact_city = 'Somers Point',
   contact_state = 'NJ', contact_zip = '8244',
   agent_number = null
-where slug like 'lieberman-dave%';
+where slug = 'lieberman-david-nj';
 
 update public.agencies set
   contact_phone = null, contact_email = 'amakal@allstate.com',
