@@ -26,7 +26,7 @@ interface ReferralIntakeFormProps {
 }
 
 const EMPTY_FORM: ReferralFormData = {
-  agency_id: '', lsp_name: '', client_first_name: '', client_last_name: '',
+  agency_id: '', lsp_name: '', lsp_email: '', client_first_name: '', client_last_name: '',
   client_phone: '', client_email: '', client_dob: '', client_marital_status: '',
   client_address: '', client_city: '', client_state: '', client_zip: '',
   referral_type: '', is_existing_client: false,
@@ -283,11 +283,16 @@ export function ReferralIntakeForm({
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<SubmitReferralResult | null>(null)
 
-  // Pre-fill LSP name from localStorage
+  // Pre-fill LSP name + email from localStorage
   useEffect(() => {
     if (!agencySlug) return
-    const savedName = localStorage.getItem(`rpas_lsp_${agencySlug}`)
-    if (savedName) setForm((prev) => ({ ...prev, lsp_name: savedName }))
+    const savedName  = localStorage.getItem(`rpas_lsp_${agencySlug}`)
+    const savedEmail = localStorage.getItem(`rpas_lsp_email_${agencySlug}`)
+    setForm((prev) => ({
+      ...prev,
+      ...(savedName  ? { lsp_name:  savedName  } : {}),
+      ...(savedEmail ? { lsp_email: savedEmail } : {}),
+    }))
   }, [agencySlug])
 
   // Load agencies only if not prefilled
@@ -327,8 +332,9 @@ export function ReferralIntakeForm({
     if (!validateStep(2)) return
     setSubmitting(true)
     const res = await submitReferral(form)
-    if (res.success && agencySlug && form.lsp_name) {
-      localStorage.setItem(`rpas_lsp_${agencySlug}`, form.lsp_name)
+    if (res.success && agencySlug) {
+      if (form.lsp_name)  localStorage.setItem(`rpas_lsp_${agencySlug}`,       form.lsp_name)
+      if (form.lsp_email) localStorage.setItem(`rpas_lsp_email_${agencySlug}`, form.lsp_email)
     }
     setResult(res)
     setSubmitting(false)
@@ -380,6 +386,12 @@ export function ReferralIntakeForm({
       <Field label="Your Name" required hint="First Last — exactly as you want it recorded" error={errors.lsp_name}>
         <Input value={form.lsp_name} onChange={(v) => set('lsp_name', v)}
           placeholder="e.g. Kris Aley" autoComplete="name" error={errors.lsp_name} />
+      </Field>
+
+      <Field label="Your Email" hint="Optional — we'll use this to keep you in the loop on your referral" error={errors.lsp_email}>
+        <Input value={form.lsp_email ?? ''} onChange={(v) => set('lsp_email', v)}
+          type="email" placeholder="kris.aley@allstate.com" inputMode="email"
+          autoComplete="email" error={errors.lsp_email} />
       </Field>
     </div>,
 

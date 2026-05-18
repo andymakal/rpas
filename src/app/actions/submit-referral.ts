@@ -92,7 +92,29 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       return { success: false, error: 'Failed to save referral. Please try again.' }
     }
 
-    // 4. Save to intake_raw as audit trail (already processed — case_id set)
+    // 4. Back-fill agent email if provided and not already on file
+    if (form.lsp_email && form.lsp_name) {
+      const parts     = form.lsp_name.trim().split(/\s+/)
+      const firstName = parts[0]
+      const lastName  = parts.slice(1).join(' ')
+      if (firstName && lastName) {
+        const { data: agentRow } = await supabase
+          .from('agents')
+          .select('id, email')
+          .eq('agency_id', form.agency_id)
+          .ilike('first_name', firstName)
+          .ilike('last_name', lastName)
+          .maybeSingle()
+        if (agentRow && !agentRow.email) {
+          await supabase
+            .from('agents')
+            .update({ email: form.lsp_email })
+            .eq('id', agentRow.id)
+        }
+      }
+    }
+
+    // 5. Save to intake_raw as audit trail (already processed — case_id set)
     await supabase.from('intake_raw').insert({
       agency_id:    form.agency_id,
       source:       'form',
