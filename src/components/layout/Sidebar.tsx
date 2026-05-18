@@ -18,6 +18,7 @@ import {
   LogOut,
   Plus,
   DollarSign,
+  KeyRound,
 } from 'lucide-react'
 
 const navItems = [
@@ -27,6 +28,7 @@ const navItems = [
   { href: '/agencies',               icon: Building2,       label: 'Agencies'         },
   { href: '/cases',                  icon: FolderKanban,    label: 'Cases'            },
   { href: '/production',             icon: CalendarDays,    label: 'Production'       },
+  { href: '/team',                   icon: Users,           label: 'Team'             },
   { href: '/admin/gdc-import',       icon: Upload,          label: 'GDC Import'       },
   { href: '/admin/lead-import',      icon: Users,           label: 'Lead Import'      },
   { href: '/admin/pending-import',   icon: ClipboardList,   label: 'Pending Import'   },
@@ -100,6 +102,13 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
       {/* Footer */}
       <div className="px-2 py-3 border-t border-slate-800">
         <p className="px-3 pb-1.5 text-xs text-slate-600 truncate">{userEmail}</p>
+        <Link
+          href="/settings/password"
+          className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition-colors"
+        >
+          <KeyRound className="w-4 h-4 shrink-0" />
+          Change Password
+        </Link>
         <button
           onClick={handleSignOut}
           className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition-colors"
