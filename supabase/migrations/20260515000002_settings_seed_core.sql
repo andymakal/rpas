@@ -190,7 +190,7 @@ values
    true, false, false, false),
 
   ('quoted',
-   'Working on application',
+   'Quote provided',
    1, 40, 14,
    true, false, false, false),
 
