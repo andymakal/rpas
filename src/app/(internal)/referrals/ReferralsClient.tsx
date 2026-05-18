@@ -112,7 +112,7 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
             </thead>
             <tbody>
               {filtered.map((r, i) => (
-                <Link key={r.id} href={`/cases/${r.id}`} legacyBehavior>
+                <Link key={r.id} href={`/referrals/${r.id}`} legacyBehavior>
                   <tr
                     className={`cursor-pointer transition-colors hover:bg-slate-800/40 ${
                       i < filtered.length - 1 ? 'border-b border-slate-800/50' : ''
