@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, Loader2, AlertCircle, Search } from 'lucide-react'
+import { Check, Loader2, AlertCircle, Search, Plus, X } from 'lucide-react'
 import type { AgencyRow, SmlTeamOption } from './page'
 
 type Props = {
@@ -26,6 +26,19 @@ function toEdit(a: AgencyRow): EditState {
   }
 }
 
+function toSlug(s: string): string {
+  return s.toLowerCase().replace(/['']/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+}
+
+type NewAgencyForm = {
+  name:         string
+  display_name: string
+  slug:         string
+  sml_team_id:  string
+}
+
+const BLANK: NewAgencyForm = { name: '', display_name: '', slug: '', sml_team_id: '' }
+
 function isDirty(a: AgencyRow, e: EditState) {
   return (
     (e.display_name || null) !== (a.display_name ?? null) ||
@@ -42,6 +55,11 @@ export function AgenciesClient({ agencies, teams }: Props) {
   const [statuses, setStatuses] = useState<Record<string, RowStatus>>({})
   const [errors, setErrors]     = useState<Record<string, string>>({})
   const [search, setSearch]     = useState('')
+
+  const [showAdd, setShowAdd]   = useState(false)
+  const [newForm, setNewForm]   = useState<NewAgencyForm>(BLANK)
+  const [addLoading, setAddLoading] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
 
   function update(id: string, field: keyof EditState, value: string | boolean) {
     setEdits(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }))
@@ -77,6 +95,37 @@ export function AgenciesClient({ agencies, teams }: Props) {
     }, 1500)
   }
 
+  async function addAgency() {
+    if (!newForm.display_name.trim()) { setAddError('Display name is required'); return }
+    if (!newForm.slug.trim())         { setAddError('Slug is required'); return }
+
+    setAddLoading(true)
+    setAddError(null)
+
+    const res = await fetch('/api/admin/agencies', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name:         newForm.name.trim() || newForm.display_name.trim(),
+        display_name: newForm.display_name.trim(),
+        slug:         newForm.slug.trim(),
+        sml_team_id:  newForm.sml_team_id || null,
+      }),
+    })
+
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}))
+      setAddError(json.error ?? 'Failed to add agency')
+      setAddLoading(false)
+      return
+    }
+
+    setNewForm(BLANK)
+    setShowAdd(false)
+    setAddLoading(false)
+    router.refresh()
+  }
+
   const q = search.trim().toLowerCase()
   const filtered = agencies.filter(a =>
     !q ||
@@ -87,6 +136,110 @@ export function AgenciesClient({ agencies, teams }: Props) {
 
   return (
     <div className="space-y-4">
+
+      {/* Add agency */}
+      {!showAdd ? (
+        <button
+          onClick={() => setShowAdd(true)}
+          className="flex items-center gap-2 text-sm font-medium text-white px-4 py-2 rounded-lg"
+          style={{ backgroundColor: '#1F3864' }}
+        >
+          <Plus className="w-4 h-4" />
+          Add Agency
+        </button>
+      ) : (
+        <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="text-white font-semibold text-sm">New Agency</p>
+            <button onClick={() => { setShowAdd(false); setNewForm(BLANK); setAddError(null) }}>
+              <X className="w-4 h-4 text-slate-500 hover:text-slate-300" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Agent / display name *</label>
+              <input
+                type="text"
+                value={newForm.display_name}
+                onChange={e => {
+                  const val = e.target.value
+                  setNewForm(f => ({
+                    ...f,
+                    display_name: val,
+                    slug: toSlug(val),
+                  }))
+                }}
+                placeholder="e.g. Bob Smith"
+                className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded px-3 py-2 focus:outline-none focus:border-slate-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Allstate business name</label>
+              <input
+                type="text"
+                value={newForm.name}
+                onChange={e => setNewForm(f => ({ ...f, name: e.target.value }))}
+                placeholder="e.g. BOB SMITH AGENCY INC (leave blank to use display name)"
+                className="w-full bg-slate-800 border border-slate-700 text-slate-400 text-sm rounded px-3 py-2 placeholder-slate-600 focus:outline-none focus:border-slate-500"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Slug * (auto-filled — edit if needed)</label>
+              <input
+                type="text"
+                value={newForm.slug}
+                onChange={e => setNewForm(f => ({ ...f, slug: e.target.value }))}
+                placeholder="e.g. smith-bob-ks"
+                className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded px-3 py-2 font-mono focus:outline-none focus:border-slate-500"
+              />
+              <p className="text-xs text-slate-600 mt-1">Used in the dashboard URL — must be unique.</p>
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">SML team</label>
+              <select
+                value={newForm.sml_team_id}
+                onChange={e => setNewForm(f => ({ ...f, sml_team_id: e.target.value }))}
+                className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded px-3 py-2 focus:outline-none focus:border-slate-500"
+              >
+                <option value="">— unassigned</option>
+                {teams.map(t => (
+                  <option key={t.id} value={t.id}>{t.display_name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {addError && (
+            <div className="flex items-center gap-2 text-red-400 text-xs">
+              <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+              {addError}
+            </div>
+          )}
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={addAgency}
+              disabled={addLoading}
+              className="flex items-center gap-2 text-sm font-medium text-white px-4 py-2 rounded-lg disabled:opacity-50"
+              style={{ backgroundColor: '#1F3864' }}
+            >
+              {addLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              Save Agency
+            </button>
+            <button
+              onClick={() => { setShowAdd(false); setNewForm(BLANK); setAddError(null) }}
+              className="text-sm text-slate-400 hover:text-slate-200"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Search */}
       <div className="relative max-w-sm">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
