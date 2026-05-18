@@ -49,7 +49,17 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
   const [search, setSearch]             = useState('')
   const [tab, setTab]                   = useState<'active' | 'all' | 'closed'>('active')
   const [statusFilter, setStatusFilter] = useState('')
+  const [sortKey, setSortKey]           = useState<'date' | 'touches'>('date')
   const [sortDir, setSortDir]           = useState<'desc' | 'asc'>('desc')
+
+  function handleSort(key: 'date' | 'touches') {
+    if (sortKey === key) {
+      setSortDir(d => d === 'desc' ? 'asc' : 'desc')
+    } else {
+      setSortKey(key)
+      setSortDir(key === 'touches' ? 'asc' : 'desc') // fewest touches first by default
+    }
+  }
 
   // Unique statuses present in the full data set, sorted by label
   const statusOptions = useMemo(() => {
@@ -90,12 +100,17 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
     }
 
     list = [...list].sort((a, b) => {
-      const diff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      let diff = 0
+      if (sortKey === 'touches') {
+        diff = (a.touches ?? 0) - (b.touches ?? 0)
+      } else {
+        diff = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+      }
       return sortDir === 'asc' ? diff : -diff
     })
 
     return list
-  }, [rows, tab, statusFilter, search, sortDir])
+  }, [rows, tab, statusFilter, search, sortKey, sortDir])
 
   const activeCount = rows.filter(r => r.stage_translations?.is_active_case === true).length
 
@@ -163,18 +178,26 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
                 {['Contact', 'Agency', 'Status'].map(h => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-medium text-slate-400">{h}</th>
                 ))}
-                <th className="px-4 py-3 text-left">
-                  <button
-                    onClick={() => setSortDir(d => d === 'desc' ? 'asc' : 'desc')}
-                    className="inline-flex items-center gap-1 text-xs font-medium text-slate-400 hover:text-slate-200 transition-colors"
-                  >
-                    Date In
-                    {sortDir === 'desc'
-                      ? <ChevronDown className="w-3.5 h-3.5" />
-                      : <ChevronUp className="w-3.5 h-3.5" />
-                    }
-                  </button>
-                </th>
+                {(['touches', 'date'] as const).map(key => {
+                  const label = key === 'touches' ? 'Touches' : 'Date In'
+                  const active = sortKey === key
+                  return (
+                    <th key={key} className="px-4 py-3 text-left">
+                      <button
+                        onClick={() => handleSort(key)}
+                        className={`inline-flex items-center gap-1 text-xs font-medium transition-colors ${
+                          active ? 'text-white' : 'text-slate-400 hover:text-slate-200'
+                        }`}
+                      >
+                        {label}
+                        {active
+                          ? sortDir === 'desc' ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />
+                          : <ChevronDown className="w-3.5 h-3.5 opacity-30" />
+                        }
+                      </button>
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
             <tbody>
@@ -196,6 +219,17 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
                     </td>
                     <td className="px-4 py-3">
                       <StatusBadge translation={r.stage_translations} internal_status={r.internal_status} />
+                    </td>
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const t = r.touches ?? 0
+                        const cls = t === 0 ? 'text-red-400' : t < 4 ? 'text-amber-400' : t < 8 ? 'text-slate-300' : 'text-emerald-400'
+                        return (
+                          <span className={`text-sm font-semibold ${cls}`} title={`${t} touch${t !== 1 ? 'es' : ''}`}>
+                            {t}
+                          </span>
+                        )
+                      })()}
                     </td>
                     <td className="px-4 py-3">
                       <p className="text-xs text-slate-400">
