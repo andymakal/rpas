@@ -1,6 +1,21 @@
+import type { Metadata } from 'next'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notFound } from 'next/navigation'
 import { AgencyPortal, type Case, type ServiceRequest, type PolicyReview } from '@/components/portal/AgencyPortal'
+
+export async function generateMetadata(
+  { params }: { params: Promise<{ slug: string }> }
+): Promise<Metadata> {
+  const { slug } = await params
+  const supabase = createAdminClient()
+  const { data } = await supabase
+    .from('agencies')
+    .select('display_name, name')
+    .eq('slug', slug)
+    .single()
+  const label = (data as { display_name: string | null; name: string } | null)
+  return { title: label?.display_name ?? label?.name ?? 'Agency Dashboard' }
+}
 
 export default async function PortalPage({
   params,

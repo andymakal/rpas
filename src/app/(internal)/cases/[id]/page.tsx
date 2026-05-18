@@ -1,6 +1,22 @@
+import type { Metadata } from 'next'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notFound } from 'next/navigation'
 import CaseEditClient from './CaseEditClient'
+
+export async function generateMetadata(
+  { params }: { params: Promise<{ id: string }> }
+): Promise<Metadata> {
+  const { id } = await params
+  const supabase = createAdminClient()
+  const { data } = await supabase
+    .from('cases')
+    .select('customers(first_name, last_name)')
+    .eq('id', id)
+    .single()
+  const c = (data as { customers: { first_name: string; last_name: string } | null } | null)?.customers
+  const name = c ? `${c.first_name} ${c.last_name}` : 'Case Detail'
+  return { title: name }
+}
 
 export const dynamic = 'force-dynamic'
 

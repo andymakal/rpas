@@ -1,5 +1,8 @@
+import type { Metadata } from 'next'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { AgenciesClient } from './AgenciesClient'
+
+export const metadata: Metadata = { title: 'Agencies' }
 
 export const dynamic = 'force-dynamic'
 

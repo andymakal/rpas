@@ -1,7 +1,10 @@
+import type { Metadata } from 'next'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { Plus } from 'lucide-react'
+
+export const metadata: Metadata = { title: 'Referrals' }
 
 type StageTranslation = {
   agency_label: string
