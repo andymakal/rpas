@@ -29,7 +29,7 @@ export type CaseDetail = {
     phone: string | null
     date_of_birth: string | null
   } | null
-  agencies: { id: string; name: string; slug: string } | null
+  agencies: { id: string; name: string; display_name: string | null; slug: string } | null
   agents: { first_name: string; last_name: string } | null
   stage_translations: {
     agency_label: string
@@ -57,7 +57,7 @@ export type CaseDetail = {
 }
 
 export type StageLookup = { id: string; internal_status: string; agency_label: string; tier: number }
-export type AgencyLookup = { id: string; name: string }
+export type AgencyLookup = { id: string; name: string; display_name: string | null }
 export type ProductLookup = { id: string; name: string; carrier_id: string | null; carriers: { short_name: string } | null }
 export type RateClassLookup = { id: string; name: string }
 export type PremiumModeLookup = { id: string; name: string }
@@ -92,7 +92,7 @@ export default async function CaseDetailPage({
         appointment_date, touches, last_contact_at, placed_at,
         agency_id, customer_id, agent_id,
         customers ( first_name, last_name, email, phone, date_of_birth ),
-        agencies ( id, name, slug ),
+        agencies ( id, name, display_name, slug ),
         agents ( first_name, last_name ),
         stage_translations ( agency_label, tier, is_active_case, is_won, is_lost, is_snoozed ),
         products ( id, name, carriers ( id, short_name ) ),
@@ -111,7 +111,9 @@ export default async function CaseDetailPage({
       .order('stage_order'),
     supabase
       .from('agencies')
-      .select('id, name')
+      .select('id, name, display_name')
+      .eq('is_active', true)
+      .eq('is_test', false)
       .order('name'),
     supabase
       .from('products')

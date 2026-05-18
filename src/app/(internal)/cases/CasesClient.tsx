@@ -68,7 +68,7 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
       const q = search.toLowerCase()
       rows = rows.filter(r => {
         const clientName = `${r.customers?.first_name ?? ''} ${r.customers?.last_name ?? ''}`.toLowerCase()
-        const agencyName = (r.agencies?.name ?? '').toLowerCase()
+        const agencyName = (r.agencies?.display_name ?? r.agencies?.name ?? '').toLowerCase()
         return clientName.includes(q) || agencyName.includes(q)
       })
     }
@@ -155,7 +155,7 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
                     </td>
                     <td className="px-4 py-3">
                       {r.agencies ? (
-                        <span className="text-slate-300">{r.agencies.name}</span>
+                        <span className="text-slate-300">{r.agencies.display_name ?? r.agencies.name}</span>
                       ) : (
                         <span className="text-amber-400 text-xs font-medium">Unassigned</span>
                       )}

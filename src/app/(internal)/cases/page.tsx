@@ -14,7 +14,7 @@ export type CaseRow = {
   lead_source: string | null
   notes: string | null
   customers: { first_name: string; last_name: string } | null
-  agencies: { name: string; slug: string } | null
+  agencies: { name: string; display_name: string | null; slug: string } | null
   stage_translations: {
     agency_label: string
     tier: number
@@ -38,7 +38,7 @@ export default async function CasesPage() {
       id, internal_status, created_at, status_entered_at, policy_number,
       face_amount, annual_premium, lead_source, notes,
       customers ( first_name, last_name ),
-      agencies ( name, slug ),
+      agencies ( name, display_name, slug ),
       stage_translations ( agency_label, tier, is_active_case, is_won, is_lost, is_snoozed ),
       products ( name, carriers ( short_name ) )
     `)

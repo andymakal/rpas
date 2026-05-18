@@ -275,7 +275,7 @@ export default function CaseEditClient({
                 >
                   <option value="">Unassigned</option>
                   {agencies.map(a => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
+                    <option key={a.id} value={a.id}>{a.display_name ?? a.name}</option>
                   ))}
                 </select>
               </div>
