@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Check } from 'lucide-react'
+import { ArrowLeft, Check, Circle, AlertCircle, CheckCircle2 } from 'lucide-react'
 import type {
   CaseDetail,
   StageLookup,
@@ -92,10 +92,12 @@ export default function CaseEditClient({
   const [saveError, setSaveError]     = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
 
-  const [reqResolved, setReqResolved] = useState<Record<string, boolean>>(() => {
-    const map: Record<string, boolean> = {}
+  // Three-state requirements: 'inactive' | 'outstanding' | 'resolved'
+  type ReqState = 'inactive' | 'outstanding' | 'resolved'
+  const [reqState, setReqState] = useState<Record<string, ReqState>>(() => {
+    const map: Record<string, ReqState> = {}
     for (const req of caseData.case_pending_requirements) {
-      map[req.pending_requirement_id] = req.resolved_at !== null
+      map[req.pending_requirement_id] = req.resolved_at !== null ? 'resolved' : 'outstanding'
     }
     return map
   })
@@ -147,21 +149,39 @@ export default function CaseEditClient({
     }
   }
 
-  async function handleRequirementToggle(pendingRequirementId: string, currentlyResolved: boolean) {
-    setReqUpdating(prev => ({ ...prev, [pendingRequirementId]: true }))
+  async function handleRequirementCycle(reqId: string) {
+    const current = reqState[reqId] ?? 'inactive'
+    const next: ReqState =
+      current === 'inactive'     ? 'outstanding' :
+      current === 'outstanding'  ? 'resolved'    : 'inactive'
+
+    setReqUpdating(prev => ({ ...prev, [reqId]: true }))
     try {
-      const res = await fetch(`/api/cases/${caseData.id}/requirements`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pending_requirement_id: pendingRequirementId, resolved: !currentlyResolved }),
-      })
-      if (res.ok) {
-        setReqResolved(prev => ({ ...prev, [pendingRequirementId]: !currentlyResolved }))
+      let res: Response
+      if (next === 'outstanding') {
+        res = await fetch(`/api/cases/${caseData.id}/requirements`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pending_requirement_id: reqId }),
+        })
+      } else if (next === 'resolved') {
+        res = await fetch(`/api/cases/${caseData.id}/requirements`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pending_requirement_id: reqId, resolved: true }),
+        })
+      } else {
+        res = await fetch(`/api/cases/${caseData.id}/requirements`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pending_requirement_id: reqId }),
+        })
       }
+      if (res.ok) setReqState(prev => ({ ...prev, [reqId]: next }))
     } catch {
       // silent — user can retry
     } finally {
-      setReqUpdating(prev => ({ ...prev, [pendingRequirementId]: false }))
+      setReqUpdating(prev => ({ ...prev, [reqId]: false }))
     }
   }
 
@@ -458,36 +478,50 @@ export default function CaseEditClient({
             </div>
 
             <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
-              <h2 className="text-white font-semibold mb-4">Pending Requirements</h2>
-              {caseData.case_pending_requirements.length === 0 ? (
-                <p className="text-sm text-slate-500">No pending requirements on this case.</p>
-              ) : (
-                <ul className="space-y-2">
-                  {caseData.case_pending_requirements.map(req => {
-                    const reqId    = req.pending_requirement_id
-                    const resolved = reqResolved[reqId] ?? false
-                    const updating = reqUpdating[reqId] ?? false
-                    return (
-                      <li key={req.id} className="flex items-center gap-3">
-                        <button
-                          onClick={() => handleRequirementToggle(reqId, resolved)}
-                          disabled={updating}
-                          className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
-                            resolved
-                              ? 'bg-emerald-600 border-emerald-600'
-                              : 'border-slate-600 bg-slate-800 hover:border-slate-400'
-                          } ${updating ? 'opacity-50' : ''}`}
-                        >
-                          {resolved && <Check className="w-3 h-3 text-white" />}
-                        </button>
-                        <span className={`text-sm ${resolved ? 'line-through text-slate-600' : 'text-slate-300'}`}>
-                          {req.pending_requirements?.name ?? '—'}
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-white font-semibold">Requirements</h2>
+                <div className="flex items-center gap-3 text-xs text-slate-500">
+                  {(() => {
+                    const outstanding = pendingRequirements.filter(r => (reqState[r.id] ?? 'inactive') === 'outstanding').length
+                    return outstanding > 0
+                      ? <span className="text-amber-400 font-medium">{outstanding} outstanding</span>
+                      : <span className="text-emerald-400">All clear</span>
+                  })()}
+                </div>
+              </div>
+              <ul className="space-y-1">
+                {pendingRequirements.map(req => {
+                  const state   = reqState[req.id] ?? 'inactive'
+                  const updating = reqUpdating[req.id] ?? false
+                  return (
+                    <li key={req.id}>
+                      <button
+                        onClick={() => handleRequirementCycle(req.id)}
+                        disabled={updating}
+                        className={`w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left transition-all disabled:opacity-50 ${
+                          state === 'outstanding'
+                            ? 'bg-amber-950/40 hover:bg-amber-950/60'
+                            : state === 'resolved'
+                            ? 'bg-emerald-950/30 hover:bg-emerald-950/50'
+                            : 'hover:bg-slate-800/50'
+                        }`}
+                      >
+                        {state === 'inactive'    && <Circle       className="w-4 h-4 shrink-0 text-slate-600" />}
+                        {state === 'outstanding' && <AlertCircle  className="w-4 h-4 shrink-0 text-amber-400" />}
+                        {state === 'resolved'    && <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />}
+                        <span className={`text-sm ${
+                          state === 'outstanding' ? 'text-amber-200 font-medium' :
+                          state === 'resolved'    ? 'line-through text-slate-600' :
+                          'text-slate-500'
+                        }`}>
+                          {req.name}
                         </span>
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+              <p className="text-xs text-slate-600 mt-3 px-1">Click to cycle: inactive → outstanding → resolved → inactive</p>
             </div>
           </div>
         </div>
