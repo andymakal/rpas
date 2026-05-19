@@ -120,7 +120,8 @@ export default async function ReferralDetailPage({
     supabase
       .from('stage_translations')
       .select('id, internal_status, agency_label')
-      .eq('tier', 1)
+      .in('tier', [1, 2])
+      .order('tier')
       .order('stage_order'),
     supabase
       .from('case_touches')
