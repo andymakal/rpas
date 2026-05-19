@@ -68,7 +68,7 @@ function FollowUpBadge({ date }: { date: string }) {
 }
 
 type FilterTab = 'all' | 'active' | 'pending' | 'placed' | 'closed'
-type SortKey   = 'date' | 'face' | 'days' | 'stale' | 'followup'
+type SortKey   = 'date' | 'face' | 'days' | 'stale' | 'followup' | 'client' | 'status' | 'carrier'
 
 const TABS: { key: FilterTab; label: string }[] = [
   { key: 'active',  label: 'Active'           },
@@ -90,6 +90,7 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
   function handleSort(key: SortKey) {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
     else { setSortKey(key); setSortDir(key === 'face' ? 'desc' : 'asc') }
+    // string sorts default asc; numeric/time sorts default as above
   }
 
   // Tier 2+ only
@@ -143,10 +144,25 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
 
     rows = [...rows].sort((a, b) => {
       let diff = 0
-      if (sortKey === 'face')    diff = (a.face_amount ?? 0) - (b.face_amount ?? 0)
-      else if (sortKey === 'days')    diff = daysInStatus(a.status_entered_at) - daysInStatus(b.status_entered_at)
-      else if (sortKey === 'stale')   diff = daysAgo(a.last_contact_at) - daysAgo(b.last_contact_at)
-      else if (sortKey === 'followup') {
+      if (sortKey === 'client') {
+        const aL = (a.customers?.last_name ?? '').toLowerCase()
+        const bL = (b.customers?.last_name ?? '').toLowerCase()
+        diff = aL < bL ? -1 : aL > bL ? 1 : 0
+      } else if (sortKey === 'status') {
+        const aS = (a.stage_translations?.agency_label ?? a.internal_status).toLowerCase()
+        const bS = (b.stage_translations?.agency_label ?? b.internal_status).toLowerCase()
+        diff = aS < bS ? -1 : aS > bS ? 1 : 0
+      } else if (sortKey === 'carrier') {
+        const aC = (a.products?.carriers?.short_name ?? a.products?.name ?? '').toLowerCase()
+        const bC = (b.products?.carriers?.short_name ?? b.products?.name ?? '').toLowerCase()
+        diff = aC < bC ? -1 : aC > bC ? 1 : 0
+      } else if (sortKey === 'face') {
+        diff = (a.face_amount ?? 0) - (b.face_amount ?? 0)
+      } else if (sortKey === 'days') {
+        diff = daysInStatus(a.status_entered_at) - daysInStatus(b.status_entered_at)
+      } else if (sortKey === 'stale') {
+        diff = daysAgo(a.last_contact_at) - daysAgo(b.last_contact_at)
+      } else if (sortKey === 'followup') {
         const aV = a.follow_up_date ? new Date(a.follow_up_date).getTime() : Infinity
         const bV = b.follow_up_date ? new Date(b.follow_up_date).getTime() : Infinity
         diff = aV - bV
@@ -235,15 +251,15 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-800">
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Client</th>
+                <SortTh k="client"  label="Client"         />
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Agency</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Carrier · Product</th>
-                <SortTh k="face"    label="Face Amount" />
-                <SortTh k="days"    label="Days"        />
-                <SortTh k="stale"   label="Last Contact"/>
-                <SortTh k="followup"label="Follow-up"   />
-                <SortTh k="date"    label="Date In"     />
+                <SortTh k="status"  label="Status"         />
+                <SortTh k="carrier" label="Carrier · Product" />
+                <SortTh k="face"    label="Face Amount"    />
+                <SortTh k="days"    label="Days"           />
+                <SortTh k="stale"   label="Last Contact"   />
+                <SortTh k="followup"label="Follow-up"      />
+                <SortTh k="date"    label="Date In"        />
                 <th />
               </tr>
             </thead>
