@@ -5,7 +5,7 @@ import Link from 'next/link'
 import {
   ArrowLeft, Check, Circle, AlertCircle, CheckCircle2,
   Phone, PhoneCall, PhoneOff, MessageCircle, Mail,
-  ChevronDown, ChevronUp, CalendarClock, GitMerge,
+  ChevronDown, ChevronUp, CalendarClock, GitMerge, Pencil, X,
 } from 'lucide-react'
 import type {
   CaseDetail,
@@ -146,6 +146,38 @@ export default function CaseEditClient({
   })
   const [reqUpdating, setReqUpdating] = useState<Record<string, boolean>>({})
 
+  // ── Client name edit state ────────────────────────────────────
+  const [editingName, setEditingName]   = useState(false)
+  const [firstName, setFirstName]       = useState(caseData.customers?.first_name ?? '')
+  const [lastName, setLastName]         = useState(caseData.customers?.last_name ?? '')
+  const [displayName, setDisplayName]   = useState(
+    caseData.customers ? `${caseData.customers.first_name} ${caseData.customers.last_name}` : 'Unknown Client'
+  )
+  const [nameSaving, setNameSaving]     = useState(false)
+  const [nameError, setNameError]       = useState<string | null>(null)
+
+  async function handleSaveName() {
+    if (!caseData.customer_id) return
+    setNameSaving(true); setNameError(null)
+    try {
+      const res = await fetch(`/api/customers/${caseData.customer_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ first_name: firstName.trim(), last_name: lastName.trim() }),
+      })
+      if (res.ok) {
+        setDisplayName(`${firstName.trim()} ${lastName.trim()}`)
+        setEditingName(false)
+      } else {
+        const err = await res.json().catch(() => ({}))
+        setNameError((err as { error?: string }).error ?? 'Failed to save')
+      }
+    } catch {
+      setNameError('Network error')
+    } finally {
+      setNameSaving(false) }
+  }
+
   // ── Derived ───────────────────────────────────────────────────
   const selectedStage   = stages.find(s => s.internal_status === status)
   const selectedTier    = selectedStage?.tier ?? caseData.stage_translations?.tier ?? 1
@@ -278,11 +310,39 @@ export default function CaseEditClient({
 
         <div className="flex flex-col sm:flex-row sm:items-start gap-3 mb-6">
           <div className="flex-1 min-w-0">
-            <h1 className="text-white text-2xl font-semibold">
-              {caseData.customers
-                ? `${caseData.customers.first_name} ${caseData.customers.last_name}`
-                : 'Unknown Client'}
-            </h1>
+            {editingName ? (
+              <div className="flex items-center gap-2 flex-wrap">
+                <input
+                  value={firstName}
+                  onChange={e => setFirstName(e.target.value)}
+                  placeholder="First"
+                  className="rounded-lg border border-slate-700 bg-slate-800 text-white text-lg px-3 py-1 focus:outline-none focus:border-slate-500 w-36"
+                />
+                <input
+                  value={lastName}
+                  onChange={e => setLastName(e.target.value)}
+                  placeholder="Last"
+                  className="rounded-lg border border-slate-700 bg-slate-800 text-white text-lg px-3 py-1 focus:outline-none focus:border-slate-500 w-36"
+                />
+                <button onClick={handleSaveName} disabled={nameSaving}
+                  className="inline-flex items-center gap-1 rounded-lg px-3 py-1 text-sm font-medium text-white bg-slate-700 hover:bg-slate-600 disabled:opacity-50 transition-colors">
+                  <Check className="w-3.5 h-3.5" />{nameSaving ? 'Saving…' : 'Save'}
+                </button>
+                <button onClick={() => { setEditingName(false); setFirstName(caseData.customers?.first_name ?? ''); setLastName(caseData.customers?.last_name ?? ''); setNameError(null) }}
+                  className="text-slate-500 hover:text-slate-300 transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+                {nameError && <span className="text-xs text-red-400">{nameError}</span>}
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 group/name">
+                <h1 className="text-white text-2xl font-semibold">{displayName}</h1>
+                <button onClick={() => setEditingName(true)}
+                  className="opacity-0 group-hover/name:opacity-100 transition-opacity text-slate-600 hover:text-slate-400">
+                  <Pencil className="w-4 h-4" />
+                </button>
+              </div>
+            )}
             <p className="text-slate-400 text-sm mt-0.5">
               {caseData.agencies?.name ?? <span className="text-amber-400">Unassigned</span>}
             </p>
