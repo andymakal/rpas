@@ -158,6 +158,7 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
                       <p className="font-medium text-white group-hover:text-blue-300 transition-colors">
                         {r.customers?.first_name ?? '—'} {r.customers?.last_name ?? ''}
                       </p>
+                    </td>
                     <td className="px-4 py-3">
                       {r.agencies ? (
                         <span className="text-slate-300">{r.agencies.display_name ?? r.agencies.name}</span>
