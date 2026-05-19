@@ -11,7 +11,7 @@ export async function GET() {
   return Response.json({ users })
 }
 
-// POST — invite a new team member
+// POST — create a new team member (no email required)
 export async function POST(request: NextRequest) {
   const supabase = createAdminClient()
   let body: { email: string; full_name: string }
@@ -25,13 +25,20 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'Email and name are required' }, { status: 400 })
   }
 
-  const { data, error } = await supabase.auth.admin.inviteUserByEmail(email, {
-    data: { full_name },
-    redirectTo: `${siteUrl}/auth/callback`,
+  // Generate a readable temporary password
+  const chars    = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
+  const tempPass = Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+    + '!'
+
+  const { data, error } = await supabase.auth.admin.createUser({
+    email,
+    password:      tempPass,
+    email_confirm: true,          // skip confirmation email entirely
+    user_metadata: { full_name },
   })
 
   if (error) return Response.json({ error: error.message }, { status: 500 })
-  return Response.json({ user: data.user })
+  return Response.json({ user: data.user, tempPass })
 }
 
 // PATCH — update a team member's name

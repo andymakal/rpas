@@ -18,6 +18,7 @@ export function TeamClient({ members }: { members: TeamMember[] }) {
   const [inviteEmail, setInviteEmail] = useState('')
   const [inviting, setInviting]       = useState(false)
   const [inviteMsg, setInviteMsg]     = useState<{ ok: boolean; text: string } | null>(null)
+  const [tempPass,  setTempPass]      = useState<string | null>(null)
 
   const [removingId, setRemovingId]   = useState<string | null>(null)
   const [confirmId,  setConfirmId]    = useState<string | null>(null)
@@ -28,7 +29,7 @@ export function TeamClient({ members }: { members: TeamMember[] }) {
   const [editMsg,     setEditMsg]     = useState<{ ok: boolean; text: string } | null>(null)
 
   async function handleInvite() {
-    setInviting(true); setInviteMsg(null)
+    setInviting(true); setInviteMsg(null); setTempPass(null)
     try {
       const res = await fetch('/api/admin/team', {
         method: 'POST',
@@ -37,9 +38,10 @@ export function TeamClient({ members }: { members: TeamMember[] }) {
       })
       const j = await res.json()
       if (!res.ok) {
-        setInviteMsg({ ok: false, text: j.error ?? 'Invite failed' })
+        setInviteMsg({ ok: false, text: j.error ?? 'Failed to create account' })
       } else {
-        setInviteMsg({ ok: true, text: `Invite sent to ${inviteEmail}` })
+        setTempPass(j.tempPass)
+        setInviteMsg({ ok: true, text: `Account created for ${inviteName}` })
         setInviteName(''); setInviteEmail('')
         setShowInvite(false)
         router.refresh()
@@ -114,12 +116,32 @@ export function TeamClient({ members }: { members: TeamMember[] }) {
           </button>
         </div>
 
-        {/* Invite form */}
+        {/* Temp password display */}
+        {tempPass && (
+          <div className="mb-6 bg-emerald-950 border border-emerald-800 rounded-xl p-5 space-y-2">
+            <p className="text-sm font-medium text-emerald-300">Account created — share this temporary password</p>
+            <p className="text-xs text-slate-400">Send this to the team member so they can log in. They can change it under <strong>Change Password</strong> in the sidebar.</p>
+            <div className="flex items-center gap-3 mt-2">
+              <code className="bg-slate-900 border border-slate-700 text-white text-sm font-mono rounded-lg px-4 py-2 tracking-wider">
+                {tempPass}
+              </code>
+              <button
+                onClick={() => { navigator.clipboard.writeText(tempPass); }}
+                className="text-xs text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                Copy
+              </button>
+            </div>
+            <button onClick={() => setTempPass(null)} className="text-xs text-slate-500 hover:text-slate-400 pt-1">Dismiss</button>
+          </div>
+        )}
+
+        {/* Add member form */}
         {showInvite && (
           <div className="mb-6 bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-4">
-            <p className="text-sm font-medium text-slate-200">Invite a new team member</p>
+            <p className="text-sm font-medium text-slate-200">Add a team member</p>
             <p className="text-xs text-slate-500">
-              They'll receive an email with a sign-in link. After clicking it they can set their own password.
+              Creates an account immediately. A temporary password will be shown so you can share it with them — no email needed.
             </p>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -153,7 +175,7 @@ export function TeamClient({ members }: { members: TeamMember[] }) {
                 className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-40 transition-opacity hover:opacity-90"
                 style={{ backgroundColor: '#1F3864' }}
               >
-                <Mail className="w-4 h-4" /> {inviting ? 'Sending…' : 'Send Invite'}
+                <UserPlus className="w-4 h-4" /> {inviting ? 'Creating…' : 'Create Account'}
               </button>
               <button
                 onClick={() => { setShowInvite(false); setInviteMsg(null) }}
