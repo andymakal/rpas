@@ -111,6 +111,17 @@ export async function POST(req: NextRequest) {
   function matchAgency(csvName: string): string | null {
     const norm = normalizeAgencyName(csvName)
     if (agencyByNorm.has(norm)) return agencyByNorm.get(norm)!
+
+    // If name looks like "Last, First" (Lead Manager format), try "First Last" too
+    if (csvName.includes(',')) {
+      const [last, first] = csvName.split(',').map(s => s.trim())
+      const flipped = normalizeAgencyName(`${first} ${last}`)
+      if (agencyByNorm.has(flipped)) return agencyByNorm.get(flipped)!
+      for (const [key, id] of agencyByNorm.entries()) {
+        if (key.includes(flipped) || flipped.includes(key)) return id
+      }
+    }
+
     if (norm.length >= 4) {
       for (const [key, id] of agencyByNorm.entries()) {
         if (key.includes(norm) || norm.includes(key)) return id
