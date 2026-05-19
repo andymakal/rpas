@@ -2,6 +2,38 @@ import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
 import { createAdminClient } from '@/lib/supabase/admin'
 
+// Full state name → 2-letter abbreviation
+const STATE_ABBR: Record<string, string> = {
+  'Alabama': 'AL', 'Alaska': 'AK', 'Arizona': 'AZ', 'Arkansas': 'AR',
+  'California': 'CA', 'Colorado': 'CO', 'Connecticut': 'CT', 'Delaware': 'DE',
+  'Florida': 'FL', 'Georgia': 'GA', 'Hawaii': 'HI', 'Idaho': 'ID',
+  'Illinois': 'IL', 'Indiana': 'IN', 'Iowa': 'IA', 'Kansas': 'KS',
+  'Kentucky': 'KY', 'Louisiana': 'LA', 'Maine': 'ME', 'Maryland': 'MD',
+  'Massachusetts': 'MA', 'Michigan': 'MI', 'Minnesota': 'MN', 'Mississippi': 'MS',
+  'Missouri': 'MO', 'Montana': 'MT', 'Nebraska': 'NE', 'Nevada': 'NV',
+  'New Hampshire': 'NH', 'New Jersey': 'NJ', 'New Mexico': 'NM', 'New York': 'NY',
+  'North Carolina': 'NC', 'North Dakota': 'ND', 'Ohio': 'OH', 'Oklahoma': 'OK',
+  'Oregon': 'OR', 'Pennsylvania': 'PA', 'Rhode Island': 'RI', 'South Carolina': 'SC',
+  'South Dakota': 'SD', 'Tennessee': 'TN', 'Texas': 'TX', 'Utah': 'UT',
+  'Vermont': 'VT', 'Virginia': 'VA', 'Washington': 'WA', 'West Virginia': 'WV',
+  'Wisconsin': 'WI', 'Wyoming': 'WY', 'District of Columbia': 'DC',
+}
+
+function stateAbbr(raw: string): string | null {
+  if (!raw) return null
+  const trimmed = raw.trim()
+  if (trimmed.length === 2) return trimmed.toUpperCase()       // already an abbr
+  return STATE_ABBR[trimmed] ?? null
+}
+
+function firstPhone(...candidates: string[]): string | null {
+  for (const c of candidates) {
+    const digits = c.replace(/\D/g, '')
+    if (digits.length >= 10) return digits
+  }
+  return null
+}
+
 // Folder tag → internal_status, checked in priority order (most-advanced first)
 const FOLDER_STATUS_PRIORITY: [string, string][] = [
   ['placed',              'placed'],
@@ -39,7 +71,6 @@ function leadSourceFromFolders(folders: string[]): 'agency_referral' | 'allstate
   return 'agency_referral'
 }
 
-// Strips common suffixes/words to make name matching more forgiving
 function normalizeAgencyName(name: string): string {
   return name
     .toLowerCase()
@@ -67,13 +98,12 @@ export async function POST(req: NextRequest) {
 
   const supabase = createAdminClient()
 
-  // Load all agencies once for name matching
   const { data: agencies } = await supabase
     .from('agencies')
     .select('id, name, slug')
     .eq('is_active', true)
 
-  const agencyByNorm = new Map<string, string>()  // normalized name → id
+  const agencyByNorm = new Map<string, string>()
   for (const a of agencies ?? []) {
     agencyByNorm.set(normalizeAgencyName(a.name), a.id)
   }
@@ -81,7 +111,6 @@ export async function POST(req: NextRequest) {
   function matchAgency(csvName: string): string | null {
     const norm = normalizeAgencyName(csvName)
     if (agencyByNorm.has(norm)) return agencyByNorm.get(norm)!
-    // Partial match fallback — only if the normalized name is long enough to be meaningful
     if (norm.length >= 4) {
       for (const [key, id] of agencyByNorm.entries()) {
         if (key.includes(norm) || norm.includes(key)) return id
@@ -90,7 +119,6 @@ export async function POST(req: NextRequest) {
     return null
   }
 
-  // Create import batch
   const { data: batch, error: batchError } = await supabase
     .from('import_batches')
     .insert({ import_type: 'lead_manager', filename: file.name, row_count: rows.length })
@@ -103,25 +131,37 @@ export async function POST(req: NextRequest) {
 
   let casesCreated     = 0
   let customersCreated = 0
+  let customersUpdated = 0
   let skippedManual    = 0
   let skippedDuplicate = 0
   const unmatchedAgencies = new Set<string>()
   const errors: string[] = []
 
-  // Cache customer lookups within this import run to avoid repeated round-trips
-  const customerCache = new Map<string, string>()  // `${agencyId}:${first}:${last}` → id
+  const customerCache = new Map<string, string>()
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]
 
     try {
-      const firstName  = String(row['First Name']          ?? '').trim()
-      const lastName   = String(row['Last Name']           ?? '').trim()
-      const agencyName = String(row['Agency Name']         ?? '').trim()
-      const lspName    = String(row['Referring LSP Name']  ?? '').trim()
-      const policyNum  = String(row['Policy Number']       ?? '').trim() || null
-      const foldersRaw = String(row['Folders']             ?? '').trim()
-      const leadUrl    = String(row['URL']                 ?? '').trim() || null
+      const firstName  = String(row['First Name']             ?? '').trim()
+      const lastName   = String(row['Last Name']              ?? '').trim()
+      const agencyName = String(row['Agency Name']            ?? '').trim()
+      const lspName    = String(row['Referring LSP Name']     ?? '').trim()
+      const policyNum  = String(row['Policy Number']          ?? '').trim() || null
+      const foldersRaw = String(row['Folders']                ?? '').trim()
+      const leadUrl    = String(row['URL']                    ?? '').trim() || null
+
+      // Contact fields — new in this export
+      const phone  = firstPhone(
+        String(row['Home Phone']  ?? ''),
+        String(row['Cell Phone']  ?? ''),
+        String(row['Work Phone']  ?? ''),
+      )
+      const email  = String(row['Primary Email Address'] ?? '').trim().toLowerCase() || null
+      const street = String(row['Address 1']             ?? '').trim() || null
+      const city   = String(row['City']                  ?? '').trim() || null
+      const state  = stateAbbr(String(row['State/Province'] ?? ''))
+      const zip    = String(row['Zip Code']              ?? '').trim() || null
 
       if (!firstName && !lastName) continue
 
@@ -141,7 +181,6 @@ export async function POST(req: NextRequest) {
 
       const folders = parseFolders(foldersRaw)
 
-      // Service requests and policy reviews need manual entry — save raw, flag in result
       if (isManualEntry(folders)) {
         skippedManual++
         await supabase.from('intake_raw').insert({
@@ -151,18 +190,16 @@ export async function POST(req: NextRequest) {
         continue
       }
 
-      // Resolve agency
       const agencyId = agencyName ? matchAgency(agencyName) : null
       if (!agencyId && agencyName) unmatchedAgencies.add(agencyName)
 
-      // Resolve or create customer
       const cacheKey = `${agencyId ?? ''}:${firstName.toLowerCase()}:${lastName.toLowerCase()}`
       let customerId = customerCache.get(cacheKey) ?? null
 
       if (!customerId) {
         let query = supabase
           .from('customers')
-          .select('id')
+          .select('id, phone, email, street')
           .ilike('first_name', firstName)
           .ilike('last_name',  lastName)
 
@@ -174,10 +211,36 @@ export async function POST(req: NextRequest) {
 
         if (existing) {
           customerId = existing.id
+
+          // Back-fill contact info on existing customers if they're missing it
+          const contactUpdate: Record<string, unknown> = {}
+          if (!existing.phone  && phone)  contactUpdate.phone  = phone
+          if (!existing.email  && email)  contactUpdate.email  = email
+          if (!existing.street && street) {
+            contactUpdate.street = street
+            if (city)  contactUpdate.city  = city
+            if (state) contactUpdate.state = state
+            if (zip)   contactUpdate.zip   = zip
+          }
+
+          if (Object.keys(contactUpdate).length > 0) {
+            await supabase.from('customers').update(contactUpdate).eq('id', existing.id)
+            customersUpdated++
+          }
         } else {
           const { data: newCust, error: custErr } = await supabase
             .from('customers')
-            .insert({ first_name: firstName, last_name: lastName, agency_id: agencyId })
+            .insert({
+              first_name: firstName,
+              last_name:  lastName,
+              agency_id:  agencyId,
+              phone,
+              email,
+              street,
+              city,
+              state,
+              zip,
+            })
             .select('id')
             .single()
 
@@ -195,12 +258,9 @@ export async function POST(req: NextRequest) {
 
       if (!customerId) continue
 
-      // Determine case status and lead source from folder tags
       const internalStatus = statusFromFolders(folders)
       const leadSource     = leadSourceFromFolders(folders)
-
-      // Build notes from LSP name if present
-      const notes = lspName ? `Referring LSP: ${lspName}` : null
+      const notes          = lspName ? `Referring LSP: ${lspName}` : null
 
       const { error: caseErr } = await supabase.from('cases').insert({
         agency_id:       agencyId,
@@ -218,7 +278,6 @@ export async function POST(req: NextRequest) {
 
       casesCreated++
 
-      // Store raw record for audit trail; mark as processed
       await supabase.from('intake_raw').insert({
         agency_id:    agencyId,
         source:       'csv_import',
@@ -245,6 +304,7 @@ export async function POST(req: NextRequest) {
     batch_id:           batch.id,
     total_rows:         rows.length,
     customers_created:  customersCreated,
+    customers_updated:  customersUpdated,
     cases_created:      casesCreated,
     skipped_manual:     skippedManual,
     skipped_duplicate:  skippedDuplicate,
