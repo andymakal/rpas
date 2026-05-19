@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { ChevronRight, Search } from 'lucide-react'
 import type { CaseRow } from './page'
 
@@ -36,19 +36,26 @@ function formatDate(iso: string): string {
 }
 
 const TABS: { key: FilterTab; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'active', label: 'Active' },
-  { key: 'pending', label: 'Pending (Tier 2)' },
-  { key: 'placed', label: 'Placed' },
+  { key: 'all',    label: 'All'           },
+  { key: 'active', label: 'Active'        },
+  { key: 'pending', label: 'Pending'      },
+  { key: 'placed', label: 'Placed'        },
   { key: 'closed', label: 'Closed / Snoozed' },
 ]
 
 export default function CasesClient({ cases }: { cases: CaseRow[] }) {
-  const [tab, setTab] = useState<FilterTab>('all')
+  const router = useRouter()
+  const [tab, setTab] = useState<FilterTab>('active')
   const [search, setSearch] = useState('')
 
+  // Tier 2+ only — Tier 1 referrals live on the Referrals page
+  const tier2Plus = useMemo(
+    () => cases.filter(r => (r.stage_translations?.tier ?? 0) >= 2),
+    [cases]
+  )
+
   const filtered = useMemo(() => {
-    let rows = cases
+    let rows = tier2Plus
 
     // Tab filter
     if (tab === 'active') {
@@ -74,7 +81,7 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
     }
 
     return rows
-  }, [cases, tab, search])
+  }, [tier2Plus, tab, search])
 
   return (
     <div>
@@ -144,15 +151,13 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
                 return (
                   <tr
                     key={r.id}
-                    className={`group transition-colors hover:bg-slate-800/30 ${!isLastRow ? 'border-b border-slate-800/50' : ''}`}
+                    onClick={() => router.push(`/cases/${r.id}`)}
+                    className={`group cursor-pointer transition-colors hover:bg-slate-800/30 ${!isLastRow ? 'border-b border-slate-800/50' : ''}`}
                   >
                     <td className="px-4 py-3">
-                      <Link href={`/cases/${r.id}`} className="block">
-                        <p className="font-medium text-white group-hover:text-blue-300 transition-colors">
-                          {r.customers?.first_name ?? '—'} {r.customers?.last_name ?? ''}
-                        </p>
-                      </Link>
-                    </td>
+                      <p className="font-medium text-white group-hover:text-blue-300 transition-colors">
+                        {r.customers?.first_name ?? '—'} {r.customers?.last_name ?? ''}
+                      </p>
                     <td className="px-4 py-3">
                       {r.agencies ? (
                         <span className="text-slate-300">{r.agencies.display_name ?? r.agencies.name}</span>
@@ -190,9 +195,7 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
                       {formatDate(r.created_at)}
                     </td>
                     <td className="px-4 py-3 text-slate-600">
-                      <Link href={`/cases/${r.id}`}>
-                        <ChevronRight className="w-4 h-4 group-hover:text-slate-400 transition-colors" />
-                      </Link>
+                      <ChevronRight className="w-4 h-4 group-hover:text-slate-400 transition-colors" />
                     </td>
                   </tr>
                 )

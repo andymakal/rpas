@@ -64,7 +64,7 @@ export default async function CasesPage() {
       <div className="max-w-7xl mx-auto">
         <div className="mb-6">
           <h1 className="text-white text-2xl font-semibold">Cases</h1>
-          <p className="text-slate-400 text-sm mt-0.5">{cases.length} total</p>
+          <p className="text-slate-400 text-sm mt-0.5">Tier 2+ pipeline — cases in commitment &amp; execution</p>
         </div>
         <CasesClient cases={cases} />
       </div>
