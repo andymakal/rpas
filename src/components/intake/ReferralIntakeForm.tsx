@@ -35,6 +35,7 @@ const EMPTY_FORM: ReferralFormData = {
   job_change_last_5_years: false,
   review_401k: false,
   retirement_prep: false,
+  consent_confirmed: undefined as unknown as true,
 }
 
 const STEP_SCHEMAS = [step1Schema, step2Schema, step3Schema]
@@ -451,6 +452,41 @@ export function ReferralIntakeForm({
               placeholder="17815" inputMode="numeric" maxLength={10} error={errors.client_zip} />
           </Field>
         </div>
+      </div>
+
+      {/* Consent attestation */}
+      <div className={`rounded-xl border-2 p-4 transition-colors ${
+        form.consent_confirmed
+          ? 'border-slate-800 bg-slate-50'
+          : errors.consent_confirmed
+            ? 'border-red-400 bg-red-50'
+            : 'border-slate-200 bg-white'
+      }`}>
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={!!form.consent_confirmed}
+            onChange={e => set('consent_confirmed', e.target.checked as true)}
+            className="mt-0.5 h-4 w-4 rounded border-slate-300 accent-slate-800 flex-shrink-0"
+          />
+          <div>
+            <p className="text-sm font-medium text-slate-800">
+              I confirm that{' '}
+              <span className="font-semibold">
+                {form.client_first_name.trim() || 'this client'}
+              </span>{' '}
+              has verbally consented to share their personal information with Makal Financial Services for the purpose of a financial review.
+            </p>
+            <p className="text-xs text-slate-500 mt-1.5 leading-relaxed">
+              This information is collected solely to facilitate a financial services consultation.
+              Do not submit without the client&apos;s knowledge and verbal consent.
+              Submission of this form constitutes your attestation that consent was obtained.
+            </p>
+          </div>
+        </label>
+        {errors.consent_confirmed && (
+          <p className="text-xs text-red-600 mt-2 pl-7">{errors.consent_confirmed}</p>
+        )}
       </div>
     </div>,
 

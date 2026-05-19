@@ -92,12 +92,13 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
     const { data: newCase, error: caseErr } = await supabase
       .from('cases')
       .insert({
-        agency_id:        form.agency_id,
-        customer_id:      customerId,
-        internal_status:  'lsp_contact_needed',
-        notes:            noteLines.join('\n'),
-        is_owner_referral: isOwnerReferral,
-        is_test:           false,
+        agency_id:          form.agency_id,
+        customer_id:        customerId,
+        internal_status:    'lsp_contact_needed',
+        notes:              noteLines.join('\n'),
+        is_owner_referral:  isOwnerReferral,
+        consent_given_at:   new Date().toISOString(),
+        is_test:            false,
       })
       .select('id')
       .single()

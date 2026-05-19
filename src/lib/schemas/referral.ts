@@ -23,6 +23,9 @@ export const referralSchema = z.object({
   job_change_last_5_years: z.boolean().default(false),
   review_401k: z.boolean().default(false),
   retirement_prep: z.boolean().default(false),
+  consent_confirmed: z.literal(true, {
+    error: 'You must confirm client consent before submitting',
+  }),
 })
 
 export type ReferralFormData = z.infer<typeof referralSchema>
@@ -33,6 +36,7 @@ export const step2Schema = referralSchema.pick({
   client_first_name: true, client_last_name: true, client_phone: true,
   client_email: true, client_dob: true, client_marital_status: true,
   client_address: true, client_city: true, client_state: true, client_zip: true,
+  consent_confirmed: true,
 })
 
 export const step3Schema = referralSchema.pick({
