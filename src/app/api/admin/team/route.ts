@@ -11,10 +11,10 @@ export async function GET() {
   return Response.json({ users })
 }
 
-// POST — create a new team member (no email required)
+// POST — create a new team member + producer profile
 export async function POST(request: NextRequest) {
   const supabase = createAdminClient()
-  let body: { email: string; full_name: string }
+  let body: { email: string; full_name: string; title?: string; phone?: string; allstate_id?: string; npn?: string; sub_producer_code?: string; birthday?: string }
   try { body = await request.json() } catch {
     return Response.json({ error: 'Invalid JSON' }, { status: 400 })
   }
@@ -25,6 +25,11 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'Email and name are required' }, { status: 400 })
   }
 
+  // Split name into first/last for the producer record
+  const nameParts  = full_name.split(' ')
+  const first_name = nameParts[0] ?? full_name
+  const last_name  = nameParts.slice(1).join(' ') || ''
+
   // Generate a readable temporary password
   const chars    = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
   const tempPass = Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
@@ -33,11 +38,29 @@ export async function POST(request: NextRequest) {
   const { data, error } = await supabase.auth.admin.createUser({
     email,
     password:      tempPass,
-    email_confirm: true,          // skip confirmation email entirely
+    email_confirm: true,
     user_metadata: { full_name },
   })
 
   if (error) return Response.json({ error: error.message }, { status: 500 })
+
+  // Create the producer profile linked to the new auth user
+  const producerInsert: Record<string, unknown> = {
+    auth_user_id: data.user.id,
+    first_name,
+    last_name,
+    email,
+  }
+  if (body.title)             producerInsert.title             = body.title.trim()
+  if (body.phone)             producerInsert.phone             = body.phone.trim()
+  if (body.allstate_id)       producerInsert.allstate_id       = body.allstate_id.trim()
+  if (body.npn)               producerInsert.npn               = body.npn.trim()
+  if (body.sub_producer_code) producerInsert.sub_producer_code = body.sub_producer_code.trim()
+  if (body.birthday)          producerInsert.birthday          = body.birthday
+
+  await supabase.from('producers').insert(producerInsert)
+  // Producer insert failure is non-fatal — auth user is created, profile can be added later
+
   return Response.json({ user: data.user, tempPass })
 }
 

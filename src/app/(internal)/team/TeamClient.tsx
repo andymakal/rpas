@@ -2,31 +2,56 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { UserPlus, Trash2, CheckCircle, Clock, Mail, Pencil, Check, X } from 'lucide-react'
-import type { TeamMember } from './page'
+import {
+  UserPlus, Trash2, CheckCircle, Clock,
+  ChevronDown, ChevronUp, Pencil, Check, X,
+} from 'lucide-react'
+import type { Producer } from './page'
 
 function fmt(iso: string | null) {
   if (!iso) return '—'
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-export function TeamClient({ members }: { members: TeamMember[] }) {
+function fmtBirthday(iso: string | null) {
+  if (!iso) return '—'
+  // birthday is a DATE string (YYYY-MM-DD) — parse without timezone shift
+  const [y, m, d] = iso.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+type FieldDef = { key: string; label: string; placeholder?: string; type?: string }
+
+const PROFILE_FIELDS: FieldDef[] = [
+  { key: 'title',             label: 'Title',              placeholder: 'Life Insurance Specialist' },
+  { key: 'phone',             label: 'Phone',              placeholder: '(555) 555-5555',  type: 'tel' },
+  { key: 'allstate_id',       label: 'Allstate ID',        placeholder: 'A12345678' },
+  { key: 'npn',               label: 'NPN',                placeholder: '12345678' },
+  { key: 'sub_producer_code', label: 'Sub-Producer Code',  placeholder: 'SP-001' },
+  { key: 'birthday',          label: 'Birthday',           type: 'date' },
+]
+
+type EditState = Partial<Record<string, string>>
+
+export function TeamClient({ members }: { members: Producer[] }) {
   const router = useRouter()
 
-  const [showInvite, setShowInvite] = useState(false)
-  const [inviteName,  setInviteName]  = useState('')
-  const [inviteEmail, setInviteEmail] = useState('')
-  const [inviting, setInviting]       = useState(false)
-  const [inviteMsg, setInviteMsg]     = useState<{ ok: boolean; text: string } | null>(null)
-  const [tempPass,  setTempPass]      = useState<string | null>(null)
+  // Invite form
+  const [showInvite,   setShowInvite]   = useState(false)
+  const [inviteName,   setInviteName]   = useState('')
+  const [inviteEmail,  setInviteEmail]  = useState('')
+  const [inviting,     setInviting]     = useState(false)
+  const [inviteMsg,    setInviteMsg]    = useState<{ ok: boolean; text: string } | null>(null)
+  const [tempPass,     setTempPass]     = useState<string | null>(null)
 
-  const [removingId, setRemovingId]   = useState<string | null>(null)
-  const [confirmId,  setConfirmId]    = useState<string | null>(null)
-
-  const [editingId,   setEditingId]   = useState<string | null>(null)
-  const [editName,    setEditName]    = useState('')
-  const [editSaving,  setEditSaving]  = useState(false)
-  const [editMsg,     setEditMsg]     = useState<{ ok: boolean; text: string } | null>(null)
+  // Row state
+  const [expandedId,   setExpandedId]  = useState<string | null>(null)
+  const [editingId,    setEditingId]   = useState<string | null>(null)
+  const [editState,    setEditState]   = useState<EditState>({})
+  const [saving,       setSaving]      = useState(false)
+  const [saveMsg,      setSaveMsg]     = useState<{ ok: boolean; text: string } | null>(null)
+  const [confirmId,    setConfirmId]   = useState<string | null>(null)
+  const [removingId,   setRemovingId]  = useState<string | null>(null)
 
   async function handleInvite() {
     setInviting(true); setInviteMsg(null); setTempPass(null)
@@ -53,55 +78,106 @@ export function TeamClient({ members }: { members: TeamMember[] }) {
     }
   }
 
-  function startEdit(m: TeamMember) {
+  function startEdit(m: Producer) {
     setEditingId(m.id)
-    setEditName(m.full_name ?? '')
-    setEditMsg(null)
-    setConfirmId(null)
+    setSaveMsg(null)
+    const initial: EditState = {
+      first_name:        m.first_name,
+      last_name:         m.last_name,
+      title:             m.title ?? '',
+      phone:             m.phone ?? '',
+      allstate_id:       m.allstate_id ?? '',
+      npn:               m.npn ?? '',
+      sub_producer_code: m.sub_producer_code ?? '',
+      birthday:          m.birthday ?? '',
+    }
+    setEditState(initial)
+    setExpandedId(m.id)
   }
 
-  async function handleSaveName(userId: string) {
-    setEditSaving(true); setEditMsg(null)
+  async function handleSave(m: Producer) {
+    setSaving(true); setSaveMsg(null)
     try {
-      const res = await fetch('/api/admin/team', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, full_name: editName }),
-      })
-      const j = await res.json()
-      if (!res.ok) {
-        setEditMsg({ ok: false, text: j.error ?? 'Save failed' })
-      } else {
-        setEditingId(null)
-        router.refresh()
+      // Update auth name if changed
+      const newFullName = `${editState.first_name ?? ''} ${editState.last_name ?? ''}`.trim()
+      const oldFullName = `${m.first_name} ${m.last_name}`.trim()
+
+      if (newFullName !== oldFullName) {
+        await fetch('/api/admin/team', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ userId: m.auth_user_id, full_name: newFullName }),
+        })
       }
+
+      // Update producer profile
+      const producerUpdate: Record<string, unknown> = {
+        first_name:        editState.first_name,
+        last_name:         editState.last_name,
+        title:             editState.title   || null,
+        phone:             editState.phone   || null,
+        allstate_id:       editState.allstate_id   || null,
+        npn:               editState.npn     || null,
+        sub_producer_code: editState.sub_producer_code || null,
+        birthday:          editState.birthday || null,
+      }
+
+      if (!m.has_producer_record) {
+        // No producer record yet (pre-migration user) — create one
+        const res = await fetch('/api/admin/producers', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...producerUpdate, auth_user_id: m.auth_user_id, email: m.auth_email }),
+        })
+        const j = await res.json()
+        if (!res.ok) { setSaveMsg({ ok: false, text: j.error ?? 'Save failed' }); return }
+      } else {
+        const res = await fetch(`/api/admin/producers/${m.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(producerUpdate),
+        })
+        const j = await res.json()
+        if (!res.ok) { setSaveMsg({ ok: false, text: j.error ?? 'Save failed' }); return }
+      }
+
+      setSaveMsg({ ok: true, text: 'Saved' })
+      setEditingId(null)
+      router.refresh()
     } catch {
-      setEditMsg({ ok: false, text: 'Network error' })
+      setSaveMsg({ ok: false, text: 'Network error' })
     } finally {
-      setEditSaving(false)
+      setSaving(false)
     }
   }
 
-  async function handleRemove(userId: string) {
-    setRemovingId(userId)
+  async function handleRemove(m: Producer) {
+    setRemovingId(m.id)
     try {
       const res = await fetch('/api/admin/team', {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId }),
+        body: JSON.stringify({ userId: m.auth_user_id }),
       })
-      if (res.ok) {
-        setConfirmId(null)
-        router.refresh()
-      }
+      if (res.ok) { setConfirmId(null); router.refresh() }
     } finally {
       setRemovingId(null)
     }
   }
 
+  function field(key: string) {
+    return editState[key] ?? ''
+  }
+
+  function setField(key: string, val: string) {
+    setEditState(s => ({ ...s, [key]: val }))
+  }
+
   return (
     <div className="p-8">
-      <div className="max-w-3xl mx-auto">
+      <div className="max-w-5xl mx-auto">
+
+        {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
             <h1 className="text-white text-2xl font-semibold">Team</h1>
@@ -112,23 +188,20 @@ export function TeamClient({ members }: { members: TeamMember[] }) {
             className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
             style={{ backgroundColor: '#1F3864' }}
           >
-            <UserPlus className="w-4 h-4" /> Invite Team Member
+            <UserPlus className="w-4 h-4" /> Add Team Member
           </button>
         </div>
 
-        {/* Temp password display */}
+        {/* Temp password banner */}
         {tempPass && (
           <div className="mb-6 bg-emerald-950 border border-emerald-800 rounded-xl p-5 space-y-2">
             <p className="text-sm font-medium text-emerald-300">Account created — share this temporary password</p>
-            <p className="text-xs text-slate-400">Send this to the team member so they can log in. They can change it under <strong>Change Password</strong> in the sidebar.</p>
+            <p className="text-xs text-slate-400">They can change it under <strong>Change Password</strong> in the sidebar.</p>
             <div className="flex items-center gap-3 mt-2">
               <code className="bg-slate-900 border border-slate-700 text-white text-sm font-mono rounded-lg px-4 py-2 tracking-wider">
                 {tempPass}
               </code>
-              <button
-                onClick={() => { navigator.clipboard.writeText(tempPass); }}
-                className="text-xs text-slate-400 hover:text-slate-200 transition-colors"
-              >
+              <button onClick={() => navigator.clipboard.writeText(tempPass)} className="text-xs text-slate-400 hover:text-slate-200">
                 Copy
               </button>
             </div>
@@ -136,13 +209,11 @@ export function TeamClient({ members }: { members: TeamMember[] }) {
           </div>
         )}
 
-        {/* Add member form */}
+        {/* Invite form */}
         {showInvite && (
           <div className="mb-6 bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-4">
             <p className="text-sm font-medium text-slate-200">Add a team member</p>
-            <p className="text-xs text-slate-500">
-              Creates an account immediately. A temporary password will be shown so you can share it with them — no email needed.
-            </p>
+            <p className="text-xs text-slate-500">Creates an account immediately. A temporary password will be displayed so you can share it with them.</p>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-slate-400 mb-1.5">Full name</label>
@@ -177,10 +248,7 @@ export function TeamClient({ members }: { members: TeamMember[] }) {
               >
                 <UserPlus className="w-4 h-4" /> {inviting ? 'Creating…' : 'Create Account'}
               </button>
-              <button
-                onClick={() => { setShowInvite(false); setInviteMsg(null) }}
-                className="text-sm text-slate-400 hover:text-slate-200"
-              >
+              <button onClick={() => { setShowInvite(false); setInviteMsg(null) }} className="text-sm text-slate-400 hover:text-slate-200">
                 Cancel
               </button>
             </div>
@@ -195,101 +263,188 @@ export function TeamClient({ members }: { members: TeamMember[] }) {
 
         {/* Team table */}
         <div className="overflow-hidden rounded-xl border border-slate-800 bg-slate-900">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-800">
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Name</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Email</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Last sign in</th>
-                <th className="px-4 py-3" />
-              </tr>
-            </thead>
-            <tbody>
-              {members.map((m, i) => (
-                <tr
-                  key={m.id}
-                  className={i < members.length - 1 ? 'border-b border-slate-800/50' : ''}
+          {members.map((m, i) => {
+            const isExpanded = expandedId === m.id
+            const isEditing  = editingId  === m.id
+            const isLast     = i === members.length - 1
+            const displayName = `${m.first_name} ${m.last_name}`.trim() || m.auth_email
+
+            return (
+              <div key={m.id} className={!isLast ? 'border-b border-slate-800' : ''}>
+
+                {/* Summary row */}
+                <div
+                  className="flex items-center gap-4 px-5 py-4 cursor-pointer hover:bg-slate-800/30 transition-colors"
+                  onClick={() => {
+                    if (editingId === m.id) return
+                    setExpandedId(isExpanded ? null : m.id)
+                  }}
                 >
-                  <td className="px-4 py-3">
-                    {editingId === m.id ? (
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="text"
-                          value={editName}
-                          onChange={e => setEditName(e.target.value)}
-                          onKeyDown={e => { if (e.key === 'Enter') handleSaveName(m.id); if (e.key === 'Escape') setEditingId(null) }}
-                          autoFocus
-                          className="bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded px-2 py-1 w-40 focus:outline-none focus:border-blue-500"
-                        />
-                        <button
-                          onClick={() => handleSaveName(m.id)}
-                          disabled={editSaving || !editName.trim()}
-                          className="text-emerald-400 hover:text-emerald-300 disabled:opacity-40"
-                        >
-                          <Check className="w-4 h-4" />
-                        </button>
-                        <button onClick={() => setEditingId(null)} className="text-slate-500 hover:text-slate-300">
-                          <X className="w-4 h-4" />
-                        </button>
-                        {editMsg && <span className="text-xs text-red-400">{editMsg.text}</span>}
+                  {/* Avatar */}
+                  <div className="w-9 h-9 rounded-full bg-slate-700 flex items-center justify-center text-sm font-medium text-white shrink-0 select-none">
+                    {(m.first_name?.[0] ?? m.auth_email[0] ?? '?').toUpperCase()}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-white truncate">{displayName}</p>
+                    <p className="text-xs text-slate-500 truncate">{m.title ?? m.auth_email}</p>
+                  </div>
+
+                  {/* Status badge */}
+                  {m.confirmed ? (
+                    <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-emerald-900/50 text-emerald-300 border border-emerald-800 shrink-0">
+                      <CheckCircle className="w-3 h-3" /> Active
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-amber-900/50 text-amber-300 border border-amber-800 shrink-0">
+                      <Clock className="w-3 h-3" /> Pending
+                    </span>
+                  )}
+
+                  <span className="text-xs text-slate-500 shrink-0 hidden sm:block w-32 text-right">
+                    {m.last_sign_in ? `Last in ${fmt(m.last_sign_in)}` : 'Never signed in'}
+                  </span>
+
+                  {isExpanded ? (
+                    <ChevronUp className="w-4 h-4 text-slate-500 shrink-0" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-slate-500 shrink-0" />
+                  )}
+                </div>
+
+                {/* Expanded detail panel */}
+                {isExpanded && (
+                  <div className="border-t border-slate-800 bg-slate-950/50 px-5 py-5">
+
+                    {isEditing ? (
+                      /* ── EDIT MODE ── */
+                      <div className="space-y-5">
+                        {/* Name row */}
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs text-slate-400 mb-1.5">First name</label>
+                            <input
+                              type="text"
+                              value={field('first_name')}
+                              onChange={e => setField('first_name', e.target.value)}
+                              className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs text-slate-400 mb-1.5">Last name</label>
+                            <input
+                              type="text"
+                              value={field('last_name')}
+                              onChange={e => setField('last_name', e.target.value)}
+                              className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                            />
+                          </div>
+                        </div>
+
+                        {/* Profile fields grid */}
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                          {PROFILE_FIELDS.map(f => (
+                            <div key={f.key}>
+                              <label className="block text-xs text-slate-400 mb-1.5">{f.label}</label>
+                              <input
+                                type={f.type ?? 'text'}
+                                value={field(f.key)}
+                                onChange={e => setField(f.key, e.target.value)}
+                                placeholder={f.placeholder}
+                                className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
+                              />
+                            </div>
+                          ))}
+                        </div>
+
+                        {saveMsg && (
+                          <p className={`text-sm ${saveMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{saveMsg.text}</p>
+                        )}
+
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => handleSave(m)}
+                            disabled={saving}
+                            className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-40 transition-opacity hover:opacity-90"
+                            style={{ backgroundColor: '#1F3864' }}
+                          >
+                            <Check className="w-4 h-4" /> {saving ? 'Saving…' : 'Save'}
+                          </button>
+                          <button
+                            onClick={() => { setEditingId(null); setSaveMsg(null) }}
+                            className="text-sm text-slate-400 hover:text-slate-200"
+                          >
+                            Cancel
+                          </button>
+                        </div>
                       </div>
+
                     ) : (
-                      <button
-                        onClick={() => startEdit(m)}
-                        className="group flex items-center gap-1.5 font-medium text-white hover:text-slate-300 transition-colors"
-                      >
-                        {m.full_name ?? <span className="text-slate-500 italic font-normal">No name — click to set</span>}
-                        <Pencil className="w-3 h-3 text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity" />
-                      </button>
+                      /* ── READ MODE ── */
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-8 gap-y-3 text-sm">
+                          <InfoRow label="Email"            value={m.auth_email} />
+                          <InfoRow label="Title"            value={m.title} />
+                          <InfoRow label="Phone"            value={m.phone} />
+                          <InfoRow label="Allstate ID"      value={m.allstate_id} />
+                          <InfoRow label="NPN"              value={m.npn} />
+                          <InfoRow label="Sub-Producer Code" value={m.sub_producer_code} />
+                          <InfoRow label="Birthday"         value={fmtBirthday(m.birthday)} />
+                          <InfoRow label="Last Sign-In"     value={fmt(m.last_sign_in)} />
+                          <InfoRow label="Member Since"     value={fmt(m.created_at)} />
+                        </div>
+
+                        <div className="flex items-center gap-4 pt-1">
+                          <button
+                            onClick={e => { e.stopPropagation(); startEdit(m) }}
+                            className="inline-flex items-center gap-1.5 text-sm text-slate-300 hover:text-white transition-colors"
+                          >
+                            <Pencil className="w-3.5 h-3.5" /> Edit Profile
+                          </button>
+
+                          {confirmId === m.id ? (
+                            <span className="inline-flex items-center gap-2">
+                              <span className="text-xs text-slate-400">Remove this member?</span>
+                              <button
+                                onClick={() => handleRemove(m)}
+                                disabled={removingId === m.id}
+                                className="text-xs font-medium text-red-400 hover:text-red-300 disabled:opacity-50"
+                              >
+                                {removingId === m.id ? 'Removing…' : 'Yes, remove'}
+                              </button>
+                              <button onClick={() => setConfirmId(null)} className="text-xs text-slate-500 hover:text-slate-300">
+                                Cancel
+                              </button>
+                            </span>
+                          ) : (
+                            <button
+                              onClick={e => { e.stopPropagation(); setConfirmId(m.id) }}
+                              className="inline-flex items-center gap-1 text-sm text-slate-600 hover:text-red-400 transition-colors"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" /> Remove
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     )}
-                  </td>
-                  <td className="px-4 py-3 text-slate-400">{m.email}</td>
-                  <td className="px-4 py-3">
-                    {m.confirmed ? (
-                      <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-emerald-900/50 text-emerald-300 border border-emerald-800">
-                        <CheckCircle className="w-3 h-3" /> Active
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-amber-900/50 text-amber-300 border border-amber-800">
-                        <Clock className="w-3 h-3" /> Invite pending
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-slate-500">{fmt(m.last_sign_in)}</td>
-                  <td className="px-4 py-3 text-right">
-                    {confirmId === m.id ? (
-                      <span className="inline-flex items-center gap-2">
-                        <span className="text-xs text-slate-400">Remove?</span>
-                        <button
-                          onClick={() => handleRemove(m.id)}
-                          disabled={removingId === m.id}
-                          className="text-xs font-medium text-red-400 hover:text-red-300 disabled:opacity-50"
-                        >
-                          {removingId === m.id ? 'Removing…' : 'Yes'}
-                        </button>
-                        <button
-                          onClick={() => setConfirmId(null)}
-                          className="text-xs text-slate-500 hover:text-slate-300"
-                        >
-                          Cancel
-                        </button>
-                      </span>
-                    ) : (
-                      <button
-                        onClick={() => setConfirmId(m.id)}
-                        className="inline-flex items-center gap-1 text-xs text-slate-600 hover:text-red-400 transition-colors"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" /> Remove
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                  </div>
+                )}
+
+              </div>
+            )
+          })}
         </div>
+
       </div>
+    </div>
+  )
+}
+
+function InfoRow({ label, value }: { label: string; value: string | null | undefined }) {
+  return (
+    <div>
+      <p className="text-xs text-slate-500 mb-0.5">{label}</p>
+      <p className="text-slate-200 text-sm">{value && value !== '—' ? value : <span className="text-slate-600 italic">—</span>}</p>
     </div>
   )
 }
