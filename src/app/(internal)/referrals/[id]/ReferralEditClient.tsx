@@ -10,6 +10,24 @@ import {
 } from 'lucide-react'
 import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption } from './page'
 
+const TOBACCO_LABELS: Record<string, string> = {
+  none:                 'None',
+  cigarettes:           'Cigarettes',
+  cigars:               'Cigars',
+  vaping:               'Vaping / E-Cig',
+  chewing:              'Chewing / Dip',
+  nicotine_replacement: 'Nicotine Replacement',
+}
+
+function QuoteRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="text-slate-200">{value}</p>
+    </div>
+  )
+}
+
 const APPT_STATUSES  = new Set(['appointment_set', 'appointment_kept', 'appointment_missed'])
 const REWARM_STATUS  = 'back_to_agency'
 
@@ -144,16 +162,24 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
 
   // ── Contact editing ───────────────────────────────────────────
   const [editingContact, setEditingContact] = useState(false)
-  const [cFirstName, setCFirstName]       = useState(referral.customers?.first_name    ?? '')
-  const [cLastName,  setCLastName]        = useState(referral.customers?.last_name     ?? '')
-  const [cPhone,     setCPhone]           = useState(referral.customers?.phone         ?? '')
-  const [cEmail,     setCEmail]           = useState(referral.customers?.email         ?? '')
-  const [cAddress,   setCAddress]         = useState(referral.customers?.address_line1 ?? '')
-  const [cCity,      setCCity]            = useState(referral.customers?.city          ?? '')
-  const [cState,     setCState]           = useState(referral.customers?.state         ?? '')
-  const [cZip,       setCZip]             = useState(referral.customers?.zip           ?? '')
+  const [cFirstName,    setCFirstName]    = useState(referral.customers?.first_name    ?? '')
+  const [cLastName,     setCLastName]     = useState(referral.customers?.last_name     ?? '')
+  const [cPhone,        setCPhone]        = useState(referral.customers?.phone         ?? '')
+  const [cEmail,        setCEmail]        = useState(referral.customers?.email         ?? '')
+  const [cStreet,       setCStreet]       = useState(referral.customers?.street        ?? '')
+  const [cCity,         setCCity]         = useState(referral.customers?.city          ?? '')
+  const [cState,        setCState]        = useState(referral.customers?.state         ?? '')
+  const [cZip,          setCZip]          = useState(referral.customers?.zip           ?? '')
+  const [cDob,          setCDob]          = useState(referral.customers?.date_of_birth ?? '')
+  const [cMarital,      setCMarital]      = useState(referral.customers?.marital_status ?? '')
+  const [cGender,       setCGender]       = useState(referral.customers?.gender        ?? '')
+  const [cTobacco,      setCTobacco]      = useState(referral.customers?.tobacco_use   ?? '')
+  const [cHeightFt,     setCHeightFt]     = useState(referral.customers?.height_ft?.toString() ?? '')
+  const [cHeightIn,     setCHeightIn]     = useState(referral.customers?.height_in?.toString() ?? '')
+  const [cWeight,       setCWeight]       = useState(referral.customers?.weight_lbs?.toString() ?? '')
+  const [cHealthNotes,  setCHealthNotes]  = useState(referral.customers?.health_notes  ?? '')
   const [contactSaving, setContactSaving] = useState(false)
-  const [contactMsg, setContactMsg]       = useState<{ ok: boolean; text: string } | null>(null)
+  const [contactMsg,    setContactMsg]    = useState<{ ok: boolean; text: string } | null>(null)
 
   // ── LSP editing ───────────────────────────────────────────────
   const [editingLsp, setEditingLsp]       = useState(false)
@@ -216,14 +242,22 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          first_name:    cFirstName.trim(),
-          last_name:     cLastName.trim(),
-          phone:         cPhone.trim()   || null,
-          email:         cEmail.trim()   || null,
-          address_line1: cAddress.trim() || null,
-          city:          cCity.trim()    || null,
-          state:         cState.trim()   || null,
-          zip:           cZip.trim()     || null,
+          first_name:     cFirstName.trim(),
+          last_name:      cLastName.trim(),
+          phone:          cPhone.trim()        || null,
+          email:          cEmail.trim()        || null,
+          street:         cStreet.trim()       || null,
+          city:           cCity.trim()         || null,
+          state:          cState.trim()        || null,
+          zip:            cZip.trim()          || null,
+          date_of_birth:  cDob                 || null,
+          marital_status: cMarital             || null,
+          gender:         cGender              || null,
+          tobacco_use:    cTobacco             || null,
+          height_ft:      cHeightFt  ? parseInt(cHeightFt)  : null,
+          height_in:      cHeightIn  ? parseInt(cHeightIn)  : null,
+          weight_lbs:     cWeight    ? parseInt(cWeight)    : null,
+          health_notes:   cHealthNotes.trim()  || null,
         }),
       })
       if (!res.ok) {
@@ -421,7 +455,7 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
                 </div>
                 <EditField label="Phone" value={cPhone} onChange={setCPhone} type="tel" placeholder="(555) 555-5555" />
                 <EditField label="Email" value={cEmail} onChange={setCEmail} type="email" placeholder="client@email.com" />
-                <EditField label="Street Address" value={cAddress} onChange={setCAddress} placeholder="123 Main St" />
+                <EditField label="Street Address" value={cStreet} onChange={setCStreet} placeholder="123 Main St" />
                 <div className="grid grid-cols-3 gap-2">
                   <div className="col-span-2">
                     <EditField label="City" value={cCity} onChange={setCCity} placeholder="Springfield" />
@@ -429,6 +463,76 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
                   <EditField label="State" value={cState} onChange={setCState} placeholder="IL" />
                 </div>
                 <EditField label="ZIP Code" value={cZip} onChange={setCZip} placeholder="62701" />
+
+                {/* Quote fields */}
+                <div className="pt-2 border-t border-slate-700">
+                  <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-3">Quote Information</p>
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <EditField label="Date of Birth" value={cDob} onChange={setCDob} type="date" />
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Gender</label>
+                        <select
+                          value={cGender}
+                          onChange={e => setCGender(e.target.value)}
+                          className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                        >
+                          <option value="">Select</option>
+                          <option value="male">Male</option>
+                          <option value="female">Female</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Marital Status</label>
+                        <select
+                          value={cMarital}
+                          onChange={e => setCMarital(e.target.value)}
+                          className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                        >
+                          <option value="">Select</option>
+                          <option value="single">Single</option>
+                          <option value="married">Married</option>
+                          <option value="divorced">Divorced</option>
+                          <option value="widowed">Widowed</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Tobacco / Nicotine</label>
+                        <select
+                          value={cTobacco}
+                          onChange={e => setCTobacco(e.target.value)}
+                          className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                        >
+                          <option value="">Select</option>
+                          <option value="none">None</option>
+                          <option value="cigarettes">Cigarettes</option>
+                          <option value="cigars">Cigars</option>
+                          <option value="vaping">Vaping / E-Cig</option>
+                          <option value="chewing">Chewing / Dip</option>
+                          <option value="nicotine_replacement">Nicotine Replacement</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2">
+                      <EditField label="Height (ft)" value={cHeightFt} onChange={setCHeightFt} type="number" placeholder="5" />
+                      <EditField label="Height (in)" value={cHeightIn} onChange={setCHeightIn} type="number" placeholder="10" />
+                      <EditField label="Weight (lbs)" value={cWeight} onChange={setCWeight} type="number" placeholder="175" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Health Notes</label>
+                      <textarea
+                        value={cHealthNotes}
+                        onChange={e => setCHealthNotes(e.target.value)}
+                        rows={3}
+                        placeholder="Medications, conditions, surgeries, anything relevant to underwriting…"
+                        className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600 resize-none"
+                      />
+                    </div>
+                  </div>
+                </div>
                 {contactMsg && (
                   <p className={`text-xs ${contactMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{contactMsg.text}</p>
                 )}
@@ -488,9 +592,9 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
                 {/* Address */}
                 <div className="flex items-start gap-2.5">
                   <MapPin className="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5" />
-                  {cAddress || cCity ? (
+                  {cStreet || cCity ? (
                     <div className="text-sm text-slate-300 leading-snug">
-                      {cAddress && <div>{cAddress}</div>}
+                      {cStreet && <div>{cStreet}</div>}
                       {(cCity || cState || cZip) && (
                         <div>{[cCity, cState].filter(Boolean).join(', ')}{cZip ? ` ${cZip}` : ''}</div>
                       )}
@@ -574,6 +678,47 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
               </div>
             </div>
           </div>
+
+          {/* Quote Info */}
+          {(cDob || cGender || cTobacco || cHeightFt || cWeight || cHealthNotes || cMarital) && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide">Quote Info</h2>
+                <button
+                  onClick={() => setEditingContact(true)}
+                  className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  <Pencil className="w-3 h-3" /> Edit
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                {cDob && (
+                  <QuoteRow label="DOB" value={fmt(cDob)} />
+                )}
+                {cGender && (
+                  <QuoteRow label="Gender" value={cGender.charAt(0).toUpperCase() + cGender.slice(1)} />
+                )}
+                {cMarital && (
+                  <QuoteRow label="Marital" value={cMarital.charAt(0).toUpperCase() + cMarital.slice(1)} />
+                )}
+                {cTobacco && (
+                  <QuoteRow label="Tobacco" value={TOBACCO_LABELS[cTobacco] ?? cTobacco} />
+                )}
+                {(cHeightFt || cHeightIn) && (
+                  <QuoteRow label="Height" value={`${cHeightFt || '?'}′ ${cHeightIn || '0'}″`} />
+                )}
+                {cWeight && (
+                  <QuoteRow label="Weight" value={`${cWeight} lbs`} />
+                )}
+              </div>
+              {cHealthNotes && (
+                <div className="pt-1 border-t border-slate-800">
+                  <p className="text-xs text-slate-500 mb-1">Health Notes</p>
+                  <p className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">{cHealthNotes}</p>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Notes (read-only preview — full edit is in right panel) */}
           {referral.notes && (
