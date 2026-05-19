@@ -76,6 +76,10 @@ function leadSourceFromFolders(folders: string[]): 'agency_referral' | 'allstate
   return 'agency_referral'
 }
 
+function toTitleCase(str: string): string {
+  return str.trim().replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+}
+
 function normalizeAgencyName(name: string): string {
   return name
     .toLowerCase()
@@ -159,8 +163,8 @@ export async function POST(req: NextRequest) {
     const row = rows[i]
 
     try {
-      const firstName  = String(row['First Name']             ?? '').trim()
-      const lastName   = String(row['Last Name']              ?? '').trim()
+      const firstName  = toTitleCase(String(row['First Name']  ?? ''))
+      const lastName   = toTitleCase(String(row['Last Name']   ?? ''))
       const agencyName = String(row['Agency Name']            ?? '').trim()
       const lspName    = String(row['Referring LSP Name']     ?? '').trim()
       const policyNum  = String(row['Policy Number']          ?? '').trim() || null

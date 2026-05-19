@@ -8,6 +8,12 @@ const ALLOWED = new Set([
   'tobacco_use', 'height_ft', 'height_in', 'weight_lbs', 'health_notes',
 ])
 
+const NAME_FIELDS = new Set(['first_name', 'last_name'])
+
+function toTitleCase(str: string): string {
+  return str.trim().replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+}
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -24,7 +30,8 @@ export async function PATCH(
 
   const updates: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(body)) {
-    if (ALLOWED.has(k)) updates[k] = v
+    if (!ALLOWED.has(k)) continue
+    updates[k] = NAME_FIELDS.has(k) && typeof v === 'string' ? toTitleCase(v) : v
   }
 
   if (!Object.keys(updates).length) {

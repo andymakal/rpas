@@ -3,6 +3,10 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { referralSchema, type ReferralFormData } from '@/lib/schemas/referral'
 
+function toTitleCase(str: string): string {
+  return str.trim().replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+}
+
 export type SubmitReferralResult =
   | { success: true; referral_id: string; client_name: string }
   | { success: false; error: string }
@@ -35,8 +39,8 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
         .from('customers')
         .insert({
           agency_id:     form.agency_id,
-          first_name:    form.client_first_name,
-          last_name:     form.client_last_name,
+          first_name:    toTitleCase(form.client_first_name),
+          last_name:     toTitleCase(form.client_last_name),
           phone:         form.client_phone,
           email:         form.client_email || null,
           date_of_birth: form.client_dob   || null,
