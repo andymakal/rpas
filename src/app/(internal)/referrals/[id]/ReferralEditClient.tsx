@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Phone, Building2, User, Calendar, Clock,
   MessageSquare, Mail, AlertCircle, PhoneCall, PhoneOff,
-  MessageCircle, ChevronDown, ChevronUp, DollarSign, Pencil, Check, X,
+  MessageCircle, ChevronDown, ChevronUp, DollarSign, Pencil, Check, X, MapPin,
 } from 'lucide-react'
 import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption } from './page'
 
@@ -144,10 +144,14 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
 
   // ── Contact editing ───────────────────────────────────────────
   const [editingContact, setEditingContact] = useState(false)
-  const [cFirstName, setCFirstName] = useState(referral.customers?.first_name ?? '')
-  const [cLastName,  setCLastName]  = useState(referral.customers?.last_name  ?? '')
-  const [cPhone,     setCPhone]     = useState(referral.customers?.phone      ?? '')
-  const [cEmail,     setCEmail]     = useState(referral.customers?.email      ?? '')
+  const [cFirstName, setCFirstName]       = useState(referral.customers?.first_name    ?? '')
+  const [cLastName,  setCLastName]        = useState(referral.customers?.last_name     ?? '')
+  const [cPhone,     setCPhone]           = useState(referral.customers?.phone         ?? '')
+  const [cEmail,     setCEmail]           = useState(referral.customers?.email         ?? '')
+  const [cAddress,   setCAddress]         = useState(referral.customers?.address_line1 ?? '')
+  const [cCity,      setCCity]            = useState(referral.customers?.city          ?? '')
+  const [cState,     setCState]           = useState(referral.customers?.state         ?? '')
+  const [cZip,       setCZip]             = useState(referral.customers?.zip           ?? '')
   const [contactSaving, setContactSaving] = useState(false)
   const [contactMsg, setContactMsg]       = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -212,10 +216,14 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          first_name: cFirstName.trim(),
-          last_name:  cLastName.trim(),
-          phone:      cPhone.trim()  || null,
-          email:      cEmail.trim()  || null,
+          first_name:    cFirstName.trim(),
+          last_name:     cLastName.trim(),
+          phone:         cPhone.trim()   || null,
+          email:         cEmail.trim()   || null,
+          address_line1: cAddress.trim() || null,
+          city:          cCity.trim()    || null,
+          state:         cState.trim()   || null,
+          zip:           cZip.trim()     || null,
         }),
       })
       if (!res.ok) {
@@ -413,6 +421,14 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
                 </div>
                 <EditField label="Phone" value={cPhone} onChange={setCPhone} type="tel" placeholder="(555) 555-5555" />
                 <EditField label="Email" value={cEmail} onChange={setCEmail} type="email" placeholder="client@email.com" />
+                <EditField label="Street Address" value={cAddress} onChange={setCAddress} placeholder="123 Main St" />
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="col-span-2">
+                    <EditField label="City" value={cCity} onChange={setCCity} placeholder="Springfield" />
+                  </div>
+                  <EditField label="State" value={cState} onChange={setCState} placeholder="IL" />
+                </div>
+                <EditField label="ZIP Code" value={cZip} onChange={setCZip} placeholder="62701" />
                 {contactMsg && (
                   <p className={`text-xs ${contactMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{contactMsg.text}</p>
                 )}
@@ -465,6 +481,26 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
                       className="text-sm text-slate-600 hover:text-slate-400 italic transition-colors"
                     >
                       No email — add one
+                    </button>
+                  )}
+                </div>
+
+                {/* Address */}
+                <div className="flex items-start gap-2.5">
+                  <MapPin className="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5" />
+                  {cAddress || cCity ? (
+                    <div className="text-sm text-slate-300 leading-snug">
+                      {cAddress && <div>{cAddress}</div>}
+                      {(cCity || cState || cZip) && (
+                        <div>{[cCity, cState].filter(Boolean).join(', ')}{cZip ? ` ${cZip}` : ''}</div>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setEditingContact(true)}
+                      className="text-sm text-slate-600 hover:text-slate-400 italic transition-colors"
+                    >
+                      No address — add one
                     </button>
                   )}
                 </div>

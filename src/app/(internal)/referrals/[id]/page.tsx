@@ -26,6 +26,10 @@ export type ReferralDetail = {
     last_name: string
     phone: string | null
     email: string | null
+    address_line1: string | null
+    city: string | null
+    state: string | null
+    zip: string | null
   } | null
   agencies: { name: string; display_name: string | null; contact_email: string | null } | null
   agents: { id: string; first_name: string; last_name: string; email: string | null } | null
@@ -71,7 +75,7 @@ export default async function ReferralDetailPage({
       id, customer_id, agent_id, agency_id,
       internal_status, created_at, status_entered_at, appointment_date,
       notes, touches, last_contact_at, spiff_earned, spiff_earned_at, is_owner_referral, lead_source,
-      customers ( first_name, last_name, phone, email ),
+      customers ( first_name, last_name, phone, email, address_line1, city, state, zip ),
       agencies ( name, display_name, contact_email ),
       agents ( id, first_name, last_name, email ),
       stage_translations ( agency_label, tier, is_active_case, is_won, is_lost )

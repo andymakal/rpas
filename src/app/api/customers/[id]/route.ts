@@ -1,7 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest } from 'next/server'
 
-const ALLOWED = new Set(['first_name', 'last_name', 'phone', 'email'])
+const ALLOWED = new Set(['first_name', 'last_name', 'phone', 'email', 'address_line1', 'city', 'state', 'zip'])
 
 export async function PATCH(
   request: NextRequest,
