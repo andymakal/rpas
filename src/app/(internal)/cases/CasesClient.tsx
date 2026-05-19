@@ -145,8 +145,8 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
     rows = [...rows].sort((a, b) => {
       let diff = 0
       if (sortKey === 'client') {
-        const aL = (a.customers?.last_name ?? '').toLowerCase()
-        const bL = (b.customers?.last_name ?? '').toLowerCase()
+        const aL = `${a.customers?.last_name ?? ''} ${a.customers?.first_name ?? ''}`.toLowerCase().trim()
+        const bL = `${b.customers?.last_name ?? ''} ${b.customers?.first_name ?? ''}`.toLowerCase().trim()
         diff = aL < bL ? -1 : aL > bL ? 1 : 0
       } else if (sortKey === 'status') {
         const aS = (a.stage_translations?.agency_label ?? a.internal_status).toLowerCase()
