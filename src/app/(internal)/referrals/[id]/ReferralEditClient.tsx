@@ -8,7 +8,7 @@ import {
   MessageSquare, Mail, AlertCircle, PhoneCall, PhoneOff,
   MessageCircle, ChevronDown, ChevronUp, DollarSign, Pencil, Check, X, MapPin,
 } from 'lucide-react'
-import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption } from './page'
+import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption } from './page'
 
 const TOBACCO_LABELS: Record<string, string> = {
   none:                 'None',
@@ -128,13 +128,14 @@ function EditField({
 }
 
 type Props = {
-  referral:   ReferralDetail
-  stages:     Tier1Stage[]
-  touchLog:   TouchLog[]
-  agentsList: AgentOption[]
+  referral:     ReferralDetail
+  stages:       Tier1Stage[]
+  touchLog:     TouchLog[]
+  agentsList:   AgentOption[]
+  agenciesList: AgencyOption[]
 }
 
-export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog, agentsList }: Props) {
+export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog, agentsList, agenciesList }: Props) {
   const router = useRouter()
 
   // ── Case fields ──────────────────────────────────────────────
@@ -190,6 +191,15 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
   const [lspSaving, setLspSaving]         = useState(false)
   const [lspMsg, setLspMsg]               = useState<{ ok: boolean; text: string } | null>(null)
 
+  // ── Agency editing ────────────────────────────────────────────
+  const [editingAgency, setEditingAgency] = useState(false)
+  const [selectedAgencyId, setSelectedAgencyId] = useState(referral.agency_id ?? '')
+  const [displayAgencyName, setDisplayAgencyName] = useState(
+    referral.agencies?.display_name ?? referral.agencies?.name ?? '—'
+  )
+  const [agencySaving, setAgencySaving] = useState(false)
+  const [agencyMsg, setAgencyMsg] = useState<{ ok: boolean; text: string } | null>(null)
+
   // ── Derived ───────────────────────────────────────────────────
   const showApptDate    = APPT_STATUSES.has(status)
   const showRewarmEmail = status === REWARM_STATUS
@@ -201,7 +211,7 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
     referral.agents ? `${referral.agents.first_name} ${referral.agents.last_name}` : null
   )
 
-  const agencyName      = referral.agencies?.display_name ?? referral.agencies?.name ?? '—'
+  const agencyName      = displayAgencyName
   const agentFirstName  = referral.agents?.first_name ?? 'there'
   const agentEmail      = referral.agents?.email ?? null
   const agencyEmail     = referral.agencies?.contact_email ?? null
@@ -319,6 +329,33 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
       setTimeout(() => setLspMsg(null), 2000)
     } catch { setLspMsg({ ok: false, text: 'Network error' }) }
     finally   { setLspSaving(false) }
+  }
+
+  async function handleSaveAgency() {
+    if (!selectedAgencyId) {
+      setAgencyMsg({ ok: false, text: 'Please select an agency' })
+      return
+    }
+    setAgencySaving(true); setAgencyMsg(null)
+    try {
+      const res = await fetch(`/api/cases/${referral.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agency_id: selectedAgencyId }),
+      })
+      if (!res.ok) {
+        const j = await res.json()
+        setAgencyMsg({ ok: false, text: j.error ?? 'Save failed' })
+      } else {
+        const picked = agenciesList.find(a => a.id === selectedAgencyId)
+        if (picked) setDisplayAgencyName(picked.display_name ?? picked.name)
+        setAgencyMsg({ ok: true, text: 'Agency updated' })
+        setEditingAgency(false)
+        router.refresh()
+        setTimeout(() => setAgencyMsg(null), 2000)
+      }
+    } catch { setAgencyMsg({ ok: false, text: 'Network error' }) }
+    finally   { setAgencySaving(false) }
   }
 
   function handleAgentSelect(agentId: string) {
@@ -985,6 +1022,68 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
                 )}
                 {lspMsg && (
                   <p className={`text-xs ${lspMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{lspMsg.text}</p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── Agency card ── */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Building2 className="w-4 h-4 text-slate-400" />
+                <h2 className="text-sm font-semibold text-slate-200">Agency</h2>
+              </div>
+              <button
+                onClick={() => { setEditingAgency(o => !o); setAgencyMsg(null) }}
+                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+              >
+                <Pencil className="w-3 h-3" /> Edit
+              </button>
+            </div>
+
+            {editingAgency ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Select agency</label>
+                  <select
+                    value={selectedAgencyId}
+                    onChange={e => setSelectedAgencyId(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 cursor-pointer"
+                  >
+                    <option value="">— Unassigned —</option>
+                    {agenciesList.map(a => (
+                      <option key={a.id} value={a.id}>
+                        {a.display_name ?? a.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {agencyMsg && (
+                  <p className={`text-xs ${agencyMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{agencyMsg.text}</p>
+                )}
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    onClick={handleSaveAgency}
+                    disabled={agencySaving}
+                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                    style={{ backgroundColor: '#1F3864' }}
+                  >
+                    <Check className="w-3.5 h-3.5" /> {agencySaving ? 'Saving…' : 'Save Agency'}
+                  </button>
+                  <button
+                    onClick={() => { setEditingAgency(false); setAgencyMsg(null) }}
+                    className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200"
+                  >
+                    <X className="w-3.5 h-3.5" /> Cancel
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <p className="text-slate-200 text-sm font-medium">{agencyName}</p>
+                {agencyMsg && (
+                  <p className={`text-xs ${agencyMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{agencyMsg.text}</p>
                 )}
               </div>
             )}

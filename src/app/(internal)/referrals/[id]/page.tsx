@@ -53,6 +53,7 @@ export type ReferralDetail = {
 export type Tier1Stage   = { id: string; internal_status: string; agency_label: string }
 export type TouchLog     = { id: string; touch_type: string; notes: string | null; touched_at: string }
 export type AgentOption  = { id: string; first_name: string; last_name: string; email: string | null }
+export type AgencyOption = { id: string; name: string; display_name: string | null }
 
 export async function generateMetadata(
   { params }: { params: Promise<{ id: string }> }
@@ -103,7 +104,7 @@ export default async function ReferralDetailPage({
 
   const cd = caseData as unknown as ReferralDetail
 
-  const [{ data: stages }, { data: touchLog }, { data: agentsList }] = await Promise.all([
+  const [{ data: stages }, { data: touchLog }, { data: agentsList }, { data: agenciesList }] = await Promise.all([
     supabase
       .from('stage_translations')
       .select('id, internal_status, agency_label')
@@ -119,6 +120,11 @@ export default async function ReferralDetailPage({
       .select('id, first_name, last_name, email')
       .eq('agency_id', cd.agency_id)
       .order('first_name'),
+    supabase
+      .from('agencies')
+      .select('id, name, display_name')
+      .eq('is_active', true)
+      .order('name'),
   ])
 
   return (
@@ -127,6 +133,7 @@ export default async function ReferralDetailPage({
       stages={(stages as unknown as Tier1Stage[]) ?? []}
       touchLog={(touchLog as unknown as TouchLog[]) ?? []}
       agentsList={(agentsList as unknown as AgentOption[]) ?? []}
+      agenciesList={(agenciesList as unknown as AgencyOption[]) ?? []}
     />
   )
 }
