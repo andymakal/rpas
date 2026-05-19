@@ -34,6 +34,26 @@ export async function POST(request: NextRequest) {
   return Response.json({ user: data.user })
 }
 
+// PATCH — update a team member's name
+export async function PATCH(request: NextRequest) {
+  const supabase = createAdminClient()
+  let body: { userId: string; full_name: string }
+  try { body = await request.json() } catch {
+    return Response.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+
+  if (!body.userId || !body.full_name?.trim()) {
+    return Response.json({ error: 'userId and full_name are required' }, { status: 400 })
+  }
+
+  const { data, error } = await supabase.auth.admin.updateUserById(body.userId, {
+    user_metadata: { full_name: body.full_name.trim() },
+  })
+
+  if (error) return Response.json({ error: error.message }, { status: 500 })
+  return Response.json({ user: data.user })
+}
+
 // DELETE — remove a team member
 export async function DELETE(request: NextRequest) {
   const supabase = createAdminClient()

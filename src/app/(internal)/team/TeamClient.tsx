@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { UserPlus, Trash2, CheckCircle, Clock, Mail } from 'lucide-react'
+import { UserPlus, Trash2, CheckCircle, Clock, Mail, Pencil, Check, X } from 'lucide-react'
 import type { TeamMember } from './page'
 
 function fmt(iso: string | null) {
@@ -21,6 +21,11 @@ export function TeamClient({ members }: { members: TeamMember[] }) {
 
   const [removingId, setRemovingId]   = useState<string | null>(null)
   const [confirmId,  setConfirmId]    = useState<string | null>(null)
+
+  const [editingId,   setEditingId]   = useState<string | null>(null)
+  const [editName,    setEditName]    = useState('')
+  const [editSaving,  setEditSaving]  = useState(false)
+  const [editMsg,     setEditMsg]     = useState<{ ok: boolean; text: string } | null>(null)
 
   async function handleInvite() {
     setInviting(true); setInviteMsg(null)
@@ -43,6 +48,35 @@ export function TeamClient({ members }: { members: TeamMember[] }) {
       setInviteMsg({ ok: false, text: 'Network error' })
     } finally {
       setInviting(false)
+    }
+  }
+
+  function startEdit(m: TeamMember) {
+    setEditingId(m.id)
+    setEditName(m.full_name ?? '')
+    setEditMsg(null)
+    setConfirmId(null)
+  }
+
+  async function handleSaveName(userId: string) {
+    setEditSaving(true); setEditMsg(null)
+    try {
+      const res = await fetch('/api/admin/team', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId, full_name: editName }),
+      })
+      const j = await res.json()
+      if (!res.ok) {
+        setEditMsg({ ok: false, text: j.error ?? 'Save failed' })
+      } else {
+        setEditingId(null)
+        router.refresh()
+      }
+    } catch {
+      setEditMsg({ ok: false, text: 'Network error' })
+    } finally {
+      setEditSaving(false)
     }
   }
 
@@ -155,8 +189,38 @@ export function TeamClient({ members }: { members: TeamMember[] }) {
                   key={m.id}
                   className={i < members.length - 1 ? 'border-b border-slate-800/50' : ''}
                 >
-                  <td className="px-4 py-3 font-medium text-white">
-                    {m.full_name ?? <span className="text-slate-500 italic">No name set</span>}
+                  <td className="px-4 py-3">
+                    {editingId === m.id ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={e => setEditName(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') handleSaveName(m.id); if (e.key === 'Escape') setEditingId(null) }}
+                          autoFocus
+                          className="bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded px-2 py-1 w-40 focus:outline-none focus:border-blue-500"
+                        />
+                        <button
+                          onClick={() => handleSaveName(m.id)}
+                          disabled={editSaving || !editName.trim()}
+                          className="text-emerald-400 hover:text-emerald-300 disabled:opacity-40"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => setEditingId(null)} className="text-slate-500 hover:text-slate-300">
+                          <X className="w-4 h-4" />
+                        </button>
+                        {editMsg && <span className="text-xs text-red-400">{editMsg.text}</span>}
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => startEdit(m)}
+                        className="group flex items-center gap-1.5 font-medium text-white hover:text-slate-300 transition-colors"
+                      >
+                        {m.full_name ?? <span className="text-slate-500 italic font-normal">No name — click to set</span>}
+                        <Pencil className="w-3 h-3 text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                      </button>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-slate-400">{m.email}</td>
                   <td className="px-4 py-3">
