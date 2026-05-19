@@ -20,6 +20,7 @@ import {
   DollarSign,
   KeyRound,
 } from 'lucide-react'
+import { NotificationBell } from '@/components/layout/NotificationBell'
 
 const navItems = [
   { href: '/dashboard',              icon: LayoutDashboard, label: 'Dashboard'        },
@@ -50,17 +51,20 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
   return (
     <aside className="w-56 flex flex-col shrink-0 border-r border-slate-800 bg-slate-900">
       {/* Logo */}
-      <div className="flex items-center gap-3 px-4 py-4 border-b border-slate-800">
-        <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
-          style={{ backgroundColor: '#1F3864' }}
-        >
-          <span className="text-white text-xs font-bold">RP</span>
+      <div className="flex items-center justify-between px-4 py-4 border-b border-slate-800">
+        <div className="flex items-center gap-3">
+          <div
+            className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+            style={{ backgroundColor: '#1F3864' }}
+          >
+            <span className="text-white text-xs font-bold">RP</span>
+          </div>
+          <div>
+            <p className="text-white text-sm font-semibold leading-tight">Right Path</p>
+            <p className="text-slate-500 text-xs leading-tight">Agency System</p>
+          </div>
         </div>
-        <div>
-          <p className="text-white text-sm font-semibold leading-tight">Right Path</p>
-          <p className="text-slate-500 text-xs leading-tight">Agency System</p>
-        </div>
+        <NotificationBell />
       </div>
 
       {/* Log Referral CTA */}

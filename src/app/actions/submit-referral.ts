@@ -108,7 +108,15 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       return { success: false, error: 'Failed to save referral. Please try again.' }
     }
 
-    // 5. Back-fill agent email if provided and not already on file
+    // 5. Create in-app notification for the internal team
+    await supabase.from('notifications').insert({
+      type:  'new_referral',
+      title: `New referral: ${form.client_first_name} ${form.client_last_name}`,
+      body:  `Referred by ${form.lsp_name}`,
+      link:  `/referrals/${newCase.id}`,
+    })
+
+    // 6. Back-fill agent email if provided and not already on file
     if (form.lsp_email && form.lsp_name) {
       const parts     = form.lsp_name.trim().split(/\s+/)
       const firstName = parts[0]
@@ -130,7 +138,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       }
     }
 
-    // 6. Save to intake_raw as audit trail (already processed — case_id set)
+    // 7. Save to intake_raw as audit trail (already processed — case_id set)
     await supabase.from('intake_raw').insert({
       agency_id:    form.agency_id,
       source:       'form',
