@@ -91,7 +91,15 @@ export default async function ReferralDetailPage({
     .eq('id', id)
     .single()
 
-  if (error || !caseData) notFound()
+  if (error) {
+    console.error('Referral fetch error:', error)
+    return (
+      <div className="p-8 text-red-400 text-sm">
+        Failed to load referral: {(error as { message?: string }).message ?? JSON.stringify(error)}
+      </div>
+    )
+  }
+  if (!caseData) notFound()
 
   const cd = caseData as unknown as ReferralDetail
 
