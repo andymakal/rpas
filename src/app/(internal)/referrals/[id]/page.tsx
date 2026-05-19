@@ -5,6 +5,13 @@ import { ReferralEditClient } from './ReferralEditClient'
 
 export const dynamic = 'force-dynamic'
 
+export type StatusHistoryEntry = {
+  id: string
+  from_status: string | null
+  to_status: string
+  changed_at: string
+}
+
 export type ReferralDetail = {
   id: string
   customer_id: string
@@ -14,6 +21,10 @@ export type ReferralDetail = {
   created_at: string
   status_entered_at: string | null
   appointment_date: string | null
+  follow_up_date: string | null
+  face_amount: number | null
+  annual_premium: number | null
+  policy_number: string | null
   notes: string | null
   touches: number | null
   last_contact_at: string | null
@@ -83,6 +94,7 @@ export default async function ReferralDetailPage({
     .select(`
       id, customer_id, agent_id, agency_id,
       internal_status, created_at, status_entered_at, appointment_date,
+      follow_up_date, face_amount, annual_premium, policy_number,
       notes, touches, last_contact_at, spiff_earned, spiff_earned_at, is_owner_referral, lead_source,
       customers ( first_name, last_name, phone, email, street, city, state, zip, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes ),
       agencies ( name, display_name, contact_email ),
@@ -104,7 +116,7 @@ export default async function ReferralDetailPage({
 
   const cd = caseData as unknown as ReferralDetail
 
-  const [{ data: stages }, { data: touchLog }, { data: agentsList }, { data: agenciesList }] = await Promise.all([
+  const [{ data: stages }, { data: touchLog }, { data: agentsList }, { data: agenciesList }, { data: statusHistory }] = await Promise.all([
     supabase
       .from('stage_translations')
       .select('id, internal_status, agency_label')
@@ -125,6 +137,11 @@ export default async function ReferralDetailPage({
       .select('id, name, display_name')
       .eq('is_active', true)
       .order('name'),
+    supabase
+      .from('case_status_history')
+      .select('id, from_status, to_status, changed_at')
+      .eq('case_id', id)
+      .order('changed_at', { ascending: false }),
   ])
 
   return (
@@ -134,6 +151,7 @@ export default async function ReferralDetailPage({
       touchLog={(touchLog as unknown as TouchLog[]) ?? []}
       agentsList={(agentsList as unknown as AgentOption[]) ?? []}
       agenciesList={(agenciesList as unknown as AgencyOption[]) ?? []}
+      statusHistory={(statusHistory as unknown as StatusHistoryEntry[]) ?? []}
     />
   )
 }

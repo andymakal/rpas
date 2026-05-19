@@ -316,6 +316,21 @@ export async function POST(req: NextRequest) {
     })
     .eq('id', batch.id)
 
+  // Single summary notification for the whole import
+  if (casesCreated > 0 || errors.length > 0) {
+    const parts = [`${casesCreated} case${casesCreated !== 1 ? 's' : ''} created`]
+    if (customersCreated > 0) parts.push(`${customersCreated} new customer${customersCreated !== 1 ? 's' : ''}`)
+    if (unmatchedAgencies.size > 0) parts.push(`${unmatchedAgencies.size} unmatched agenc${unmatchedAgencies.size !== 1 ? 'ies' : 'y'}`)
+    if (errors.length > 0) parts.push(`${errors.length} error${errors.length !== 1 ? 's' : ''}`)
+
+    await supabase.from('notifications').insert({
+      type:  'lead_import',
+      title: `Lead import: ${file.name}`,
+      body:  parts.join(' · '),
+      link:  '/admin/lead-import',
+    })
+  }
+
   return NextResponse.json({
     batch_id:           batch.id,
     total_rows:         rows.length,

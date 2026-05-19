@@ -18,6 +18,8 @@ export type CaseRow = {
   internal_status: string
   created_at: string
   status_entered_at: string | null
+  last_contact_at: string | null
+  follow_up_date: string | null
   touches: number | null
   is_owner_referral: boolean
   agencies: { name: string; display_name: string | null } | null
@@ -40,6 +42,8 @@ export default async function ReferralsPage() {
       internal_status,
       created_at,
       status_entered_at,
+      last_contact_at,
+      follow_up_date,
       touches,
       is_owner_referral,
       agencies ( name, display_name ),

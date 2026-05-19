@@ -7,8 +7,9 @@ import {
   ArrowLeft, Phone, Building2, User, Calendar, Clock,
   MessageSquare, Mail, AlertCircle, PhoneCall, PhoneOff,
   MessageCircle, ChevronDown, ChevronUp, DollarSign, Pencil, Check, X, MapPin,
+  CalendarClock, TrendingUp, History,
 } from 'lucide-react'
-import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption } from './page'
+import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry } from './page'
 
 const TOBACCO_LABELS: Record<string, string> = {
   none:                 'None',
@@ -128,14 +129,24 @@ function EditField({
 }
 
 type Props = {
-  referral:     ReferralDetail
-  stages:       Tier1Stage[]
-  touchLog:     TouchLog[]
-  agentsList:   AgentOption[]
-  agenciesList: AgencyOption[]
+  referral:      ReferralDetail
+  stages:        Tier1Stage[]
+  touchLog:      TouchLog[]
+  agentsList:    AgentOption[]
+  agenciesList:  AgencyOption[]
+  statusHistory: StatusHistoryEntry[]
 }
 
-export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog, agentsList, agenciesList }: Props) {
+function fmtStatus(s: string): string {
+  return s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
+function fmtCurrency(n: number | null): string {
+  if (n == null) return '—'
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
+}
+
+export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog, agentsList, agenciesList, statusHistory }: Props) {
   const router = useRouter()
 
   // ── Case fields ──────────────────────────────────────────────
@@ -143,6 +154,10 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
   const [appointmentDate, setAppointmentDate] = useState(
     referral.appointment_date ? referral.appointment_date.split('T')[0] : ''
   )
+  const [followUpDate,  setFollowUpDate]  = useState(referral.follow_up_date ?? '')
+  const [faceAmount,    setFaceAmount]    = useState(referral.face_amount?.toString() ?? '')
+  const [annualPremium, setAnnualPremium] = useState(referral.annual_premium?.toString() ?? '')
+  const [policyNumber,  setPolicyNumber]  = useState(referral.policy_number ?? '')
   const [notes, setNotes]         = useState(referral.notes ?? '')
   const [saving, setSaving]       = useState(false)
   const [saveMsg, setSaveMsg]     = useState<{ ok: boolean; text: string } | null>(null)
@@ -225,7 +240,14 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
 
   async function handleSave() {
     setSaving(true); setSaveMsg(null)
-    const body: Record<string, unknown> = { internal_status: status, notes: notes || null }
+    const body: Record<string, unknown> = {
+      internal_status: status,
+      notes:           notes || null,
+      follow_up_date:  followUpDate || null,
+      face_amount:     faceAmount     ? parseFloat(faceAmount.replace(/,/g, ''))     : null,
+      annual_premium:  annualPremium  ? parseFloat(annualPremium.replace(/,/g, ''))  : null,
+      policy_number:   policyNumber.trim() || null,
+    }
     if (showApptDate) body.appointment_date = appointmentDate || null
     try {
       const res = await fetch(`/api/cases/${referral.id}`, {
@@ -757,11 +779,76 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
             </div>
           )}
 
+          {/* Policy details read card */}
+          {(faceAmount || annualPremium || policyNumber) && (
+            <div className="bg-slate-900 border border-emerald-900/50 rounded-xl p-5 space-y-3">
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-medium text-emerald-400 uppercase tracking-wide flex items-center gap-1.5">
+                  <TrendingUp className="w-3.5 h-3.5" /> Policy Details
+                </h2>
+                <button
+                  onClick={() => {/* scroll to edit */}}
+                  className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  <Pencil className="w-3 h-3" /> Edit
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                {faceAmount && (
+                  <div>
+                    <p className="text-xs text-slate-500">Face Amount</p>
+                    <p className="text-emerald-300 font-semibold">{fmtCurrency(parseFloat(faceAmount))}</p>
+                  </div>
+                )}
+                {annualPremium && (
+                  <div>
+                    <p className="text-xs text-slate-500">Annual Premium</p>
+                    <p className="text-slate-200">{fmtCurrency(parseFloat(annualPremium))}</p>
+                  </div>
+                )}
+                {policyNumber && (
+                  <div className="col-span-2">
+                    <p className="text-xs text-slate-500">Policy #</p>
+                    <p className="text-slate-200 font-mono text-sm">{policyNumber}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* Notes (read-only preview — full edit is in right panel) */}
           {referral.notes && (
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-2">
               <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide">Notes</h2>
               <p className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">{referral.notes}</p>
+            </div>
+          )}
+
+          {/* Status history */}
+          {statusHistory.length > 0 && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+              <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+                <History className="w-3.5 h-3.5" /> Status History
+              </h2>
+              <div className="space-y-3">
+                {statusHistory.map((h, i) => (
+                  <div key={h.id} className="flex items-start gap-2.5">
+                    <div className="flex flex-col items-center">
+                      <div className="w-2 h-2 rounded-full bg-slate-600 mt-1 flex-shrink-0" />
+                      {i < statusHistory.length - 1 && (
+                        <div className="w-px flex-1 bg-slate-800 mt-1 min-h-[16px]" />
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0 pb-1">
+                      <p className="text-sm text-slate-200">{fmtStatus(h.to_status)}</p>
+                      {h.from_status && (
+                        <p className="text-xs text-slate-600">from {fmtStatus(h.from_status)}</p>
+                      )}
+                      <p className="text-xs text-slate-600 mt-0.5">{fmt(h.changed_at)}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
@@ -821,6 +908,75 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
                   <option key={s.id} value={s.internal_status}>{s.agency_label}</option>
                 ))}
               </select>
+            </div>
+
+            {/* Follow-up date */}
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
+                <CalendarClock className="w-3.5 h-3.5" /> Follow-up Date
+              </label>
+              <input
+                type="date"
+                value={followUpDate}
+                onChange={e => setFollowUpDate(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30"
+              />
+              {followUpDate && (
+                <button
+                  type="button"
+                  onClick={() => setFollowUpDate('')}
+                  className="mt-1 text-xs text-slate-600 hover:text-slate-400"
+                >
+                  Clear follow-up
+                </button>
+              )}
+            </div>
+
+            {/* Policy details */}
+            <div className={`space-y-3 rounded-lg p-4 border ${status === 'placed' ? 'border-emerald-800 bg-emerald-950/20' : 'border-slate-700 bg-slate-800/20'}`}>
+              <p className="text-xs font-medium text-slate-300 flex items-center gap-1.5 uppercase tracking-wide">
+                <TrendingUp className="w-3.5 h-3.5" /> Policy Details
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Face Amount</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">$</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={faceAmount}
+                      onChange={e => setFaceAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                      placeholder="500,000"
+                      className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg pl-7 pr-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Annual Premium</label>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 text-sm">$</span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={annualPremium}
+                      onChange={e => setAnnualPremium(e.target.value.replace(/[^0-9.]/g, ''))}
+                      placeholder="1,200"
+                      className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg pl-7 pr-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
+                    />
+                  </div>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Policy Number</label>
+                <input
+                  type="text"
+                  value={policyNumber}
+                  onChange={e => setPolicyNumber(e.target.value)}
+                  placeholder="e.g. L-1234567"
+                  className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
+                />
+              </div>
             </div>
 
             {/* SPIFF */}

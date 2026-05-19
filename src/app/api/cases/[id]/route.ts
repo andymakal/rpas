@@ -12,6 +12,7 @@ const ALLOWED_FIELDS = new Set([
   'premium_mode_id',
   'policy_number',
   'appointment_date',
+  'follow_up_date',
   'notes',
   'lost_reason_id',
   'snooze_reason_id',
@@ -50,6 +51,21 @@ export async function PATCH(
 
     if (stageErr || !stage) {
       return Response.json({ error: 'Invalid internal_status' }, { status: 400 })
+    }
+
+    // Record status history
+    const { data: current } = await supabase
+      .from('cases')
+      .select('internal_status')
+      .eq('id', id)
+      .single()
+
+    if (current && current.internal_status !== updates.internal_status) {
+      await supabase.from('case_status_history').insert({
+        case_id:     id,
+        from_status: current.internal_status,
+        to_status:   updates.internal_status as string,
+      })
     }
 
     updates.status_entered_at = new Date().toISOString()
