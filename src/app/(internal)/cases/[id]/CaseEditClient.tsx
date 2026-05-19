@@ -70,6 +70,7 @@ export default function CaseEditClient({
   premiumModes,
   lostReasons,
   snoozeReasons,
+  pendingRequirements,
 }: Props) {
   const days = daysInStatus(caseData.status_entered_at)
 
