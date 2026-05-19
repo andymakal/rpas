@@ -20,6 +20,7 @@ export type ReferralDetail = {
   spiff_earned: boolean
   spiff_earned_at: string | null
   is_owner_referral: boolean
+  lead_source: string | null
   customers: {
     first_name: string
     last_name: string
@@ -69,7 +70,7 @@ export default async function ReferralDetailPage({
     .select(`
       id, customer_id, agent_id, agency_id,
       internal_status, created_at, status_entered_at, appointment_date,
-      notes, touches, last_contact_at, spiff_earned, spiff_earned_at, is_owner_referral,
+      notes, touches, last_contact_at, spiff_earned, spiff_earned_at, is_owner_referral, lead_source,
       customers ( first_name, last_name, phone, email ),
       agencies ( name, display_name, contact_email ),
       agents ( id, first_name, last_name, email ),

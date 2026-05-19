@@ -434,28 +434,75 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
                 </div>
               </div>
             ) : (
-              <>
-                {referral.customers?.phone && (
-                  <div className="flex items-center gap-2.5">
-                    <Phone className="w-4 h-4 text-slate-500 flex-shrink-0" />
-                    <span className="text-slate-200 text-sm">{cPhone || referral.customers.phone}</span>
-                  </div>
-                )}
+              <div className="space-y-3">
+                {/* Phone */}
+                <div className="flex items-center gap-2.5">
+                  <Phone className="w-4 h-4 text-slate-500 flex-shrink-0" />
+                  {cPhone ? (
+                    <a href={`tel:${cPhone}`} className="text-blue-400 hover:text-blue-300 text-sm transition-colors">
+                      {cPhone}
+                    </a>
+                  ) : (
+                    <button
+                      onClick={() => setEditingContact(true)}
+                      className="text-sm text-slate-600 hover:text-slate-400 italic transition-colors"
+                    >
+                      No phone — add one
+                    </button>
+                  )}
+                </div>
+
+                {/* Email */}
+                <div className="flex items-center gap-2.5">
+                  <Mail className="w-4 h-4 text-slate-500 flex-shrink-0" />
+                  {cEmail ? (
+                    <a href={`mailto:${cEmail}`} className="text-blue-400 hover:text-blue-300 text-sm transition-colors truncate">
+                      {cEmail}
+                    </a>
+                  ) : (
+                    <button
+                      onClick={() => setEditingContact(true)}
+                      className="text-sm text-slate-600 hover:text-slate-400 italic transition-colors"
+                    >
+                      No email — add one
+                    </button>
+                  )}
+                </div>
+
+                {/* Agency */}
                 <div className="flex items-center gap-2.5">
                   <Building2 className="w-4 h-4 text-slate-500 flex-shrink-0" />
-                  <span className="text-slate-200 text-sm">{agencyName}</span>
+                  <span className="text-slate-300 text-sm">{agencyName}</span>
                 </div>
+
+                {/* LSP */}
                 {displayAgent && (
                   <div className="flex items-center gap-2.5">
                     <User className="w-4 h-4 text-slate-500 flex-shrink-0" />
-                    <span className="text-slate-200 text-sm">{displayAgent}</span>
+                    <span className="text-slate-300 text-sm">{displayAgent}</span>
                   </div>
                 )}
+
+                {/* Lead source */}
+                {referral.lead_source && (
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-4 h-4 flex-shrink-0 flex items-center justify-center text-slate-500 text-xs font-bold">src</span>
+                    <span className="text-xs text-slate-500 capitalize">
+                      {referral.lead_source === 'agency_referral' ? 'Agency Referral' : referral.lead_source.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                )}
+
+                {/* Date */}
                 <div className="flex items-center gap-2.5">
                   <Calendar className="w-4 h-4 text-slate-500 flex-shrink-0" />
-                  <span className="text-slate-200 text-sm">{fmt(referral.created_at)}</span>
+                  <span className="text-slate-500 text-xs">{fmt(referral.created_at)}</span>
                 </div>
-              </>
+
+                {contactMsg && (
+                  <p className={`text-xs ${contactMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{contactMsg.text}</p>
+                )}
+              </div>
             )}
           </div>
 
@@ -491,6 +538,14 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
               </div>
             </div>
           </div>
+
+          {/* Notes (read-only preview — full edit is in right panel) */}
+          {referral.notes && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-2">
+              <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide">Notes</h2>
+              <p className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">{referral.notes}</p>
+            </div>
+          )}
 
           {/* Touch history */}
           {touchLog.length > 0 && (
