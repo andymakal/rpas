@@ -11,6 +11,9 @@ export type CaseRow = {
   internal_status: string
   created_at: string
   status_entered_at: string | null
+  last_contact_at: string | null
+  follow_up_date: string | null
+  placed_at: string | null
   policy_number: string | null
   face_amount: number | null
   annual_premium: number | null
@@ -38,8 +41,9 @@ export default async function CasesPage() {
   const { data, error } = await supabase
     .from('cases')
     .select(`
-      id, internal_status, created_at, status_entered_at, policy_number,
-      face_amount, annual_premium, lead_source, notes,
+      id, internal_status, created_at, status_entered_at,
+      last_contact_at, follow_up_date, placed_at,
+      policy_number, face_amount, annual_premium, lead_source, notes,
       customers ( first_name, last_name ),
       agencies ( name, display_name, slug ),
       stage_translations ( agency_label, tier, is_active_case, is_won, is_lost, is_snoozed ),

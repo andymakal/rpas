@@ -29,6 +29,7 @@ export type CaseDetail = {
   policy_number: string | null
   face_amount: number | null
   annual_premium: number | null
+  follow_up_date: string | null
   lead_source: string | null
   notes: string | null
   appointment_date: string | null
@@ -80,6 +81,7 @@ export type PremiumModeLookup = { id: string; name: string }
 export type LostReasonLookup = { id: string; agency_label: string }
 export type SnoozeReasonLookup = { id: string; agency_label: string }
 export type PendingRequirementLookup = { id: string; name: string; sort_order: number }
+export type TouchLog = { id: string; touch_type: string; notes: string | null; touched_at: string }
 
 export default async function CaseDetailPage({
   params,
@@ -99,12 +101,13 @@ export default async function CaseDetailPage({
     { data: lostReasons },
     { data: snoozeReasons },
     { data: pendingRequirements },
+    { data: touchLog },
   ] = await Promise.all([
     supabase
       .from('cases')
       .select(`
         id, internal_status, created_at, status_entered_at, updated_at,
-        policy_number, face_amount, annual_premium, lead_source, notes,
+        policy_number, face_amount, annual_premium, follow_up_date, lead_source, notes,
         appointment_date, touches, last_contact_at, placed_at,
         agency_id, customer_id, agent_id,
         customers ( first_name, last_name, email, phone, date_of_birth ),
@@ -155,6 +158,11 @@ export default async function CaseDetailPage({
       .from('pending_requirements')
       .select('id, name, sort_order')
       .order('sort_order'),
+    supabase
+      .from('case_touches')
+      .select('id, touch_type, notes, touched_at')
+      .eq('case_id', id)
+      .order('touched_at', { ascending: false }),
   ])
 
   if (caseError || !caseData) {
@@ -172,6 +180,7 @@ export default async function CaseDetailPage({
       lostReasons={(lostReasons as unknown as LostReasonLookup[]) ?? []}
       snoozeReasons={(snoozeReasons as unknown as SnoozeReasonLookup[]) ?? []}
       pendingRequirements={(pendingRequirements as unknown as PendingRequirementLookup[]) ?? []}
+      touchLog={(touchLog as unknown as TouchLog[]) ?? []}
     />
   )
 }

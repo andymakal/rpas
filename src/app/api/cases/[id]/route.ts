@@ -53,10 +53,10 @@ export async function PATCH(
       return Response.json({ error: 'Invalid internal_status' }, { status: 400 })
     }
 
-    // Record status history
+    // Record status history + notification on placed
     const { data: current } = await supabase
       .from('cases')
-      .select('internal_status')
+      .select('internal_status, face_amount, customers(first_name, last_name)')
       .eq('id', id)
       .single()
 
@@ -72,6 +72,17 @@ export async function PATCH(
 
     if (updates.internal_status === 'placed') {
       updates.placed_at = new Date().toISOString()
+      const cust = current?.customers as unknown as { first_name: string; last_name: string } | null
+      const clientName = cust ? `${cust.first_name} ${cust.last_name}` : 'Unknown'
+      const faceAmt = (updates.face_amount ?? current?.face_amount) as number | null
+      await supabase.from('notifications').insert({
+        type:  'case_placed',
+        title: `Policy placed: ${clientName}`,
+        body:  faceAmt
+          ? `Face amount: ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(faceAmt)}`
+          : null,
+        link:  `/cases/${id}`,
+      })
     }
   }
 

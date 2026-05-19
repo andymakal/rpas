@@ -2,7 +2,11 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Check, Circle, AlertCircle, CheckCircle2 } from 'lucide-react'
+import {
+  ArrowLeft, Check, Circle, AlertCircle, CheckCircle2,
+  Phone, PhoneCall, PhoneOff, MessageCircle, Mail,
+  ChevronDown, ChevronUp, CalendarClock, GitMerge,
+} from 'lucide-react'
 import type {
   CaseDetail,
   StageLookup,
@@ -13,17 +17,34 @@ import type {
   LostReasonLookup,
   SnoozeReasonLookup,
   PendingRequirementLookup,
+  TouchLog,
 } from './page'
 
+// ── Touch log constants ───────────────────────────────────────
+const TOUCH_TYPES: { value: string; label: string; icon: React.ReactNode; short: string }[] = [
+  { value: 'call',      label: 'Call',      short: 'Called',    icon: <PhoneCall     className="w-4 h-4" /> },
+  { value: 'voicemail', label: 'Voicemail', short: 'Voicemail', icon: <PhoneOff      className="w-4 h-4" /> },
+  { value: 'text',      label: 'Text',      short: 'Texted',    icon: <MessageCircle className="w-4 h-4" /> },
+  { value: 'email',     label: 'Email',     short: 'Emailed',   icon: <Mail          className="w-4 h-4" /> },
+]
+
+const TOUCH_COLORS: Record<string, string> = {
+  call:      'bg-emerald-900/40 text-emerald-300 border-emerald-800',
+  voicemail: 'bg-slate-800/60  text-slate-400   border-slate-700',
+  text:      'bg-blue-900/40   text-blue-300    border-blue-800',
+  email:     'bg-indigo-900/40 text-indigo-300  border-indigo-800',
+}
+
+// ── Helpers ───────────────────────────────────────────────────
 function tierBadgeClass(st: CaseDetail['stage_translations']): string {
   if (!st) return 'bg-slate-800 text-slate-400 border border-slate-700'
-  if (st.is_won) return 'bg-emerald-900/60 text-emerald-300 border border-emerald-700'
-  if (st.is_lost) return 'bg-slate-800/70 text-slate-400 border border-slate-700'
-  if (st.is_snoozed) return 'bg-yellow-900/50 text-yellow-300 border border-yellow-800'
+  if (st.is_won)    return 'bg-emerald-900/60 text-emerald-300 border border-emerald-700'
+  if (st.is_lost)   return 'bg-slate-800/70 text-slate-400 border border-slate-700'
+  if (st.is_snoozed)return 'bg-yellow-900/50 text-yellow-300 border border-yellow-800'
   switch (st.tier) {
-    case 1: return 'bg-blue-900/50 text-blue-300 border border-blue-800'
-    case 2: return 'bg-indigo-900/50 text-indigo-300 border border-indigo-800'
-    case 3: return 'bg-emerald-900/50 text-emerald-300 border border-emerald-800'
+    case 1:  return 'bg-blue-900/50 text-blue-300 border border-blue-800'
+    case 2:  return 'bg-indigo-900/50 text-indigo-300 border border-indigo-800'
+    case 3:  return 'bg-emerald-900/50 text-emerald-300 border border-emerald-800'
     default: return 'bg-slate-800 text-slate-400 border border-slate-700'
   }
 }
@@ -38,6 +59,12 @@ function formatDate(iso: string | null): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
+function fmtTime(iso: string): string {
+  return new Date(iso).toLocaleString('en-US', {
+    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
+  })
+}
+
 function daysInStatus(statusEnteredAt: string | null): number {
   if (!statusEnteredAt) return 0
   return Math.floor((Date.now() - new Date(statusEnteredAt).getTime()) / 86_400_000)
@@ -49,16 +76,18 @@ const LEAD_SOURCE_LABELS: Record<string, string> = {
   self_generated:  'Self Generated',
 }
 
+// ── Props ─────────────────────────────────────────────────────
 type Props = {
-  caseData: CaseDetail
-  stages: StageLookup[]
-  agencies: AgencyLookup[]
-  products: ProductLookup[]
-  rateClasses: RateClassLookup[]
-  premiumModes: PremiumModeLookup[]
-  lostReasons: LostReasonLookup[]
-  snoozeReasons: SnoozeReasonLookup[]
+  caseData:            CaseDetail
+  stages:              StageLookup[]
+  agencies:            AgencyLookup[]
+  products:            ProductLookup[]
+  rateClasses:         RateClassLookup[]
+  premiumModes:        PremiumModeLookup[]
+  lostReasons:         LostReasonLookup[]
+  snoozeReasons:       SnoozeReasonLookup[]
   pendingRequirements: PendingRequirementLookup[]
+  touchLog:            TouchLog[]
 }
 
 export default function CaseEditClient({
@@ -71,29 +100,42 @@ export default function CaseEditClient({
   lostReasons,
   snoozeReasons,
   pendingRequirements,
+  touchLog: initialTouchLog,
 }: Props) {
   const days = daysInStatus(caseData.status_entered_at)
 
+  // ── Case edit state ───────────────────────────────────────────
   const [status, setStatus]               = useState(caseData.internal_status)
   const [agencyId, setAgencyId]           = useState(caseData.agency_id ?? '')
   const [productId, setProductId]         = useState(caseData.products?.id ?? '')
   const [faceAmount, setFaceAmount]       = useState(caseData.face_amount?.toString() ?? '')
   const [annualPremium, setAnnualPremium] = useState(caseData.annual_premium?.toString() ?? '')
+  const [followUpDate, setFollowUpDate]   = useState(caseData.follow_up_date ?? '')
   const [rateClassId, setRateClassId]     = useState(caseData.rate_classes?.id ?? '')
   const [premiumModeId, setPremiumModeId] = useState(caseData.premium_modes?.id ?? '')
   const [policyNumber, setPolicyNumber]   = useState(caseData.policy_number ?? '')
   const [appointmentDate, setAppointmentDate] = useState(
     caseData.appointment_date ? caseData.appointment_date.split('T')[0] : ''
   )
-  const [notes, setNotes]                 = useState(caseData.notes ?? '')
-  const [lostReasonId, setLostReasonId]   = useState(caseData.lost_reasons?.id ?? '')
+  const [notes, setNotes]               = useState(caseData.notes ?? '')
+  const [lostReasonId, setLostReasonId] = useState(caseData.lost_reasons?.id ?? '')
   const [snoozeReasonId, setSnoozeReasonId] = useState(caseData.snooze_reasons?.id ?? '')
 
-  const [saving, setSaving]           = useState(false)
-  const [saveError, setSaveError]     = useState<string | null>(null)
+  const [saving, setSaving]         = useState(false)
+  const [saveError, setSaveError]   = useState<string | null>(null)
   const [saveSuccess, setSaveSuccess] = useState(false)
 
-  // Three-state requirements: 'inactive' | 'outstanding' | 'resolved'
+  // ── Touch log state ───────────────────────────────────────────
+  const [touches, setTouches]             = useState(caseData.touches ?? 0)
+  const [lastContact, setLastContact]     = useState(caseData.last_contact_at)
+  const [touchLog, setTouchLog]           = useState<TouchLog[]>(initialTouchLog)
+  const [logOpen, setLogOpen]             = useState(false)
+  const [touchType, setTouchType]         = useState('call')
+  const [touchNote, setTouchNote]         = useState('')
+  const [logging, setLogging]             = useState(false)
+  const [historyOpen, setHistoryOpen]     = useState(initialTouchLog.length > 0)
+
+  // ── Requirements state ────────────────────────────────────────
   type ReqState = 'inactive' | 'outstanding' | 'resolved'
   const [reqState, setReqState] = useState<Record<string, ReqState>>(() => {
     const map: Record<string, ReqState> = {}
@@ -104,30 +146,41 @@ export default function CaseEditClient({
   })
   const [reqUpdating, setReqUpdating] = useState<Record<string, boolean>>({})
 
-  const selectedStage = stages.find(s => s.internal_status === status)
-  const selectedTier  = selectedStage?.tier ?? caseData.stage_translations?.tier ?? 1
-  const isLostStatus   = status === 'carrier_declined' || status === 'client_withdrew'
+  // ── Derived ───────────────────────────────────────────────────
+  const selectedStage   = stages.find(s => s.internal_status === status)
+  const selectedTier    = selectedStage?.tier ?? caseData.stage_translations?.tier ?? 1
+  const isLostStatus    = status === 'carrier_declined' || status === 'client_withdrew'
   const isSnoozedStatus = status === 'snoozed'
 
-  async function handleSave() {
-    setSaving(true)
-    setSaveError(null)
-    setSaveSuccess(false)
+  const stagesByTier: Record<number, StageLookup[]> = {}
+  for (const s of stages) {
+    if (!stagesByTier[s.tier]) stagesByTier[s.tier] = []
+    stagesByTier[s.tier].push(s)
+  }
 
+  const tierLabels: Record<number, string> = {
+    1: 'Tier 1 — Potential',
+    2: 'Tier 2 — Commitment',
+    3: 'Tier 3 — Execution',
+  }
+
+  // ── Handlers ─────────────────────────────────────────────────
+  async function handleSave() {
+    setSaving(true); setSaveError(null); setSaveSuccess(false)
     const body: Record<string, unknown> = {
       internal_status: status,
-      agency_id:       agencyId || null,
-      product_id:      productId || null,
-      face_amount:     faceAmount ? parseFloat(faceAmount) : null,
+      agency_id:       agencyId      || null,
+      product_id:      productId     || null,
+      face_amount:     faceAmount    ? parseFloat(faceAmount)    : null,
       annual_premium:  annualPremium ? parseFloat(annualPremium) : null,
-      rate_class_id:   rateClassId || null,
+      follow_up_date:  followUpDate  || null,
+      rate_class_id:   rateClassId   || null,
       premium_mode_id: premiumModeId || null,
-      policy_number:   policyNumber || null,
-      notes:           notes || null,
+      policy_number:   policyNumber  || null,
+      notes:           notes         || null,
     }
-
     if (selectedTier === 1) body.appointment_date = appointmentDate || null
-    if (isLostStatus && lostReasonId) body.lost_reason_id = lostReasonId
+    if (isLostStatus   && lostReasonId)   body.lost_reason_id   = lostReasonId
     if (isSnoozedStatus && snoozeReasonId) body.snooze_reason_id = snoozeReasonId
 
     try {
@@ -150,11 +203,29 @@ export default function CaseEditClient({
     }
   }
 
+  async function handleLogTouch() {
+    setLogging(true)
+    try {
+      const res = await fetch(`/api/cases/${caseData.id}/touch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ touch_type: touchType, notes: touchNote.trim() || undefined }),
+      })
+      if (res.ok) {
+        const { data } = await res.json()
+        setTouches(data.touches)
+        setLastContact(data.last_contact_at)
+        if (data.touch) { setTouchLog(prev => [data.touch, ...prev]); setHistoryOpen(true) }
+        setTouchNote(''); setLogOpen(false)
+      }
+    } finally { setLogging(false) }
+  }
+
   async function handleRequirementCycle(reqId: string) {
     const current = reqState[reqId] ?? 'inactive'
     const next: ReqState =
-      current === 'inactive'     ? 'outstanding' :
-      current === 'outstanding'  ? 'resolved'    : 'inactive'
+      current === 'inactive'    ? 'outstanding' :
+      current === 'outstanding' ? 'resolved'    : 'inactive'
 
     setReqUpdating(prev => ({ ...prev, [reqId]: true }))
     try {
@@ -179,37 +250,33 @@ export default function CaseEditClient({
         })
       }
       if (res.ok) setReqState(prev => ({ ...prev, [reqId]: next }))
-    } catch {
-      // silent — user can retry
-    } finally {
+    } catch { /* silent */ } finally {
       setReqUpdating(prev => ({ ...prev, [reqId]: false }))
     }
   }
 
-  const stagesByTier: Record<number, StageLookup[]> = {}
-  for (const s of stages) {
-    if (!stagesByTier[s.tier]) stagesByTier[s.tier] = []
-    stagesByTier[s.tier].push(s)
-  }
-
-  const tierLabels: Record<number, string> = {
-    1: 'Tier 1 — Potential',
-    2: 'Tier 2 — Commitment',
-    3: 'Tier 3 — Execution',
-  }
-
+  // ── Render ────────────────────────────────────────────────────
   return (
     <div className="p-8">
       <div className="max-w-7xl mx-auto">
-        <Link
-          href="/cases"
-          className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors mb-6"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Cases
-        </Link>
 
-        <div className="flex flex-col sm:flex-row sm:items-start gap-3 mb-8">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
+          <Link
+            href="/cases"
+            className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" /> Cases
+          </Link>
+          <Link
+            href={`/referrals/${caseData.id}`}
+            className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          >
+            <GitMerge className="w-3.5 h-3.5" /> View Referral History
+          </Link>
+        </div>
+
+        <div className="flex flex-col sm:flex-row sm:items-start gap-3 mb-6">
           <div className="flex-1 min-w-0">
             <h1 className="text-white text-2xl font-semibold">
               {caseData.customers
@@ -224,18 +291,73 @@ export default function CaseEditClient({
             <span className={`inline-flex items-center rounded px-2.5 py-1 text-xs font-medium ${tierBadgeClass(caseData.stage_translations)}`}>
               {caseData.stage_translations?.agency_label ?? caseData.internal_status}
             </span>
-            <span className="text-slate-400 text-sm">
-              {days} day{days !== 1 ? 's' : ''} in status
+            <span className="text-slate-400 text-sm">{days}d in status</span>
+            {/* Touch count */}
+            <span className="text-slate-500 text-sm">
+              {touches} touch{touches !== 1 ? 'es' : ''}
             </span>
+            {/* Log touch button */}
+            <button
+              onClick={() => setLogOpen(o => !o)}
+              className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-sm font-medium text-white bg-slate-700 hover:bg-slate-600 transition-colors"
+            >
+              <Phone className="w-3.5 h-3.5" />
+              Log Touch
+              {logOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
           </div>
         </div>
 
+        {/* Touch logger panel */}
+        {logOpen && (
+          <div className="mb-6 bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-4">
+            <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Log a Touch</p>
+            <div className="flex gap-2 flex-wrap">
+              {TOUCH_TYPES.map(t => (
+                <button
+                  key={t.value}
+                  type="button"
+                  onClick={() => setTouchType(t.value)}
+                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium border transition-all ${
+                    touchType === t.value
+                      ? 'border-white/20 bg-slate-700 text-white'
+                      : 'border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                  }`}
+                >
+                  {t.icon} {t.label}
+                </button>
+              ))}
+            </div>
+            <textarea
+              value={touchNote}
+              onChange={e => setTouchNote(e.target.value)}
+              rows={2}
+              placeholder="Optional note…"
+              className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600 resize-none"
+            />
+            <div className="flex items-center justify-end gap-3">
+              <button onClick={() => setLogOpen(false)} className="text-sm text-slate-400 hover:text-slate-200">Cancel</button>
+              <button
+                onClick={handleLogTouch}
+                disabled={logging}
+                className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                style={{ backgroundColor: '#1F3864' }}
+              >
+                {logging ? 'Logging…' : 'Log it'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Two-column grid */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Left — edit form */}
+
+          {/* Left — Case Details form */}
           <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
             <h2 className="text-white font-semibold mb-5">Case Details</h2>
             <div className="space-y-4">
 
+              {/* Status */}
               <div>
                 <label className="block text-xs font-medium text-slate-400 mb-1.5">Status</label>
                 <select
@@ -246,9 +368,7 @@ export default function CaseEditClient({
                   {Object.entries(stagesByTier).map(([tier, group]) => (
                     <optgroup key={tier} label={tierLabels[parseInt(tier)] ?? `Tier ${tier}`}>
                       {group.map(s => (
-                        <option key={s.internal_status} value={s.internal_status}>
-                          {s.agency_label}
-                        </option>
+                        <option key={s.internal_status} value={s.internal_status}>{s.agency_label}</option>
                       ))}
                     </optgroup>
                   ))}
@@ -258,15 +378,10 @@ export default function CaseEditClient({
               {isLostStatus && (
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5">Lost Reason</label>
-                  <select
-                    value={lostReasonId}
-                    onChange={e => setLostReasonId(e.target.value)}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500"
-                  >
+                  <select value={lostReasonId} onChange={e => setLostReasonId(e.target.value)}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500">
                     <option value="">— select reason —</option>
-                    {lostReasons.map(r => (
-                      <option key={r.id} value={r.id}>{r.agency_label}</option>
-                    ))}
+                    {lostReasons.map(r => <option key={r.id} value={r.id}>{r.agency_label}</option>)}
                   </select>
                 </div>
               )}
@@ -274,40 +389,48 @@ export default function CaseEditClient({
               {isSnoozedStatus && (
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5">Snooze Reason</label>
-                  <select
-                    value={snoozeReasonId}
-                    onChange={e => setSnoozeReasonId(e.target.value)}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500"
-                  >
+                  <select value={snoozeReasonId} onChange={e => setSnoozeReasonId(e.target.value)}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500">
                     <option value="">— select reason —</option>
-                    {snoozeReasons.map(r => (
-                      <option key={r.id} value={r.id}>{r.agency_label}</option>
-                    ))}
+                    {snoozeReasons.map(r => <option key={r.id} value={r.id}>{r.agency_label}</option>)}
                   </select>
                 </div>
               )}
 
+              {/* Follow-up date */}
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1.5 flex items-center gap-1.5">
+                  <CalendarClock className="w-3.5 h-3.5" /> Follow-up Date
+                </label>
+                <input
+                  type="date"
+                  value={followUpDate}
+                  onChange={e => setFollowUpDate(e.target.value)}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500"
+                />
+                {followUpDate && (
+                  <button type="button" onClick={() => setFollowUpDate('')}
+                    className="mt-1 text-xs text-slate-600 hover:text-slate-400">
+                    Clear follow-up
+                  </button>
+                )}
+              </div>
+
+              {/* Agency */}
               <div>
                 <label className="block text-xs font-medium text-slate-400 mb-1.5">Agency</label>
-                <select
-                  value={agencyId}
-                  onChange={e => setAgencyId(e.target.value)}
-                  className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500"
-                >
+                <select value={agencyId} onChange={e => setAgencyId(e.target.value)}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500">
                   <option value="">Unassigned</option>
-                  {agencies.map(a => (
-                    <option key={a.id} value={a.id}>{a.display_name ?? a.name}</option>
-                  ))}
+                  {agencies.map(a => <option key={a.id} value={a.id}>{a.display_name ?? a.name}</option>)}
                 </select>
               </div>
 
+              {/* Product */}
               <div>
                 <label className="block text-xs font-medium text-slate-400 mb-1.5">Product</label>
-                <select
-                  value={productId}
-                  onChange={e => setProductId(e.target.value)}
-                  className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500"
-                >
+                <select value={productId} onChange={e => setProductId(e.target.value)}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500">
                   <option value="">— none —</option>
                   {products.map(p => (
                     <option key={p.id} value={p.id}>
@@ -317,99 +440,70 @@ export default function CaseEditClient({
                 </select>
               </div>
 
+              {/* Face amount + premium */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5">Face Amount</label>
-                  <input
-                    type="number" min="0" step="1000"
-                    value={faceAmount}
-                    onChange={e => setFaceAmount(e.target.value)}
-                    placeholder="0"
-                    className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600"
-                  />
+                  <input type="number" min="0" step="1000" value={faceAmount}
+                    onChange={e => setFaceAmount(e.target.value)} placeholder="0"
+                    className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5">Annual Premium</label>
-                  <input
-                    type="number" min="0" step="1"
-                    value={annualPremium}
-                    onChange={e => setAnnualPremium(e.target.value)}
-                    placeholder="0"
-                    className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600"
-                  />
+                  <input type="number" min="0" step="1" value={annualPremium}
+                    onChange={e => setAnnualPremium(e.target.value)} placeholder="0"
+                    className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600" />
                 </div>
               </div>
 
+              {/* Rate class + premium mode */}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5">Rate Class</label>
-                  <select
-                    value={rateClassId}
-                    onChange={e => setRateClassId(e.target.value)}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500"
-                  >
+                  <select value={rateClassId} onChange={e => setRateClassId(e.target.value)}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500">
                     <option value="">— none —</option>
-                    {rateClasses.map(r => (
-                      <option key={r.id} value={r.id}>{r.name}</option>
-                    ))}
+                    {rateClasses.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5">Premium Mode</label>
-                  <select
-                    value={premiumModeId}
-                    onChange={e => setPremiumModeId(e.target.value)}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500"
-                  >
+                  <select value={premiumModeId} onChange={e => setPremiumModeId(e.target.value)}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500">
                     <option value="">— none —</option>
-                    {premiumModes.map(m => (
-                      <option key={m.id} value={m.id}>{m.name}</option>
-                    ))}
+                    {premiumModes.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                   </select>
                 </div>
               </div>
 
+              {/* Policy number */}
               <div>
                 <label className="block text-xs font-medium text-slate-400 mb-1.5">Policy Number</label>
-                <input
-                  type="text"
-                  value={policyNumber}
-                  onChange={e => setPolicyNumber(e.target.value)}
-                  placeholder="—"
-                  className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600"
-                />
+                <input type="text" value={policyNumber} onChange={e => setPolicyNumber(e.target.value)} placeholder="—"
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600" />
               </div>
 
               {selectedTier === 1 && (
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5">Appointment Date</label>
-                  <input
-                    type="date"
-                    value={appointmentDate}
-                    onChange={e => setAppointmentDate(e.target.value)}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500"
-                  />
+                  <input type="date" value={appointmentDate} onChange={e => setAppointmentDate(e.target.value)}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500" />
                 </div>
               )}
 
+              {/* Notes */}
               <div>
                 <label className="block text-xs font-medium text-slate-400 mb-1.5">Notes</label>
-                <textarea
-                  value={notes}
-                  onChange={e => setNotes(e.target.value)}
-                  rows={4}
+                <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={4}
                   placeholder="Internal notes…"
-                  className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600 resize-y"
-                />
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600 resize-y" />
               </div>
 
+              {/* Save */}
               <div className="flex items-center gap-3 pt-1">
-                <button
-                  onClick={handleSave}
-                  disabled={saving}
+                <button onClick={handleSave} disabled={saving}
                   className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                  style={{ backgroundColor: '#1F3864' }}
-                >
+                  style={{ backgroundColor: '#1F3864' }}>
                   {saving ? 'Saving…' : 'Save Changes'}
                 </button>
                 {saveSuccess && (
@@ -417,28 +511,36 @@ export default function CaseEditClient({
                     <Check className="w-4 h-4" /> Saved
                   </span>
                 )}
-                {saveError && (
-                  <span className="text-sm text-red-400">{saveError}</span>
-                )}
+                {saveError && <span className="text-sm text-red-400">{saveError}</span>}
               </div>
             </div>
           </div>
 
-          {/* Right — client info + pending requirements */}
+          {/* Right — client info + requirements + touch history */}
           <div className="space-y-6">
+
+            {/* Client Info */}
             <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
               <h2 className="text-white font-semibold mb-4">Client Info</h2>
               <dl className="space-y-2">
-                {caseData.customers?.email && (
-                  <div className="flex justify-between">
-                    <dt className="text-xs text-slate-500">Email</dt>
-                    <dd className="text-sm text-slate-300">{caseData.customers.email}</dd>
-                  </div>
-                )}
                 {caseData.customers?.phone && (
                   <div className="flex justify-between">
                     <dt className="text-xs text-slate-500">Phone</dt>
-                    <dd className="text-sm text-slate-300">{caseData.customers.phone}</dd>
+                    <dd>
+                      <a href={`tel:${caseData.customers.phone}`} className="text-sm text-blue-400 hover:text-blue-300">
+                        {caseData.customers.phone}
+                      </a>
+                    </dd>
+                  </div>
+                )}
+                {caseData.customers?.email && (
+                  <div className="flex justify-between">
+                    <dt className="text-xs text-slate-500">Email</dt>
+                    <dd>
+                      <a href={`mailto:${caseData.customers.email}`} className="text-sm text-blue-400 hover:text-blue-300">
+                        {caseData.customers.email}
+                      </a>
+                    </dd>
                   </div>
                 )}
                 {caseData.customers?.date_of_birth && (
@@ -463,25 +565,32 @@ export default function CaseEditClient({
                   <dt className="text-xs text-slate-500">Submitted</dt>
                   <dd className="text-sm text-slate-300">{formatDate(caseData.created_at)}</dd>
                 </div>
+                {lastContact && (
+                  <div className="flex justify-between">
+                    <dt className="text-xs text-slate-500">Last Contact</dt>
+                    <dd className="text-sm text-slate-300">{formatDate(lastContact)}</dd>
+                  </div>
+                )}
                 {caseData.placed_at && (
                   <div className="flex justify-between">
                     <dt className="text-xs text-slate-500">Placed</dt>
-                    <dd className="text-sm text-emerald-400">{formatDate(caseData.placed_at)}</dd>
+                    <dd className="text-sm text-emerald-400 font-medium">{formatDate(caseData.placed_at)}</dd>
                   </div>
                 )}
                 {caseData.face_amount !== null && (
                   <div className="flex justify-between">
                     <dt className="text-xs text-slate-500">Face Amount</dt>
-                    <dd className="text-sm text-slate-300">{formatCurrency(caseData.face_amount)}</dd>
+                    <dd className="text-sm text-emerald-300 font-semibold">{formatCurrency(caseData.face_amount)}</dd>
                   </div>
                 )}
               </dl>
             </div>
 
+            {/* Pending Requirements */}
             <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-white font-semibold">Requirements</h2>
-                <div className="flex items-center gap-3 text-xs text-slate-500">
+                <div className="text-xs">
                   {(() => {
                     const outstanding = pendingRequirements.filter(r => (reqState[r.id] ?? 'inactive') === 'outstanding').length
                     return outstanding > 0
@@ -492,7 +601,7 @@ export default function CaseEditClient({
               </div>
               <ul className="space-y-1">
                 {pendingRequirements.map(req => {
-                  const state   = reqState[req.id] ?? 'inactive'
+                  const state    = reqState[req.id] ?? 'inactive'
                   const updating = reqUpdating[req.id] ?? false
                   return (
                     <li key={req.id}>
@@ -522,8 +631,41 @@ export default function CaseEditClient({
                   )
                 })}
               </ul>
-              <p className="text-xs text-slate-600 mt-3 px-1">Click to cycle: inactive → outstanding → resolved → inactive</p>
+              <p className="text-xs text-slate-600 mt-3 px-1">Tap to cycle: inactive → outstanding → resolved</p>
             </div>
+
+            {/* Touch History */}
+            {touchLog.length > 0 && (
+              <div className="rounded-xl border border-slate-800 bg-slate-900 overflow-hidden">
+                <button
+                  onClick={() => setHistoryOpen(o => !o)}
+                  className="w-full flex items-center justify-between px-6 py-4 text-xs font-medium text-slate-400 uppercase tracking-wide hover:text-slate-200 transition-colors"
+                >
+                  <span>Touch History ({touchLog.length})</span>
+                  {historyOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </button>
+                {historyOpen && (
+                  <div className="border-t border-slate-800 divide-y divide-slate-800/50">
+                    {touchLog.map(t => {
+                      const typeInfo = TOUCH_TYPES.find(x => x.value === t.touch_type)
+                      return (
+                        <div key={t.id} className="px-6 py-3 space-y-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium border ${TOUCH_COLORS[t.touch_type] ?? TOUCH_COLORS.call}`}>
+                              {typeInfo?.icon}
+                              {typeInfo?.short ?? t.touch_type}
+                            </span>
+                            <span className="text-xs text-slate-500 flex-shrink-0">{fmtTime(t.touched_at)}</span>
+                          </div>
+                          {t.notes && <p className="text-xs text-slate-400 pl-0.5">{t.notes}</p>}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
           </div>
         </div>
       </div>
