@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft, Check, Circle, AlertCircle, CheckCircle2,
@@ -112,6 +113,7 @@ export default function CaseEditClient({
   statusHistory,
   siblingCases: initialSiblings,
 }: Props) {
+  const router = useRouter()
   const days = daysInStatus(caseData.status_entered_at)
 
   // ── Case edit state ───────────────────────────────────────────
