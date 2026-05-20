@@ -154,6 +154,19 @@ export default function CaseEditClient({
   })
   const [reqUpdating, setReqUpdating] = useState<Record<string, boolean>>({})
 
+  // ── Spanish speaking toggle ───────────────────────────────────
+  const [spanishSpeaking, setSpanishSpeaking] = useState(caseData.customers?.spanish_speaking ?? false)
+
+  async function handleSpanishToggle(checked: boolean) {
+    if (!caseData.customer_id) return
+    setSpanishSpeaking(checked)
+    await fetch(`/api/customers/${caseData.customer_id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ spanish_speaking: checked }),
+    })
+  }
+
   // ── Client name edit state ────────────────────────────────────
   const [editingName, setEditingName]   = useState(false)
   const [firstName, setFirstName]       = useState(caseData.customers?.first_name ?? '')
@@ -652,6 +665,22 @@ export default function CaseEditClient({
                   <dt className="text-xs text-slate-500">Lead Source</dt>
                   <dd className="text-sm text-slate-300">
                     {caseData.lead_source ? (LEAD_SOURCE_LABELS[caseData.lead_source] ?? caseData.lead_source) : '—'}
+                  </dd>
+                </div>
+                <div className="flex justify-between items-center">
+                  <dt className="text-xs text-slate-500">Spanish Speaking</dt>
+                  <dd>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={spanishSpeaking}
+                        onChange={e => handleSpanishToggle(e.target.checked)}
+                        className="h-3.5 w-3.5 rounded accent-blue-500 cursor-pointer"
+                      />
+                      {spanishSpeaking && (
+                        <span className="text-xs text-blue-300 font-medium">Habla Español</span>
+                      )}
+                    </label>
                   </dd>
                 </div>
                 <div className="flex justify-between">

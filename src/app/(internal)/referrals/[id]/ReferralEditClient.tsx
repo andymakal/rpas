@@ -193,7 +193,8 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
   const [cHeightFt,     setCHeightFt]     = useState(referral.customers?.height_ft?.toString() ?? '')
   const [cHeightIn,     setCHeightIn]     = useState(referral.customers?.height_in?.toString() ?? '')
   const [cWeight,       setCWeight]       = useState(referral.customers?.weight_lbs?.toString() ?? '')
-  const [cHealthNotes,  setCHealthNotes]  = useState(referral.customers?.health_notes  ?? '')
+  const [cHealthNotes,    setCHealthNotes]    = useState(referral.customers?.health_notes   ?? '')
+  const [cSpanish,        setCSpanish]        = useState(referral.customers?.spanish_speaking ?? false)
   const [contactSaving, setContactSaving] = useState(false)
   const [contactMsg,    setContactMsg]    = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -289,7 +290,8 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
           height_ft:      cHeightFt  ? parseInt(cHeightFt)  : null,
           height_in:      cHeightIn  ? parseInt(cHeightIn)  : null,
           weight_lbs:     cWeight    ? parseInt(cWeight)    : null,
-          health_notes:   cHealthNotes.trim()  || null,
+          health_notes:     cHealthNotes.trim()  || null,
+          spanish_speaking: cSpanish,
         }),
       })
       if (!res.ok) {
@@ -590,6 +592,15 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
                         className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600 resize-none"
                       />
                     </div>
+                    <label className="flex items-center gap-3 cursor-pointer pt-1">
+                      <input
+                        type="checkbox"
+                        checked={cSpanish}
+                        onChange={e => setCSpanish(e.target.checked)}
+                        className="h-4 w-4 rounded accent-blue-500 cursor-pointer"
+                      />
+                      <span className="text-sm text-slate-200">Spanish Speaking</span>
+                    </label>
                   </div>
                 </div>
                 {contactMsg && (
@@ -688,6 +699,15 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
                     <span className="w-4 h-4 flex-shrink-0 flex items-center justify-center text-slate-500 text-xs font-bold">src</span>
                     <span className="text-xs text-slate-500 capitalize">
                       {referral.lead_source === 'agency_referral' ? 'Agency Referral' : referral.lead_source.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                )}
+
+                {/* Spanish Speaking */}
+                {cSpanish && (
+                  <div className="flex items-center gap-2.5">
+                    <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-blue-900/50 text-blue-300 border border-blue-800">
+                      Habla Español
                     </span>
                   </div>
                 )}

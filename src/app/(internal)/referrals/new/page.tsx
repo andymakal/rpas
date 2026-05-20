@@ -58,7 +58,8 @@ export default function NewReferralPage() {
   const [city,          setCity]          = useState('')
   const [state,         setState]         = useState('')
   const [zip,           setZip]           = useState('')
-  const [notes,         setNotes]         = useState('')
+  const [notes,           setNotes]           = useState('')
+  const [spanishSpeaking, setSpanishSpeaking] = useState(false)
 
   const [submitting, setSubmitting] = useState(false)
   const [error, setError]           = useState<string | null>(null)
@@ -123,7 +124,8 @@ export default function NewReferralPage() {
       zip:           zip.trim() || undefined,
       referral_type: referralType,
       lead_source:   leadSource,
-      notes:         notes.trim() || undefined,
+      notes:           notes.trim() || undefined,
+      spanish_speaking: spanishSpeaking,
     })
 
     if (!result.success) { setError(result.error); setSubmitting(false); return }
@@ -280,6 +282,24 @@ export default function NewReferralPage() {
                 <Input value={zip} onChange={e => setZip(e.target.value)} placeholder="18503" className={inputCls} />
               </div>
             </div>
+          </div>
+
+          {/* Flags */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+            <label className="flex items-center gap-3 cursor-pointer group">
+              <input
+                type="checkbox"
+                checked={spanishSpeaking}
+                onChange={e => setSpanishSpeaking(e.target.checked)}
+                className="h-4 w-4 rounded accent-blue-500 cursor-pointer"
+              />
+              <div>
+                <p className="text-sm font-medium text-slate-200 group-hover:text-white transition-colors">
+                  Spanish Speaking
+                </p>
+                <p className="text-xs text-slate-500">Client&apos;s primary language is Spanish</p>
+              </div>
+            </label>
           </div>
 
           {/* Notes */}

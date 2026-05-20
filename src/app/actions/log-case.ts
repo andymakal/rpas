@@ -23,6 +23,7 @@ export async function logCase(data: {
   referral_type: string
   lead_source: LeadSource
   notes?: string
+  spanish_speaking?: boolean
 }): Promise<LogCaseResult> {
   if (data.lead_source === 'agency_referral' && !data.agency_id) {
     return { success: false, error: 'Agency is required for agency referrals.' }
@@ -42,8 +43,9 @@ export async function logCase(data: {
         date_of_birth: data.dob || null,
         street:        data.street?.trim() || null,
         city:          data.city?.trim() || null,
-        state:         data.state || null,
-        zip:           data.zip?.trim() || null,
+        state:            data.state || null,
+        zip:              data.zip?.trim() || null,
+        spanish_speaking: data.spanish_speaking ?? false,
       })
       .select('id')
       .single()
