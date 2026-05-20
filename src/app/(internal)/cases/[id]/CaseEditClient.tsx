@@ -176,27 +176,42 @@ export default function CaseEditClient({
   }
 
   // ── Client info edit state ────────────────────────────────────
-  const [clientPhone, setClientPhone]   = useState(caseData.customers?.phone ?? '')
-  const [clientEmail, setClientEmail]   = useState(caseData.customers?.email ?? '')
-  const [clientDob, setClientDob]       = useState(
-    caseData.customers?.date_of_birth ? caseData.customers.date_of_birth.split('T')[0] : ''
-  )
+  const origClientInfo = {
+    phone: caseData.customers?.phone         ?? '',
+    email: caseData.customers?.email         ?? '',
+    dob:   caseData.customers?.date_of_birth
+             ? caseData.customers.date_of_birth.split('T')[0] : '',
+  }
+  const [clientPhone, setClientPhone]   = useState(origClientInfo.phone)
+  const [clientEmail, setClientEmail]   = useState(origClientInfo.email)
+  const [clientDob, setClientDob]       = useState(origClientInfo.dob)
   const [clientSaving, setClientSaving]     = useState(false)
   const [clientError, setClientError]       = useState<string | null>(null)
   const [clientSuccess, setClientSuccess]   = useState(false)
 
   async function handleSaveClientInfo() {
     if (!caseData.customer_id) return
+
+    // Only send fields the user explicitly changed — never overwrite untouched
+    // fields with empty strings, which would clear data that came from the
+    // original referral intake.
+    const updates: Record<string, unknown> = {}
+    if (clientPhone !== origClientInfo.phone) updates.phone         = clientPhone.trim() || null
+    if (clientEmail !== origClientInfo.email) updates.email         = clientEmail.trim() || null
+    if (clientDob   !== origClientInfo.dob)   updates.date_of_birth = clientDob          || null
+
+    if (Object.keys(updates).length === 0) {
+      setClientSuccess(true)
+      setTimeout(() => setClientSuccess(false), 2000)
+      return
+    }
+
     setClientSaving(true); setClientError(null)
     try {
       const res = await fetch(`/api/customers/${caseData.customer_id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone:         clientPhone.trim() || null,
-          email:         clientEmail.trim() || null,
-          date_of_birth: clientDob          || null,
-        }),
+        body: JSON.stringify(updates),
       })
       if (res.ok) {
         setClientSuccess(true)
