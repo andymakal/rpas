@@ -56,7 +56,7 @@ export async function PATCH(
     // Record status history + notification on placed
     const { data: current } = await supabase
       .from('cases')
-      .select('internal_status, face_amount, customers(first_name, last_name)')
+      .select('internal_status, face_amount, submitted_at, customers(first_name, last_name)')
       .eq('id', id)
       .single()
 
@@ -69,6 +69,11 @@ export async function PATCH(
     }
 
     updates.status_entered_at = new Date().toISOString()
+
+    // Stamp submitted_at the first time a case reaches app_submitted
+    if (updates.internal_status === 'app_submitted' && !current?.submitted_at) {
+      updates.submitted_at = new Date().toISOString()
+    }
 
     if (updates.internal_status === 'placed') {
       updates.placed_at = new Date().toISOString()
