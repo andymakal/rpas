@@ -127,6 +127,9 @@ export default function CaseEditClient({
   const [tableRating, setTableRating]     = useState(caseData.table_rating?.toString() ?? '')
   const [premiumModeId, setPremiumModeId] = useState(caseData.premium_modes?.id ?? '')
   const [policyNumber, setPolicyNumber]   = useState(caseData.policy_number ?? '')
+  const [placedAt, setPlacedAt]           = useState(
+    caseData.placed_at ? caseData.placed_at.split('T')[0] : ''
+  )
   const [appointmentDate, setAppointmentDate] = useState(
     caseData.appointment_date ? caseData.appointment_date.split('T')[0] : ''
   )
@@ -242,6 +245,7 @@ export default function CaseEditClient({
   // ── Derived ───────────────────────────────────────────────────
   const selectedStage   = stages.find(s => s.internal_status === status)
   const selectedTier    = selectedStage?.tier ?? caseData.stage_translations?.tier ?? 1
+  const isWonStatus     = status === 'placed'
   const isLostStatus    = status === 'carrier_declined' || status === 'client_withdrew'
   const isSnoozedStatus = status === 'snoozed'
   const isSubstandard   = rateClasses.find(r => r.id === rateClassId)?.name.includes('Substandard') ?? false
@@ -275,6 +279,7 @@ export default function CaseEditClient({
       notes:           notes         || null,
     }
     if (selectedTier === 1) body.appointment_date = appointmentDate || null
+    if (isWonStatus) body.placed_at = placedAt ? new Date(placedAt).toISOString() : null
     if (isLostStatus   && lostReasonId)   body.lost_reason_id   = lostReasonId
     if (isSnoozedStatus && snoozeReasonId) body.snooze_reason_id = snoozeReasonId
 
@@ -634,6 +639,20 @@ export default function CaseEditClient({
                 <input type="text" value={policyNumber} onChange={e => setPolicyNumber(e.target.value)} placeholder="—"
                   className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600" />
               </div>
+
+              {/* Date Placed — editable when case is placed so it can match the carrier date */}
+              {isWonStatus && (
+                <div>
+                  <label className="block text-xs font-medium text-slate-400 mb-1.5">Date Placed</label>
+                  <input
+                    type="date"
+                    value={placedAt}
+                    onChange={e => setPlacedAt(e.target.value)}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500"
+                  />
+                  <p className="text-xs text-slate-600 mt-1">Set this to the date the carrier issued the policy.</p>
+                </div>
+              )}
 
               {selectedTier === 1 && (
                 <div>

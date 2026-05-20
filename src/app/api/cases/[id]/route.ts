@@ -13,6 +13,7 @@ const ALLOWED_FIELDS = new Set([
   'policy_number',
   'appointment_date',
   'follow_up_date',
+  'placed_at',
   'notes',
   'lost_reason_id',
   'snooze_reason_id',
@@ -76,7 +77,7 @@ export async function PATCH(
       updates.submitted_at = new Date().toISOString()
     }
 
-    if (updates.internal_status === 'placed') {
+    if (updates.internal_status === 'placed' && !updates.placed_at) {
       updates.placed_at = new Date().toISOString()
       const cust = current?.customers as unknown as { first_name: string; last_name: string } | null
       const clientName = cust ? `${cust.first_name} ${cust.last_name}` : 'Unknown'
