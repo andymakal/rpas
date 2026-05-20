@@ -178,12 +178,12 @@ export default function ProductionClient({ cases }: { cases: PlacedCase[] }) {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <p className="text-xs text-slate-500 uppercase tracking-wide font-medium mb-1">Face Amount</p>
-          <p className="text-2xl font-bold text-white">{formatCurrency(stats.faceTotal)}</p>
+          <p className="text-2xl font-bold text-white">{formatCurrencyFull(stats.faceTotal)}</p>
           <p className="text-xs text-slate-600 mt-0.5">{stats.count} polic{stats.count !== 1 ? 'ies' : 'y'}</p>
         </div>
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <p className="text-xs text-slate-500 uppercase tracking-wide font-medium mb-1">Annual Premium</p>
-          <p className="text-2xl font-bold text-blue-400">{formatCurrency(stats.premiumTotal)}</p>
+          <p className="text-2xl font-bold text-blue-400">{formatCurrencyFull(stats.premiumTotal)}</p>
           <p className="text-xs text-slate-600 mt-0.5">GDC basis</p>
         </div>
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
@@ -193,7 +193,7 @@ export default function ProductionClient({ cases }: { cases: PlacedCase[] }) {
         </div>
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <p className="text-xs text-slate-500 uppercase tracking-wide font-medium mb-1">Total In Force</p>
-          <p className="text-2xl font-bold text-emerald-400">{formatCurrency(stats.allTimeForce)}</p>
+          <p className="text-2xl font-bold text-emerald-400">{formatCurrencyFull(stats.allTimeForce)}</p>
           <p className="text-xs text-slate-600 mt-0.5">all time</p>
         </div>
       </div>
