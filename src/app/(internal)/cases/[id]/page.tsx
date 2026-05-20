@@ -85,6 +85,15 @@ export type SnoozeReasonLookup = { id: string; agency_label: string }
 export type PendingRequirementLookup = { id: string; name: string; sort_order: number }
 export type TouchLog = { id: string; touch_type: string; notes: string | null; touched_at: string }
 export type StatusHistoryEntry = { id: string; from_status: string | null; to_status: string; changed_at: string }
+export type SiblingCase = {
+  id: string
+  internal_status: string
+  face_amount: number | null
+  annual_premium: number | null
+  policy_number: string | null
+  products: { name: string; carriers: { short_name: string } | null } | null
+  stage_translations: { agency_label: string; is_won: boolean; is_lost: boolean } | null
+}
 
 export default async function CaseDetailPage({
   params,
@@ -178,9 +187,26 @@ export default async function CaseDetailPage({
     notFound()
   }
 
+  const cd = caseData as unknown as CaseDetail
+
+  // Fetch sibling cases (same customer, different case)
+  const { data: siblings } = cd.customer_id
+    ? await supabase
+        .from('cases')
+        .select(`
+          id, internal_status, face_amount, annual_premium, policy_number,
+          products ( name, carriers ( short_name ) ),
+          stage_translations ( agency_label, is_won, is_lost )
+        `)
+        .eq('customer_id', cd.customer_id)
+        .neq('id', id)
+        .eq('is_test', false)
+        .order('created_at', { ascending: false })
+    : { data: [] }
+
   return (
     <CaseEditClient
-      caseData={caseData as unknown as CaseDetail}
+      caseData={cd}
       stages={(stages as unknown as StageLookup[]) ?? []}
       agencies={(agencies as unknown as AgencyLookup[]) ?? []}
       products={(products as unknown as ProductLookup[]) ?? []}
@@ -191,6 +217,7 @@ export default async function CaseDetailPage({
       pendingRequirements={(pendingRequirements as unknown as PendingRequirementLookup[]) ?? []}
       touchLog={(touchLog as unknown as TouchLog[]) ?? []}
       statusHistory={(statusHistory as unknown as StatusHistoryEntry[]) ?? []}
+      siblingCases={(siblings as unknown as SiblingCase[]) ?? []}
     />
   )
 }

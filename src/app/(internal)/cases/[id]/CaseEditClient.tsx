@@ -5,7 +5,7 @@ import Link from 'next/link'
 import {
   ArrowLeft, Check, Circle, AlertCircle, CheckCircle2,
   Phone, PhoneCall, PhoneOff, MessageCircle, Mail,
-  ChevronDown, ChevronUp, CalendarClock, GitMerge, Pencil, X, History,
+  ChevronDown, ChevronUp, CalendarClock, GitMerge, Pencil, X, History, Plus,
 } from 'lucide-react'
 import type {
   CaseDetail,
@@ -19,6 +19,7 @@ import type {
   PendingRequirementLookup,
   TouchLog,
   StatusHistoryEntry,
+  SiblingCase,
 } from './page'
 
 // ── Touch log constants ───────────────────────────────────────
@@ -94,6 +95,7 @@ type Props = {
   pendingRequirements: PendingRequirementLookup[]
   touchLog:            TouchLog[]
   statusHistory:       StatusHistoryEntry[]
+  siblingCases:        SiblingCase[]
 }
 
 export default function CaseEditClient({
@@ -108,6 +110,7 @@ export default function CaseEditClient({
   pendingRequirements,
   touchLog: initialTouchLog,
   statusHistory,
+  siblingCases: initialSiblings,
 }: Props) {
   const days = daysInStatus(caseData.status_entered_at)
 
@@ -197,6 +200,41 @@ export default function CaseEditClient({
       setNameError('Network error')
     } finally {
       setNameSaving(false) }
+  }
+
+  // ── Sibling policies ─────────────────────────────────────────
+  const [siblings, setSiblings]         = useState<SiblingCase[]>(initialSiblings)
+  const [addingPolicy, setAddingPolicy] = useState(false)
+  const [sibProduct, setSibProduct]     = useState('')
+  const [sibFace, setSibFace]           = useState('')
+  const [sibPremium, setSibPremium]     = useState('')
+  const [sibSaving, setSibSaving]       = useState(false)
+  const [sibError, setSibError]         = useState<string | null>(null)
+
+  async function handleAddPolicy() {
+    setSibSaving(true); setSibError(null)
+    try {
+      const res = await fetch(`/api/cases/${caseData.id}/sibling`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          product_id:    sibProduct    || undefined,
+          face_amount:   sibFace       ? parseFloat(sibFace)    : undefined,
+          annual_premium: sibPremium   ? parseFloat(sibPremium) : undefined,
+        }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setSibError((err as { error?: string }).error ?? 'Failed to create policy')
+      } else {
+        const { data } = await res.json()
+        router.push(`/cases/${data.id}`)
+      }
+    } catch {
+      setSibError('Network error')
+    } finally {
+      setSibSaving(false)
+    }
   }
 
   // ── Derived ───────────────────────────────────────────────────
@@ -793,6 +831,96 @@ export default function CaseEditClient({
                 )}
               </div>
             )}
+
+            {/* Also on file / Add Policy */}
+            <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-white font-semibold">Also on File</h2>
+                <button
+                  onClick={() => { setAddingPolicy(o => !o); setSibError(null) }}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-white bg-slate-700 hover:bg-slate-600 transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add Policy
+                </button>
+              </div>
+
+              {/* Add Policy form */}
+              {addingPolicy && (
+                <div className="mb-4 space-y-3 rounded-lg border border-slate-700 bg-slate-800/40 p-4">
+                  <p className="text-xs text-slate-400 font-medium uppercase tracking-wide">New simultaneous policy</p>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1.5">Product</label>
+                    <select value={sibProduct} onChange={e => setSibProduct(e.target.value)}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500">
+                      <option value="">— select product —</option>
+                      {products.map(p => (
+                        <option key={p.id} value={p.id}>
+                          {p.carriers?.short_name ? `${p.carriers.short_name} · ${p.name}` : p.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1.5">Face Amount</label>
+                      <input type="number" min="0" step="1000" value={sibFace}
+                        onChange={e => setSibFace(e.target.value)} placeholder="500000"
+                        className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-400 mb-1.5">Annual Premium</label>
+                      <input type="number" min="0" step="1" value={sibPremium}
+                        onChange={e => setSibPremium(e.target.value)} placeholder="1200"
+                        className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600" />
+                    </div>
+                  </div>
+                  {sibError && <p className="text-xs text-red-400">{sibError}</p>}
+                  <div className="flex items-center gap-3 pt-1">
+                    <button onClick={handleAddPolicy} disabled={sibSaving}
+                      className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 transition-opacity hover:opacity-90"
+                      style={{ backgroundColor: '#1F3864' }}>
+                      {sibSaving ? 'Creating…' : 'Create & Open Policy'}
+                    </button>
+                    <button onClick={() => { setAddingPolicy(false); setSibError(null) }}
+                      className="text-sm text-slate-400 hover:text-slate-200">Cancel</button>
+                  </div>
+                </div>
+              )}
+
+              {/* Sibling list */}
+              {siblings.length === 0 && !addingPolicy ? (
+                <p className="text-sm text-slate-600">No other policies on file for this client.</p>
+              ) : (
+                <div className="space-y-2">
+                  {siblings.map(s => {
+                    const cp = s.products
+                      ? s.products.carriers?.short_name
+                        ? `${s.products.carriers.short_name} · ${s.products.name}`
+                        : s.products.name
+                      : '—'
+                    const badgeCls = s.stage_translations?.is_won
+                      ? 'bg-emerald-900/60 text-emerald-300 border-emerald-700'
+                      : s.stage_translations?.is_lost
+                      ? 'bg-slate-800/70 text-slate-400 border-slate-700'
+                      : 'bg-indigo-900/50 text-indigo-300 border-indigo-800'
+                    return (
+                      <button key={s.id} onClick={() => router.push(`/cases/${s.id}`)}
+                        className="w-full flex items-center justify-between gap-3 rounded-lg border border-slate-700 bg-slate-800/30 px-4 py-3 text-left hover:bg-slate-800/60 transition-colors group">
+                        <div className="min-w-0">
+                          <p className="text-sm text-slate-300 truncate group-hover:text-white transition-colors">{cp}</p>
+                          {s.face_amount && (
+                            <p className="text-xs text-slate-500 mt-0.5">{formatCurrency(s.face_amount)}</p>
+                          )}
+                        </div>
+                        <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium border flex-shrink-0 ${badgeCls}`}>
+                          {s.stage_translations?.agency_label ?? s.internal_status}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
 
             {/* Status History */}
             {statusHistory.length > 0 && (
