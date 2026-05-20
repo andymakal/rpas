@@ -17,6 +17,7 @@ const ALLOWED_FIELDS = new Set([
   'lost_reason_id',
   'snooze_reason_id',
   'snooze_until',
+  'table_rating',
 ])
 
 export async function PATCH(

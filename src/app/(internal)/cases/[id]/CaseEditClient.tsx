@@ -119,6 +119,7 @@ export default function CaseEditClient({
   const [annualPremium, setAnnualPremium] = useState(caseData.annual_premium?.toString() ?? '')
   const [followUpDate, setFollowUpDate]   = useState(caseData.follow_up_date ?? '')
   const [rateClassId, setRateClassId]     = useState(caseData.rate_classes?.id ?? '')
+  const [tableRating, setTableRating]     = useState(caseData.table_rating?.toString() ?? '')
   const [premiumModeId, setPremiumModeId] = useState(caseData.premium_modes?.id ?? '')
   const [policyNumber, setPolicyNumber]   = useState(caseData.policy_number ?? '')
   const [appointmentDate, setAppointmentDate] = useState(
@@ -190,6 +191,7 @@ export default function CaseEditClient({
   const selectedTier    = selectedStage?.tier ?? caseData.stage_translations?.tier ?? 1
   const isLostStatus    = status === 'carrier_declined' || status === 'client_withdrew'
   const isSnoozedStatus = status === 'snoozed'
+  const isSubstandard   = rateClasses.find(r => r.id === rateClassId)?.name.includes('Substandard') ?? false
 
   const stagesByTier: Record<number, StageLookup[]> = {}
   for (const s of stages) {
@@ -214,6 +216,7 @@ export default function CaseEditClient({
       annual_premium:  annualPremium ? parseFloat(annualPremium) : null,
       follow_up_date:  followUpDate  || null,
       rate_class_id:   rateClassId   || null,
+      table_rating:    isSubstandard && tableRating ? parseInt(tableRating) : null,
       premium_mode_id: premiumModeId || null,
       policy_number:   policyNumber  || null,
       notes:           notes         || null,
@@ -527,7 +530,8 @@ export default function CaseEditClient({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5">Rate Class</label>
-                  <select value={rateClassId} onChange={e => setRateClassId(e.target.value)}
+                  <select value={rateClassId}
+                    onChange={e => { setRateClassId(e.target.value); setTableRating('') }}
                     className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500">
                     <option value="">— none —</option>
                     {rateClasses.map(r => <option key={r.id} value={r.id}>{r.name}</option>)}
@@ -542,6 +546,34 @@ export default function CaseEditClient({
                   </select>
                 </div>
               </div>
+
+              {/* Table rating — only when Substandard is selected */}
+              {isSubstandard && (
+                <div className="rounded-lg border border-amber-800/50 bg-amber-950/20 p-4 space-y-3">
+                  <label className="block text-xs font-medium text-amber-300">Table Rating</label>
+                  <div className="grid grid-cols-8 gap-1.5">
+                    {[1,2,3,4,5,6,7,8].map(n => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => setTableRating(tableRating === n.toString() ? '' : n.toString())}
+                        className={`rounded-lg py-2 text-sm font-semibold border transition-all ${
+                          tableRating === n.toString()
+                            ? 'bg-amber-700 border-amber-600 text-white'
+                            : 'bg-slate-800 border-slate-700 text-slate-400 hover:border-amber-700 hover:text-amber-300'
+                        }`}
+                      >
+                        {n}
+                      </button>
+                    ))}
+                  </div>
+                  {tableRating && (
+                    <p className="text-xs text-amber-400/80">
+                      Table {tableRating} = {100 + parseInt(tableRating) * 25}% of standard rate
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Policy number */}
               <div>

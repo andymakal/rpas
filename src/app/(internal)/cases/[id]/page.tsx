@@ -61,6 +61,7 @@ export type CaseDetail = {
     name: string
     carriers: { id: string; short_name: string } | null
   } | null
+  table_rating: number | null
   rate_classes: { id: string; name: string } | null
   premium_modes: { id: string; name: string } | null
   lost_reasons: { id: string; agency_label: string } | null
@@ -110,7 +111,7 @@ export default async function CaseDetailPage({
       .select(`
         id, internal_status, created_at, status_entered_at, updated_at,
         policy_number, face_amount, annual_premium, follow_up_date, lead_source, notes,
-        appointment_date, touches, last_contact_at, placed_at,
+        appointment_date, touches, last_contact_at, placed_at, table_rating,
         agency_id, customer_id, agent_id,
         customers ( first_name, last_name, email, phone, date_of_birth ),
         agencies ( id, name, display_name, slug ),
