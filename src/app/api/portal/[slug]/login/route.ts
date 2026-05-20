@@ -38,8 +38,13 @@ export async function POST(
     return NextResponse.json({ error: 'This portal has not been configured yet. Please contact your Right Path representative.' }, { status: 403 })
   }
 
-  const agentCode = agency.agent_number.trim().replace(/^A0/i, '')
-  if (body.pin.trim().toUpperCase() !== agentCode.toUpperCase()) {
+  // Agent codes are always the last 5 characters of the stored agent_number
+  // (e.g. A0B3292 → B3292, A0C4775 → C4775). Accept either the short code
+  // or the full agent_number so entry is flexible.
+  const stored    = agency.agent_number.trim().toUpperCase()
+  const shortCode = stored.slice(-5)
+  const entered   = body.pin.trim().toUpperCase()
+  if (entered !== shortCode && entered !== stored) {
     return NextResponse.json({ error: 'Incorrect PIN. Please try again.' }, { status: 401 })
   }
 
