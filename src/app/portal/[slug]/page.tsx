@@ -35,13 +35,11 @@ export default async function PortalPage({
 
   if (!agency) notFound()
 
-  // Agent number is the portal PIN — if set, require the cookie to match the dashboard_token
-  if (agency.agent_number) {
-    const cookieStore = await cookies()
-    const token = cookieStore.get(`rpas_portal_${slug}`)?.value
-    if (token !== agency.dashboard_token) {
-      redirect(`/portal/${slug}/login`)
-    }
+  // Portal always requires authentication — cookie must match the agency's dashboard_token
+  const cookieStore = await cookies()
+  const token = cookieStore.get(`rpas_portal_${slug}`)?.value
+  if (!token || token !== agency.dashboard_token) {
+    redirect(`/portal/${slug}/login`)
   }
 
   const year = new Date().getFullYear()

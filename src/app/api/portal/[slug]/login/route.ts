@@ -32,7 +32,11 @@ export async function POST(
   }
 
   // The agent number (e.g. C4775) is the portal PIN
-  if (!agency.agent_number || body.pin.trim().toUpperCase() !== agency.agent_number.trim().toUpperCase()) {
+  if (!agency.agent_number) {
+    return NextResponse.json({ error: 'This portal has not been configured yet. Please contact your Right Path representative.' }, { status: 403 })
+  }
+
+  if (body.pin.trim().toUpperCase() !== agency.agent_number.trim().toUpperCase()) {
     return NextResponse.json({ error: 'Incorrect PIN. Please try again.' }, { status: 401 })
   }
 
