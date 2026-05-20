@@ -77,7 +77,7 @@ function StatusBadge({ translation, internal_status }: { translation: StageTrans
   )
 }
 
-type SortKey = 'date' | 'touches' | 'stale' | 'followup'
+type SortKey = 'client' | 'date' | 'touches' | 'stale' | 'followup'
 
 export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
   const router = useRouter()
@@ -94,7 +94,7 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
     } else {
       setSortKey(key)
       // Default sort direction per key
-      setSortDir(key === 'touches' || key === 'stale' || key === 'followup' ? 'asc' : 'desc')
+      setSortDir(key === 'client' || key === 'touches' || key === 'stale' || key === 'followup' ? 'asc' : 'desc')
     }
   }
 
@@ -150,7 +150,11 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
 
     list = [...list].sort((a, b) => {
       let diff = 0
-      if (sortKey === 'touches') {
+      if (sortKey === 'client') {
+        const aL = `${a.customers?.last_name ?? ''} ${a.customers?.first_name ?? ''}`.toLowerCase().trim()
+        const bL = `${b.customers?.last_name ?? ''} ${b.customers?.first_name ?? ''}`.toLowerCase().trim()
+        diff = aL < bL ? -1 : aL > bL ? 1 : 0
+      } else if (sortKey === 'touches') {
         diff = (a.touches ?? 0) - (b.touches ?? 0)
       } else if (sortKey === 'stale') {
         // Sort by last contact — null (never contacted) comes first in asc
@@ -180,6 +184,7 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
   ]
 
   const sortCols: { key: SortKey; label: string }[] = [
+    { key: 'client',  label: 'Contact'    },
     { key: 'date',    label: 'Date In'    },
     { key: 'touches', label: 'Touches'    },
     { key: 'stale',   label: 'Staleness'  },
@@ -253,10 +258,24 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-800">
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Contact</th>
+                {/* Contact — sortable */}
+                {(() => {
+                  const active = sortKey === 'client'
+                  return (
+                    <th className="px-4 py-3 text-left">
+                      <button onClick={() => handleSort('client')}
+                        className={`inline-flex items-center gap-1 text-xs font-medium transition-colors ${active ? 'text-white' : 'text-slate-400 hover:text-slate-200'}`}>
+                        Contact
+                        {active
+                          ? sortDir === 'desc' ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />
+                          : <ChevronDown className="w-3.5 h-3.5 opacity-30" />}
+                      </button>
+                    </th>
+                  )
+                })()}
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Agency</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Status</th>
-                {sortCols.map(({ key, label }) => {
+                {sortCols.filter(c => c.key !== 'client').map(({ key, label }) => {
                   const active = sortKey === key
                   return (
                     <th key={key} className="px-4 py-3 text-left">
