@@ -1,22 +1,14 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState } from 'react'
+import { useRouter, useParams } from 'next/navigation'
 
-export default function PortalLoginPage({
-  params,
-}: {
-  params: Promise<{ slug: string }>
-}) {
+export default function PortalLoginPage() {
   const router = useRouter()
-  const [slug, setSlug] = useState('')
+  const { slug } = useParams<{ slug: string }>()
   const [pin, setPin] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
-
-  useEffect(() => {
-    params.then(p => setSlug(p.slug))
-  }, [params])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -92,7 +84,7 @@ export default function PortalLoginPage({
           </div>
 
           <p className="text-center text-xs text-slate-400 mt-4">
-            Need help? Contact your Makal Financial representative.
+            Need help? Contact your Right Path representative.
           </p>
         </div>
       </div>
