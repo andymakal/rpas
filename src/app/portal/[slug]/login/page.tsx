@@ -56,19 +56,19 @@ export default function PortalLoginPage({
           <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-8">
             <h1 className="text-xl font-bold text-slate-900 mb-1">Sign In</h1>
             <p className="text-sm text-slate-500 mb-6">
-              Enter the PIN for your agency portal.
+              Enter your agent number to access your portal.
             </p>
 
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">
-                  Portal PIN
+                  Agent Number
                 </label>
                 <input
                   type="password"
                   value={pin}
                   onChange={e => { setPin(e.target.value); setError('') }}
-                  placeholder="••••••"
+                  placeholder="e.g. C4775"
                   autoFocus
                   className="w-full rounded-lg border border-slate-300 px-4 py-3 text-base
                     text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2

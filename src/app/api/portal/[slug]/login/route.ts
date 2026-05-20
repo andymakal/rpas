@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
+import crypto from 'crypto'
 
 export async function POST(
   request: NextRequest,
@@ -21,7 +22,7 @@ export async function POST(
 
   const { data: agency } = await supabase
     .from('agencies')
-    .select('portal_pin, dashboard_token')
+    .select('id, agent_number, dashboard_token')
     .eq('slug', slug)
     .eq('is_active', true)
     .single()
@@ -30,12 +31,20 @@ export async function POST(
     return NextResponse.json({ error: 'Agency not found' }, { status: 404 })
   }
 
-  if (!agency.portal_pin || body.pin.trim() !== agency.portal_pin) {
+  // The agent number (e.g. C4775) is the portal PIN
+  if (!agency.agent_number || body.pin.trim().toUpperCase() !== agency.agent_number.trim().toUpperCase()) {
     return NextResponse.json({ error: 'Incorrect PIN. Please try again.' }, { status: 401 })
   }
 
+  // Ensure a dashboard_token exists — generate one if this agency predates the field
+  let token = agency.dashboard_token
+  if (!token) {
+    token = crypto.randomUUID()
+    await supabase.from('agencies').update({ dashboard_token: token }).eq('id', agency.id)
+  }
+
   const response = NextResponse.json({ ok: true })
-  response.cookies.set(`rpas_portal_${slug}`, agency.dashboard_token, {
+  response.cookies.set(`rpas_portal_${slug}`, token, {
     httpOnly: true,
     secure:   process.env.NODE_ENV === 'production',
     sameSite: 'lax',

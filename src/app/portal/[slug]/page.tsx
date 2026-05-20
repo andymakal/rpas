@@ -28,15 +28,15 @@ export default async function PortalPage({
 
   const { data: agency } = await supabase
     .from('agencies')
-    .select('id, name, display_name, slug, contact_phone, contact_email, contact_street, contact_city, contact_state, contact_zip, portal_pin, dashboard_token')
+    .select('id, name, display_name, slug, contact_phone, contact_email, contact_street, contact_city, contact_state, contact_zip, agent_number, dashboard_token')
     .eq('slug', slug)
     .eq('is_active', true)
     .single()
 
   if (!agency) notFound()
 
-  // If a PIN is set, require the portal cookie to match the dashboard_token
-  if (agency.portal_pin) {
+  // Agent number is the portal PIN — if set, require the cookie to match the dashboard_token
+  if (agency.agent_number) {
     const cookieStore = await cookies()
     const token = cookieStore.get(`rpas_portal_${slug}`)?.value
     if (token !== agency.dashboard_token) {
