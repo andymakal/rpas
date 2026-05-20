@@ -1,11 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 
 export default function PortalLoginPage() {
   const router = useRouter()
-  const { slug } = useParams<{ slug: string }>()
+  const pathname = usePathname() // e.g. /portal/lentz-brian/login
+  const slug = pathname.split('/')[2] // 'lentz-brian'
   const [pin, setPin] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
