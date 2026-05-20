@@ -82,6 +82,7 @@ export type LostReasonLookup = { id: string; agency_label: string }
 export type SnoozeReasonLookup = { id: string; agency_label: string }
 export type PendingRequirementLookup = { id: string; name: string; sort_order: number }
 export type TouchLog = { id: string; touch_type: string; notes: string | null; touched_at: string }
+export type StatusHistoryEntry = { id: string; from_status: string | null; to_status: string; changed_at: string }
 
 export default async function CaseDetailPage({
   params,
@@ -102,6 +103,7 @@ export default async function CaseDetailPage({
     { data: snoozeReasons },
     { data: pendingRequirements },
     { data: touchLog },
+    { data: statusHistory },
   ] = await Promise.all([
     supabase
       .from('cases')
@@ -163,6 +165,11 @@ export default async function CaseDetailPage({
       .select('id, touch_type, notes, touched_at')
       .eq('case_id', id)
       .order('touched_at', { ascending: false }),
+    supabase
+      .from('case_status_history')
+      .select('id, from_status, to_status, changed_at')
+      .eq('case_id', id)
+      .order('changed_at', { ascending: false }),
   ])
 
   if (caseError || !caseData) {
@@ -181,6 +188,7 @@ export default async function CaseDetailPage({
       snoozeReasons={(snoozeReasons as unknown as SnoozeReasonLookup[]) ?? []}
       pendingRequirements={(pendingRequirements as unknown as PendingRequirementLookup[]) ?? []}
       touchLog={(touchLog as unknown as TouchLog[]) ?? []}
+      statusHistory={(statusHistory as unknown as StatusHistoryEntry[]) ?? []}
     />
   )
 }

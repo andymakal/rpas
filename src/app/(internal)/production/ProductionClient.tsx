@@ -2,8 +2,10 @@
 
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronRight, Search, Target } from 'lucide-react'
+import { ChevronRight, ChevronUp, ChevronDown, Search, Target } from 'lucide-react'
 import type { PlacedCase } from './page'
+
+type SortKey = 'client' | 'carrier' | 'face' | 'premium' | 'date'
 
 // ── Helpers ───────────────────────────────────────────────────
 function formatCurrency(val: number): string {
@@ -54,6 +56,28 @@ export default function ProductionClient({ cases }: { cases: PlacedCase[] }) {
   const [period, setPeriod]         = useState<Period>('ytd')
   const [agencyFilter, setAgency]   = useState('')
   const [search, setSearch]         = useState('')
+  const [sortKey, setSortKey]       = useState<SortKey>('date')
+  const [sortDir, setSortDir]       = useState<'asc' | 'desc'>('desc')
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir(key === 'face' || key === 'premium' ? 'desc' : 'asc') }
+  }
+
+  const SortTh = ({ k, label }: { k: SortKey; label: string }) => {
+    const active = sortKey === k
+    return (
+      <th className="px-4 py-3 text-left">
+        <button onClick={() => handleSort(k)}
+          className={`inline-flex items-center gap-1 text-xs font-medium transition-colors ${active ? 'text-white' : 'text-slate-400 hover:text-slate-200'}`}>
+          {label}
+          {active
+            ? sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+            : <ChevronDown className="w-3 h-3 opacity-30" />}
+        </button>
+      </th>
+    )
+  }
 
   const cutoff = useMemo(() => periodStart(period), [period])
 
@@ -95,8 +119,28 @@ export default function ProductionClient({ cases }: { cases: PlacedCase[] }) {
       })
     }
 
+    rows = [...rows].sort((a, b) => {
+      let diff = 0
+      if (sortKey === 'client') {
+        const aL = `${a.customers?.last_name ?? ''} ${a.customers?.first_name ?? ''}`.toLowerCase().trim()
+        const bL = `${b.customers?.last_name ?? ''} ${b.customers?.first_name ?? ''}`.toLowerCase().trim()
+        diff = aL < bL ? -1 : aL > bL ? 1 : 0
+      } else if (sortKey === 'carrier') {
+        const aC = (a.products?.carriers?.short_name ?? a.products?.name ?? '').toLowerCase()
+        const bC = (b.products?.carriers?.short_name ?? b.products?.name ?? '').toLowerCase()
+        diff = aC < bC ? -1 : aC > bC ? 1 : 0
+      } else if (sortKey === 'face') {
+        diff = (a.face_amount ?? 0) - (b.face_amount ?? 0)
+      } else if (sortKey === 'premium') {
+        diff = (a.annual_premium ?? 0) - (b.annual_premium ?? 0)
+      } else {
+        diff = new Date(a.placed_at ?? '').getTime() - new Date(b.placed_at ?? '').getTime()
+      }
+      return sortDir === 'asc' ? diff : -diff
+    })
+
     return rows
-  }, [cases, cutoff, agencyFilter, search])
+  }, [cases, cutoff, agencyFilter, search, sortKey, sortDir])
 
   // Summary stats from filtered rows
   const stats = useMemo(() => ({
@@ -190,13 +234,13 @@ export default function ProductionClient({ cases }: { cases: PlacedCase[] }) {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-slate-800">
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Client</th>
+                <SortTh k="client"  label="Client"         />
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Agency</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Carrier · Product</th>
+                <SortTh k="carrier" label="Carrier · Product" />
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Policy #</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Face Amount</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Annual Premium</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Date Placed</th>
+                <SortTh k="face"    label="Face Amount"    />
+                <SortTh k="premium" label="Annual Premium" />
+                <SortTh k="date"    label="Date Placed"    />
                 <th />
               </tr>
             </thead>

@@ -5,7 +5,7 @@ import Link from 'next/link'
 import {
   ArrowLeft, Check, Circle, AlertCircle, CheckCircle2,
   Phone, PhoneCall, PhoneOff, MessageCircle, Mail,
-  ChevronDown, ChevronUp, CalendarClock, GitMerge, Pencil, X,
+  ChevronDown, ChevronUp, CalendarClock, GitMerge, Pencil, X, History,
 } from 'lucide-react'
 import type {
   CaseDetail,
@@ -18,6 +18,7 @@ import type {
   SnoozeReasonLookup,
   PendingRequirementLookup,
   TouchLog,
+  StatusHistoryEntry,
 } from './page'
 
 // ── Touch log constants ───────────────────────────────────────
@@ -47,6 +48,10 @@ function tierBadgeClass(st: CaseDetail['stage_translations']): string {
     case 3:  return 'bg-emerald-900/50 text-emerald-300 border border-emerald-800'
     default: return 'bg-slate-800 text-slate-400 border border-slate-700'
   }
+}
+
+function fmtStatus(s: string): string {
+  return s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
 function formatCurrency(val: number | null): string {
@@ -88,6 +93,7 @@ type Props = {
   snoozeReasons:       SnoozeReasonLookup[]
   pendingRequirements: PendingRequirementLookup[]
   touchLog:            TouchLog[]
+  statusHistory:       StatusHistoryEntry[]
 }
 
 export default function CaseEditClient({
@@ -101,6 +107,7 @@ export default function CaseEditClient({
   snoozeReasons,
   pendingRequirements,
   touchLog: initialTouchLog,
+  statusHistory,
 }: Props) {
   const days = daysInStatus(caseData.status_entered_at)
 
@@ -723,6 +730,34 @@ export default function CaseEditClient({
                     })}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Status History */}
+            {statusHistory.length > 0 && (
+              <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
+                <h2 className="text-white font-semibold mb-4 flex items-center gap-2">
+                  <History className="w-4 h-4 text-slate-400" /> Status History
+                </h2>
+                <div className="space-y-3">
+                  {statusHistory.map((h, i) => (
+                    <div key={h.id} className="flex items-start gap-2.5">
+                      <div className="flex flex-col items-center">
+                        <div className="w-2 h-2 rounded-full bg-slate-600 mt-1 flex-shrink-0" />
+                        {i < statusHistory.length - 1 && (
+                          <div className="w-px flex-1 bg-slate-800 mt-1 min-h-[16px]" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0 pb-1">
+                        <p className="text-sm text-slate-200">{fmtStatus(h.to_status)}</p>
+                        {h.from_status && (
+                          <p className="text-xs text-slate-600">from {fmtStatus(h.from_status)}</p>
+                        )}
+                        <p className="text-xs text-slate-600 mt-0.5">{formatDate(h.changed_at)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
