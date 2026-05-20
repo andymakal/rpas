@@ -31,12 +31,15 @@ export async function POST(
     return NextResponse.json({ error: 'Agency not found' }, { status: 404 })
   }
 
-  // The agent number (e.g. C4775) is the portal PIN
+  // The agent code (e.g. C4775) is the portal PIN.
+  // Stored agent_number includes an "A0" prefix (e.g. A0C4775) — strip it so
+  // agents can enter just their short code.
   if (!agency.agent_number) {
     return NextResponse.json({ error: 'This portal has not been configured yet. Please contact your Right Path representative.' }, { status: 403 })
   }
 
-  if (body.pin.trim().toUpperCase() !== agency.agent_number.trim().toUpperCase()) {
+  const agentCode = agency.agent_number.trim().replace(/^A0/i, '')
+  if (body.pin.trim().toUpperCase() !== agentCode.toUpperCase()) {
     return NextResponse.json({ error: 'Incorrect PIN. Please try again.' }, { status: 401 })
   }
 

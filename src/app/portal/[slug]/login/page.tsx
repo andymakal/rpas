@@ -68,7 +68,7 @@ export default function PortalLoginPage({
                   type="password"
                   value={pin}
                   onChange={e => { setPin(e.target.value); setError('') }}
-                  placeholder="e.g. C4775"
+                  placeholder="Your agent code (e.g. C4775)"
                   autoFocus
                   className="w-full rounded-lg border border-slate-300 px-4 py-3 text-base
                     text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2
