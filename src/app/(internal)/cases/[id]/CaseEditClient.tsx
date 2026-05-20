@@ -175,6 +175,43 @@ export default function CaseEditClient({
     })
   }
 
+  // ── Client info edit state ────────────────────────────────────
+  const [clientPhone, setClientPhone]   = useState(caseData.customers?.phone ?? '')
+  const [clientEmail, setClientEmail]   = useState(caseData.customers?.email ?? '')
+  const [clientDob, setClientDob]       = useState(
+    caseData.customers?.date_of_birth ? caseData.customers.date_of_birth.split('T')[0] : ''
+  )
+  const [clientSaving, setClientSaving]     = useState(false)
+  const [clientError, setClientError]       = useState<string | null>(null)
+  const [clientSuccess, setClientSuccess]   = useState(false)
+
+  async function handleSaveClientInfo() {
+    if (!caseData.customer_id) return
+    setClientSaving(true); setClientError(null)
+    try {
+      const res = await fetch(`/api/customers/${caseData.customer_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone:         clientPhone.trim() || null,
+          email:         clientEmail.trim() || null,
+          date_of_birth: clientDob          || null,
+        }),
+      })
+      if (res.ok) {
+        setClientSuccess(true)
+        setTimeout(() => setClientSuccess(false), 3000)
+      } else {
+        const err = await res.json().catch(() => ({}))
+        setClientError((err as { error?: string }).error ?? 'Failed to save')
+      }
+    } catch {
+      setClientError('Network error')
+    } finally {
+      setClientSaving(false)
+    }
+  }
+
   // ── Client name edit state ────────────────────────────────────
   const [editingName, setEditingName]   = useState(false)
   const [firstName, setFirstName]       = useState(caseData.customers?.first_name ?? '')
@@ -640,20 +677,6 @@ export default function CaseEditClient({
                   className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600" />
               </div>
 
-              {/* Date Placed — editable when case is placed so it can match the carrier date */}
-              {isWonStatus && (
-                <div>
-                  <label className="block text-xs font-medium text-slate-400 mb-1.5">Date Placed</label>
-                  <input
-                    type="date"
-                    value={placedAt}
-                    onChange={e => setPlacedAt(e.target.value)}
-                    className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500"
-                  />
-                  <p className="text-xs text-slate-600 mt-1">Set this to the date the carrier issued the policy.</p>
-                </div>
-              )}
-
               {selectedTier === 1 && (
                 <div>
                   <label className="block text-xs font-medium text-slate-400 mb-1.5">Appointment Date</label>
@@ -693,42 +716,67 @@ export default function CaseEditClient({
             {/* Client Info */}
             <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">
               <h2 className="text-white font-semibold mb-4">Client Info</h2>
-              <dl className="space-y-2">
-                {caseData.customers?.phone && (
-                  <div className="flex justify-between">
-                    <dt className="text-xs text-slate-500">Phone</dt>
-                    <dd>
-                      <a href={`tel:${caseData.customers.phone}`} className="text-sm text-blue-400 hover:text-blue-300">
-                        {caseData.customers.phone}
-                      </a>
-                    </dd>
-                  </div>
-                )}
-                {caseData.customers?.email && (
-                  <div className="flex justify-between">
-                    <dt className="text-xs text-slate-500">Email</dt>
-                    <dd>
-                      <a href={`mailto:${caseData.customers.email}`} className="text-sm text-blue-400 hover:text-blue-300">
-                        {caseData.customers.email}
-                      </a>
-                    </dd>
-                  </div>
-                )}
-                {caseData.customers?.date_of_birth && (
-                  <div className="flex justify-between">
-                    <dt className="text-xs text-slate-500">Date of Birth</dt>
-                    <dd className="text-sm text-slate-300">{formatDate(caseData.customers.date_of_birth)}</dd>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <dt className="text-xs text-slate-500">Lead Source</dt>
-                  <dd className="text-sm text-slate-300">
-                    {caseData.lead_source ? (LEAD_SOURCE_LABELS[caseData.lead_source] ?? caseData.lead_source) : '—'}
-                  </dd>
+              <div className="space-y-3">
+
+                {/* Phone */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Phone</label>
+                  <input
+                    type="tel"
+                    value={clientPhone}
+                    onChange={e => setClientPhone(e.target.value)}
+                    placeholder="—"
+                    className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600"
+                  />
                 </div>
-                <div className="flex justify-between items-center">
-                  <dt className="text-xs text-slate-500">Spanish Speaking</dt>
-                  <dd>
+
+                {/* Email */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={clientEmail}
+                    onChange={e => setClientEmail(e.target.value)}
+                    placeholder="—"
+                    className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600"
+                  />
+                </div>
+
+                {/* Date of Birth */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Date of Birth</label>
+                  <input
+                    type="date"
+                    value={clientDob}
+                    onChange={e => setClientDob(e.target.value)}
+                    className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500"
+                  />
+                </div>
+
+                {/* Save client info */}
+                <div className="flex items-center gap-3 pt-1">
+                  <button
+                    onClick={handleSaveClientInfo}
+                    disabled={clientSaving}
+                    className="inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                    style={{ backgroundColor: '#1F3864' }}
+                  >
+                    {clientSaving ? 'Saving…' : 'Save Client Info'}
+                  </button>
+                  {clientSuccess && (
+                    <span className="flex items-center gap-1 text-xs text-emerald-400">
+                      <Check className="w-3.5 h-3.5" /> Saved
+                    </span>
+                  )}
+                  {clientError && <span className="text-xs text-red-400">{clientError}</span>}
+                </div>
+
+                {/* Divider */}
+                <div className="border-t border-slate-800 pt-3 space-y-2">
+
+                  {/* Spanish Speaking */}
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-slate-500">Spanish Speaking</span>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
@@ -740,37 +788,48 @@ export default function CaseEditClient({
                         <span className="text-xs text-blue-300 font-medium">Habla Español</span>
                       )}
                     </label>
-                  </dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-xs text-slate-500">Referring Agent</dt>
-                  <dd className="text-sm text-slate-300">
-                    {caseData.agents ? `${caseData.agents.first_name} ${caseData.agents.last_name}` : '—'}
-                  </dd>
-                </div>
-                <div className="flex justify-between">
-                  <dt className="text-xs text-slate-500">Submitted</dt>
-                  <dd className="text-sm text-slate-300">{formatDate(caseData.created_at)}</dd>
-                </div>
-                {lastContact && (
+                  </div>
+
+                  {/* Read-only fields */}
                   <div className="flex justify-between">
-                    <dt className="text-xs text-slate-500">Last Contact</dt>
-                    <dd className="text-sm text-slate-300">{formatDate(lastContact)}</dd>
+                    <span className="text-xs text-slate-500">Lead Source</span>
+                    <span className="text-sm text-slate-300">
+                      {caseData.lead_source ? (LEAD_SOURCE_LABELS[caseData.lead_source] ?? caseData.lead_source) : '—'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-xs text-slate-500">Referring Agent</span>
+                    <span className="text-sm text-slate-300">
+                      {caseData.agents ? `${caseData.agents.first_name} ${caseData.agents.last_name}` : '—'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-xs text-slate-500">Submitted</span>
+                    <span className="text-sm text-slate-300">{formatDate(caseData.created_at)}</span>
+                  </div>
+                  {lastContact && (
+                    <div className="flex justify-between">
+                      <span className="text-xs text-slate-500">Last Contact</span>
+                      <span className="text-sm text-slate-300">{formatDate(lastContact)}</span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Date Placed — editable, saved with Save Changes */}
+                {isWonStatus && (
+                  <div className="border-t border-slate-800 pt-3">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Date Placed</label>
+                    <input
+                      type="date"
+                      value={placedAt}
+                      onChange={e => setPlacedAt(e.target.value)}
+                      className="w-full rounded-lg border border-slate-700 bg-slate-800 text-white text-sm px-3 py-2 focus:outline-none focus:border-slate-500"
+                    />
+                    <p className="text-xs text-slate-600 mt-1">Saved with "Save Changes" above. Set to the carrier's issue date.</p>
                   </div>
                 )}
-                {caseData.placed_at && (
-                  <div className="flex justify-between">
-                    <dt className="text-xs text-slate-500">Placed</dt>
-                    <dd className="text-sm text-emerald-400 font-medium">{formatDate(caseData.placed_at)}</dd>
-                  </div>
-                )}
-                {caseData.face_amount !== null && (
-                  <div className="flex justify-between">
-                    <dt className="text-xs text-slate-500">Face Amount</dt>
-                    <dd className="text-sm text-emerald-300 font-semibold">{formatCurrency(caseData.face_amount)}</dd>
-                  </div>
-                )}
-              </dl>
+
+              </div>
             </div>
 
             {/* Pending Requirements */}
