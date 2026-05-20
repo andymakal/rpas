@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest } from 'next/server'
+import crypto from 'crypto'
 
 const ALLOWED_FIELDS = new Set([
   'display_name', 'sml_team_id', 'is_active',
@@ -29,6 +30,20 @@ export async function PATCH(
 
   if (Object.keys(updates).length === 0) {
     return Response.json({ error: 'No valid fields to update' }, { status: 400 })
+  }
+
+  // If a portal_pin is being set, ensure the agency has a dashboard_token.
+  // The token is the secret stored in the cookie after login — without it the
+  // PIN auth loop never resolves.
+  if ('portal_pin' in updates && updates.portal_pin) {
+    const { data: existing } = await supabase
+      .from('agencies')
+      .select('dashboard_token')
+      .eq('id', id)
+      .single()
+    if (!existing?.dashboard_token) {
+      updates.dashboard_token = crypto.randomUUID()
+    }
   }
 
   const { data, error } = await supabase
