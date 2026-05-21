@@ -47,7 +47,7 @@ export async function POST(
     const shortCode = stored.slice(-5)
     const entered   = body.pin.trim().toUpperCase()
     if (entered !== shortCode && entered !== stored) {
-      return NextResponse.json({ error: `Incorrect PIN. [debug: stored="${stored}" short="${shortCode}" entered="${entered}"]` }, { status: 401 })
+      return NextResponse.json({ error: 'Incorrect PIN. Please try again.' }, { status: 401 })
     }
 
     // Ensure a dashboard_token exists — generate one if this agency predates the field

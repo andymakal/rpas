@@ -98,7 +98,7 @@ function stageBadgeClass(st: StageTranslation | null): string {
   if (!st) return 'bg-slate-100 text-slate-500'
   if (st.is_won)  return 'bg-emerald-100 text-emerald-700'
   if (st.is_lost) return 'bg-red-100 text-red-600'
-  if (!st.is_active_case) return 'bg-slate-100 text-slate-500'
+  if (!st.is_active_case) return 'bg-orange-100 text-orange-600'
   if (st.tier >= 4) return 'bg-violet-100 text-violet-700'   // deep underwriting / approved
   if (st.tier === 3) return 'bg-indigo-100 text-indigo-700'  // submitted / in review
   if (st.tier === 2) return 'bg-amber-100 text-amber-700'    // app in progress
