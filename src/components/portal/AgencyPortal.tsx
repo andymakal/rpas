@@ -94,6 +94,17 @@ function formatGdc(v: number) {
   return `$${Math.round(v)}`
 }
 
+function stageBadgeClass(st: StageTranslation | null): string {
+  if (!st) return 'bg-slate-100 text-slate-500'
+  if (st.is_won)  return 'bg-emerald-100 text-emerald-700'
+  if (st.is_lost) return 'bg-red-100 text-red-600'
+  if (!st.is_active_case) return 'bg-slate-100 text-slate-500'
+  if (st.tier >= 4) return 'bg-violet-100 text-violet-700'   // deep underwriting / approved
+  if (st.tier === 3) return 'bg-indigo-100 text-indigo-700'  // submitted / in review
+  if (st.tier === 2) return 'bg-amber-100 text-amber-700'    // app in progress
+  return 'bg-blue-100 text-blue-700'                         // tier 1 referral
+}
+
 function srStatusClass(s: string | undefined) {
   if (!s) return 'bg-slate-100 text-slate-500'
   if (s === 'Resolved' || s === 'Converted to Review') return 'bg-green-100 text-green-700'
@@ -115,6 +126,7 @@ function prStatusClass(s: string | undefined) {
 function ReferralCard({ c }: { c: Case }) {
   const label = c.stage_translations?.agency_label ?? c.internal_status
   const date  = new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const lsp   = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
   return (
     <div className="bg-white rounded-xl border border-slate-100 px-4 py-3">
       <div className="flex items-start justify-between gap-3">
@@ -122,11 +134,11 @@ function ReferralCard({ c }: { c: Case }) {
           <p className="text-sm font-semibold text-slate-900">
             {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
           </p>
-          <p className="text-xs text-slate-400 mt-0.5">{date}</p>
+          <p className="text-xs text-slate-400 mt-0.5">{date}{lsp ? ` · ${lsp}` : ''}</p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <AgeBadge dateStr={c.created_at} />
-          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-blue-100 text-blue-700">
+          <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${stageBadgeClass(c.stage_translations)}`}>
             {label}
           </span>
         </div>
@@ -140,6 +152,7 @@ function PendingCard({ c }: { c: Case }) {
   const carrier  = c.products?.carriers?.short_name
   const product  = c.products?.name
   const face     = formatCurrency(c.face_amount)
+  const lsp      = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
   return (
     <div className="bg-white rounded-xl border border-slate-100 px-4 py-3">
       <div className="flex items-start justify-between gap-3">
@@ -148,12 +161,12 @@ function PendingCard({ c }: { c: Case }) {
             {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
           </p>
           <p className="text-xs text-slate-400 mt-0.5">
-            {carrier ?? '—'}{product ? ` · ${product}` : ''}{face ? ` · ${face}` : ''}
+            {carrier ?? '—'}{product ? ` · ${product}` : ''}{face ? ` · ${face}` : ''}{lsp ? ` · ${lsp}` : ''}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <AgeBadge dateStr={c.created_at} />
-          <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-indigo-100 text-indigo-700">
+          <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${stageBadgeClass(c.stage_translations)}`}>
             {label}
           </span>
         </div>
@@ -166,6 +179,7 @@ function PlacedCard({ c }: { c: Case }) {
   const carrier = c.products?.carriers?.short_name
   const product = c.products?.name
   const face    = formatCurrency(c.face_amount)
+  const lsp     = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
   const date    = c.placed_at
     ? new Date(c.placed_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
     : new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -177,7 +191,7 @@ function PlacedCard({ c }: { c: Case }) {
             {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
           </p>
           <p className="text-xs text-slate-500 mt-0.5">
-            {carrier ?? '—'}{product ? ` · ${product}` : ''}{face ? ` · ${face}` : ''}
+            {carrier ?? '—'}{product ? ` · ${product}` : ''}{face ? ` · ${face}` : ''}{lsp ? ` · ${lsp}` : ''}
           </p>
           <p className="text-xs text-emerald-600 mt-0.5">Placed {date}</p>
         </div>
@@ -424,18 +438,24 @@ export function AgencyPortal({
           <div>
             <SectionHeader label="Closed / Paused" count={closedCases.length} />
             <div className="space-y-2">
-              {closedCases.map(c => (
-                <div key={c.id} className="bg-white rounded-xl border border-slate-100 px-4 py-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="text-sm font-medium text-slate-500">
-                      {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
-                    </p>
-                    <span className="text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0 bg-slate-100 text-slate-500">
-                      {c.stage_translations?.agency_label ?? c.internal_status}
-                    </span>
+              {closedCases.map(c => {
+                const lsp = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
+                return (
+                  <div key={c.id} className="bg-white rounded-xl border border-slate-100 px-4 py-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-slate-500">
+                          {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
+                        </p>
+                        {lsp && <p className="text-xs text-slate-400 mt-0.5">{lsp}</p>}
+                      </div>
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0 ${stageBadgeClass(c.stage_translations)}`}>
+                        {c.stage_translations?.agency_label ?? c.internal_status}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </div>
         )}
