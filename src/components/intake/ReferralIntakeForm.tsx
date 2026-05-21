@@ -440,13 +440,13 @@ export function ReferralIntakeForm({
               placeholder="Bloomsburg" error={errors.client_city} />
           </Field>
         </div>
-        <div className="col-span-2">
+        <div className="col-span-1">
           <Field label="State" required error={errors.client_state}>
             <Select value={form.client_state} onChange={(v) => set('client_state', v)}
               options={US_STATES} placeholder="PA" error={errors.client_state} />
           </Field>
         </div>
-        <div className="col-span-1">
+        <div className="col-span-2">
           <Field label="ZIP" required error={errors.client_zip}>
             <Input value={form.client_zip} onChange={(v) => set('client_zip', v)}
               placeholder="17815" inputMode="numeric" maxLength={10} error={errors.client_zip} />
