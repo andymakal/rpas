@@ -101,6 +101,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
         internal_status:    'lsp_contact_needed',
         notes:              noteLines.join('\n'),
         is_owner_referral:  isOwnerReferral,
+        is_hot_lead:        form.is_hot_lead ?? false,
         consent_given_at:   new Date().toISOString(),
         is_test:            false,
       })

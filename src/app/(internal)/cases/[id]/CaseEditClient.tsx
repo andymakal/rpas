@@ -162,6 +162,24 @@ export default function CaseEditClient({
   })
   const [reqUpdating, setReqUpdating] = useState<Record<string, boolean>>({})
 
+  // ── Hot lead toggle ───────────────────────────────────────────
+  const [isHotLead, setIsHotLead]   = useState(caseData.is_hot_lead ?? false)
+  const [hotLeadSaving, setHotLeadSaving] = useState(false)
+
+  async function handleHotLeadToggle(checked: boolean) {
+    setIsHotLead(checked)
+    setHotLeadSaving(true)
+    try {
+      await fetch(`/api/cases/${caseData.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_hot_lead: checked }),
+      })
+    } finally {
+      setHotLeadSaving(false)
+    }
+  }
+
   // ── Spanish speaking toggle ───────────────────────────────────
   const [spanishSpeaking, setSpanishSpeaking] = useState(caseData.customers?.spanish_speaking ?? false)
 
@@ -468,6 +486,9 @@ export default function CaseEditClient({
             </p>
           </div>
           <div className="flex items-center gap-3 shrink-0">
+            {isHotLead && (
+              <span className="text-lg" title="Hot Lead">🔥</span>
+            )}
             <span className={`inline-flex items-center rounded px-2.5 py-1 text-xs font-medium ${tierBadgeClass(caseData.stage_translations)}`}>
               {caseData.stage_translations?.agency_label ?? caseData.internal_status}
             </span>
@@ -788,6 +809,23 @@ export default function CaseEditClient({
 
                 {/* Divider */}
                 <div className="border-t border-slate-800 pt-3 space-y-2">
+
+                  {/* Hot Lead */}
+                  <div className="flex justify-between items-center">
+                    <span className="text-xs text-slate-500">Hot Lead 🔥</span>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isHotLead}
+                        onChange={e => handleHotLeadToggle(e.target.checked)}
+                        disabled={hotLeadSaving}
+                        className="h-3.5 w-3.5 rounded accent-orange-500 cursor-pointer"
+                      />
+                      {isHotLead && (
+                        <span className="text-xs text-orange-400 font-medium">Priority</span>
+                      )}
+                    </label>
+                  </div>
 
                   {/* Spanish Speaking */}
                   <div className="flex justify-between items-center">

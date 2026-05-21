@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { GaugeChart, GDC_BANDS, APP_BANDS } from './GaugeChart'
 
@@ -19,6 +20,7 @@ export type Case = {
   placed_at: string | null
   face_amount: number | null
   annual_premium: number | null
+  is_hot_lead: boolean
   customers: { first_name: string; last_name: string } | null
   agents: { first_name: string; last_name: string } | null
   stage_translations: StageTranslation | null
@@ -128,10 +130,11 @@ function ReferralCard({ c }: { c: Case }) {
   const date  = new Date(c.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   const lsp   = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
   return (
-    <div className="bg-white rounded-xl border border-slate-100 px-4 py-3">
+    <div className={`rounded-xl border px-4 py-3 ${c.is_hot_lead ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-100'}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-slate-900">
+          <p className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+            {c.is_hot_lead && <span title="Hot Lead" className="text-base leading-none">🔥</span>}
             {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
           </p>
           <p className="text-xs text-slate-400 mt-0.5">{date}{lsp ? ` · ${lsp}` : ''}</p>
@@ -154,10 +157,11 @@ function PendingCard({ c }: { c: Case }) {
   const face     = formatCurrency(c.face_amount)
   const lsp      = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
   return (
-    <div className="bg-white rounded-xl border border-slate-100 px-4 py-3">
+    <div className={`rounded-xl border px-4 py-3 ${c.is_hot_lead ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-100'}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-slate-900">
+          <p className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+            {c.is_hot_lead && <span title="Hot Lead" className="text-base leading-none">🔥</span>}
             {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
           </p>
           <p className="text-xs text-slate-400 mt-0.5">
@@ -187,7 +191,8 @@ function PlacedCard({ c }: { c: Case }) {
     <div className="bg-emerald-50 rounded-xl border border-emerald-100 px-4 py-3">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold text-slate-900">
+          <p className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
+            {c.is_hot_lead && <span title="Hot Lead" className="text-base leading-none">🔥</span>}
             {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
           </p>
           <p className="text-xs text-slate-500 mt-0.5">
@@ -199,6 +204,90 @@ function PlacedCard({ c }: { c: Case }) {
           Policy Placed
         </span>
       </div>
+    </div>
+  )
+}
+
+function ClosedCard({ c, agentFilter, onRewarm }: {
+  c: Case
+  agentFilter: string
+  onRewarm: (caseId: string, note: string, lspName: string) => Promise<void>
+}) {
+  const [expanded, setExpanded]       = useState(false)
+  const [note, setNote]               = useState('')
+  const [submitting, setSubmitting]   = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const lsp = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
+
+  async function handleSubmit() {
+    if (!note.trim()) return
+    setSubmitting(true)
+    setSubmitError(null)
+    try {
+      await onRewarm(c.id, note.trim(), agentFilter)
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Failed to submit. Please try again.')
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={`rounded-xl border overflow-hidden transition-colors ${expanded ? 'border-orange-300' : 'border-slate-100'}`}>
+      <div className={`px-4 py-3 ${expanded ? 'bg-orange-50' : 'bg-white'}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-slate-500">
+              {c.is_hot_lead && <span className="mr-1">🔥</span>}
+              {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
+            </p>
+            {lsp && <p className="text-xs text-slate-400 mt-0.5">{lsp}</p>}
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${stageBadgeClass(c.stage_translations)}`}>
+              {c.stage_translations?.agency_label ?? c.internal_status}
+            </span>
+            <button
+              onClick={() => { setExpanded(o => !o); setSubmitError(null) }}
+              className={`text-xs font-semibold rounded-lg px-2.5 py-1 border transition-all ${
+                expanded
+                  ? 'border-orange-300 bg-orange-100 text-orange-700'
+                  : 'border-orange-200 text-orange-600 hover:bg-orange-50'
+              }`}
+            >
+              {expanded ? 'Cancel' : 'Re-Warm 🔥'}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="border-t border-orange-200 bg-orange-50/60 px-4 py-4 space-y-3">
+          <p className="text-xs font-medium text-slate-600">
+            What changed? Give us enough context to hit the ground running.
+          </p>
+          <textarea
+            value={note}
+            onChange={e => setNote(e.target.value)}
+            placeholder="e.g. Ran into her at the office — timing is better now, she's ready to talk..."
+            rows={3}
+            autoFocus
+            className="w-full rounded-lg border border-orange-200 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-orange-300 focus:border-transparent resize-none"
+          />
+          {submitError && <p className="text-xs text-red-600">{submitError}</p>}
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs text-slate-400 leading-snug">
+              Will be flagged 🔥 and moved back to active referrals
+            </p>
+            <button
+              onClick={handleSubmit}
+              disabled={submitting || !note.trim()}
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white bg-orange-500 hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {submitting ? 'Submitting…' : 'Submit 🔥'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -224,12 +313,26 @@ export function AgencyPortal({
   policyReviews:   PolicyReview[]
   spiffRecords:    SpiffRecord[]
 }) {
+  const router = useRouter()
   const [agentFilter, setAgentFilter] = useState('')
 
   useEffect(() => {
     const saved = localStorage.getItem(`rpas_lsp_${agency.slug}`)
     if (saved) setAgentFilter(saved)
   }, [agency.slug])
+
+  async function handleRewarm(caseId: string, note: string, lspName: string) {
+    const res = await fetch(`/api/portal/${agency.slug}/cases/${caseId}/rewarm`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ note, lsp_name: lspName || undefined }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error((err as { error?: string }).error ?? 'Failed to submit update')
+    }
+    router.refresh()
+  }
 
   const agentNames = Array.from(new Set(
     cases.map(c => c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null).filter(Boolean)
@@ -258,9 +361,10 @@ export function AgencyPortal({
   const placedCount    = cases.filter(c => c.stage_translations?.is_won === true).length
   const placementRate  = totalReferrals > 0 ? Math.round(placedCount / totalReferrals * 100) : null
 
-  // Filtered lists
-  const referrals    = filtered.filter(c => c.stage_translations?.tier === 1 && c.stage_translations?.is_active_case)
-  const pendingCases = filtered.filter(c => (c.stage_translations?.tier ?? 0) >= 2 && c.stage_translations?.is_active_case)
+  // Filtered lists — hot leads always float to the top
+  const hotFirst = (a: Case, b: Case) => (b.is_hot_lead ? 1 : 0) - (a.is_hot_lead ? 1 : 0)
+  const referrals    = filtered.filter(c => c.stage_translations?.tier === 1 && c.stage_translations?.is_active_case).sort(hotFirst)
+  const pendingCases = filtered.filter(c => (c.stage_translations?.tier ?? 0) >= 2 && c.stage_translations?.is_active_case).sort(hotFirst)
   const placedCases  = filtered.filter(c => c.stage_translations?.is_won === true)
   const closedCases  = filtered.filter(c => c.stage_translations?.is_lost === true || c.internal_status === 'snoozed')
 
@@ -433,29 +537,14 @@ export function AgencyPortal({
           </div>
         )}
 
-        {/* Closed / Paused */}
+        {/* Closed / Paused — all re-warmable */}
         {closedCases.length > 0 && (
           <div>
             <SectionHeader label="Closed / Paused" count={closedCases.length} />
             <div className="space-y-2">
-              {closedCases.map(c => {
-                const lsp = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
-                return (
-                  <div key={c.id} className="bg-white rounded-xl border border-slate-100 px-4 py-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-medium text-slate-500">
-                          {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
-                        </p>
-                        {lsp && <p className="text-xs text-slate-400 mt-0.5">{lsp}</p>}
-                      </div>
-                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0 ${stageBadgeClass(c.stage_translations)}`}>
-                        {c.stage_translations?.agency_label ?? c.internal_status}
-                      </span>
-                    </div>
-                  </div>
-                )
-              })}
+              {closedCases.map(c => (
+                <ClosedCard key={c.id} c={c} agentFilter={agentFilter} onRewarm={handleRewarm} />
+              ))}
             </div>
           </div>
         )}

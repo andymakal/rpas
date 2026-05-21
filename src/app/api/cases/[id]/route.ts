@@ -19,6 +19,7 @@ const ALLOWED_FIELDS = new Set([
   'snooze_reason_id',
   'snooze_until',
   'table_rating',
+  'is_hot_lead',
 ])
 
 export async function PATCH(

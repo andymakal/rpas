@@ -35,6 +35,7 @@ const EMPTY_FORM: ReferralFormData = {
   job_change_last_5_years: false,
   review_401k: false,
   retirement_prep: false,
+  is_hot_lead: false,
   consent_confirmed: undefined as unknown as true,
 }
 
@@ -529,6 +530,29 @@ export function ReferralIntakeForm({
           ))}
         </div>
       </div>
+
+      {/* Hot Lead flag */}
+      <button
+        type="button"
+        onClick={() => set('is_hot_lead', !form.is_hot_lead)}
+        className={`w-full flex items-center justify-between p-4 rounded-xl border-2 transition-all ${
+          form.is_hot_lead
+            ? 'border-orange-400 bg-orange-50'
+            : 'border-slate-200 bg-white hover:border-slate-300'
+        }`}
+      >
+        <div className="text-left">
+          <p className={`text-sm font-semibold ${form.is_hot_lead ? 'text-orange-700' : 'text-slate-700'}`}>
+            🔥 Hot Lead
+          </p>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Flag this referral as high priority — use sparingly
+          </p>
+        </div>
+        <div className={`w-12 h-6 rounded-full transition-all flex-shrink-0 ml-4 ${form.is_hot_lead ? 'bg-orange-400' : 'bg-slate-300'}`}>
+          <div className={`w-5 h-5 bg-white rounded-full shadow mt-0.5 transition-all ${form.is_hot_lead ? 'translate-x-6' : 'translate-x-0.5'}`} />
+        </div>
+      </button>
 
       {result && !result.success && (
         <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">

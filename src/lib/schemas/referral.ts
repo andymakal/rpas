@@ -23,6 +23,7 @@ export const referralSchema = z.object({
   job_change_last_5_years: z.boolean().default(false),
   review_401k: z.boolean().default(false),
   retirement_prep: z.boolean().default(false),
+  is_hot_lead: z.boolean().default(false),
   consent_confirmed: z.literal(true, {
     error: 'You must confirm client consent before submitting',
   }),
@@ -43,5 +44,5 @@ export const step3Schema = referralSchema.pick({
   referral_type: true, is_existing_client: true,
   preferred_contact: true, best_contact_time: true, notes: true,
   life_insurance_outside_work: true, job_change_last_5_years: true,
-  review_401k: true, retirement_prep: true,
+  review_401k: true, retirement_prep: true, is_hot_lead: true,
 })
