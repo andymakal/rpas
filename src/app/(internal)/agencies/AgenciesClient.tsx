@@ -83,6 +83,8 @@ export function AgenciesClient({ agencies, teams }: Props) {
   const [search, setSearch]     = useState('')
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
+  const [teamFilter, setTeamFilter] = useState('')
+
   const [showAdd, setShowAdd]   = useState(false)
   const [newForm, setNewForm]   = useState<NewAgencyForm>(BLANK)
   const [addLoading, setAddLoading] = useState(false)
@@ -170,12 +172,19 @@ export function AgenciesClient({ agencies, teams }: Props) {
   }
 
   const q = search.trim().toLowerCase()
-  const filtered = agencies.filter(a =>
-    !q ||
-    a.name.toLowerCase().includes(q) ||
-    (a.display_name ?? '').toLowerCase().includes(q) ||
-    a.slug.toLowerCase().includes(q)
-  )
+  const filtered = agencies
+    .filter(a =>
+      (!teamFilter || a.sml_team_id === teamFilter) &&
+      (!q ||
+        a.name.toLowerCase().includes(q) ||
+        (a.display_name ?? '').toLowerCase().includes(q) ||
+        a.slug.toLowerCase().includes(q))
+    )
+    .sort((a, b) => {
+      const nameA = (a.display_name ?? a.name).toLowerCase()
+      const nameB = (b.display_name ?? b.name).toLowerCase()
+      return nameA.localeCompare(nameB)
+    })
 
   return (
     <div className="space-y-4">
@@ -279,16 +288,46 @@ export function AgenciesClient({ agencies, teams }: Props) {
         </div>
       )}
 
-      {/* Search */}
-      <div className="relative max-w-sm">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
-        <input
-          type="text"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="Search agencies…"
-          className="w-full bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600"
-        />
+      {/* Search + SML team filter */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 pointer-events-none" />
+          <input
+            type="text"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search agencies…"
+            className="w-64 bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600"
+          />
+        </div>
+
+        {teams.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={() => setTeamFilter('')}
+              className={`text-xs px-3 py-1.5 rounded-lg font-medium border transition-all ${
+                !teamFilter
+                  ? 'bg-slate-600 border-slate-500 text-white'
+                  : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+              }`}
+            >
+              All teams
+            </button>
+            {teams.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setTeamFilter(teamFilter === t.id ? '' : t.id)}
+                className={`text-xs px-3 py-1.5 rounded-lg font-medium border transition-all ${
+                  teamFilter === t.id
+                    ? 'bg-slate-600 border-slate-500 text-white'
+                    : 'bg-slate-900 border-slate-700 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+                }`}
+              >
+                {t.display_name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
