@@ -311,6 +311,13 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
   async function handleSaveLsp() {
     setLspSaving(true); setLspMsg(null)
     try {
+      // Need an agent ID to write to — if neither the dropdown nor the referral has one, block early
+      const currentAgentId = selectedAgentId || referral.agent_id
+      if (!currentAgentId) {
+        setLspMsg({ ok: false, text: 'Please select an agent from the dropdown to assign one' })
+        return
+      }
+
       // If the user picked a different agent from the dropdown, reassign the case
       if (selectedAgentId && selectedAgentId !== (referral.agent_id ?? '')) {
         const caseRes = await fetch(`/api/cases/${referral.id}`, {
@@ -327,24 +334,31 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
         if (picked) setDisplayAgent(`${picked.first_name} ${picked.last_name}`)
       }
 
-      // If name/email fields changed on the current agent, patch the agent record
-      const currentAgentId = selectedAgentId || referral.agent_id
-      if (currentAgentId) {
-        const agentRes = await fetch(`/api/agents/${currentAgentId}`, {
+      // Patch name/email on the current agent record
+      const agentRes = await fetch(`/api/agents/${currentAgentId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_name: lspFirstName.trim(),
+          last_name:  lspLastName.trim(),
+          email:      lspEmail.trim() || null,
+        }),
+      })
+      if (!agentRes.ok) {
+        const j = await agentRes.json()
+        setLspMsg({ ok: false, text: j.error ?? 'Agent update failed' })
+        return
+      }
+      setDisplayAgent(`${lspFirstName.trim()} ${lspLastName.trim()}`)
+
+      // If SPIFF was already earned, backfill the spiff_record's agent_id in case it was
+      // created before this LSP was saved (race condition: checkbox toggled before Save LSP).
+      if (spiffEarned) {
+        await fetch(`/api/cases/${referral.id}/spiff`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            first_name: lspFirstName.trim(),
-            last_name:  lspLastName.trim(),
-            email:      lspEmail.trim() || null,
-          }),
+          body: JSON.stringify({ agent_id: currentAgentId }),
         })
-        if (!agentRes.ok) {
-          const j = await agentRes.json()
-          setLspMsg({ ok: false, text: j.error ?? 'Agent update failed' })
-          return
-        }
-        setDisplayAgent(`${lspFirstName.trim()} ${lspLastName.trim()}`)
       }
 
       setLspMsg({ ok: true, text: 'LSP updated' })

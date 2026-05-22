@@ -54,6 +54,25 @@ export async function POST(
   return Response.json({ data: record })
 }
 
+// PATCH — fix agent_id on an existing spiff record (called after LSP is saved)
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params
+  const supabase = createAdminClient()
+
+  let body: { agent_id?: string | null } = {}
+  try { body = await request.json() } catch { /* ignore */ }
+
+  await supabase
+    .from('spiff_records')
+    .update({ agent_id: body.agent_id ?? null })
+    .eq('case_id', id)
+
+  return Response.json({ ok: true })
+}
+
 // DELETE — void SPIFF for this case
 export async function DELETE(
   _request: NextRequest,
