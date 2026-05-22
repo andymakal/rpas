@@ -311,12 +311,63 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
   async function handleSaveLsp() {
     setLspSaving(true); setLspMsg(null)
     try {
-      // Need an agent ID to write to — if neither the dropdown nor the referral has one, block early
       const currentAgentId = selectedAgentId || referral.agent_id
+
+      // ── No existing agent — create one from the typed fields ─────
       if (!currentAgentId) {
-        setLspMsg({ ok: false, text: 'Please select an agent from the dropdown to assign one' })
+        if (!lspFirstName.trim() || !lspLastName.trim()) {
+          setLspMsg({ ok: false, text: 'Enter a first and last name to add an LSP' })
+          return
+        }
+
+        const createRes = await fetch('/api/agents', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            first_name: lspFirstName.trim(),
+            last_name:  lspLastName.trim(),
+            email:      lspEmail.trim() || null,
+            agency_id:  referral.agency_id,
+          }),
+        })
+        if (!createRes.ok) {
+          const j = await createRes.json()
+          setLspMsg({ ok: false, text: j.error ?? 'Could not create agent' })
+          return
+        }
+        const { data: newAgent } = await createRes.json()
+
+        // Assign the new agent to the case
+        const caseRes = await fetch(`/api/cases/${referral.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ agent_id: newAgent.id }),
+        })
+        if (!caseRes.ok) {
+          const j = await caseRes.json()
+          setLspMsg({ ok: false, text: j.error ?? 'Could not assign agent' })
+          return
+        }
+
+        setSelectedAgentId(newAgent.id)
+        setDisplayAgent(`${newAgent.first_name} ${newAgent.last_name}`)
+
+        if (spiffEarned) {
+          await fetch(`/api/cases/${referral.id}/spiff`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ agent_id: newAgent.id }),
+          })
+        }
+
+        setLspMsg({ ok: true, text: 'LSP created and assigned' })
+        setEditingLsp(false)
+        router.refresh()
+        setTimeout(() => setLspMsg(null), 2000)
         return
       }
+
+      // ── Existing agent — update / reassign ───────────────────────
 
       // If the user picked a different agent from the dropdown, reassign the case
       if (selectedAgentId && selectedAgentId !== (referral.agent_id ?? '')) {
@@ -1154,7 +1205,7 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
             {editingLsp ? (
               <div className="space-y-3">
                 {/* Reassign from dropdown */}
-                {agentsList.length > 0 && (
+                {agentsList.length > 0 ? (
                   <div>
                     <label className="block text-xs text-slate-500 mb-1">Select agent from this agency</label>
                     <select
@@ -1169,8 +1220,14 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
                         </option>
                       ))}
                     </select>
-                    <p className="text-xs text-slate-500 mt-1">Picking a different agent will reassign this referral. You can also fix the name/email below.</p>
+                    <p className="text-xs text-slate-500 mt-1">
+                      {selectedAgentId
+                        ? 'You can also edit the name/email directly below.'
+                        : 'Pick an existing agent to reassign, or leave unselected and type a new name below to create one.'}
+                    </p>
                   </div>
+                ) : (
+                  <p className="text-xs text-slate-500">No agents on file for this agency yet — enter the name and email below to add one.</p>
                 )}
 
                 {/* Fix the name/email on the selected agent */}
