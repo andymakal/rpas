@@ -206,7 +206,20 @@ export async function POST(req: NextRequest) {
             dupQuery = dupAgencyId
               ? dupQuery.eq('agency_id', dupAgencyId)
               : dupQuery.is('agency_id', null)
-            const { data: dupCust } = await dupQuery.maybeSingle()
+            let dupCust = (await dupQuery.maybeSingle()).data
+
+            // Fallback: if the agency couldn't be resolved, or the agency_id was
+            // later fixed via SQL after the original import, try name-only lookup
+            if (!dupCust) {
+              const { data: nameCusts } = await supabase
+                .from('customers')
+                .select('id, phone, email, street')
+                .ilike('first_name', firstName)
+                .ilike('last_name',  lastName)
+                .limit(1)
+              dupCust = nameCusts?.[0] ?? null
+            }
+
             if (dupCust) {
               const contactUpdate: Record<string, unknown> = {}
               if (!dupCust.phone  && phone)  contactUpdate.phone  = phone
