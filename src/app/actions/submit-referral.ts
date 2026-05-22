@@ -21,19 +21,35 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
   const supabase = createAdminClient()
 
   try {
-    // 1. Find or create customer by phone within this agency
+    // 1. Find or create customer by name + agency; back-fill any missing contact fields
     let customerId: string
 
     const { data: existing } = await supabase
       .from('customers')
-      .select('id')
+      .select('id, phone, email, date_of_birth, street')
       .eq('agency_id', form.agency_id)
-      .eq('phone', form.client_phone)
+      .ilike('first_name', form.client_first_name.trim())
+      .ilike('last_name',  form.client_last_name.trim())
       .eq('is_test', false)
       .maybeSingle()
 
     if (existing) {
       customerId = existing.id
+
+      // Back-fill any contact fields that were missing on the original record
+      const contactUpdate: Record<string, unknown> = {}
+      if (!existing.phone         && form.client_phone)   contactUpdate.phone         = form.client_phone
+      if (!existing.email         && form.client_email)   contactUpdate.email         = form.client_email
+      if (!existing.date_of_birth && form.client_dob)     contactUpdate.date_of_birth = form.client_dob
+      if (!existing.street        && form.client_address) {
+        contactUpdate.street = form.client_address
+        if (form.client_city)  contactUpdate.city  = form.client_city
+        if (form.client_state) contactUpdate.state = form.client_state
+        if (form.client_zip)   contactUpdate.zip   = form.client_zip
+      }
+      if (Object.keys(contactUpdate).length > 0) {
+        await supabase.from('customers').update(contactUpdate).eq('id', existing.id)
+      }
     } else {
       const { data: newCustomer, error: custErr } = await supabase
         .from('customers')
@@ -41,13 +57,13 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
           agency_id:     form.agency_id,
           first_name:    toTitleCase(form.client_first_name),
           last_name:     toTitleCase(form.client_last_name),
-          phone:         form.client_phone,
-          email:         form.client_email || null,
-          date_of_birth: form.client_dob   || null,
-          street:        form.client_address || null,
-          city:          form.client_city   || null,
-          state:         form.client_state  || null,
-          zip:           form.client_zip    || null,
+          phone:         form.client_phone    || null,
+          email:         form.client_email    || null,
+          date_of_birth: form.client_dob      || null,
+          street:        form.client_address  || null,
+          city:          form.client_city     || null,
+          state:         form.client_state    || null,
+          zip:           form.client_zip      || null,
           is_test:       false,
         })
         .select('id')
@@ -144,7 +160,8 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
     }
 
     // 7. Save to intake_raw as audit trail (already processed — case_id set)
-    await supabase.from('intake_raw').insert({
+    // Non-critical: log errors but don't fail the submission over an audit record
+    const { error: rawErr } = await supabase.from('intake_raw').insert({
       agency_id:    form.agency_id,
       source:       'form',
       raw_data:     form,
@@ -152,6 +169,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       processed_at: new Date().toISOString(),
       is_test:      false,
     })
+    if (rawErr) console.error('intake_raw insert failed (case still created):', rawErr)
 
     return {
       success:     true,
