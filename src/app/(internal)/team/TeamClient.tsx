@@ -45,8 +45,11 @@ export function TeamClient({ members }: { members: Producer[] }) {
   const [tempPass,     setTempPass]     = useState<string | null>(null)
   const [tempPassLabel, setTempPassLabel] = useState('Account created — share this temporary password')
 
-  // Password reset
-  const [resettingId,  setResettingId]  = useState<string | null>(null)
+  // Password reset — keyed by member id so the inline result shows in the right row
+  const [resettingId,    setResettingId]    = useState<string | null>(null)
+  const [resetResultId,  setResetResultId]  = useState<string | null>(null)
+  const [resetNewPass,   setResetNewPass]   = useState<string | null>(null)
+  const [resetError,     setResetError]     = useState<string | null>(null)
 
   // Row state
   const [expandedId,   setExpandedId]  = useState<string | null>(null)
@@ -172,6 +175,9 @@ export function TeamClient({ members }: { members: Producer[] }) {
 
   async function handleResetPassword(m: Producer) {
     setResettingId(m.id)
+    setResetResultId(null)
+    setResetNewPass(null)
+    setResetError(null)
     try {
       const res = await fetch('/api/admin/team', {
         method: 'PUT',
@@ -180,9 +186,15 @@ export function TeamClient({ members }: { members: Producer[] }) {
       })
       const j = await res.json()
       if (res.ok) {
-        setTempPassLabel(`Password reset for ${m.first_name || m.auth_email} — share this new temporary password`)
-        setTempPass(j.tempPass)
+        setResetResultId(m.id)
+        setResetNewPass(j.tempPass)
+      } else {
+        setResetResultId(m.id)
+        setResetError(j.error ?? 'Reset failed')
       }
+    } catch {
+      setResetResultId(m.id)
+      setResetError('Network error')
     } finally {
       setResettingId(null)
     }
@@ -457,6 +469,35 @@ export function TeamClient({ members }: { members: Producer[] }) {
                             </button>
                           )}
                         </div>
+
+                        {/* Inline password-reset result */}
+                        {resetResultId === m.id && (
+                          resetError ? (
+                            <div className="mt-3 rounded-lg border border-red-800 bg-red-950/50 px-4 py-3 flex items-center justify-between gap-3">
+                              <p className="text-sm text-red-400">{resetError}</p>
+                              <button onClick={() => setResetResultId(null)} className="text-xs text-slate-500 hover:text-slate-300">Dismiss</button>
+                            </div>
+                          ) : (
+                            <div className="mt-3 rounded-lg border border-emerald-800 bg-emerald-950/60 px-4 py-3 space-y-2">
+                              <p className="text-xs font-medium text-emerald-300">Password reset — share this new temporary password with {m.first_name || m.auth_email}</p>
+                              <div className="flex items-center gap-3">
+                                <code className="bg-slate-900 border border-slate-700 text-white text-sm font-mono rounded-lg px-4 py-2 tracking-wider">
+                                  {resetNewPass}
+                                </code>
+                                <button
+                                  onClick={() => resetNewPass && navigator.clipboard.writeText(resetNewPass)}
+                                  className="text-xs text-slate-400 hover:text-slate-200"
+                                >
+                                  Copy
+                                </button>
+                                <button onClick={() => setResetResultId(null)} className="text-xs text-slate-500 hover:text-slate-300 ml-auto">
+                                  Dismiss
+                                </button>
+                              </div>
+                            </div>
+                          )
+                        )}
+
                       </div>
                     )}
                   </div>
