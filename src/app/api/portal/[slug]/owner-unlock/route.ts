@@ -32,12 +32,6 @@ export async function POST(
       return NextResponse.json({ error: 'Agency not found' }, { status: 404 })
     }
 
-    // Must be authenticated to the portal before unlocking owner mode
-    const portalToken = request.cookies.get(`rpas_portal_${slug}`)?.value
-    if (!portalToken || portalToken !== agency.dashboard_token) {
-      return NextResponse.json({ error: 'Portal authentication required' }, { status: 401 })
-    }
-
     const entered = body.pin.trim()
     const stored  = agency.owner_pin ?? '0000'
     if (entered !== stored) {
