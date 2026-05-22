@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
 
   const { data: agencies } = await supabase
     .from('agencies')
-    .select('id, allstate_partner_number')
+    .select('id, slug, allstate_partner_number')
     .not('allstate_partner_number', 'is', null)
 
   // Map full partner number (A0C4775) → agency_id
@@ -33,6 +33,11 @@ export async function POST(req: NextRequest) {
   for (const a of agencies ?? []) {
     if (a.allstate_partner_number) partnerMap.set(a.allstate_partner_number, a.id)
   }
+
+  // House Account rows have no real partner number — route them to the
+  // Andy Makal solo agency (same as partner 0096A4)
+  const houseAccountAgencyId =
+    agencies?.find(a => a.slug === 'makal-andy-solo')?.id ?? null
 
   const { data: batch, error: batchError } = await supabase
     .from('import_batches')
@@ -55,9 +60,15 @@ export async function POST(req: NextRequest) {
     const rawPartner = String(row['Primary Partner Number'] ?? '').trim()
     if (!rawPartner) continue
 
+    // "House Account" = policy written directly by the agency owner with no LSP;
+    // Allstate uses this label (or the 0096A4 code) for Andy Makal's solo business
+    const isHouseAccount = rawPartner.toLowerCase() === 'house account'
+
     // DASH report drops the leading "A"; restore it for matching
-    const fullPartner = 'A' + rawPartner
-    const agencyId = partnerMap.get(fullPartner) ?? null
+    const fullPartner = isHouseAccount ? 'A0096A4' : 'A' + rawPartner
+    const agencyId = isHouseAccount
+      ? (houseAccountAgencyId ?? partnerMap.get('A0096A4') ?? null)
+      : (partnerMap.get(fullPartner) ?? null)
     if (!agencyId) unrecognized.add(rawPartner)
 
     function parseDate(raw: unknown): string | null {
