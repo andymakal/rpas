@@ -478,7 +478,7 @@ function SpiffKeptCard({
     <div className="bg-white rounded-2xl border border-slate-100 px-4 py-4 space-y-4">
       {/* Kept Appointments */}
       <div>
-        <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Kept Appointments</p>
+        <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-2">Kept Appointments <span className="normal-case font-normal text-slate-300">YTD</span></p>
         <div className="flex items-end gap-3">
           <p className="text-3xl font-bold text-blue-600">{keptAppts}</p>
           {apptRate !== null && (
@@ -491,7 +491,7 @@ function SpiffKeptCard({
       {spiffRecords.length > 0 && (
         <div>
           <div className="flex items-center justify-between mb-2">
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">SPIFF Earnings</p>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">SPIFF Earnings <span className="normal-case font-normal text-slate-300">YTD</span></p>
             <div className="text-right">
               <p className="text-xs text-slate-500">${totalEarned.toFixed(2)} earned</p>
               {totalOutstanding > 0 && (
@@ -777,13 +777,15 @@ export function AgencyPortal({
   const d30 = new Date(now); d30.setDate(d30.getDate() - 30)
   const d60 = new Date(now); d60.setDate(d60.getDate() - 60)
 
+  const yearStart       = new Date(`${now.getFullYear()}-01-01`)
   const tier1           = cases.filter(c => c.stage_translations?.tier === 1)
+  const tier1Ytd        = tier1.filter(c => new Date(c.created_at) >= yearStart)
   const totalReferrals  = tier1.length
   const activeReferrals = tier1.filter(c => c.stage_translations?.is_active_case).length
   const referrals30d    = tier1.filter(c => new Date(c.created_at) >= d30).length
   const referrals60d    = tier1.filter(c => new Date(c.created_at) >= d60).length
-  const keptAppts       = cases.filter(c => c.internal_status === 'appointment_kept').length
-  const apptRate        = totalReferrals > 0 ? Math.round(keptAppts / totalReferrals * 100) : null
+  const keptAppts       = tier1Ytd.filter(c => c.internal_status === 'appointment_kept').length
+  const apptRate        = tier1Ytd.length > 0 ? Math.round(keptAppts / tier1Ytd.length * 100) : null
   const pendingCount    = cases.filter(c => (c.stage_translations?.tier ?? 0) >= 2 && c.stage_translations?.is_active_case).length
   const placedCount     = cases.filter(c => c.stage_translations?.is_won === true).length
   const placementRate   = totalReferrals > 0 ? Math.round(placedCount / totalReferrals * 100) : null

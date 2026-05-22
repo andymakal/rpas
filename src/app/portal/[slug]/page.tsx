@@ -130,6 +130,8 @@ export default async function PortalPage({
         .from('spiff_records')
         .select('id, earned_at, paid_at, amount, agents ( first_name, last_name )')
         .eq('agency_id', agency.id)
+        .gte('earned_at', yearStart)
+        .lte('earned_at', yearEnd)
         .order('earned_at', { ascending: false }),
 
       // Portal content: global (agency_id null) + agency-specific
