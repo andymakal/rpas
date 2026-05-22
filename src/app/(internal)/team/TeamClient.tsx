@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   UserPlus, Trash2, CheckCircle, Clock,
-  ChevronDown, ChevronUp, Pencil, Check, X,
+  ChevronDown, ChevronUp, Pencil, Check, X, KeyRound,
 } from 'lucide-react'
 import type { Producer } from './page'
 
@@ -43,6 +43,10 @@ export function TeamClient({ members }: { members: Producer[] }) {
   const [inviting,     setInviting]     = useState(false)
   const [inviteMsg,    setInviteMsg]    = useState<{ ok: boolean; text: string } | null>(null)
   const [tempPass,     setTempPass]     = useState<string | null>(null)
+  const [tempPassLabel, setTempPassLabel] = useState('Account created — share this temporary password')
+
+  // Password reset
+  const [resettingId,  setResettingId]  = useState<string | null>(null)
 
   // Row state
   const [expandedId,   setExpandedId]  = useState<string | null>(null)
@@ -65,6 +69,7 @@ export function TeamClient({ members }: { members: Producer[] }) {
       if (!res.ok) {
         setInviteMsg({ ok: false, text: j.error ?? 'Failed to create account' })
       } else {
+        setTempPassLabel('Account created — share this temporary password')
         setTempPass(j.tempPass)
         setInviteMsg({ ok: true, text: `Account created for ${inviteName}` })
         setInviteName(''); setInviteEmail('')
@@ -165,6 +170,24 @@ export function TeamClient({ members }: { members: Producer[] }) {
     }
   }
 
+  async function handleResetPassword(m: Producer) {
+    setResettingId(m.id)
+    try {
+      const res = await fetch('/api/admin/team', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: m.auth_user_id }),
+      })
+      const j = await res.json()
+      if (res.ok) {
+        setTempPassLabel(`Password reset for ${m.first_name || m.auth_email} — share this new temporary password`)
+        setTempPass(j.tempPass)
+      }
+    } finally {
+      setResettingId(null)
+    }
+  }
+
   function field(key: string) {
     return editState[key] ?? ''
   }
@@ -195,7 +218,7 @@ export function TeamClient({ members }: { members: Producer[] }) {
         {/* Temp password banner */}
         {tempPass && (
           <div className="mb-6 bg-emerald-950 border border-emerald-800 rounded-xl p-5 space-y-2">
-            <p className="text-sm font-medium text-emerald-300">Account created — share this temporary password</p>
+            <p className="text-sm font-medium text-emerald-300">{tempPassLabel}</p>
             <p className="text-xs text-slate-400">They can change it under <strong>Change Password</strong> in the sidebar.</p>
             <div className="flex items-center gap-3 mt-2">
               <code className="bg-slate-900 border border-slate-700 text-white text-sm font-mono rounded-lg px-4 py-2 tracking-wider">
@@ -400,6 +423,15 @@ export function TeamClient({ members }: { members: Producer[] }) {
                             className="inline-flex items-center gap-1.5 text-sm text-slate-300 hover:text-white transition-colors"
                           >
                             <Pencil className="w-3.5 h-3.5" /> Edit Profile
+                          </button>
+
+                          <button
+                            onClick={e => { e.stopPropagation(); handleResetPassword(m) }}
+                            disabled={resettingId === m.id}
+                            className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-amber-400 transition-colors disabled:opacity-50"
+                          >
+                            <KeyRound className="w-3.5 h-3.5" />
+                            {resettingId === m.id ? 'Resetting…' : 'Reset Password'}
                           </button>
 
                           {confirmId === m.id ? (

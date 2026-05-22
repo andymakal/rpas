@@ -84,6 +84,26 @@ export async function PATCH(request: NextRequest) {
   return Response.json({ user: data.user })
 }
 
+// PUT — reset a team member's password (generates a new temp password)
+export async function PUT(request: NextRequest) {
+  const supabase = createAdminClient()
+  let body: { userId: string }
+  try { body = await request.json() } catch {
+    return Response.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
+
+  if (!body.userId) return Response.json({ error: 'userId required' }, { status: 400 })
+
+  const chars    = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789'
+  const tempPass = Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+    + '!'
+
+  const { error } = await supabase.auth.admin.updateUserById(body.userId, { password: tempPass })
+  if (error) return Response.json({ error: error.message }, { status: 500 })
+
+  return Response.json({ tempPass })
+}
+
 // DELETE — remove a team member
 export async function DELETE(request: NextRequest) {
   const supabase = createAdminClient()
