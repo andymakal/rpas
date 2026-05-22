@@ -60,14 +60,17 @@ export async function POST(req: NextRequest) {
     const rawPartner = String(row['Primary Partner Number'] ?? '').trim()
     if (!rawPartner) continue
 
-    // "House Account" = policy written directly by the agency owner with no LSP;
-    // Allstate uses this label (or the 0096A4 code) for Andy Makal's solo business
-    const isHouseAccount = rawPartner.toLowerCase() === 'house account'
+    // "House Account" rows have no real writing agent — Allstate represents them
+    // as the literal text "House Account" or the code 0096CC in the partner field.
+    // Both route to the Andy Makal solo agency.
+    const isHouseAccount =
+      rawPartner.toLowerCase() === 'house account' ||
+      rawPartner === '0096CC'
 
     // DASH report drops the leading "A"; restore it for matching
-    const fullPartner = isHouseAccount ? 'A0096A4' : 'A' + rawPartner
+    const fullPartner = isHouseAccount ? 'A0C4775' : 'A' + rawPartner
     const agencyId = isHouseAccount
-      ? (houseAccountAgencyId ?? partnerMap.get('A0096A4') ?? null)
+      ? (houseAccountAgencyId ?? partnerMap.get('A0C4775') ?? null)
       : (partnerMap.get(fullPartner) ?? null)
     if (!agencyId) unrecognized.add(rawPartner)
 
