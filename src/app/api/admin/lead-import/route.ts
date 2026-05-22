@@ -185,7 +185,8 @@ export async function POST(req: NextRequest) {
 
       if (!firstName && !lastName) continue
 
-      // Idempotency: skip rows already imported via their Lead Manager URL
+      // Idempotency: skip rows already imported via their Lead Manager URL,
+      // but still back-fill any contact info that was missing on the first pass.
       if (leadUrl) {
         const { count } = await supabase
           .from('intake_raw')
@@ -194,6 +195,34 @@ export async function POST(req: NextRequest) {
           .contains('raw_data', { URL: leadUrl })
 
         if ((count ?? 0) > 0) {
+          // Back-fill contact info on existing customer even though the case already exists
+          if (phone || email || street) {
+            const dupAgencyId = agencyName ? matchAgency(agencyName) : null
+            let dupQuery = supabase
+              .from('customers')
+              .select('id, phone, email, street')
+              .ilike('first_name', firstName)
+              .ilike('last_name',  lastName)
+            dupQuery = dupAgencyId
+              ? dupQuery.eq('agency_id', dupAgencyId)
+              : dupQuery.is('agency_id', null)
+            const { data: dupCust } = await dupQuery.maybeSingle()
+            if (dupCust) {
+              const contactUpdate: Record<string, unknown> = {}
+              if (!dupCust.phone  && phone)  contactUpdate.phone  = phone
+              if (!dupCust.email  && email)  contactUpdate.email  = email
+              if (!dupCust.street && street) {
+                contactUpdate.street = street
+                if (city)  contactUpdate.city  = city
+                if (state) contactUpdate.state = state
+                if (zip)   contactUpdate.zip   = zip
+              }
+              if (Object.keys(contactUpdate).length > 0) {
+                await supabase.from('customers').update(contactUpdate).eq('id', dupCust.id)
+                customersUpdated++
+              }
+            }
+          }
           skippedDuplicate++
           continue
         }
