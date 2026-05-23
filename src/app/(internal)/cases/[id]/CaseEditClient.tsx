@@ -42,10 +42,7 @@ const TOBACCO_LABELS: Record<string, string> = {
   nicotine_replacement: 'Nicotine Replacement',
 }
 
-// Active pipeline statuses (the 2×2 forward-path grid)
-const PIPELINE_STATUSES = ['app_submitted', 'pending', 'quote_approved_issued', 'placed']
-// Terminal close-out statuses
-const TERMINAL_STATUSES = ['carrier_declined', 'client_withdrew', 'snoozed', 'incomplete']
+// Status grid is data-driven from stage_translations — no hardcoded lists needed
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -280,8 +277,9 @@ export default function CaseEditClient({
   const daysInStatus = daysAgo(caseData.status_entered_at)
   const lastContactDays = daysAgo(lastContact)
 
-  const pipelineStages  = tier2Stages.filter(s => PIPELINE_STATUSES.includes(s.internal_status))
-  const terminalStages  = tier2Stages.filter(s => TERMINAL_STATUSES.includes(s.internal_status))
+  // Active/won stages go in the main grid; lost/snoozed go in the close-out row
+  const pipelineStages = tier2Stages.filter(s => s.is_active_case || s.is_won)
+  const terminalStages = tier2Stages.filter(s => !s.is_active_case && !s.is_won)
 
   const reqCount = {
     outstanding: Object.values(reqState).filter(s => s === 'outstanding').length,
