@@ -29,7 +29,7 @@ const EMPTY_FORM: ReferralFormData = {
   agency_id: '', lsp_name: '', lsp_email: '', client_first_name: '', client_last_name: '',
   client_phone: '', client_email: '', client_dob: '', client_marital_status: '',
   client_address: '', client_city: '', client_state: '', client_zip: '',
-  referral_type: '', is_existing_client: false,
+  referral_type: '', is_existing_client: false, allstate_policy_number: '',
   preferred_contact: undefined, best_contact_time: undefined, notes: '',
   life_insurance_outside_work: false,
   job_change_last_5_years: false,
@@ -501,8 +501,26 @@ export function ReferralIntakeForm({
         <Select value={form.referral_type} onChange={(v) => set('referral_type', v)}
           options={REFERRAL_TYPES} placeholder="What brought them to you?" error={errors.referral_type} />
       </Field>
-      <Toggle checked={form.is_existing_client} onChange={(v) => set('is_existing_client', v)}
-        label="Existing Client" description="This person already has a policy or account with us" />
+      <Toggle checked={form.is_existing_client} onChange={(v) => {
+          set('is_existing_client', v)
+          if (!v) set('allstate_policy_number', '')
+        }}
+        label="Existing Allstate Customer"
+        description="They currently have a Home or Auto policy at your agency" />
+      {form.is_existing_client && (
+        <Field
+          label="Allstate Policy Number"
+          hint="Home or Auto — helps us link the referral to their P&C relationship"
+          error={errors.allstate_policy_number}
+        >
+          <Input
+            value={form.allstate_policy_number ?? ''}
+            onChange={(v) => set('allstate_policy_number', v)}
+            placeholder="e.g. 123 456 789"
+            error={errors.allstate_policy_number}
+          />
+        </Field>
+      )}
       <Field label="Best Way to Reach Them">
         <OptionGrid options={CONTACT_METHOD_OPTIONS} value={form.preferred_contact}
           onChange={(v) => set('preferred_contact', v as ReferralFormData['preferred_contact'])} />

@@ -87,11 +87,12 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
 
     const noteLines = [
       `Referred by: ${form.lsp_name}`,
-      form.referral_type ? `Type: ${form.referral_type}` : null,
-      form.preferred_contact  ? `Contact: ${form.preferred_contact}` : null,
-      form.best_contact_time  ? `Best time: ${form.best_contact_time}` : null,
-      form.notes              ? `Notes: ${form.notes}` : null,
-      flags.length > 0        ? `Flags: ${flags.join(', ')}` : null,
+      form.referral_type          ? `Type: ${form.referral_type}` : null,
+      form.allstate_policy_number ? `Allstate Policy: ${form.allstate_policy_number.trim()}` : null,
+      form.preferred_contact      ? `Contact: ${form.preferred_contact}` : null,
+      form.best_contact_time      ? `Best time: ${form.best_contact_time}` : null,
+      form.notes                  ? `Notes: ${form.notes}` : null,
+      flags.length > 0            ? `Flags: ${flags.join(', ')}` : null,
     ].filter(Boolean)
 
     // 3. Check if submitted by the agency owner (email match)
