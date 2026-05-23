@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { TriageClient } from './TriageClient'
 
-export const metadata: Metadata = { title: 'Triage Queue' }
+export const metadata: Metadata = { title: 'Triage' }
 export const dynamic = 'force-dynamic'
 
 export type TriageCase = {
@@ -22,39 +22,25 @@ export type TriageCase = {
   agents: { first_name: string; last_name: string; email: string | null } | null
 }
 
-export type ProducerOption = {
-  id: string
-  first_name: string
-  last_name: string
-}
-
 export default async function TriagePage() {
   const supabase = createAdminClient()
 
-  const [{ data: cases }, { data: producers }] = await Promise.all([
-    supabase
-      .from('cases')
-      .select(`
-        id,
-        created_at,
-        is_hot_lead,
-        is_owner_referral,
-        notes,
-        agencies ( id, name, display_name ),
-        customers ( first_name, last_name, phone, email, date_of_birth ),
-        agents ( first_name, last_name, email )
-      `)
-      .eq('internal_status', 'triage')
-      .eq('is_test', false)
-      .order('is_hot_lead', { ascending: false })
-      .order('created_at', { ascending: true }),   // oldest first — FIFO
-
-    supabase
-      .from('producers')
-      .select('id, first_name, last_name')
-      .eq('is_active', true)
-      .order('last_name'),
-  ])
+  const { data: cases } = await supabase
+    .from('cases')
+    .select(`
+      id,
+      created_at,
+      is_hot_lead,
+      is_owner_referral,
+      notes,
+      agencies ( id, name, display_name ),
+      customers ( first_name, last_name, phone, email, date_of_birth ),
+      agents ( first_name, last_name, email )
+    `)
+    .eq('internal_status', 'triage')
+    .eq('is_test', false)
+    .order('is_hot_lead', { ascending: false })
+    .order('created_at', { ascending: true })   // oldest first — FIFO
 
   return (
     <div className="p-8">
@@ -66,10 +52,7 @@ export default async function TriagePage() {
           </p>
         </div>
 
-        <TriageClient
-          cases={(cases ?? []) as unknown as TriageCase[]}
-          producers={(producers ?? []) as ProducerOption[]}
-        />
+        <TriageClient cases={(cases ?? []) as unknown as TriageCase[]} />
       </div>
     </div>
   )

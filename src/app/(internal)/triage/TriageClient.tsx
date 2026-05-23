@@ -2,11 +2,8 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import {
-  Search, Phone, Mail, Building2, User, Flame, Calendar,
-  ChevronDown, ChevronUp, AlertTriangle, Clock,
-} from 'lucide-react'
-import type { TriageCase, ProducerOption } from './page'
+import { Search, Phone, Flame, Clock, ChevronDown, ChevronUp } from 'lucide-react'
+import type { TriageCase } from './page'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -30,7 +27,7 @@ function age(dob: string | null): number | null {
   return a
 }
 
-// Pull structured lines out of the intake notes block
+// Pull key:value lines out of the intake notes block
 function parseNotes(raw: string | null): Record<string, string> {
   if (!raw) return {}
   const result: Record<string, string> = {}
@@ -58,174 +55,34 @@ function QueueAgeBadge({ iso }: { iso: string }) {
   )
 }
 
-// ── Action panel ──────────────────────────────────────────────────────────────
+// ── Row ───────────────────────────────────────────────────────────────────────
 
-type Action = 'appt' | 'transfer' | 'not_interested' | null
-
-function ActionPanel({
-  caseId,
-  producers,
-  onDone,
-}: {
-  caseId: string
-  producers: ProducerOption[]
-  onDone: (caseId: string) => void
-}) {
-  const [action, setAction]         = useState<Action>(null)
-  const [producerId, setProducerId] = useState('')
-  const [apptDate, setApptDate]     = useState('')
-  const [saving, setSaving]         = useState(false)
-  const [error, setError]           = useState<string | null>(null)
-
-  async function handleSubmit() {
-    setError(null)
-    if ((action === 'appt' || action === 'transfer') && !producerId) {
-      setError('Select a producer first')
-      return
-    }
-    if (action === 'appt' && !apptDate) {
-      setError('Pick an appointment date')
-      return
-    }
-
-    setSaving(true)
-    const body: Record<string, unknown> =
-      action === 'appt'
-        ? { internal_status: 'appointment_set', producer_id: producerId, appointment_date: apptDate }
-        : action === 'transfer'
-        ? { internal_status: 'active_referral', producer_id: producerId }
-        : { internal_status: 'not_interested' }
-
-    try {
-      const res = await fetch(`/api/cases/${caseId}`, {
-        method:  'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(body),
-      })
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}))
-        throw new Error(j.error ?? 'Failed to save')
-      }
-      onDone(caseId)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong')
-      setSaving(false)
-    }
-  }
-
-  const btnBase = 'rounded-lg px-3 py-1.5 text-xs font-semibold border transition-colors'
-
-  if (!action) {
-    return (
-      <div className="flex items-center gap-2 pt-3 border-t border-slate-700/60 mt-3">
-        <button
-          onClick={() => setAction('appt')}
-          className={`${btnBase} bg-blue-900/30 text-blue-300 border-blue-700 hover:bg-blue-900/50`}
-        >
-          <Calendar className="inline w-3.5 h-3.5 mr-1" />Set Appointment
-        </button>
-        <button
-          onClick={() => setAction('transfer')}
-          className={`${btnBase} bg-emerald-900/30 text-emerald-300 border-emerald-700 hover:bg-emerald-900/50`}
-        >
-          Live Transfer →
-        </button>
-        <button
-          onClick={() => setAction('not_interested')}
-          className={`${btnBase} bg-slate-800 text-slate-400 border-slate-600 hover:bg-slate-700`}
-        >
-          Not Interested
-        </button>
-      </div>
-    )
-  }
-
-  return (
-    <div className="pt-3 border-t border-slate-700/60 mt-3 space-y-2">
-      <div className="flex items-center gap-2 flex-wrap">
-        {/* Action label */}
-        <span className="text-xs font-semibold text-slate-400">
-          {action === 'appt' ? 'Set Appointment' : action === 'transfer' ? 'Live Transfer' : 'Mark Not Interested'}
-        </span>
-
-        {/* Producer dropdown — not needed for not_interested */}
-        {(action === 'appt' || action === 'transfer') && (
-          <div className="relative">
-            <select
-              value={producerId}
-              onChange={e => setProducerId(e.target.value)}
-              className="appearance-none bg-slate-800 border border-slate-600 text-slate-200 text-xs rounded-lg px-3 py-1.5 pr-7 focus:outline-none focus:border-blue-500"
-            >
-              <option value="">Assign to…</option>
-              {producers.map(p => (
-                <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400" />
-          </div>
-        )}
-
-        {/* Date picker — appointment only */}
-        {action === 'appt' && (
-          <input
-            type="date"
-            value={apptDate}
-            onChange={e => setApptDate(e.target.value)}
-            className="bg-slate-800 border border-slate-600 text-slate-200 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-blue-500"
-          />
-        )}
-
-        <button
-          onClick={handleSubmit}
-          disabled={saving}
-          className="rounded-lg px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 transition-opacity"
-          style={{ backgroundColor: '#1F3864' }}
-        >
-          {saving ? 'Saving…' : 'Confirm'}
-        </button>
-        <button
-          onClick={() => { setAction(null); setError(null); setProducerId(''); setApptDate('') }}
-          className="text-xs text-slate-500 hover:text-slate-300"
-        >
-          Cancel
-        </button>
-      </div>
-
-      {error && (
-        <p className="text-xs text-red-400 flex items-center gap-1">
-          <AlertTriangle className="w-3 h-3" />{error}
-        </p>
-      )}
-    </div>
-  )
-}
-
-// ── Row component ─────────────────────────────────────────────────────────────
-
-function TriageRow({
-  c,
-  producers,
-  onDone,
-}: {
-  c: TriageCase
-  producers: ProducerOption[]
-  onDone: (id: string) => void
-}) {
+function TriageRow({ c }: { c: TriageCase }) {
+  const router = useRouter()
   const [expanded, setExpanded] = useState(false)
 
-  const agency     = c.agencies?.display_name ?? c.agencies?.name ?? '—'
-  const client     = c.customers
+  const agency    = c.agencies?.display_name ?? c.agencies?.name ?? '—'
+  const client    = c.customers
     ? `${c.customers.first_name} ${c.customers.last_name}`
     : 'Unknown'
-  const lsp        = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
-  const clientAge  = age(c.customers?.date_of_birth ?? null)
-  const parsed     = parseNotes(c.notes)
+  const lsp       = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
+  const clientAge = age(c.customers?.date_of_birth ?? null)
+  const parsed    = parseNotes(c.notes)
+
+  function handleRowClick(e: React.MouseEvent) {
+    // Chevron toggles preview; anywhere else opens the full referral
+    const target = e.target as HTMLElement
+    if (target.closest('[data-expand]')) {
+      setExpanded(o => !o)
+    } else {
+      router.push(`/referrals/${c.id}`)
+    }
+  }
 
   return (
     <>
-      {/* Main row */}
       <tr
-        onClick={() => setExpanded(o => !o)}
+        onClick={handleRowClick}
         className={`cursor-pointer transition-colors border-b border-slate-800/50 ${
           expanded ? 'bg-slate-800/60' : 'hover:bg-slate-800/30'
         }`}
@@ -236,10 +93,12 @@ function TriageRow({
             {c.is_hot_lead && <Flame className="w-3.5 h-3.5 text-orange-400 shrink-0" />}
             <span className="font-medium text-white">{client}</span>
             {c.is_owner_referral && (
-              <span className="text-xs font-medium text-violet-300 bg-violet-900/40 border border-violet-800 rounded px-1.5 py-0.5">Owner</span>
+              <span className="text-xs font-medium text-violet-300 bg-violet-900/40 border border-violet-800 rounded px-1.5 py-0.5">
+                Owner
+              </span>
             )}
           </div>
-          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
+          <div className="flex items-center gap-3 mt-0.5">
             {c.customers?.phone && (
               <span className="text-xs text-slate-400 flex items-center gap-1">
                 <Phone className="w-3 h-3" />{c.customers.phone}
@@ -257,7 +116,7 @@ function TriageRow({
         {/* Referred by */}
         <td className="px-4 py-3 text-sm text-slate-400">{lsp ?? '—'}</td>
 
-        {/* Type */}
+        {/* Referral type */}
         <td className="px-4 py-3 text-sm text-slate-400">{parsed['Type'] ?? '—'}</td>
 
         {/* Contact preference */}
@@ -268,66 +127,43 @@ function TriageRow({
           )}
         </td>
 
-        {/* Date in + age */}
+        {/* Date in / queue age */}
         <td className="px-4 py-3 text-right">
           <p className="text-xs text-slate-500 mb-1">{fmt(c.created_at)}</p>
           <QueueAgeBadge iso={c.created_at} />
         </td>
 
-        {/* Expand toggle */}
-        <td className="px-3 py-3 text-right">
-          {expanded
-            ? <ChevronUp className="w-4 h-4 text-slate-500 ml-auto" />
-            : <ChevronDown className="w-4 h-4 text-slate-500 ml-auto" />}
+        {/* Expand preview toggle */}
+        <td className="px-3 py-3" data-expand="1">
+          <div data-expand="1" className="flex justify-end">
+            {expanded
+              ? <ChevronUp   className="w-4 h-4 text-slate-500 pointer-events-none" />
+              : <ChevronDown className="w-4 h-4 text-slate-500 pointer-events-none" />}
+          </div>
         </td>
       </tr>
 
-      {/* Expanded detail row */}
+      {/* Inline preview — flags, notes, email */}
       {expanded && (
-        <tr className="bg-slate-800/40 border-b border-slate-700/60">
-          <td colSpan={7} className="px-5 py-4">
-            <div className="grid grid-cols-2 gap-x-8 gap-y-3 max-w-3xl text-sm">
-
-              {/* Left column */}
-              <div className="space-y-2">
-                {c.customers?.email && (
-                  <div className="flex items-center gap-2 text-slate-400">
-                    <Mail className="w-3.5 h-3.5 shrink-0" />
-                    <span>{c.customers.email}</span>
-                  </div>
-                )}
-                {lsp && (
-                  <div className="flex items-center gap-2 text-slate-400">
-                    <User className="w-3.5 h-3.5 shrink-0" />
-                    <span>{lsp}</span>
-                    {c.agents?.email && <span className="text-slate-500">· {c.agents.email}</span>}
-                  </div>
-                )}
-                <div className="flex items-center gap-2 text-slate-400">
-                  <Building2 className="w-3.5 h-3.5 shrink-0" />
-                  <span>{agency}</span>
-                </div>
-              </div>
-
-              {/* Right column — intake flags / notes */}
-              <div className="space-y-1.5">
-                {parsed['Flags'] && (
-                  <div>
-                    <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Flags</p>
-                    <p className="text-slate-300 text-xs">{parsed['Flags']}</p>
-                  </div>
-                )}
-                {parsed['Notes'] && (
-                  <div>
-                    <p className="text-xs text-slate-500 uppercase tracking-wide mb-1">Notes</p>
-                    <p className="text-slate-300 text-xs">{parsed['Notes']}</p>
-                  </div>
-                )}
-              </div>
+        <tr className="bg-slate-800/30 border-b border-slate-700/50">
+          <td colSpan={7} className="px-5 py-3">
+            <div className="flex flex-wrap gap-x-8 gap-y-2 text-xs text-slate-400">
+              {c.customers?.email && (
+                <span><span className="text-slate-500">Email </span>{c.customers.email}</span>
+              )}
+              {c.agents?.email && (
+                <span><span className="text-slate-500">LSP email </span>{c.agents.email}</span>
+              )}
+              {parsed['Flags'] && (
+                <span><span className="text-slate-500">Flags </span>{parsed['Flags']}</span>
+              )}
+              {parsed['Notes'] && (
+                <span className="max-w-lg"><span className="text-slate-500">Notes </span>{parsed['Notes']}</span>
+              )}
             </div>
-
-            {/* Action panel */}
-            <ActionPanel caseId={c.id} producers={producers} onDone={onDone} />
+            <p className="text-xs text-slate-600 mt-2">
+              Click anywhere on the row to open the full referral record →
+            </p>
           </td>
         </tr>
       )}
@@ -335,18 +171,11 @@ function TriageRow({
   )
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
+// ── Main ──────────────────────────────────────────────────────────────────────
 
-export function TriageClient({ cases: initial, producers }: { cases: TriageCase[]; producers: ProducerOption[] }) {
-  const router = useRouter()
-  const [cases, setCases]               = useState(initial)
+export function TriageClient({ cases }: { cases: TriageCase[] }) {
   const [search, setSearch]             = useState('')
   const [agencyFilter, setAgencyFilter] = useState('')
-
-  function handleDone(id: string) {
-    setCases(prev => prev.filter(c => c.id !== id))
-    router.refresh()
-  }
 
   const agencyOptions = useMemo(() => {
     const seen = new Set<string>()
@@ -367,29 +196,26 @@ export function TriageClient({ cases: initial, producers }: { cases: TriageCase[
     if (search.trim()) {
       const q = search.toLowerCase()
       list = list.filter(c => {
-        const name   = `${c.customers?.first_name ?? ''} ${c.customers?.last_name ?? ''}`.toLowerCase()
-        const agency = (c.agencies?.display_name ?? c.agencies?.name ?? '').toLowerCase()
-        const lsp    = c.agents ? `${c.agents.first_name} ${c.agents.last_name}`.toLowerCase() : ''
-        const phone  = c.customers?.phone ?? ''
-        return name.includes(q) || agency.includes(q) || lsp.includes(q) || phone.includes(q)
+        const name  = `${c.customers?.first_name ?? ''} ${c.customers?.last_name ?? ''}`.toLowerCase()
+        const agc   = (c.agencies?.display_name ?? c.agencies?.name ?? '').toLowerCase()
+        const lsp   = c.agents ? `${c.agents.first_name} ${c.agents.last_name}`.toLowerCase() : ''
+        const phone = c.customers?.phone ?? ''
+        return name.includes(q) || agc.includes(q) || lsp.includes(q) || phone.includes(q)
       })
     }
     return list
   }, [cases, agencyFilter, search])
 
+  const hotCount = cases.filter(c => c.is_hot_lead).length
+
   if (cases.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
-        <div className="w-14 h-14 rounded-full bg-slate-800 flex items-center justify-center mb-4">
-          <Flame className="w-6 h-6 text-slate-600" />
-        </div>
         <p className="text-slate-300 font-medium">Queue is clear</p>
         <p className="text-slate-500 text-sm mt-1">No referrals waiting in triage</p>
       </div>
     )
   }
-
-  const hotCount = cases.filter(c => c.is_hot_lead).length
 
   return (
     <div className="space-y-4">
@@ -443,20 +269,13 @@ export function TriageClient({ cases: initial, producers }: { cases: TriageCase[
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Agency</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Referred by</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Type</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Contact Pref.</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-slate-400">Date In</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Contact pref.</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-slate-400">Date in</th>
                 <th className="px-3 py-3" />
               </tr>
             </thead>
             <tbody>
-              {filtered.map(c => (
-                <TriageRow
-                  key={c.id}
-                  c={c}
-                  producers={producers}
-                  onDone={handleDone}
-                />
-              ))}
+              {filtered.map(c => <TriageRow key={c.id} c={c} />)}
             </tbody>
           </table>
         )}
