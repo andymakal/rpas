@@ -7,7 +7,7 @@ import {
   ArrowLeft, Phone, Building2, User, Calendar, Clock,
   MessageSquare, Mail, AlertCircle, PhoneCall, PhoneOff,
   MessageCircle, ChevronDown, ChevronUp, DollarSign, Pencil, Check, X, MapPin,
-  CalendarClock, TrendingUp, History,
+  CalendarClock, TrendingUp, History, Flame,
 } from 'lucide-react'
 import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry } from './page'
 
@@ -232,6 +232,7 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
   const agentEmail      = referral.agents?.email ?? null
   const agencyEmail     = referral.agencies?.contact_email ?? null
   const isOwner         = referral.is_owner_referral
+  const isHotLead       = referral.is_hot_lead
 
   const rewarmMailto = showRewarmEmail
     ? buildRewarmMailto(displayName, cFirstName, agentFirstName, agentEmail, agencyEmail)
@@ -495,11 +496,17 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
         </Link>
         <div className="flex items-start justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2.5">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              {isHotLead && <Flame className="w-5 h-5 text-orange-400 flex-shrink-0" />}
               <h1 className="text-white text-2xl font-semibold">{displayName}</h1>
               {isOwner && (
                 <span className="inline-flex items-center rounded px-2 py-1 text-xs font-medium bg-violet-900/50 text-violet-300 border border-violet-800">
                   Agency Owner
+                </span>
+              )}
+              {isHotLead && (
+                <span className="inline-flex items-center rounded px-2 py-1 text-xs font-medium bg-orange-900/50 text-orange-300 border border-orange-800">
+                  Hot Lead
                 </span>
               )}
             </div>

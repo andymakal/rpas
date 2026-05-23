@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, ChevronUp, ChevronDown, CalendarClock, AlertTriangle } from 'lucide-react'
+import { Search, ChevronUp, ChevronDown, CalendarClock, AlertTriangle, Flame } from 'lucide-react'
 import type { CaseRow, StageTranslation } from './page'
 
 const TIER_BADGE: Record<number, string> = {
@@ -306,6 +306,7 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
+                      {r.is_hot_lead && <Flame className="w-3.5 h-3.5 text-orange-400 flex-shrink-0" />}
                       <p className="font-medium text-white">
                         {r.customers?.first_name ?? '—'} {r.customers?.last_name ?? ''}
                       </p>

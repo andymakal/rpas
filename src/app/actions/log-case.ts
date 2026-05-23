@@ -9,8 +9,11 @@ export type LogCaseResult =
 export type LeadSource = 'agency_referral' | 'allstate_web' | 'self_generated'
 
 export async function logCase(data: {
+  // Source
   agency_id?: string
   agent_id?: string
+  lead_source: LeadSource
+  // Contact
   first_name: string
   last_name: string
   phone: string
@@ -20,10 +23,19 @@ export async function logCase(data: {
   city?: string
   state?: string
   zip?: string
-  referral_type: string
-  lead_source: LeadSource
-  notes?: string
   spanish_speaking?: boolean
+  // Referral details
+  referral_type: string
+  is_hot_lead?: boolean
+  preferred_contact?: string
+  best_contact_time?: string
+  // Qualifying flags
+  life_insurance_outside_work?: boolean
+  job_change_last_5_years?: boolean
+  review_401k?: boolean
+  retirement_prep?: boolean
+  // Free-form notes
+  notes?: string
 }): Promise<LogCaseResult> {
   if (data.lead_source === 'agency_referral' && !data.agency_id) {
     return { success: false, error: 'Agency is required for agency referrals.' }
@@ -35,16 +47,16 @@ export async function logCase(data: {
     const { data: customer, error: custError } = await supabase
       .from('customers')
       .insert({
-        agency_id:     data.agency_id ?? null,
-        first_name:    data.first_name.trim(),
-        last_name:     data.last_name.trim(),
-        phone:         data.phone.trim(),
-        email:         data.email?.trim() || null,
-        date_of_birth: data.dob || null,
-        street:        data.street?.trim() || null,
-        city:          data.city?.trim() || null,
-        state:            data.state || null,
-        zip:              data.zip?.trim() || null,
+        agency_id:        data.agency_id ?? null,
+        first_name:       data.first_name.trim(),
+        last_name:        data.last_name.trim(),
+        phone:            data.phone.trim(),
+        email:            data.email?.trim()  || null,
+        date_of_birth:    data.dob            || null,
+        street:           data.street?.trim() || null,
+        city:             data.city?.trim()   || null,
+        state:            data.state          || null,
+        zip:              data.zip?.trim()    || null,
         spanish_speaking: data.spanish_speaking ?? false,
       })
       .select('id')
@@ -55,10 +67,28 @@ export async function logCase(data: {
       return { success: false, error: 'Failed to create customer record.' }
     }
 
+    // Build notes in the same key:value format as the portal intake form
+    // so the Triage page can parse them consistently.
+    const flags = [
+      data.life_insurance_outside_work && 'Life insurance outside work',
+      data.job_change_last_5_years     && 'Job change in last 5 years',
+      data.review_401k                 && '401(k) review',
+      data.retirement_prep             && 'Retirement prep',
+    ].filter(Boolean) as string[]
+
     const noteLines = [
-      data.referral_type && `Referral type: ${data.referral_type}`,
-      data.notes?.trim(),
+      data.referral_type      ? `Type: ${data.referral_type}` : null,
+      data.preferred_contact  ? `Contact: ${data.preferred_contact}` : null,
+      data.best_contact_time  ? `Best time: ${data.best_contact_time}` : null,
+      data.notes?.trim()      ? `Notes: ${data.notes.trim()}` : null,
+      flags.length > 0        ? `Flags: ${flags.join(', ')}` : null,
     ].filter(Boolean)
+
+    // Route to the correct initial status:
+    //   • Agency referral / Allstate.com lead → triage (Dulce's queue to work)
+    //   • Self-generated → active_referral (producer already owns it)
+    const initialStatus =
+      data.lead_source === 'self_generated' ? 'active_referral' : 'triage'
 
     const { data: newCase, error: caseError } = await supabase
       .from('cases')
@@ -66,9 +96,10 @@ export async function logCase(data: {
         agency_id:       data.agency_id ?? null,
         customer_id:     customer.id,
         agent_id:        data.agent_id || null,
-        internal_status: 'lsp_contact_needed',
+        internal_status: initialStatus,
         lead_source:     data.lead_source,
-        notes:           noteLines.length > 0 ? noteLines.join('\n\n') : null,
+        is_hot_lead:     data.is_hot_lead ?? false,
+        notes:           noteLines.length > 0 ? noteLines.join('\n') : null,
       })
       .select('id')
       .single()
