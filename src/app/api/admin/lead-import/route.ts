@@ -48,7 +48,7 @@ const FOLDER_STATUS_PRIORITY: [string, string][] = [
   ['appt set',            'appointment_set'],
   ['appt missed',         'appointment_missed'],
   ['*lsp contact needed', 'appointment_missed'],
-  ['working',             'lsp_contact_needed'],
+  ['working',             'active_referral'],
 ]
 
 function parseFolders(raw: string): string[] {
@@ -60,7 +60,7 @@ function statusFromFolders(folders: string[]): string {
   for (const [tag, status] of FOLDER_STATUS_PRIORITY) {
     if (lower.some(f => f === tag)) return status
   }
-  return 'lsp_contact_needed'
+  return 'triage'
 }
 
 function isManualEntry(folders: string[]): boolean {

@@ -67,14 +67,14 @@ export async function POST(
     await supabase.from('case_status_history').insert({
       case_id:     id,
       from_status: existing.internal_status,
-      to_status:   'lsp_contact_needed',
+      to_status:   'active_referral',
     })
 
     // Reset the case — back to the front of the queue, always hot
     const { error: updateError } = await supabase
       .from('cases')
       .update({
-        internal_status:   'lsp_contact_needed',
+        internal_status:   'active_referral',
         is_hot_lead:       true,
         notes:             newNotes,
         snooze_reason_id:  null,

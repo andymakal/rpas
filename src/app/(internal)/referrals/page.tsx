@@ -53,11 +53,12 @@ export default async function ReferralsPage() {
     `)
     .eq('is_test', false)
     .in('internal_status', [
+      'active_referral',
       'lsp_contact_needed',
       'appointment_set',
       'appointment_missed',
-      'appointment_kept',
       'quoted',
+      'not_interested',
       'carrier_declined',
       'client_withdrew',
       'snoozed',

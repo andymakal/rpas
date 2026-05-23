@@ -5,6 +5,7 @@ const ALLOWED_FIELDS = new Set([
   'internal_status',
   'agency_id',
   'agent_id',
+  'producer_id',
   'product_id',
   'face_amount',
   'annual_premium',

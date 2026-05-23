@@ -13,6 +13,7 @@ type StageTranslation = {
   is_active_case: boolean
   is_won: boolean
   is_lost: boolean
+  is_prospect: boolean
 }
 
 export type Case = {
@@ -784,7 +785,9 @@ export function AgencyPortal({
   const activeReferrals = tier1.filter(c => c.stage_translations?.is_active_case).length
   const referrals30d    = tier1.filter(c => new Date(c.created_at) >= d30).length
   const referrals60d    = tier1.filter(c => new Date(c.created_at) >= d60).length
-  const keptAppts       = tier1Ytd.filter(c => c.internal_status === 'appointment_kept').length
+  // Kept appointments = SPIFF records (SPIFF checkbox is set exactly when an appointment was kept)
+  // spiffRecords are already YTD-filtered by the server query
+  const keptAppts       = spiffRecords.length
   const apptRate        = tier1Ytd.length > 0 ? Math.round(keptAppts / tier1Ytd.length * 100) : null
   const pendingCount    = cases.filter(c => (c.stage_translations?.tier ?? 0) >= 2 && c.stage_translations?.is_active_case).length
   const placedCount     = cases.filter(c => c.stage_translations?.is_won === true).length
@@ -795,7 +798,8 @@ export function AgencyPortal({
   const referrals    = filtered.filter(c => c.stage_translations?.tier === 1 && c.stage_translations?.is_active_case).sort(hotFirst)
   const pendingCases = filtered.filter(c => (c.stage_translations?.tier ?? 0) >= 2 && c.stage_translations?.is_active_case).sort(hotFirst)
   const placedCases  = filtered.filter(c => c.stage_translations?.is_won === true)
-  const closedCases  = filtered.filter(c => c.stage_translations?.is_lost === true || c.internal_status === 'snoozed')
+  const closedCases   = filtered.filter(c => c.stage_translations?.is_lost === true || c.internal_status === 'snoozed')
+  const prospectCases = filtered.filter(c => c.stage_translations?.is_prospect === true)
 
   // ── Portal content by type ──────────────────────────────────────────────────
   const trainingItems  = portalContent.filter(i => i.content_type === 'training')
@@ -976,6 +980,18 @@ export function AgencyPortal({
                 <SectionHeader label="Placed Policies" count={placedCases.length} green />
                 <div className="space-y-2">
                   {placedCases.map(c => <PlacedCard key={c.id} c={c} />)}
+                </div>
+              </div>
+            )}
+
+            {/* Parked Prospects — not_interested, potentially re-engageable */}
+            {prospectCases.length > 0 && (
+              <div>
+                <SectionHeader label="Parked Prospects" count={prospectCases.length} />
+                <div className="space-y-2">
+                  {prospectCases.map(c => (
+                    <ClosedCard key={c.id} c={c} agentFilter={agentFilter} onRewarm={handleRewarm} />
+                  ))}
                 </div>
               </div>
             )}

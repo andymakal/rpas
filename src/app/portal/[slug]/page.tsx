@@ -72,7 +72,7 @@ export default async function PortalPage({
           is_hot_lead,
           customers ( first_name, last_name ),
           agents ( first_name, last_name ),
-          stage_translations ( agency_label, tier, is_active_case, is_won, is_lost ),
+          stage_translations ( agency_label, tier, is_active_case, is_won, is_lost, is_prospect ),
           products ( name, carriers ( short_name ) )
         `)
         .eq('agency_id', agency.id)

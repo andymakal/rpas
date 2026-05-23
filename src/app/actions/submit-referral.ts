@@ -114,7 +114,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       .insert({
         agency_id:          form.agency_id,
         customer_id:        customerId,
-        internal_status:    'lsp_contact_needed',
+        internal_status:    'triage',
         notes:              noteLines.join('\n'),
         is_owner_referral:  isOwnerReferral,
         is_hot_lead:        form.is_hot_lead ?? false,

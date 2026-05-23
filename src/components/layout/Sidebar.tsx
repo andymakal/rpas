@@ -19,11 +19,13 @@ import {
   Plus,
   DollarSign,
   KeyRound,
+  Inbox,
 } from 'lucide-react'
 import { NotificationBell } from '@/components/layout/NotificationBell'
 
 const navItems = [
   { href: '/dashboard',              icon: LayoutDashboard, label: 'Dashboard'        },
+  { href: '/triage',                 icon: Inbox,           label: 'Triage'           },
   { href: '/referrals',              icon: GitMerge,        label: 'Referrals'        },
   { href: '/spiff',                  icon: DollarSign,      label: 'SPIFF'            },
   { href: '/agencies',               icon: Building2,       label: 'Agencies'         },

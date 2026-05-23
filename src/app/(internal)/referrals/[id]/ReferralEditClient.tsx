@@ -29,8 +29,8 @@ function QuoteRow({ label, value }: { label: string; value: string }) {
   )
 }
 
-const APPT_STATUSES  = new Set(['appointment_set', 'appointment_kept', 'appointment_missed'])
-const REWARM_STATUS  = 'back_to_agency'
+const APPT_STATUSES  = new Set(['appointment_set', 'appointment_missed'])
+const REWARM_STATUS  = 'lsp_contact_needed'
 
 const TOUCH_TYPES: { value: string; label: string; icon: React.ReactNode; short: string }[] = [
   { value: 'call',      label: 'Call',      short: 'Called',    icon: <PhoneCall    className="w-4 h-4" /> },
