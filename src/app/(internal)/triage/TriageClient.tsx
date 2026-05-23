@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Phone, Flame, Clock, ChevronDown, ChevronUp } from 'lucide-react'
+import { Search, Phone, Mail, Flame, Clock, ChevronDown, ChevronUp } from 'lucide-react'
 import type { TriageCase } from './page'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -100,14 +100,23 @@ function TriageRow({ c }: { c: TriageCase }) {
           </div>
           <div className="flex items-center gap-3 mt-0.5">
             {c.customers?.phone && (
-              <span className="text-xs text-slate-400 flex items-center gap-1">
+              <a href={`tel:${c.customers.phone}`} onClick={e => e.stopPropagation()}
+                className="text-xs text-slate-400 hover:text-blue-400 flex items-center gap-1 transition-colors">
                 <Phone className="w-3 h-3" />{c.customers.phone}
-              </span>
+              </a>
             )}
             {clientAge && (
               <span className="text-xs text-slate-500">Age {clientAge}</span>
             )}
           </div>
+          {c.customers?.email && (
+            <div className="mt-0.5">
+              <a href={`mailto:${c.customers.email}`} onClick={e => e.stopPropagation()}
+                className="text-xs text-slate-500 hover:text-blue-400 flex items-center gap-1 transition-colors">
+                <Mail className="w-3 h-3" />{c.customers.email}
+              </a>
+            </div>
+          )}
         </td>
 
         {/* Agency */}
