@@ -823,46 +823,39 @@ export function ReferralEditClient({ referral, stages, touchLog: initialTouchLog
             </div>
           </div>
 
-          {/* Quote Info */}
-          {(cDob || cGender || cTobacco || cHeightFt || cWeight || cHealthNotes || cMarital) && (
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide">Quote Info</h2>
-                <button
-                  onClick={() => setEditingContact(true)}
-                  className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
-                >
-                  <Pencil className="w-3 h-3" /> Edit
-                </button>
-              </div>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                {cDob && (
-                  <QuoteRow label="DOB" value={fmt(cDob)} />
-                )}
-                {cGender && (
-                  <QuoteRow label="Gender" value={cGender.charAt(0).toUpperCase() + cGender.slice(1)} />
-                )}
-                {cMarital && (
-                  <QuoteRow label="Marital" value={cMarital.charAt(0).toUpperCase() + cMarital.slice(1)} />
-                )}
-                {cTobacco && (
-                  <QuoteRow label="Tobacco" value={TOBACCO_LABELS[cTobacco] ?? cTobacco} />
-                )}
-                {(cHeightFt || cHeightIn) && (
-                  <QuoteRow label="Height" value={`${cHeightFt || '?'}′ ${cHeightIn || '0'}″`} />
-                )}
-                {cWeight && (
-                  <QuoteRow label="Weight" value={`${cWeight} lbs`} />
-                )}
-              </div>
-              {cHealthNotes && (
-                <div className="pt-1 border-t border-slate-800">
-                  <p className="text-xs text-slate-500 mb-1">Health Notes</p>
-                  <p className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">{cHealthNotes}</p>
-                </div>
-              )}
+          {/* Quote Info — always visible so Dulce can fill it in on the call */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide">Quote Info</h2>
+              <button
+                onClick={() => setEditingContact(true)}
+                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+              >
+                <Pencil className="w-3 h-3" /> Edit
+              </button>
             </div>
-          )}
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+              <QuoteRow label="DOB"    value={cDob    ? fmt(cDob) : '—'} />
+              <QuoteRow label="Gender" value={cGender ? cGender.charAt(0).toUpperCase() + cGender.slice(1) : '—'} />
+              <QuoteRow label="Marital" value={cMarital ? cMarital.charAt(0).toUpperCase() + cMarital.slice(1) : '—'} />
+              <QuoteRow label="Tobacco" value={cTobacco ? (TOBACCO_LABELS[cTobacco] ?? cTobacco) : '—'} />
+              <QuoteRow label="Height"  value={(cHeightFt || cHeightIn) ? `${cHeightFt || '?'}′ ${cHeightIn || '0'}″` : '—'} />
+              <QuoteRow label="Weight"  value={cWeight ? `${cWeight} lbs` : '—'} />
+            </div>
+            {cHealthNotes ? (
+              <div className="pt-1 border-t border-slate-800">
+                <p className="text-xs text-slate-500 mb-1">Health Notes</p>
+                <p className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">{cHealthNotes}</p>
+              </div>
+            ) : (
+              <button
+                onClick={() => setEditingContact(true)}
+                className="text-xs text-slate-600 hover:text-slate-400 italic transition-colors"
+              >
+                No health notes yet — add them
+              </button>
+            )}
+          </div>
 
           {/* Policy details read card */}
           {(faceAmount || annualPremium || policyNumber) && (
