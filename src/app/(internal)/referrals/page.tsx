@@ -56,6 +56,7 @@ export default async function ReferralsPage() {
     .eq('is_test', false)
     .in('internal_status', [
       'active_referral',
+      'live_transfer',
       'lsp_contact_needed',
       'appointment_set',
       'appointment_missed',

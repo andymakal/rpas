@@ -20,7 +20,7 @@ export async function POST(
 
   const { data: current, error: fetchErr } = await supabase
     .from('cases')
-    .select('touches')
+    .select('touches, internal_status')
     .eq('id', id)
     .single()
 
@@ -30,16 +30,25 @@ export async function POST(
 
   const now = new Date().toISOString()
 
+  // Auto-advance: first touch on a triage case moves it to active_referral
+  const advanceToActive = current.internal_status === 'triage'
+
+  const caseUpdate: Record<string, unknown> = {
+    touches: (current.touches ?? 0) + 1,
+    last_contact_at: now,
+    updated_at: now,
+  }
+  if (advanceToActive) {
+    caseUpdate.internal_status  = 'active_referral'
+    caseUpdate.status_entered_at = now
+  }
+
   const [caseResult, touchResult] = await Promise.all([
     supabase
       .from('cases')
-      .update({
-        touches: (current.touches ?? 0) + 1,
-        last_contact_at: now,
-        updated_at: now,
-      })
+      .update(caseUpdate)
       .eq('id', id)
-      .select('touches, last_contact_at')
+      .select('touches, last_contact_at, internal_status')
       .single(),
     supabase
       .from('case_touches')
@@ -57,11 +66,22 @@ export async function POST(
     return Response.json({ error: caseResult.error.message }, { status: 500 })
   }
 
+  // Log the status transition to history if we auto-advanced
+  if (advanceToActive) {
+    await supabase.from('case_status_history').insert({
+      case_id:     id,
+      from_status: 'triage',
+      to_status:   'active_referral',
+      changed_at:  now,
+    })
+  }
+
   return Response.json({
     data: {
-      touches:        caseResult.data.touches,
-      last_contact_at: caseResult.data.last_contact_at,
-      touch:          touchResult.data,
+      touches:            caseResult.data.touches,
+      last_contact_at:    caseResult.data.last_contact_at,
+      touch:              touchResult.data,
+      advanced_to_active: advanceToActive,
     },
   })
 }

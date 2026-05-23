@@ -32,6 +32,7 @@ export type ReferralDetail = {
   spiff_earned_at: string | null
   is_hot_lead: boolean
   is_owner_referral: boolean
+  producer_id: string | null
   lead_source: string | null
   customers: {
     first_name: string
@@ -63,10 +64,11 @@ export type ReferralDetail = {
   } | null
 }
 
-export type Tier1Stage   = { id: string; internal_status: string; agency_label: string }
-export type TouchLog     = { id: string; touch_type: string; notes: string | null; touched_at: string }
-export type AgentOption  = { id: string; first_name: string; last_name: string; email: string | null }
-export type AgencyOption = { id: string; name: string; display_name: string | null }
+export type Tier1Stage    = { id: string; internal_status: string; agency_label: string }
+export type TouchLog      = { id: string; touch_type: string; notes: string | null; touched_at: string }
+export type AgentOption   = { id: string; first_name: string; last_name: string; email: string | null }
+export type AgencyOption  = { id: string; name: string; display_name: string | null }
+export type ProducerOption = { id: string; first_name: string; last_name: string }
 
 export async function generateMetadata(
   { params }: { params: Promise<{ id: string }> }
@@ -97,7 +99,7 @@ export default async function ReferralDetailPage({
       id, customer_id, agent_id, agency_id,
       internal_status, created_at, status_entered_at, appointment_date,
       follow_up_date, face_amount, annual_premium, policy_number,
-      notes, touches, last_contact_at, spiff_earned, spiff_earned_at, is_hot_lead, is_owner_referral, lead_source,
+      notes, touches, last_contact_at, spiff_earned, spiff_earned_at, is_hot_lead, is_owner_referral, producer_id, lead_source,
       customers ( first_name, last_name, phone, email, street, city, state, zip, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, spanish_speaking ),
       agencies ( name, display_name, contact_email ),
       agents ( id, first_name, last_name, email ),
@@ -118,7 +120,7 @@ export default async function ReferralDetailPage({
 
   const cd = caseData as unknown as ReferralDetail
 
-  const [{ data: stages }, { data: touchLog }, { data: agentsList }, { data: agenciesList }, { data: statusHistory }] = await Promise.all([
+  const [{ data: stages }, { data: touchLog }, { data: agentsList }, { data: agenciesList }, { data: statusHistory }, { data: producersList }] = await Promise.all([
     supabase
       .from('stage_translations')
       .select('id, internal_status, agency_label')
@@ -145,6 +147,11 @@ export default async function ReferralDetailPage({
       .select('id, from_status, to_status, changed_at')
       .eq('case_id', id)
       .order('changed_at', { ascending: false }),
+    supabase
+      .from('producers')
+      .select('id, first_name, last_name')
+      .eq('is_active', true)
+      .order('first_name'),
   ])
 
   return (
@@ -155,6 +162,7 @@ export default async function ReferralDetailPage({
       agentsList={(agentsList as unknown as AgentOption[]) ?? []}
       agenciesList={(agenciesList as unknown as AgencyOption[]) ?? []}
       statusHistory={(statusHistory as unknown as StatusHistoryEntry[]) ?? []}
+      producersList={(producersList as unknown as ProducerOption[]) ?? []}
     />
   )
 }
