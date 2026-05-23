@@ -390,7 +390,7 @@ export function ReferralIntakeForm({
           placeholder="e.g. Kris Aley" autoComplete="name" error={errors.lsp_name} />
       </Field>
 
-      <Field label="Your Email" hint="Optional — we'll use this to keep you in the loop on your referral" error={errors.lsp_email}>
+      <Field label="Your Email" required hint="Enter it once — we'll remember you for next time" error={errors.lsp_email}>
         <Input value={form.lsp_email ?? ''} onChange={(v) => set('lsp_email', v)}
           type="email" placeholder="kris.aley@allstate.com" inputMode="email"
           autoComplete="email" error={errors.lsp_email} />
@@ -444,7 +444,8 @@ export function ReferralIntakeForm({
         <div className="col-span-1">
           <Field label="State" required error={errors.client_state}>
             <Select value={form.client_state} onChange={(v) => set('client_state', v)}
-              options={US_STATES} placeholder="PA" error={errors.client_state} />
+              options={US_STATES.map(s => ({ value: s.value, label: s.value }))}
+              placeholder="PA" error={errors.client_state} />
           </Field>
         </div>
         <div className="col-span-2">

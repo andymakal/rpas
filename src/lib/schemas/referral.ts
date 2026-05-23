@@ -3,7 +3,7 @@ import { z } from 'zod'
 export const referralSchema = z.object({
   agency_id: z.string().min(1, 'Please select your agency'),
   lsp_name: z.string().min(2, 'Enter your first and last name'),
-  lsp_email: z.string().email('Enter a valid email address').optional().or(z.literal('')),
+  lsp_email: z.string().email('Enter a valid email address').min(1, 'Email is required'),
   client_first_name: z.string().min(1, 'First name is required'),
   client_last_name: z.string().min(1, 'Last name is required'),
   client_phone: z.string().regex(/^\+?[\d\s\-(). ]{10,}$/, 'Enter a valid phone number'),
