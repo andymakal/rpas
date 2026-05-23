@@ -58,7 +58,7 @@ export type CaseDetail = {
     customer_group_id: string | null
   } | null
   agencies: { id: string; name: string; display_name: string | null; slug: string } | null
-  agents: { first_name: string; last_name: string } | null
+  agents: { first_name: string; last_name: string; email: string | null } | null
   stage_translations: {
     agency_label: string
     tier: number
@@ -106,6 +106,7 @@ export type HouseholdMember = {
 
 export type StageLookup = { id: string; internal_status: string; agency_label: string; tier: number; is_won: boolean; is_lost: boolean; is_snoozed: boolean; is_active_case: boolean }
 export type AgencyLookup = { id: string; name: string; display_name: string | null }
+export type AgentOption  = { id: string; first_name: string; last_name: string; email: string | null }
 export type ProductLookup = { id: string; name: string; carrier_id: string | null; carriers: { short_name: string } | null }
 export type RateClassLookup = { id: string; name: string }
 export type PremiumModeLookup = { id: string; name: string }
@@ -154,7 +155,7 @@ export default async function CaseDetailPage({
         agency_id, customer_id, agent_id,
         customers ( first_name, last_name, email, phone, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, spanish_speaking, customer_group_id ),
         agencies ( id, name, display_name, slug ),
-        agents ( first_name, last_name ),
+        agents ( first_name, last_name, email ),
         stage_translations ( agency_label, tier, is_active_case, is_won, is_lost, is_snoozed ),
         products ( id, name, carriers ( id, short_name ) ),
         rate_classes ( id, name ),
@@ -263,11 +264,20 @@ export default async function CaseDetailPage({
     }
   })
 
+  const { data: agentsList } = cd.agency_id
+    ? await supabase
+        .from('agents')
+        .select('id, first_name, last_name, email')
+        .eq('agency_id', cd.agency_id)
+        .order('first_name')
+    : { data: [] }
+
   return (
     <CaseEditClient
       caseData={cd}
       stages={(stages as unknown as StageLookup[]) ?? []}
       agencies={(agencies as unknown as AgencyLookup[]) ?? []}
+      agentsList={(agentsList as unknown as AgentOption[]) ?? []}
       products={(products as unknown as ProductLookup[]) ?? []}
       rateClasses={(rateClasses as unknown as RateClassLookup[]) ?? []}
       premiumModes={(premiumModes as unknown as PremiumModeLookup[]) ?? []}

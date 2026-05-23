@@ -15,12 +15,16 @@ const ALLOWED_FIELDS = new Set([
   'appointment_date',
   'follow_up_date',
   'placed_at',
+  'submitted_at',       // manual override for imported cases
+  'status_entered_at',  // manual override for imported cases
+  'created_at',         // manual override for imported cases
   'notes',
   'lost_reason_id',
   'snooze_reason_id',
   'snooze_until',
   'table_rating',
   'is_hot_lead',
+  'lead_source',
 ])
 
 export async function PATCH(

@@ -11,7 +11,7 @@ import {
   Plus, GitMerge, ExternalLink,
 } from 'lucide-react'
 import type {
-  CaseDetail, StageLookup, AgencyLookup, ProductLookup,
+  CaseDetail, StageLookup, AgencyLookup, AgentOption, ProductLookup,
   RateClassLookup, PremiumModeLookup, LostReasonLookup, SnoozeReasonLookup,
   PendingRequirementLookup, TouchLog, StatusHistoryEntry, SiblingCase, HouseholdMember,
 } from './page'
@@ -83,6 +83,13 @@ function staleBadgeClass(days: number): string {
   return 'bg-red-900/50 text-red-300 border-red-800'
 }
 
+function formatPhone(v: string): string {
+  const digits = v.replace(/\D/g, '').slice(0, 10)
+  if (digits.length < 4) return digits
+  if (digits.length < 7) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+}
+
 function statusBadgeClass(st: CaseDetail['stage_translations']): string {
   if (!st) return 'bg-slate-800 text-slate-400 border border-slate-700'
   if (st.is_won)    return 'bg-emerald-900/60 text-emerald-300 border border-emerald-700'
@@ -119,6 +126,7 @@ type Props = {
   caseData:            CaseDetail
   stages:              StageLookup[]
   agencies:            AgencyLookup[]
+  agentsList:          AgentOption[]
   products:            ProductLookup[]
   rateClasses:         RateClassLookup[]
   premiumModes:        PremiumModeLookup[]
@@ -135,7 +143,7 @@ type Props = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function CaseEditClient({
-  caseData, stages, agencies, products, rateClasses, premiumModes,
+  caseData, stages, agencies, agentsList, products, rateClasses, premiumModes,
   lostReasons, snoozeReasons, pendingRequirements,
   touchLog: initialTouchLog, statusHistory,
   siblingCases: initialSiblings, householdId, householdMembers,
@@ -153,18 +161,28 @@ export default function CaseEditClient({
   const [saveMsg,      setSaveMsg]      = useState<{ ok: boolean; text: string } | null>(null)
 
   // ── Policy detail state ────────────────────────────────────────
-  const [productId,     setProductId]     = useState(caseData.products?.id ?? '')
-  const [faceAmount,    setFaceAmount]    = useState(caseData.face_amount?.toString() ?? '')
-  const [annualPremium, setAnnualPremium] = useState(caseData.annual_premium?.toString() ?? '')
-  const [rateClassId,   setRateClassId]   = useState(caseData.rate_classes?.id ?? '')
-  const [tableRating,   setTableRating]   = useState(caseData.table_rating?.toString() ?? '')
-  const [premiumModeId, setPremiumModeId] = useState(caseData.premium_modes?.id ?? '')
-  const [policyNumber,  setPolicyNumber]  = useState(caseData.policy_number ?? '')
-  const [placedAt,      setPlacedAt]      = useState(
+  const [productId,      setProductId]      = useState(caseData.products?.id ?? '')
+  const [faceAmount,     setFaceAmount]     = useState(caseData.face_amount?.toString() ?? '')
+  const [annualPremium,  setAnnualPremium]  = useState(caseData.annual_premium?.toString() ?? '')
+  const [rateClassId,    setRateClassId]    = useState(caseData.rate_classes?.id ?? '')
+  const [tableRating,    setTableRating]    = useState(caseData.table_rating?.toString() ?? '')
+  const [premiumModeId,  setPremiumModeId]  = useState(caseData.premium_modes?.id ?? '')
+  const [policyNumber,   setPolicyNumber]   = useState(caseData.policy_number ?? '')
+  const [placedAt,       setPlacedAt]       = useState(
     caseData.placed_at ? caseData.placed_at.split('T')[0] : ''
   )
-  const [policySaving,  setPolicySaving]  = useState(false)
-  const [policyMsg,     setPolicyMsg]     = useState<{ ok: boolean; text: string } | null>(null)
+  const [showDateOverrides, setShowDateOverrides] = useState(false)
+  const [submittedAt,    setSubmittedAt]    = useState(
+    caseData.submitted_at ? (caseData.submitted_at as string).split('T')[0] : ''
+  )
+  const [statusEnteredAt, setStatusEnteredAt] = useState(
+    caseData.status_entered_at ? caseData.status_entered_at.split('T')[0] : ''
+  )
+  const [caseCreatedAt,  setCaseCreatedAt]  = useState(
+    caseData.created_at ? caseData.created_at.split('T')[0] : ''
+  )
+  const [policySaving,   setPolicySaving]   = useState(false)
+  const [policyMsg,      setPolicyMsg]      = useState<{ ok: boolean; text: string } | null>(null)
 
   // ── Contact edit state ─────────────────────────────────────────
   const [editingContact,   setEditingContact]   = useState(false)
@@ -204,8 +222,8 @@ export default function CaseEditClient({
     caseData.agencies?.display_name ?? caseData.agencies?.name ?? '—'
   )
   const [selectedAgencyId, setSelectedAgencyId] = useState(caseData.agency_id ?? '')
-  const [agentFirstName,   setAgentFirstName]   = useState(caseData.agents?.first_name ?? '')
-  const [agentLastName,    setAgentLastName]     = useState(caseData.agents?.last_name  ?? '')
+  const [selectedAgentId,  setSelectedAgentId]  = useState(caseData.agent_id  ?? '')
+  const [leadSource,       setLeadSource]        = useState(caseData.lead_source ?? '')
   const [agentSaving,  setAgentSaving]  = useState(false)
   const [agentMsg,     setAgentMsg]     = useState<{ ok: boolean; text: string } | null>(null)
   const [agencySaving, setAgencySaving] = useState(false)
@@ -279,6 +297,7 @@ export default function CaseEditClient({
       follow_up_date:  followUpDate || null,
       notes:           notes        || null,
       is_hot_lead:     isHotLead,
+      lead_source:     leadSource   || null,
     }
     if (isLost   && lostReasonId)   body.lost_reason_id   = lostReasonId
     if (isSnoozed && snoozeReasonId) body.snooze_reason_id = snoozeReasonId
@@ -311,6 +330,11 @@ export default function CaseEditClient({
       policy_number:   policyNumber  || null,
     }
     if (isWon) body.placed_at = placedAt ? new Date(placedAt).toISOString() : null
+    if (showDateOverrides) {
+      if (submittedAt)    body.submitted_at     = new Date(submittedAt).toISOString()
+      if (statusEnteredAt) body.status_entered_at = new Date(statusEnteredAt).toISOString()
+      if (caseCreatedAt)  body.created_at        = new Date(caseCreatedAt).toISOString()
+    }
     try {
       const res = await fetch(`/api/cases/${caseData.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -396,15 +420,15 @@ export default function CaseEditClient({
   }
 
   async function handleSaveAgent() {
-    if (!caseData.agent_id) return
     setAgentSaving(true); setAgentMsg(null)
     try {
-      const res = await fetch(`/api/agents/${caseData.agent_id}`, {
+      const res = await fetch(`/api/cases/${caseData.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ first_name: agentFirstName.trim(), last_name: agentLastName.trim() }),
+        body: JSON.stringify({ agent_id: selectedAgentId || null }),
       })
       if (!res.ok) { const j = await res.json(); setAgentMsg({ ok: false, text: j.error ?? 'Save failed' }); return }
-      setDisplayAgent(`${agentFirstName.trim()} ${agentLastName.trim()}`)
+      const picked = agentsList.find(a => a.id === selectedAgentId)
+      setDisplayAgent(picked ? `${picked.first_name} ${picked.last_name}` : null)
       setAgentMsg({ ok: true, text: 'Saved' }); setEditingAgent(false)
       setTimeout(() => setAgentMsg(null), 2000)
     } catch { setAgentMsg({ ok: false, text: 'Network error' }) }
@@ -618,7 +642,14 @@ export default function CaseEditClient({
                   <EditField label="First name" value={cFirstName} onChange={setCFirstName} />
                   <EditField label="Last name"  value={cLastName}  onChange={setCLastName}  />
                 </div>
-                <EditField label="Phone" value={cPhone} onChange={setCPhone} type="tel" placeholder="(555) 555-5555" />
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Phone</label>
+                  <input
+                    type="tel" value={cPhone} placeholder="(555) 555-5555"
+                    onChange={e => setCPhone(formatPhone(e.target.value))}
+                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 placeholder-slate-600"
+                  />
+                </div>
                 <EditField label="Email" value={cEmail} onChange={setCEmail} type="email" />
                 <EditField label="Street Address" value={cStreet} onChange={setCStreet} />
                 <div className="grid grid-cols-3 gap-2">
@@ -724,22 +755,29 @@ export default function CaseEditClient({
                 <User className="w-4 h-4 text-slate-400" />
                 <h2 className="text-sm font-semibold text-slate-200">LSP / Referring Agent</h2>
               </div>
-              {caseData.agent_id && (
-                <button onClick={() => { setEditingAgent(o => !o); setAgentMsg(null) }}
-                  className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors">
-                  <Pencil className="w-3 h-3" /> Edit
-                </button>
-              )}
+              <button onClick={() => { setEditingAgent(o => !o); setAgentMsg(null) }}
+                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors">
+                <Pencil className="w-3 h-3" /> Edit
+              </button>
             </div>
             {editingAgent ? (
               <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-2">
-                  <EditField label="First name" value={agentFirstName} onChange={setAgentFirstName} />
-                  <EditField label="Last name"  value={agentLastName}  onChange={setAgentLastName}  />
-                </div>
+                {agentsList.length > 0 ? (
+                  <select value={selectedAgentId} onChange={e => setSelectedAgentId(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 cursor-pointer">
+                    <option value="">— unassigned —</option>
+                    {agentsList.map(a => (
+                      <option key={a.id} value={a.id}>{a.first_name} {a.last_name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className="text-xs text-slate-500 italic">
+                    No agents found for this agency. Assign an agency first.
+                  </p>
+                )}
                 {agentMsg && <p className={`text-xs ${agentMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{agentMsg.text}</p>}
                 <div className="flex items-center gap-2">
-                  <button onClick={handleSaveAgent} disabled={agentSaving}
+                  <button onClick={handleSaveAgent} disabled={agentSaving || agentsList.length === 0}
                     className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
                     style={{ backgroundColor: '#1F3864' }}>
                     <Check className="w-3.5 h-3.5" /> {agentSaving ? 'Saving…' : 'Save'}
@@ -754,9 +792,12 @@ export default function CaseEditClient({
               <div className="space-y-1">
                 {displayAgent
                   ? <p className="text-slate-200 text-sm font-medium">{displayAgent}</p>
-                  : <p className="text-slate-500 text-sm italic">No LSP assigned</p>}
-                {caseData.agents && 'email' in caseData.agents && (caseData.agents as { email?: string | null }).email && (
-                  <p className="text-xs text-slate-500">{(caseData.agents as { email?: string | null }).email}</p>
+                  : <button onClick={() => setEditingAgent(true)}
+                      className="text-sm text-slate-600 hover:text-slate-400 italic transition-colors">
+                      No LSP assigned — assign one
+                    </button>}
+                {caseData.agents?.email && (
+                  <p className="text-xs text-slate-500">{caseData.agents.email}</p>
                 )}
                 {agentMsg && <p className={`text-xs ${agentMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{agentMsg.text}</p>}
               </div>
@@ -972,6 +1013,18 @@ export default function CaseEditClient({
               </div>
             </label>
 
+            {/* Lead Source */}
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">Lead Source</label>
+              <select value={leadSource} onChange={e => setLeadSource(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 cursor-pointer">
+                <option value="">— not set —</option>
+                <option value="agency_referral">Agency Referral</option>
+                <option value="allstate_web">Allstate.com (A.COM)</option>
+                <option value="self_generated">Self-Generated</option>
+              </select>
+            </div>
+
             {/* Follow-up date */}
             <div>
               <label className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
@@ -1105,6 +1158,37 @@ export default function CaseEditClient({
                 <p className="text-xs text-slate-600 mt-1">Use the carrier's issue date.</p>
               </div>
             )}
+
+            {/* Date overrides — imported cases */}
+            <div>
+              <button type="button" onClick={() => setShowDateOverrides(o => !o)}
+                className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-400 transition-colors">
+                {showDateOverrides ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                Date Overrides (imported cases)
+              </button>
+              {showDateOverrides && (
+                <div className="mt-3 space-y-3 rounded-lg border border-slate-700 bg-slate-800/30 p-3">
+                  <p className="text-xs text-slate-500">
+                    Override timestamps for accuracy on imported records. These save with the button below.
+                  </p>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">App Submitted Date</label>
+                    <input type="date" value={submittedAt} onChange={e => setSubmittedAt(e.target.value)}
+                      className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Status Set Date</label>
+                    <input type="date" value={statusEnteredAt} onChange={e => setStatusEnteredAt(e.target.value)}
+                      className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Case Created Date</label>
+                    <input type="date" value={caseCreatedAt} onChange={e => setCaseCreatedAt(e.target.value)}
+                      className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+                  </div>
+                </div>
+              )}
+            </div>
 
             <div className="flex items-center justify-between pt-1">
               {policyMsg

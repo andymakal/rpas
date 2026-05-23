@@ -91,6 +91,13 @@ function fmtStatus(s: string): string {
   return s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
+function formatPhone(v: string): string {
+  const digits = v.replace(/\D/g, '').slice(0, 10)
+  if (digits.length < 4) return digits
+  if (digits.length < 7) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+}
+
 // ── Sub-components ────────────────────────────────────────────────────────────
 
 function QuoteRow({ label, value }: { label: string; value: string }) {
@@ -601,7 +608,14 @@ export function ReferralEditClient({
                   <EditField label="First name" value={cFirstName} onChange={setCFirstName} />
                   <EditField label="Last name"  value={cLastName}  onChange={setCLastName}  />
                 </div>
-                <EditField label="Phone" value={cPhone} onChange={setCPhone} type="tel" placeholder="(555) 555-5555" />
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Phone</label>
+                  <input
+                    type="tel" value={cPhone} placeholder="(555) 555-5555"
+                    onChange={e => setCPhone(formatPhone(e.target.value))}
+                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 placeholder-slate-600"
+                  />
+                </div>
                 <EditField label="Email" value={cEmail} onChange={setCEmail} type="email" placeholder="client@email.com" />
                 <EditField label="Street Address" value={cStreet} onChange={setCStreet} placeholder="123 Main St" />
                 <div className="grid grid-cols-3 gap-2">
