@@ -7,7 +7,7 @@ import {
   ArrowLeft, Phone, Building2, User, Calendar, Clock,
   MessageSquare, Mail, AlertCircle, PhoneCall, PhoneOff,
   MessageCircle, ChevronDown, ChevronUp, DollarSign, Pencil, Check, X, MapPin,
-  CalendarClock, History, Flame,
+  CalendarClock, History, Flame, Send,
 } from 'lucide-react'
 import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember } from './page'
 import { HouseholdCard } from '@/components/HouseholdCard'
@@ -204,6 +204,10 @@ export function ReferralEditClient({
   // ── SPIFF ──────────────────────────────────────────────────────
   const [spiffEarned, setSpiffEarned] = useState(referral.spiff_earned)
   const [spiffSaving, setSpiffSaving] = useState(false)
+
+  // ── App submission ─────────────────────────────────────────────
+  const [submitting,  setSubmitting]  = useState(false)
+  const [submitMsg,   setSubmitMsg]   = useState<{ ok: boolean; text: string } | null>(null)
 
   // ── Contact editing ────────────────────────────────────────────
   const [editingContact,   setEditingContact]   = useState(false)
@@ -466,6 +470,24 @@ export function ReferralEditClient({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ spanish_speaking: checked }),
     })
+  }
+
+  async function handleSubmitApp() {
+    setSubmitting(true); setSubmitMsg(null)
+    try {
+      const res = await fetch(`/api/cases/${referral.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ internal_status: 'app_submitted' }),
+      })
+      if (!res.ok) {
+        const j = await res.json()
+        setSubmitMsg({ ok: false, text: j.error ?? 'Failed to submit application' })
+      } else {
+        router.push(`/cases/${referral.id}`)
+      }
+    } catch { setSubmitMsg({ ok: false, text: 'Network error' }) }
+    finally   { setSubmitting(false) }
   }
 
   async function handleLogTouch() {
@@ -1039,7 +1061,34 @@ export function ReferralEditClient({
             </div>
           </div>
 
-          {/* 2 — Quote Info */}
+          {/* 2 — Application Bridge */}
+          {referral.stage_translations?.tier === 1 && (
+            <div className="rounded-xl border border-emerald-800/40 bg-emerald-950/20 p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <Send className="w-4 h-4 text-emerald-400" />
+                <h2 className="text-sm font-semibold text-emerald-300">Ready to Apply?</h2>
+              </div>
+              <p className="text-xs text-slate-400 leading-relaxed">
+                When the client is ready to move forward with a life insurance application,
+                use this to hand off to case management.
+                The record moves to the{' '}
+                <span className="text-slate-300 font-medium">Cases</span> pipeline.
+              </p>
+              {submitMsg && (
+                <p className={`text-xs ${submitMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{submitMsg.text}</p>
+              )}
+              <button
+                onClick={handleSubmitApp}
+                disabled={submitting}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-white bg-emerald-700 hover:bg-emerald-600 transition-colors disabled:opacity-50"
+              >
+                <Send className="w-4 h-4" />
+                {submitting ? 'Submitting…' : 'Application Submitted'}
+              </button>
+            </div>
+          )}
+
+          {/* 3 — Quote Info */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide">Quote Info</h2>
@@ -1141,7 +1190,7 @@ export function ReferralEditClient({
             )}
           </div>
 
-          {/* 3 — Appointment & Notes */}
+          {/* 4 — Appointment & Notes */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
             <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
               <MessageSquare className="w-3.5 h-3.5" /> Appointment & Notes
