@@ -36,6 +36,7 @@ const EMPTY_FORM: ReferralFormData = {
   review_401k: false,
   retirement_prep: false,
   is_hot_lead: false,
+  spanish_speaking: false,
   consent_confirmed: undefined as unknown as true,
 }
 
@@ -455,6 +456,13 @@ export function ReferralIntakeForm({
           </Field>
         </div>
       </div>
+
+      <Toggle
+        checked={form.spanish_speaking ?? false}
+        onChange={(v) => set('spanish_speaking', v)}
+        label="Spanish Speaking"
+        description="Client's primary language is Spanish"
+      />
 
       {/* Consent attestation */}
       <div className={`rounded-xl border-2 p-4 transition-colors ${

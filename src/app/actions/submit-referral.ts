@@ -63,8 +63,9 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
           street:        form.client_address  || null,
           city:          form.client_city     || null,
           state:         form.client_state    || null,
-          zip:           form.client_zip      || null,
-          is_test:       false,
+          zip:              form.client_zip      || null,
+          spanish_speaking: form.spanish_speaking ?? false,
+          is_test:          false,
         })
         .select('id')
         .single()

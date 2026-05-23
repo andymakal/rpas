@@ -25,6 +25,7 @@ export const referralSchema = z.object({
   review_401k: z.boolean().default(false),
   retirement_prep: z.boolean().default(false),
   is_hot_lead: z.boolean().default(false),
+  spanish_speaking: z.boolean().default(false),
   consent_confirmed: z.literal(true, {
     error: 'You must confirm client consent before submitting',
   }),
@@ -38,6 +39,7 @@ export const step2Schema = referralSchema.pick({
   client_first_name: true, client_last_name: true, client_phone: true,
   client_email: true, client_dob: true, client_marital_status: true,
   client_address: true, client_city: true, client_state: true, client_zip: true,
+  spanish_speaking: true,
   consent_confirmed: true,
 })
 

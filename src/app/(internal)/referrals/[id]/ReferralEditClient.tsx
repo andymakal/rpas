@@ -181,6 +181,7 @@ export function ReferralEditClient({
   )
   const [followUpDate, setFollowUpDate] = useState(referral.follow_up_date ?? '')
   const [notes,        setNotes]        = useState(referral.notes ?? '')
+  const [isHotLead,    setIsHotLead]    = useState(referral.is_hot_lead)
   const [saving,       setSaving]       = useState(false)
   const [saveMsg,      setSaveMsg]      = useState<{ ok: boolean; text: string } | null>(null)
   const [notesSaving,  setNotesSaving]  = useState(false)
@@ -261,7 +262,6 @@ export function ReferralEditClient({
   const agentEmail     = referral.agents?.email ?? null
   const agencyEmail    = referral.agencies?.contact_email ?? null
   const isOwner        = referral.is_owner_referral
-  const isHotLead      = referral.is_hot_lead
 
   const rewarmMailto = showRewarmEmail
     ? buildRewarmMailto(displayName, cFirstName, agentFirstName, agentEmail, agencyEmail)
@@ -276,6 +276,7 @@ export function ReferralEditClient({
     const body: Record<string, unknown> = {
       internal_status: status,
       follow_up_date:  followUpDate || null,
+      is_hot_lead:     isHotLead,
     }
     if (showProducerDropdown) body.producer_id = producerId || null
     try {
@@ -452,6 +453,15 @@ export function ReferralEditClient({
       const res = await fetch(`/api/cases/${referral.id}/spiff`, { method: checked ? 'POST' : 'DELETE' })
       if (res.ok) setSpiffEarned(checked)
     } finally { setSpiffSaving(false) }
+  }
+
+  async function handleSpanishToggle(checked: boolean) {
+    setCSpanish(checked)
+    await fetch(`/api/customers/${referral.customer_id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ spanish_speaking: checked }),
+    })
   }
 
   async function handleLogTouch() {
@@ -643,13 +653,14 @@ export function ReferralEditClient({
                     </span>
                   </div>
                 )}
-                {cSpanish && (
-                  <div className="flex items-center gap-2.5">
-                    <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-blue-900/50 text-blue-300 border border-blue-800">
-                      Habla Español
-                    </span>
-                  </div>
-                )}
+                <label className="flex items-center gap-2.5 cursor-pointer group">
+                  <input type="checkbox" checked={cSpanish}
+                    onChange={e => handleSpanishToggle(e.target.checked)}
+                    className="h-4 w-4 rounded accent-blue-500 cursor-pointer" />
+                  <span className={`text-sm transition-colors ${cSpanish ? 'text-blue-300' : 'text-slate-500 group-hover:text-slate-300'}`}>
+                    Spanish Speaking
+                  </span>
+                </label>
                 <div className="flex items-center gap-2.5">
                   <Calendar className="w-4 h-4 text-slate-500 flex-shrink-0" />
                   <span className="text-slate-500 text-xs">{fmt(referral.created_at)}</span>
@@ -971,6 +982,21 @@ export function ReferralEditClient({
                 </a>
               </div>
             )}
+
+            {/* Hot Lead toggle */}
+            <label className={`flex items-start gap-3 rounded-lg border-2 p-3 cursor-pointer transition-all ${
+              isHotLead ? 'border-orange-700 bg-orange-950/30' : 'border-slate-700 hover:border-slate-600'
+            }`}>
+              <input type="checkbox" checked={isHotLead} onChange={e => setIsHotLead(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded accent-orange-500 cursor-pointer" />
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <Flame className={`w-3.5 h-3.5 ${isHotLead ? 'text-orange-400' : 'text-slate-500'}`} />
+                  <p className={`text-sm font-medium ${isHotLead ? 'text-orange-300' : 'text-slate-200'}`}>Hot Lead</p>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">High priority — flag for immediate attention</p>
+              </div>
+            </label>
 
             {/* Follow-up date */}
             <div>
