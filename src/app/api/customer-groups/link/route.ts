@@ -2,13 +2,13 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest } from 'next/server'
 
 /**
- * POST /api/households/link
- * Links two customers into the same household.
+ * POST /api/customer-groups/link
+ * Links two customers into the same customer group (household unit).
  *
  * Rules:
- * - Neither in a household → create new household, assign both
- * - One in a household    → assign the other to that household
- * - Both in households    → merge: move all members of the smaller into the larger
+ * - Neither in a group  → create new group, assign both
+ * - One in a group      → assign the other to that group
+ * - Both in groups      → merge: move all members of the smaller into the larger
  */
 export async function POST(request: NextRequest) {
   const supabase = createAdminClient()
@@ -26,10 +26,9 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'Cannot link a customer to themselves' }, { status: 400 })
   }
 
-  // Fetch both customers
   const { data: customers, error: fetchErr } = await supabase
     .from('customers')
-    .select('id, household_id, agency_id, first_name, last_name')
+    .select('id, customer_group_id, agency_id, first_name, last_name')
     .in('id', [customer_id_a, customer_id_b])
 
   if (fetchErr || !customers || customers.length < 2) {
@@ -38,51 +37,46 @@ export async function POST(request: NextRequest) {
 
   const a = customers.find(c => c.id === customer_id_a)!
   const b = customers.find(c => c.id === customer_id_b)!
-
   const now = new Date().toISOString()
-  let householdId: string
+  let groupId: string
 
-  if (!a.household_id && !b.household_id) {
-    // Neither has a household — create one
-    const { data: hh, error: hhErr } = await supabase
-      .from('households')
+  if (!a.customer_group_id && !b.customer_group_id) {
+    const { data: grp, error: grpErr } = await supabase
+      .from('customer_groups')
       .insert({ agency_id: a.agency_id ?? b.agency_id ?? null, updated_at: now })
       .select('id')
       .single()
-    if (hhErr || !hh) return Response.json({ error: 'Failed to create household' }, { status: 500 })
-    householdId = hh.id
+    if (grpErr || !grp) return Response.json({ error: 'Failed to create group' }, { status: 500 })
+    groupId = grp.id
     await supabase
       .from('customers')
-      .update({ household_id: householdId, updated_at: now })
+      .update({ customer_group_id: groupId, updated_at: now })
       .in('id', [customer_id_a, customer_id_b])
 
-  } else if (a.household_id && !b.household_id) {
-    // A has a household, B does not
-    householdId = a.household_id
+  } else if (a.customer_group_id && !b.customer_group_id) {
+    groupId = a.customer_group_id
     await supabase
       .from('customers')
-      .update({ household_id: householdId, updated_at: now })
+      .update({ customer_group_id: groupId, updated_at: now })
       .eq('id', customer_id_b)
 
-  } else if (!a.household_id && b.household_id) {
-    // B has a household, A does not
-    householdId = b.household_id
+  } else if (!a.customer_group_id && b.customer_group_id) {
+    groupId = b.customer_group_id
     await supabase
       .from('customers')
-      .update({ household_id: householdId, updated_at: now })
+      .update({ customer_group_id: groupId, updated_at: now })
       .eq('id', customer_id_a)
 
   } else {
-    // Both already in households — merge B's household into A's
-    householdId = a.household_id!
-    const oldId  = b.household_id!
+    // Both in groups — merge B's group into A's
+    groupId   = a.customer_group_id!
+    const oldId = b.customer_group_id!
     await supabase
       .from('customers')
-      .update({ household_id: householdId, updated_at: now })
-      .eq('household_id', oldId)
-    // Clean up the now-empty household
-    await supabase.from('households').delete().eq('id', oldId)
+      .update({ customer_group_id: groupId, updated_at: now })
+      .eq('customer_group_id', oldId)
+    await supabase.from('customer_groups').delete().eq('id', oldId)
   }
 
-  return Response.json({ data: { household_id: householdId } })
+  return Response.json({ data: { customer_group_id: groupId } })
 }

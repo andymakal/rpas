@@ -47,7 +47,7 @@ export type CaseDetail = {
     phone: string | null
     date_of_birth: string | null
     spanish_speaking: boolean
-    household_id: string | null
+    customer_group_id: string | null
   } | null
   agencies: { id: string; name: string; display_name: string | null; slug: string } | null
   agents: { first_name: string; last_name: string } | null
@@ -82,7 +82,7 @@ export type HouseholdMember = {
   first_name: string
   last_name: string
   phone: string | null
-  household_id: string | null
+  customer_group_id: string | null
   latest_case: {
     id: string
     internal_status: string
@@ -141,7 +141,7 @@ export default async function CaseDetailPage({
         policy_number, face_amount, annual_premium, follow_up_date, lead_source, notes,
         appointment_date, touches, last_contact_at, placed_at, table_rating, is_hot_lead,
         agency_id, customer_id, agent_id,
-        customers ( first_name, last_name, email, phone, date_of_birth, spanish_speaking, household_id ),
+        customers ( first_name, last_name, email, phone, date_of_birth, spanish_speaking, customer_group_id ),
         agencies ( id, name, display_name, slug ),
         agents ( first_name, last_name ),
         stage_translations ( agency_label, tier, is_active_case, is_won, is_lost, is_snoozed ),
@@ -222,26 +222,26 @@ export default async function CaseDetailPage({
         .order('created_at', { ascending: false })
     : { data: [] }
 
-  const householdId = cd.customers?.household_id ?? null
+  const householdId = cd.customers?.customer_group_id ?? null
 
   const { data: householdRaw } = householdId
     ? await supabase
         .from('customers')
-        .select('id, first_name, last_name, phone, household_id, cases ( id, internal_status, stage_translations ( agency_label, tier, is_won, is_lost ) )')
-        .eq('household_id', householdId)
+        .select('id, first_name, last_name, phone, customer_group_id, cases ( id, internal_status, stage_translations ( agency_label, tier, is_won, is_lost ) )')
+        .eq('customer_group_id', householdId)
         .neq('id', cd.customer_id ?? '')
         .eq('is_test', false)
     : { data: [] }
 
   type RawHHMember = {
-    id: string; first_name: string; last_name: string; phone: string | null; household_id: string | null
+    id: string; first_name: string; last_name: string; phone: string | null; customer_group_id: string | null
     cases: { id: string; internal_status: string; stage_translations: { agency_label: string; tier: number; is_won: boolean; is_lost: boolean } | null }[]
   }
   const householdMembers: HouseholdMember[] = ((householdRaw ?? []) as unknown as RawHHMember[]).map(m => {
     const lc = m.cases?.[0] ?? null
     return {
       id: m.id, first_name: m.first_name, last_name: m.last_name,
-      phone: m.phone, household_id: m.household_id,
+      phone: m.phone, customer_group_id: m.customer_group_id,
       latest_case: lc ? {
         id: lc.id, internal_status: lc.internal_status,
         agency_label: lc.stage_translations?.agency_label ?? null,

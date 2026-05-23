@@ -9,7 +9,7 @@ export type HouseholdMember = {
   first_name: string
   last_name: string
   phone: string | null
-  household_id: string | null
+  customer_group_id: string | null
   latest_case: {
     id: string
     internal_status: string
@@ -25,7 +25,7 @@ type SearchResult = {
   first_name: string
   last_name: string
   phone: string | null
-  household_id: string | null
+  customer_group_id: string | null
   cases: {
     id: string
     internal_status: string
@@ -84,7 +84,7 @@ export function HouseholdCard({
   async function handleLink(targetCustomerId: string) {
     setLinking(targetCustomerId); setError(null)
     try {
-      const res = await fetch('/api/households/link', {
+      const res = await fetch('/api/customer-groups/link', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -98,7 +98,7 @@ export function HouseholdCard({
         return
       }
       const { data } = await res.json()
-      setHouseholdId(data.household_id)
+      setHouseholdId(data.customer_group_id)
       setSearching(false)
       setSearchQ('')
       setSearchResults([])
@@ -112,7 +112,7 @@ export function HouseholdCard({
     setUnlinking(targetCustomerId); setError(null)
     try {
       const res = await fetch(
-        `/api/households/${memberHouseholdId}/members/${targetCustomerId}`,
+        `/api/customer-groups/${memberHouseholdId}/members/${targetCustomerId}`,
         { method: 'DELETE' }
       )
       if (!res.ok) {

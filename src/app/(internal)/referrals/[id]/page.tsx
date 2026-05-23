@@ -71,7 +71,7 @@ export type HouseholdMember = {
   first_name: string
   last_name: string
   phone: string | null
-  household_id: string | null
+  customer_group_id: string | null
   latest_case: {
     id: string
     internal_status: string
@@ -115,7 +115,7 @@ export default async function ReferralDetailPage({
       internal_status, created_at, status_entered_at, appointment_date,
       follow_up_date, face_amount, annual_premium, policy_number,
       notes, touches, last_contact_at, spiff_earned, spiff_earned_at, is_hot_lead, is_owner_referral, producer_id, lead_source,
-      customers ( first_name, last_name, phone, email, street, city, state, zip, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, spanish_speaking, household_id ),
+      customers ( first_name, last_name, phone, email, street, city, state, zip, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, spanish_speaking, customer_group_id ),
       agencies ( name, display_name, contact_email ),
       agents ( id, first_name, last_name, email ),
       stage_translations ( agency_label, tier, is_active_case, is_won, is_lost )
@@ -135,7 +135,7 @@ export default async function ReferralDetailPage({
 
   const cd = caseData as unknown as ReferralDetail
 
-  const householdId = (cd.customers as unknown as { household_id: string | null } | null)?.household_id ?? null
+  const householdId = (cd.customers as unknown as { customer_group_id: string | null } | null)?.customer_group_id ?? null
 
   const [{ data: stages }, { data: touchLog }, { data: agentsList }, { data: agenciesList }, { data: statusHistory }, { data: producersList }, { data: householdMembers }] = await Promise.all([
     supabase
@@ -172,8 +172,8 @@ export default async function ReferralDetailPage({
     householdId
       ? supabase
           .from('customers')
-          .select('id, first_name, last_name, phone, household_id, cases ( id, internal_status, stage_translations ( agency_label, tier, is_won, is_lost ) )')
-          .eq('household_id', householdId)
+          .select('id, first_name, last_name, phone, customer_group_id, cases ( id, internal_status, stage_translations ( agency_label, tier, is_won, is_lost ) )')
+          .eq('customer_group_id', householdId)
           .neq('id', cd.customer_id)
           .eq('is_test', false)
       : Promise.resolve({ data: [] }),
@@ -181,14 +181,14 @@ export default async function ReferralDetailPage({
 
   // Shape household members for the card
   type RawMember = {
-    id: string; first_name: string; last_name: string; phone: string | null; household_id: string | null
+    id: string; first_name: string; last_name: string; phone: string | null; customer_group_id: string | null
     cases: { id: string; internal_status: string; stage_translations: { agency_label: string; tier: number; is_won: boolean; is_lost: boolean } | null }[]
   }
   const shapedMembers: HouseholdMember[] = ((householdMembers ?? []) as unknown as RawMember[]).map(m => {
     const latestCase = m.cases?.[0] ?? null
     return {
       id: m.id, first_name: m.first_name, last_name: m.last_name,
-      phone: m.phone, household_id: m.household_id,
+      phone: m.phone, customer_group_id: m.customer_group_id,
       latest_case: latestCase ? {
         id: latestCase.id,
         internal_status: latestCase.internal_status,

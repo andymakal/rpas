@@ -31,16 +31,16 @@ export async function POST(
   if (caseRow.customer_id) {
     const { data: customer } = await supabase
       .from('customers')
-      .select('household_id')
+      .select('customer_group_id')
       .eq('id', caseRow.customer_id)
       .single()
 
-    if (customer?.household_id) {
-      // Find all customer IDs in this household
+    if (customer?.customer_group_id) {
+      // Find all customer IDs in this group
       const { data: hhMembers } = await supabase
         .from('customers')
         .select('id')
-        .eq('household_id', customer.household_id)
+        .eq('customer_group_id', customer.customer_group_id)
         .neq('id', caseRow.customer_id)
 
       if (hhMembers && hhMembers.length > 0) {
