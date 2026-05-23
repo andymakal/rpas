@@ -21,7 +21,9 @@ import type {
   TouchLog,
   StatusHistoryEntry,
   SiblingCase,
+  HouseholdMember,
 } from './page'
+import { HouseholdCard } from '@/components/HouseholdCard'
 
 // ── Touch log constants ───────────────────────────────────────
 const TOUCH_TYPES: { value: string; label: string; icon: React.ReactNode; short: string }[] = [
@@ -97,6 +99,8 @@ type Props = {
   touchLog:            TouchLog[]
   statusHistory:       StatusHistoryEntry[]
   siblingCases:        SiblingCase[]
+  householdId:         string | null
+  householdMembers:    HouseholdMember[]
 }
 
 export default function CaseEditClient({
@@ -112,6 +116,8 @@ export default function CaseEditClient({
   touchLog: initialTouchLog,
   statusHistory,
   siblingCases: initialSiblings,
+  householdId,
+  householdMembers,
 }: Props) {
   const router = useRouter()
   const days = daysInStatus(caseData.status_entered_at)
@@ -964,6 +970,16 @@ export default function CaseEditClient({
                 )}
               </div>
             )}
+
+            {/* Household */}
+            <HouseholdCard
+              currentCustomerId={caseData.customer_id ?? ''}
+              currentCaseId={caseData.id}
+              householdId={householdId}
+              members={householdMembers}
+              currentPersonName={displayName}
+              agencyId={caseData.agency_id}
+            />
 
             {/* Also on file / Add Policy */}
             <div className="rounded-xl border border-slate-800 bg-slate-900 p-6">

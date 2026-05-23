@@ -11,7 +11,7 @@ export async function POST(
 
   const { data: caseRow, error: fetchErr } = await supabase
     .from('cases')
-    .select('spiff_earned, agent_id, agency_id, is_owner_referral')
+    .select('spiff_earned, agent_id, agency_id, is_owner_referral, customer_id')
     .eq('id', id)
     .single()
 
@@ -25,6 +25,41 @@ export async function POST(
 
   if (caseRow.spiff_earned) {
     return Response.json({ error: 'SPIFF already earned for this case' }, { status: 409 })
+  }
+
+  // Household guard — one SPIFF per household regardless of how many members or cases
+  if (caseRow.customer_id) {
+    const { data: customer } = await supabase
+      .from('customers')
+      .select('household_id')
+      .eq('id', caseRow.customer_id)
+      .single()
+
+    if (customer?.household_id) {
+      // Find all customer IDs in this household
+      const { data: hhMembers } = await supabase
+        .from('customers')
+        .select('id')
+        .eq('household_id', customer.household_id)
+        .neq('id', caseRow.customer_id)
+
+      if (hhMembers && hhMembers.length > 0) {
+        const memberIds = hhMembers.map(m => m.id)
+        const { data: hhCases } = await supabase
+          .from('cases')
+          .select('id, spiff_earned')
+          .in('customer_id', memberIds)
+          .eq('spiff_earned', true)
+          .limit(1)
+
+        if (hhCases && hhCases.length > 0) {
+          return Response.json(
+            { error: 'SPIFF already earned for another member of this household' },
+            { status: 409 }
+          )
+        }
+      }
+    }
   }
 
   const now = new Date().toISOString()

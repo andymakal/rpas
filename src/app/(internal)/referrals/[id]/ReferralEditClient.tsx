@@ -9,7 +9,8 @@ import {
   MessageCircle, ChevronDown, ChevronUp, DollarSign, Pencil, Check, X, MapPin,
   CalendarClock, History, Flame,
 } from 'lucide-react'
-import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption } from './page'
+import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember } from './page'
+import { HouseholdCard } from '@/components/HouseholdCard'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -158,18 +159,21 @@ function buildRewarmMailto(
 // ── Main component ─────────────────────────────────────────────────────────────
 
 type Props = {
-  referral:      ReferralDetail
-  stages:        Tier1Stage[]
-  touchLog:      TouchLog[]
-  agentsList:    AgentOption[]
-  agenciesList:  AgencyOption[]
-  statusHistory: StatusHistoryEntry[]
-  producersList: ProducerOption[]
+  referral:         ReferralDetail
+  stages:           Tier1Stage[]
+  touchLog:         TouchLog[]
+  agentsList:       AgentOption[]
+  agenciesList:     AgencyOption[]
+  statusHistory:    StatusHistoryEntry[]
+  producersList:    ProducerOption[]
+  householdId:      string | null
+  householdMembers: HouseholdMember[]
 }
 
 export function ReferralEditClient({
   referral, stages: _stages, touchLog: initialTouchLog,
   agentsList, agenciesList, statusHistory, producersList,
+  householdId, householdMembers,
 }: Props) {
   const router = useRouter()
 
@@ -847,7 +851,17 @@ export function ReferralEditClient({
             )}
           </div>
 
-          {/* 6 — Status History */}
+          {/* 6 — Household */}
+          <HouseholdCard
+            currentCustomerId={referral.customer_id}
+            currentCaseId={referral.id}
+            householdId={householdId}
+            members={householdMembers}
+            currentPersonName={displayName}
+            agencyId={referral.agency_id}
+          />
+
+          {/* 7 — Status History */}
           {statusHistory.length > 0 && (
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
               <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide flex items-center gap-1.5">

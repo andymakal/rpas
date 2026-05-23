@@ -50,6 +50,55 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       if (Object.keys(contactUpdate).length > 0) {
         await supabase.from('customers').update(contactUpdate).eq('id', existing.id)
       }
+
+      // Check for an existing case for this customer at this agency.
+      // Re-open it rather than creating a duplicate — preserves SPIFF history
+      // and keeps the full lifecycle on one record.
+      const { data: existingCase } = await supabase
+        .from('cases')
+        .select('id, internal_status, spiff_earned, notes')
+        .eq('customer_id', existing.id)
+        .eq('agency_id', form.agency_id)
+        .eq('is_test', false)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+
+      if (existingCase) {
+        const now = new Date().toISOString()
+        const reReferNote = `Re-referred by: ${form.lsp_name} on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+        const updatedNotes = existingCase.notes
+          ? `${existingCase.notes}\n${reReferNote}`
+          : reReferNote
+
+        await supabase.from('cases').update({
+          internal_status:    'triage',
+          status_entered_at:  now,
+          is_hot_lead:        form.is_hot_lead ?? false,
+          notes:              updatedNotes,
+          updated_at:         now,
+        }).eq('id', existingCase.id)
+
+        await supabase.from('case_status_history').insert({
+          case_id:     existingCase.id,
+          from_status: existingCase.internal_status,
+          to_status:   'triage',
+          changed_at:  now,
+        })
+
+        await supabase.from('notifications').insert({
+          type:  'new_referral',
+          title: `Re-referral: ${form.client_first_name} ${form.client_last_name}`,
+          body:  `Re-referred by ${form.lsp_name} — existing record re-opened`,
+          link:  `/referrals/${existingCase.id}`,
+        })
+
+        return {
+          success:     true,
+          referral_id: existingCase.id,
+          client_name: `${form.client_first_name} ${form.client_last_name}`,
+        }
+      }
     } else {
       const { data: newCustomer, error: custErr } = await supabase
         .from('customers')
