@@ -36,6 +36,7 @@ export type CaseDetail = {
   touches: number | null
   last_contact_at: string | null
   placed_at: string | null
+  submitted_at: string | null
   is_hot_lead: boolean
   agency_id: string | null
   customer_id: string | null
@@ -46,6 +47,13 @@ export type CaseDetail = {
     email: string | null
     phone: string | null
     date_of_birth: string | null
+    marital_status: string | null
+    gender: string | null
+    tobacco_use: string | null
+    height_ft: number | null
+    height_in: number | null
+    weight_lbs: number | null
+    health_notes: string | null
     spanish_speaking: boolean
     customer_group_id: string | null
   } | null
@@ -73,6 +81,9 @@ export type CaseDetail = {
     id: string
     pending_requirement_id: string
     resolved_at: string | null
+    ordered_at: string | null
+    scheduled_at: string | null
+    completed_at: string | null
     pending_requirements: { name: string } | null
   }[]
 }
@@ -93,14 +104,14 @@ export type HouseholdMember = {
   } | null
 }
 
-export type StageLookup = { id: string; internal_status: string; agency_label: string; tier: number }
+export type StageLookup = { id: string; internal_status: string; agency_label: string; tier: number; is_won: boolean; is_lost: boolean; is_snoozed: boolean; is_active_case: boolean }
 export type AgencyLookup = { id: string; name: string; display_name: string | null }
 export type ProductLookup = { id: string; name: string; carrier_id: string | null; carriers: { short_name: string } | null }
 export type RateClassLookup = { id: string; name: string }
 export type PremiumModeLookup = { id: string; name: string }
 export type LostReasonLookup = { id: string; agency_label: string }
 export type SnoozeReasonLookup = { id: string; agency_label: string }
-export type PendingRequirementLookup = { id: string; name: string; sort_order: number }
+export type PendingRequirementLookup = { id: string; name: string; sort_order: number; has_date_fields: boolean }
 export type TouchLog = { id: string; touch_type: string; notes: string | null; touched_at: string }
 export type StatusHistoryEntry = { id: string; from_status: string | null; to_status: string; changed_at: string }
 export type SiblingCase = {
@@ -139,9 +150,9 @@ export default async function CaseDetailPage({
       .select(`
         id, internal_status, created_at, status_entered_at, updated_at,
         policy_number, face_amount, annual_premium, follow_up_date, lead_source, notes,
-        appointment_date, touches, last_contact_at, placed_at, table_rating, is_hot_lead,
+        appointment_date, touches, last_contact_at, placed_at, submitted_at, table_rating, is_hot_lead,
         agency_id, customer_id, agent_id,
-        customers ( first_name, last_name, email, phone, date_of_birth, spanish_speaking, customer_group_id ),
+        customers ( first_name, last_name, email, phone, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, spanish_speaking, customer_group_id ),
         agencies ( id, name, display_name, slug ),
         agents ( first_name, last_name ),
         stage_translations ( agency_label, tier, is_active_case, is_won, is_lost, is_snoozed ),
@@ -150,13 +161,13 @@ export default async function CaseDetailPage({
         premium_modes ( id, name ),
         lost_reasons ( id, agency_label ),
         snooze_reasons ( id, agency_label ),
-        case_pending_requirements ( id, pending_requirement_id, resolved_at, pending_requirements ( name ) )
+        case_pending_requirements ( id, pending_requirement_id, resolved_at, ordered_at, scheduled_at, completed_at, pending_requirements ( name ) )
       `)
       .eq('id', id)
       .single(),
     supabase
       .from('stage_translations')
-      .select('id, internal_status, agency_label, tier')
+      .select('id, internal_status, agency_label, tier, is_won, is_lost, is_snoozed, is_active_case')
       .order('tier')
       .order('stage_order'),
     supabase
@@ -187,7 +198,7 @@ export default async function CaseDetailPage({
       .order('sort_order'),
     supabase
       .from('pending_requirements')
-      .select('id, name, sort_order')
+      .select('id, name, sort_order, has_date_fields')
       .order('sort_order'),
     supabase
       .from('case_touches')
