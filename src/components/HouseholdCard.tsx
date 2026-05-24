@@ -99,6 +99,30 @@ export function HouseholdCard({
       }
       const { data } = await res.json()
       setHouseholdId(data.customer_group_id)
+
+      // Immediately add the linked person to the members list so it shows
+      // without waiting for a full page reload. router.refresh() will sync
+      // any stale data in the background.
+      const found = searchResults.find(r => r.id === targetCustomerId)
+      if (found) {
+        const lc = found.cases?.[0] ?? null
+        setMembers(prev => [...prev, {
+          id:               found.id,
+          first_name:       found.first_name,
+          last_name:        found.last_name,
+          phone:            found.phone,
+          customer_group_id: data.customer_group_id,
+          latest_case: lc ? {
+            id:               lc.id,
+            internal_status:  lc.internal_status,
+            agency_label:     lc.stage_translations?.agency_label ?? null,
+            is_won:           lc.stage_translations?.is_won  ?? false,
+            is_lost:          lc.stage_translations?.is_lost ?? false,
+            is_referral:      false,
+          } : null,
+        }])
+      }
+
       setSearching(false)
       setSearchQ('')
       setSearchResults([])

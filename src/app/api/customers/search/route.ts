@@ -18,6 +18,10 @@ export async function GET(request: NextRequest) {
 
   const supabase = createAdminClient()
 
+  // Note: we intentionally do NOT filter by agency_id here — household members
+  // may belong to different agencies (e.g. spouse processed by a different agent).
+  void agencyId  // received but not used; kept in signature for future use
+
   let query = supabase
     .from('customers')
     .select(`
@@ -30,7 +34,6 @@ export async function GET(request: NextRequest) {
     .order('first_name')
     .limit(10)
 
-  if (agencyId) query = query.eq('agency_id', agencyId)
   if (excludeId) query = query.neq('id', excludeId)
 
   const { data, error } = await query

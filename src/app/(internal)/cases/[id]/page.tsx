@@ -264,11 +264,17 @@ export default async function CaseDetailPage({
     }
   })
 
-  const { data: agentsList } = cd.agency_id
+  // Fetch agents: all agents for this agency + always ensure the currently
+  // assigned agent is included (handles imported cases where agents.agency_id may be unset)
+  const agentOrParts = [
+    cd.agency_id ? `agency_id.eq.${cd.agency_id}` : null,
+    cd.agent_id  ? `id.eq.${cd.agent_id}`          : null,
+  ].filter(Boolean).join(',')
+  const { data: agentsList } = agentOrParts
     ? await supabase
         .from('agents')
         .select('id, first_name, last_name, email')
-        .eq('agency_id', cd.agency_id)
+        .or(agentOrParts)
         .order('first_name')
     : { data: [] }
 
