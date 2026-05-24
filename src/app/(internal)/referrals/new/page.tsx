@@ -37,6 +37,13 @@ const REFERRAL_TYPES: { value: string; label: string }[] = [
   { value: 'general',             label: 'General' },
 ]
 
+function formatPhone(v: string): string {
+  const digits = v.replace(/\D/g, '').slice(0, 10)
+  if (digits.length < 4) return digits
+  if (digits.length < 7) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+}
+
 const PREFERRED_CONTACT_OPTIONS = [
   { value: 'phone',  label: 'Phone call' },
   { value: 'text',   label: 'Text message' },
@@ -285,7 +292,7 @@ export default function NewReferralPage() {
               </div>
               <div className="space-y-1.5">
                 <Label className="text-slate-300 text-sm">Phone *</Label>
-                <Input required type="tel" value={phone} onChange={e => setPhone(e.target.value)} placeholder="(570) 555-0100" className={inputCls} />
+                <Input required type="tel" value={phone} onChange={e => setPhone(formatPhone(e.target.value))} placeholder="(570) 555-0100" className={inputCls} />
               </div>
             </div>
 
