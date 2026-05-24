@@ -38,6 +38,7 @@ export type CaseDetail = {
   placed_at: string | null
   submitted_at: string | null
   is_hot_lead: boolean
+  is_imported: boolean
   agency_id: string | null
   customer_id: string | null
   agent_id: string | null
@@ -151,7 +152,7 @@ export default async function CaseDetailPage({
       .select(`
         id, internal_status, created_at, status_entered_at, updated_at,
         policy_number, face_amount, annual_premium, follow_up_date, lead_source, notes,
-        appointment_date, touches, last_contact_at, placed_at, submitted_at, table_rating, is_hot_lead,
+        appointment_date, touches, last_contact_at, placed_at, submitted_at, table_rating, is_hot_lead, is_imported,
         agency_id, customer_id, agent_id,
         customers ( first_name, last_name, email, phone, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, spanish_speaking, customer_group_id ),
         agencies ( id, name, display_name, slug ),

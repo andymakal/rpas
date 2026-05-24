@@ -152,6 +152,7 @@ export default function CaseEditClient({
   const [followUpDate, setFollowUpDate] = useState(caseData.follow_up_date ?? '')
   const [notes,        setNotes]        = useState(caseData.notes ?? '')
   const [isHotLead,    setIsHotLead]    = useState(caseData.is_hot_lead ?? false)
+  const [isImported,   setIsImported]   = useState(caseData.is_imported ?? false)
   const [lostReasonId,   setLostReasonId]   = useState(caseData.lost_reasons?.id ?? '')
   const [snoozeReasonId, setSnoozeReasonId] = useState(caseData.snooze_reasons?.id ?? '')
   const [saving,       setSaving]       = useState(false)
@@ -295,6 +296,7 @@ export default function CaseEditClient({
       follow_up_date:  followUpDate || null,
       notes:           notes        || null,
       is_hot_lead:     isHotLead,
+      is_imported:     isImported,
       lead_source:     leadSource   || null,
     }
     if (isLost   && lostReasonId)   body.lost_reason_id   = lostReasonId
@@ -574,6 +576,11 @@ export default function CaseEditClient({
               {caseData.submitted_at && (
                 <span className="text-xs text-slate-500">
                   Submitted {fmt(caseData.submitted_at as unknown as string)}
+                </span>
+              )}
+              {isImported && (
+                <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-slate-800 text-slate-500 border border-slate-700">
+                  Imported — Lead Manager
                 </span>
               )}
             </div>
@@ -1008,6 +1015,22 @@ export default function CaseEditClient({
                   <p className={`text-sm font-medium ${isHotLead ? 'text-orange-300' : 'text-slate-200'}`}>Hot Lead</p>
                 </div>
                 <p className="text-xs text-slate-500 mt-0.5">High priority — flag for immediate attention</p>
+              </div>
+            </label>
+
+            {/* Imported from Lead Manager */}
+            <label className={`flex items-start gap-3 rounded-lg border-2 p-3 cursor-pointer transition-all ${
+              isImported ? 'border-slate-600 bg-slate-800/40' : 'border-slate-700 hover:border-slate-600'
+            }`}>
+              <input type="checkbox" checked={isImported} onChange={e => setIsImported(e.target.checked)}
+                className="mt-0.5 h-4 w-4 rounded accent-slate-400 cursor-pointer" />
+              <div>
+                <p className={`text-sm font-medium ${isImported ? 'text-slate-300' : 'text-slate-400'}`}>
+                  Imported from Lead Manager
+                </p>
+                <p className="text-xs text-slate-600 mt-0.5">
+                  Excludes this case from time-in-pipeline and touch analytics
+                </p>
               </div>
             </label>
 

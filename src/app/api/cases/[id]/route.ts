@@ -24,6 +24,7 @@ const ALLOWED_FIELDS = new Set([
   'snooze_until',
   'table_rating',
   'is_hot_lead',
+  'is_imported',
   'lead_source',
 ])
 
