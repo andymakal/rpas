@@ -227,6 +227,15 @@ export default function CaseEditClient({
   const [agencySaving, setAgencySaving] = useState(false)
   const [agencyMsg,    setAgencyMsg]    = useState<{ ok: boolean; text: string } | null>(null)
 
+  // Local agents list — starts from server-fetched prop, grows when user adds a new one inline
+  const [localAgents,    setLocalAgents]    = useState<AgentOption[]>(agentsList)
+  const [addingNewAgent, setAddingNewAgent] = useState(false)
+  const [newAgentFirst,  setNewAgentFirst]  = useState('')
+  const [newAgentLast,   setNewAgentLast]   = useState('')
+  const [newAgentEmail,  setNewAgentEmail]  = useState('')
+  const [newAgentSaving, setNewAgentSaving] = useState(false)
+  const [newAgentError,  setNewAgentError]  = useState<string | null>(null)
+
   // ── Touch log state ────────────────────────────────────────────
   const [touches,     setTouches]     = useState(caseData.touches ?? 0)
   const [lastContact, setLastContact] = useState(caseData.last_contact_at)
@@ -427,12 +436,41 @@ export default function CaseEditClient({
         body: JSON.stringify({ agent_id: selectedAgentId || null }),
       })
       if (!res.ok) { const j = await res.json(); setAgentMsg({ ok: false, text: j.error ?? 'Save failed' }); return }
-      const picked = agentsList.find(a => a.id === selectedAgentId)
+      const picked = localAgents.find(a => a.id === selectedAgentId)
       setDisplayAgent(picked ? `${picked.first_name} ${picked.last_name}` : null)
       setAgentMsg({ ok: true, text: 'Saved' }); setEditingAgent(false)
       setTimeout(() => setAgentMsg(null), 2000)
     } catch { setAgentMsg({ ok: false, text: 'Network error' }) }
     finally   { setAgentSaving(false) }
+  }
+
+  async function handleCreateAgent() {
+    if (!newAgentFirst.trim() || !newAgentLast.trim()) {
+      setNewAgentError('First and last name are required'); return
+    }
+    if (!selectedAgencyId) {
+      setNewAgentError('Set the agency on this case first, then add an LSP'); return
+    }
+    setNewAgentSaving(true); setNewAgentError(null)
+    try {
+      const res = await fetch('/api/agents', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_name: newAgentFirst.trim(),
+          last_name:  newAgentLast.trim(),
+          email:      newAgentEmail.trim() || null,
+          agency_id:  selectedAgencyId,
+        }),
+      })
+      if (!res.ok) { const j = await res.json(); setNewAgentError(j.error ?? 'Failed to create'); return }
+      const { data } = await res.json()
+      const created: AgentOption = { id: data.id, first_name: data.first_name, last_name: data.last_name, email: data.email }
+      setLocalAgents(prev => [...prev, created].sort((a, b) => a.first_name.localeCompare(b.first_name)))
+      setSelectedAgentId(data.id)
+      setAddingNewAgent(false)
+      setNewAgentFirst(''); setNewAgentLast(''); setNewAgentEmail('')
+    } catch { setNewAgentError('Network error') }
+    finally { setNewAgentSaving(false) }
   }
 
   async function handleSaveAgency() {
@@ -767,27 +805,82 @@ export default function CaseEditClient({
             </div>
             {editingAgent ? (
               <div className="space-y-3">
-                {agentsList.length > 0 ? (
-                  <select value={selectedAgentId} onChange={e => setSelectedAgentId(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 cursor-pointer">
-                    <option value="">— unassigned —</option>
-                    {agentsList.map(a => (
-                      <option key={a.id} value={a.id}>{a.first_name} {a.last_name}</option>
-                    ))}
-                  </select>
+                <select value={selectedAgentId} onChange={e => setSelectedAgentId(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 cursor-pointer">
+                  <option value="">— unassigned —</option>
+                  {localAgents.map(a => (
+                    <option key={a.id} value={a.id}>{a.first_name} {a.last_name}</option>
+                  ))}
+                </select>
+
+                {/* Inline add-new-LSP form */}
+                {!addingNewAgent ? (
+                  <button
+                    type="button"
+                    onClick={() => { setAddingNewAgent(true); setNewAgentError(null) }}
+                    className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                  >
+                    <Plus className="w-3 h-3" /> Add new LSP
+                  </button>
                 ) : (
-                  <p className="text-xs text-slate-500 italic">
-                    No agents found for this agency. Assign an agency first.
-                  </p>
+                  <div className="space-y-2 rounded-lg border border-slate-700 bg-slate-800/40 p-3">
+                    <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">New LSP</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">First name</label>
+                        <input
+                          autoFocus type="text" value={newAgentFirst}
+                          onChange={e => setNewAgentFirst(e.target.value)}
+                          className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
+                          placeholder="Jane"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Last name</label>
+                        <input
+                          type="text" value={newAgentLast}
+                          onChange={e => setNewAgentLast(e.target.value)}
+                          className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
+                          placeholder="Smith"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Email <span className="text-slate-600">(optional)</span></label>
+                      <input
+                        type="email" value={newAgentEmail}
+                        onChange={e => setNewAgentEmail(e.target.value)}
+                        className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
+                        placeholder="jane@example.com"
+                      />
+                    </div>
+                    {newAgentError && <p className="text-xs text-red-400">{newAgentError}</p>}
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        onClick={handleCreateAgent} disabled={newAgentSaving}
+                        className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                        style={{ backgroundColor: '#1F3864' }}
+                      >
+                        <Check className="w-3.5 h-3.5" /> {newAgentSaving ? 'Creating…' : 'Create & Select'}
+                      </button>
+                      <button
+                        onClick={() => { setAddingNewAgent(false); setNewAgentFirst(''); setNewAgentLast(''); setNewAgentEmail(''); setNewAgentError(null) }}
+                        className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200"
+                      >
+                        <X className="w-3.5 h-3.5" /> Cancel
+                      </button>
+                    </div>
+                  </div>
                 )}
+
                 {agentMsg && <p className={`text-xs ${agentMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{agentMsg.text}</p>}
                 <div className="flex items-center gap-2">
-                  <button onClick={handleSaveAgent} disabled={agentSaving || agentsList.length === 0}
+                  <button onClick={handleSaveAgent} disabled={agentSaving || addingNewAgent}
                     className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
                     style={{ backgroundColor: '#1F3864' }}>
                     <Check className="w-3.5 h-3.5" /> {agentSaving ? 'Saving…' : 'Save'}
                   </button>
-                  <button onClick={() => { setEditingAgent(false); setAgentMsg(null) }}
+                  <button onClick={() => { setEditingAgent(false); setAgentMsg(null); setAddingNewAgent(false) }}
                     className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200">
                     <X className="w-3.5 h-3.5" /> Cancel
                   </button>
