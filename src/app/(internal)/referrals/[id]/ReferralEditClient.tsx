@@ -265,8 +265,8 @@ export function ReferralEditClient({
   const showRewarmEmail      = status === 'lsp_contact_needed'
   const showApptDate         = APPT_STATUSES.has(status)
 
-  const parsedNotes    = parseNotes(referral.notes)
-  const allstatePolicy = parsedNotes['Allstate Policy'] ?? null
+  const parsedNotes       = parseNotes(referral.notes)
+  const allstatePolicy    = parsedNotes['Allstate Policy'] ?? null
 
   const [displayName,  setDisplayName]  = useState(
     referral.customers ? `${referral.customers.first_name} ${referral.customers.last_name}` : 'Unknown'
@@ -289,7 +289,7 @@ export function ReferralEditClient({
 
   // ── Service referral detection ──────────────────────────────────
   // lead_source is set on all new submissions; fall back to notes parsing for older records
-  const parsedNotes     = parseNotes(referral.notes)
+  // parsedNotes already declared above — reuse it here
   const isServiceReferral = referral.lead_source === 'existing_service'
     || parsedNotes['Type'] === 'existing_service'
   const lifePolicyNumber  = parsedNotes['Life Policy'] ?? null

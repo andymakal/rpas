@@ -16,19 +16,27 @@ export async function POST(request: NextRequest) {
   let body: {
     policy_id?:    string
     new_policy?: {
-      client_name:    string
-      policy_number:  string
-      carrier:        string
-      product_type?:  string | null
-      issue_date?:    string | null
-      face_amount?:   number | null
-      annual_premium?: number | null
-      premium_mode?:  string | null
-      rate_class?:    string | null
-      agency_id?:     string | null
-      agent_id?:      string | null
-      customer_id?:   string | null
-      notes?:         string | null
+      client_name:           string
+      policy_number:         string
+      carrier:               string
+      product_type?:         string | null
+      issue_date?:           string | null
+      term_length?:          string | null
+      face_amount?:          number | null
+      death_benefit_amount?: number | null
+      cash_value_amount?:    number | null
+      cost_basis?:           number | null
+      annual_premium?:       number | null
+      premium_mode?:         string | null
+      rate_class?:           string | null
+      riders?:               string | null
+      insured_first_name?:   string | null
+      insured_last_name?:    string | null
+      primary_beneficiary?:  string | null
+      agency_id?:            string | null
+      agent_id?:             string | null
+      customer_id?:          string | null
+      notes?:                string | null
     }
     request_type:   string
     notes?:         string | null
@@ -63,20 +71,28 @@ export async function POST(request: NextRequest) {
     const { data: policy, error: pErr } = await supabase
       .from('service_policies')
       .insert({
-        client_name:    np.client_name.trim(),
-        policy_number:  np.policy_number.trim(),
-        carrier:        np.carrier.trim(),
-        product_type:   np.product_type   ?? null,
-        issue_date:     np.issue_date      ?? null,
-        face_amount:    np.face_amount     ?? null,
-        annual_premium: np.annual_premium  ?? null,
-        premium_mode:   np.premium_mode    ?? null,
-        rate_class:     np.rate_class      ?? null,
-        agency_id:      np.agency_id       ?? null,
-        agent_id:       np.agent_id        ?? null,
-        customer_id:    np.customer_id     ?? null,
-        notes:          np.notes           ?? null,
-        sa_status:      'unknown',
+        client_name:           np.client_name.trim(),
+        policy_number:         np.policy_number.trim(),
+        carrier:               np.carrier.trim(),
+        product_type:          np.product_type          ?? null,
+        issue_date:            np.issue_date             ?? null,
+        term_length:           np.term_length?.trim()    ?? null,
+        face_amount:           np.face_amount            ?? null,
+        death_benefit_amount:  np.death_benefit_amount   ?? null,
+        cash_value_amount:     np.cash_value_amount      ?? null,
+        cost_basis:            np.cost_basis             ?? null,
+        annual_premium:        np.annual_premium         ?? null,
+        premium_mode:          np.premium_mode           ?? null,
+        rate_class:            np.rate_class             ?? null,
+        riders:                np.riders                 ?? null,
+        insured_first_name:    np.insured_first_name     ?? null,
+        insured_last_name:     np.insured_last_name      ?? null,
+        primary_beneficiary:   np.primary_beneficiary    ?? null,
+        agency_id:             np.agency_id              ?? null,
+        agent_id:              np.agent_id               ?? null,
+        customer_id:           np.customer_id            ?? null,
+        notes:                 np.notes                  ?? null,
+        sa_status:             'unknown',
       })
       .select('id')
       .single()
