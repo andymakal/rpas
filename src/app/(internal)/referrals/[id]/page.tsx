@@ -84,6 +84,14 @@ export type HouseholdMember = {
 export type AgentOption   = { id: string; first_name: string; last_name: string; email: string | null }
 export type AgencyOption  = { id: string; name: string; display_name: string | null }
 export type ProducerOption = { id: string; first_name: string; last_name: string }
+export type SuspectedDuplicate = {
+  id: string
+  first_name: string
+  last_name: string
+  phone: string | null
+  agency_name: string | null
+  case_count: number
+}
 
 export async function generateMetadata(
   { params }: { params: Promise<{ id: string }> }
@@ -114,7 +122,7 @@ export default async function ReferralDetailPage({
       id, customer_id, agent_id, agency_id,
       internal_status, created_at, status_entered_at, appointment_date,
       follow_up_date, face_amount, annual_premium, policy_number,
-      notes, touches, last_contact_at, spiff_earned, spiff_earned_at, is_hot_lead, is_owner_referral, producer_id, lead_source,
+      notes, touches, last_contact_at, spiff_earned, spiff_earned_at, is_hot_lead, is_owner_referral, producer_id, lead_source, suspected_duplicate_customer_id,
       customers ( first_name, last_name, phone, email, street, city, state, zip, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, spanish_speaking, customer_group_id ),
       agencies ( name, display_name, contact_email ),
       agents ( id, first_name, last_name, email ),
@@ -135,9 +143,10 @@ export default async function ReferralDetailPage({
 
   const cd = caseData as unknown as ReferralDetail
 
-  const householdId = (cd.customers as unknown as { customer_group_id: string | null } | null)?.customer_group_id ?? null
+  const householdId        = (cd.customers as unknown as { customer_group_id: string | null } | null)?.customer_group_id ?? null
+  const suspectedDupId     = (cd as unknown as { suspected_duplicate_customer_id: string | null }).suspected_duplicate_customer_id ?? null
 
-  const [{ data: stages }, { data: touchLog }, { data: agentsList }, { data: agenciesList }, { data: statusHistory }, { data: producersList }, { data: householdMembers }] = await Promise.all([
+  const [{ data: stages }, { data: touchLog }, { data: agentsList }, { data: agenciesList }, { data: statusHistory }, { data: producersList }, { data: householdMembers }, dupResult] = await Promise.all([
     supabase
       .from('stage_translations')
       .select('id, internal_status, agency_label')
@@ -177,7 +186,34 @@ export default async function ReferralDetailPage({
           .neq('id', cd.customer_id)
           .eq('is_test', false)
       : Promise.resolve({ data: [] }),
+    suspectedDupId
+      ? supabase
+          .from('customers')
+          .select('id, first_name, last_name, phone, agencies ( name, display_name )')
+          .eq('id', suspectedDupId)
+          .single()
+      : Promise.resolve({ data: null }),
   ])
+
+  // Shape suspected duplicate
+  type RawDup = { id: string; first_name: string; last_name: string; phone: string | null; agencies: { name: string; display_name: string | null } | null }
+  const rawDup = dupResult?.data as unknown as RawDup | null
+  let suspectedDuplicate: SuspectedDuplicate | null = null
+  if (rawDup) {
+    const { count: dupCaseCount } = await supabase
+      .from('cases')
+      .select('id', { count: 'exact', head: true })
+      .eq('customer_id', rawDup.id)
+      .eq('is_test', false)
+    suspectedDuplicate = {
+      id:          rawDup.id,
+      first_name:  rawDup.first_name,
+      last_name:   rawDup.last_name,
+      phone:       rawDup.phone,
+      agency_name: rawDup.agencies?.display_name ?? rawDup.agencies?.name ?? null,
+      case_count:  dupCaseCount ?? 0,
+    }
+  }
 
   // Shape household members for the card
   type RawMember = {
@@ -211,6 +247,7 @@ export default async function ReferralDetailPage({
       producersList={(producersList as unknown as ProducerOption[]) ?? []}
       householdId={householdId}
       householdMembers={shapedMembers}
+      suspectedDuplicate={suspectedDuplicate}
     />
   )
 }

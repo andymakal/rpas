@@ -26,6 +26,7 @@ const ALLOWED_FIELDS = new Set([
   'is_hot_lead',
   'is_imported',
   'lead_source',
+  'suspected_duplicate_customer_id',  // null to dismiss the duplicate flag
 ])
 
 export async function PATCH(

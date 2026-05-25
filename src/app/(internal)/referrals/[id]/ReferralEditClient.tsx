@@ -9,7 +9,7 @@ import {
   MessageCircle, ChevronDown, ChevronUp, DollarSign, Pencil, Check, X, MapPin,
   CalendarClock, History, Flame, Send, Wrench,
 } from 'lucide-react'
-import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember } from './page'
+import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember, SuspectedDuplicate } from './page'
 import { HouseholdCard } from '@/components/HouseholdCard'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -169,23 +169,64 @@ function buildRewarmMailto(
 // ── Main component ─────────────────────────────────────────────────────────────
 
 type Props = {
-  referral:         ReferralDetail
-  stages:           Tier1Stage[]
-  touchLog:         TouchLog[]
-  agentsList:       AgentOption[]
-  agenciesList:     AgencyOption[]
-  statusHistory:    StatusHistoryEntry[]
-  producersList:    ProducerOption[]
-  householdId:      string | null
-  householdMembers: HouseholdMember[]
+  referral:            ReferralDetail
+  stages:              Tier1Stage[]
+  touchLog:            TouchLog[]
+  agentsList:          AgentOption[]
+  agenciesList:        AgencyOption[]
+  statusHistory:       StatusHistoryEntry[]
+  producersList:       ProducerOption[]
+  householdId:         string | null
+  householdMembers:    HouseholdMember[]
+  suspectedDuplicate:  SuspectedDuplicate | null
 }
 
 export function ReferralEditClient({
   referral, stages: _stages, touchLog: initialTouchLog,
   agentsList, agenciesList, statusHistory, producersList,
-  householdId, householdMembers,
+  householdId, householdMembers, suspectedDuplicate: initialSuspectedDuplicate,
 }: Props) {
   const router = useRouter()
+
+  // ── Duplicate detection state ─────────────────────────────────
+  const [suspectedDuplicate, setSuspectedDuplicate] = useState<SuspectedDuplicate | null>(initialSuspectedDuplicate)
+  const [dupWorking,         setDupWorking]         = useState(false)
+  const [dupError,           setDupError]           = useState<string | null>(null)
+
+  async function handleMerge() {
+    if (!suspectedDuplicate) return
+    if (!confirm(
+      `Merge this record into ${suspectedDuplicate.first_name} ${suspectedDuplicate.last_name}?\n\n` +
+      `This case will be moved to their existing record and this customer entry will be deleted. This cannot be undone.`
+    )) return
+    setDupWorking(true); setDupError(null)
+    try {
+      const res = await fetch(`/api/customers/${referral.customer_id}/merge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ merge_into_id: suspectedDuplicate.id }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setDupError(json.error ?? 'Merge failed'); return }
+      setSuspectedDuplicate(null)
+      router.refresh()
+    } catch { setDupError('Network error') }
+    finally { setDupWorking(false) }
+  }
+
+  async function handleDismissDuplicate() {
+    setDupWorking(true); setDupError(null)
+    try {
+      const res = await fetch(`/api/cases/${referral.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ suspected_duplicate_customer_id: null }),
+      })
+      if (!res.ok) { setDupError('Failed to dismiss'); return }
+      setSuspectedDuplicate(null)
+    } catch { setDupError('Network error') }
+    finally { setDupWorking(false) }
+  }
 
   // ── Case fields ───────────────────────────────────────────────
   const [status,          setStatus]          = useState(referral.internal_status)
@@ -609,6 +650,50 @@ export function ReferralEditClient({
           </div>
         )}
       </div>
+
+      {/* ── Suspected duplicate banner ───────────────────────────────
+          Shown when a new referral's phone matches an existing customer.
+          Dulce resolves this before actioning — merge or dismiss. */}
+      {suspectedDuplicate && (
+        <div className="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/8 px-5 py-4">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-amber-300">Possible Duplicate Customer</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Same phone number as{' '}
+                  <span className="text-slate-200 font-medium">
+                    {suspectedDuplicate.first_name} {suspectedDuplicate.last_name}
+                  </span>
+                  {suspectedDuplicate.agency_name && (
+                    <> · <span className="text-slate-300">{suspectedDuplicate.agency_name}</span></>
+                  )}
+                  {' '}· {suspectedDuplicate.case_count} case{suspectedDuplicate.case_count !== 1 ? 's' : ''} on file
+                </p>
+                {dupError && <p className="text-xs text-red-400 mt-1">{dupError}</p>}
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={handleMerge}
+                disabled={dupWorking}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50 transition-opacity hover:opacity-90"
+                style={{ backgroundColor: '#1F3864' }}
+              >
+                {dupWorking ? 'Working…' : 'Merge →'}
+              </button>
+              <button
+                onClick={handleDismissDuplicate}
+                disabled={dupWorking}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 bg-slate-800 border border-slate-700 hover:text-slate-200 transition-colors disabled:opacity-50"
+              >
+                Different person
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Service referral banner ─────────────────────────────────
           Shown whenever lead_source = existing_service (or detected from notes).

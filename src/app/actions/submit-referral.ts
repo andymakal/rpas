@@ -24,6 +24,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
   try {
     // 1. Find or create customer by name + agency; back-fill any missing contact fields
     let customerId: string
+    let suspectedDuplicateId: string | null = null
 
     const { data: existing } = await supabase
       .from('customers')
@@ -126,6 +127,25 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       }
 
       customerId = newCustomer.id
+
+      // Phone-based duplicate detection — check if this number already belongs
+      // to a different customer anywhere in the system (cross-agency).
+      // We flag the case rather than blocking the submission so Dulce can
+      // review and decide whether to merge or dismiss.
+      if (form.client_phone) {
+        const { data: phoneMatch } = await supabase
+          .from('customers')
+          .select('id, first_name, last_name')
+          .eq('phone', form.client_phone)
+          .eq('is_test', false)
+          .neq('id', customerId)
+          .limit(1)
+          .maybeSingle()
+
+        if (phoneMatch) {
+          suspectedDuplicateId = phoneMatch.id
+        }
+      }
     }
 
     // 2. Compose notes from form context
@@ -169,15 +189,16 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
     const { data: newCase, error: caseErr } = await supabase
       .from('cases')
       .insert({
-        agency_id:          form.agency_id,
-        customer_id:        customerId,
-        internal_status:    'triage',
-        lead_source:        form.referral_type ?? null,
-        notes:              noteLines.join('\n'),
-        is_owner_referral:  isOwnerReferral,
-        is_hot_lead:        form.is_hot_lead ?? false,
-        consent_given_at:   new Date().toISOString(),
-        is_test:            false,
+        agency_id:                        form.agency_id,
+        customer_id:                      customerId,
+        internal_status:                  'triage',
+        lead_source:                      form.referral_type ?? null,
+        notes:                            noteLines.join('\n'),
+        is_owner_referral:                isOwnerReferral,
+        is_hot_lead:                      form.is_hot_lead ?? false,
+        consent_given_at:                 new Date().toISOString(),
+        suspected_duplicate_customer_id:  suspectedDuplicateId,
+        is_test:                          false,
       })
       .select('id')
       .single()
@@ -196,6 +217,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       `Referred by ${form.lsp_name}`,
       routingLabel ? `→ Route to: ${routingLabel}` : null,
       form.life_policy_number ? `Policy: ${form.life_policy_number.trim()}` : null,
+      suspectedDuplicateId ? '⚠️ Possible duplicate — review before actioning' : null,
     ].filter(Boolean).join(' · ')
 
     await supabase.from('notifications').insert({
