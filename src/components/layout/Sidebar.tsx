@@ -20,6 +20,7 @@ import {
   DollarSign,
   KeyRound,
   Inbox,
+  Wrench,
 } from 'lucide-react'
 import { NotificationBell } from '@/components/layout/NotificationBell'
 
@@ -31,6 +32,7 @@ const navItems = [
   { href: '/agencies',               icon: Building2,       label: 'Agencies'         },
   { href: '/cases',                  icon: FolderKanban,    label: 'Cases'            },
   { href: '/production',             icon: TrendingUp,      label: 'Production'       },
+  { href: '/service',                icon: Wrench,          label: 'Service'          },
   { href: '/team',                   icon: Users,           label: 'Team'             },
   { href: '/admin/gdc-import',       icon: Upload,          label: 'GDC Import'       },
   { href: '/admin/lead-import',      icon: Users,           label: 'Lead Import'      },
