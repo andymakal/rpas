@@ -70,7 +70,10 @@ function daysAgo(iso: string | null): number {
 
 function fmt(iso: string | null): string {
   if (!iso) return '—'
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  // Date-only strings (YYYY-MM-DD) parse as UTC midnight → shift to noon local
+  // to avoid the "-1 day" display bug in US timezones
+  const d = iso.includes('T') ? new Date(iso) : new Date(iso + 'T12:00:00')
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function fmtTime(iso: string): string {

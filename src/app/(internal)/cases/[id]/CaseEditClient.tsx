@@ -48,7 +48,15 @@ const TOBACCO_LABELS: Record<string, string> = {
 
 function fmt(iso: string | null): string {
   if (!iso) return '—'
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  // Date-only strings (YYYY-MM-DD) parse as UTC midnight → shift to noon local
+  // to avoid the "-1 day" display bug in US timezones
+  const d = iso.includes('T') ? new Date(iso) : new Date(iso + 'T12:00:00')
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+function fmtCurrency(val: number | null | undefined): string {
+  if (val == null) return '—'
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val)
 }
 
 function fmtTime(iso: string): string {
@@ -1560,9 +1568,7 @@ export default function CaseEditClient({
                       <div className="min-w-0">
                         <p className="text-sm text-slate-300 truncate group-hover:text-white transition-colors">{cp}</p>
                         {s.face_amount && (
-                          <p className="text-xs text-slate-500 mt-0.5">
-                            {new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(s.face_amount)}
-                          </p>
+                          <p className="text-xs text-slate-500 mt-0.5">{fmtCurrency(s.face_amount)}</p>
                         )}
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
