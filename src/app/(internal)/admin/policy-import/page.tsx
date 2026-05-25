@@ -125,21 +125,25 @@ export default function PolicyImportPage() {
     setError(null)
     setPreviewing(true)
 
-    const fd = new FormData()
-    fd.append('file', file)
+    try {
+      const fd  = new FormData()
+      fd.append('file', file)
 
-    const res  = await fetch('/api/admin/policy-import?preview=true', { method: 'POST', body: fd })
-    const json = await res.json()
+      const res  = await fetch('/api/admin/policy-import?preview=true', { method: 'POST', body: fd })
+      const json = await res.json()
 
-    setPreviewing(false)
+      if (!res.ok) {
+        setError(json.error ?? `Server error ${res.status}`)
+        return
+      }
 
-    if (!res.ok) {
-      setError(json.error ?? 'Could not parse file')
-      return
+      setPreview(json as PreviewResponse)
+      setPhase('preview')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unexpected error — check the console')
+    } finally {
+      setPreviewing(false)
     }
-
-    setPreview(json as PreviewResponse)
-    setPhase('preview')
   }
 
   // ── Phase 2: Import ────────────────────────────────────────────────────────
@@ -149,20 +153,25 @@ export default function PolicyImportPage() {
     setPhase('importing')
     setError(null)
 
-    const fd = new FormData()
-    fd.append('file', file)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
 
-    const res  = await fetch('/api/admin/policy-import', { method: 'POST', body: fd })
-    const json = await res.json()
+      const res  = await fetch('/api/admin/policy-import', { method: 'POST', body: fd })
+      const json = await res.json()
 
-    if (!res.ok) {
-      setError(json.error ?? 'Import failed')
+      if (!res.ok) {
+        setError(json.error ?? `Server error ${res.status}`)
+        setPhase('preview')
+        return
+      }
+
+      setResult(json as ImportResponse)
+      setPhase('done')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unexpected error — check the console')
       setPhase('preview')
-      return
     }
-
-    setResult(json as ImportResponse)
-    setPhase('done')
   }
 
   function reset() {
