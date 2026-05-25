@@ -92,7 +92,8 @@ export default function PolicyImportPage() {
   const [preview,   setPreview]   = useState<PreviewResponse | null>(null)
   const [result,    setResult]    = useState<ImportResponse  | null>(null)
   const [error,     setError]     = useState<string | null>(null)
-  const [dragging,  setDragging]  = useState(false)
+  const [dragging,   setDragging]   = useState(false)
+  const [previewing, setPreviewing] = useState(false)
 
   // ── File selection ──────────────────────────────────────────────────────────
 
@@ -122,12 +123,15 @@ export default function PolicyImportPage() {
   async function handlePreview() {
     if (!file) return
     setError(null)
+    setPreviewing(true)
 
     const fd = new FormData()
     fd.append('file', file)
 
     const res  = await fetch('/api/admin/policy-import?preview=true', { method: 'POST', body: fd })
     const json = await res.json()
+
+    setPreviewing(false)
 
     if (!res.ok) {
       setError(json.error ?? 'Could not parse file')
@@ -229,13 +233,15 @@ export default function PolicyImportPage() {
             </div>
 
             <Button
-              disabled={!file}
+              disabled={!file || previewing}
               onClick={handlePreview}
               className="w-full text-white font-medium"
               style={{ backgroundColor: '#1F3864' }}
             >
-              <ChevronRight className="w-4 h-4 mr-2" />
-              Parse File
+              {previewing
+                ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Parsing file…</>
+                : <><ChevronRight className="w-4 h-4 mr-2" />Parse File</>
+              }
             </Button>
           </div>
         )}
