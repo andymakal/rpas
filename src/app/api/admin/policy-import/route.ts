@@ -259,7 +259,25 @@ export async function POST(req: NextRequest) {
 
   const policies = Array.from(policyMap.values())
 
-  // ── Check for existing policies — chunked to avoid URL length limits ─────────
+  // ── Preview mode — parse only, no DB access ─────────────────────────────────
+  // Skipping the existence check here keeps preview fast (file parsing only).
+  // The duplicate check runs at import time when it actually matters.
+  if (preview) {
+    return NextResponse.json({
+      preview:           true,
+      file_name:         file.name,
+      master_sheet:      masterName ?? null,
+      sheets_processed:  sheetsToProcess.length,
+      sheet_stats:       sheetStats,
+      total_parsed:      policies.length,
+      skipped_annuities: totalAnnuities,
+      skipped_no_id:     totalNoId,
+      already_on_file:   null,   // not checked at preview time
+      to_insert:         policies.length,
+    })
+  }
+
+  // ── Import mode — check existing then insert ─────────────────────────────────
   const supabase     = createAdminClient()
   const existingSet  = new Set<string>()
   const LOOKUP_CHUNK = 500
@@ -277,23 +295,6 @@ export async function POST(req: NextRequest) {
   const toInsert = policies.filter(p => !existingSet.has(p.policy_number))
   const onFile   = policies.filter(p =>  existingSet.has(p.policy_number))
 
-  // ── Preview mode — return summary, no writes ────────────────────────────────
-  if (preview) {
-    return NextResponse.json({
-      preview:           true,
-      file_name:         file.name,
-      master_sheet:      masterName ?? null,
-      sheets_processed:  sheetsToProcess.length,
-      sheet_stats:       sheetStats,
-      total_parsed:      policies.length,
-      skipped_annuities: totalAnnuities,
-      skipped_no_id:     totalNoId,
-      already_on_file:   onFile.length,
-      to_insert:         toInsert.length,
-    })
-  }
-
-  // ── Import mode — chunked insert ─────────────────────────────────────────────
   const INSERT_CHUNK = 200
   let   insertedCount = 0
   const errors: string[] = []

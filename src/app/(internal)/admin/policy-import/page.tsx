@@ -33,7 +33,7 @@ type PreviewResponse = {
   total_parsed:      number
   skipped_annuities: number
   skipped_no_id:     number
-  already_on_file:   number
+  already_on_file:   number | null  // null at preview time — checked at import
   to_insert:         number
 }
 
@@ -279,11 +279,10 @@ export default function PolicyImportPage() {
             </div>
 
             {/* Summary chips */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              <StatChip label="Policies parsed"    value={preview.total_parsed}      color="slate" />
-              <StatChip label="Will import"        value={preview.to_insert}         color="green" />
-              <StatChip label="Already on file"    value={preview.already_on_file}   color="sky"   />
-              <StatChip label="Annuities skipped"  value={preview.skipped_annuities} color="amber" />
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <StatChip label="Policies parsed"   value={preview.total_parsed}      color="slate" />
+              <StatChip label="Will import"       value={preview.to_insert}         color="green" />
+              <StatChip label="Annuities skipped" value={preview.skipped_annuities} color="amber" />
             </div>
             {preview.skipped_no_id > 0 && (
               <p className="text-xs text-slate-500 flex items-center gap-1.5">
@@ -316,13 +315,10 @@ export default function PolicyImportPage() {
               </div>
             )}
 
-            {/* Zero-import guard */}
-            {preview.to_insert === 0 && (
-              <div className="flex items-start gap-3 bg-sky-950 border border-sky-800 text-sky-300 text-sm p-4 rounded-xl">
-                <CheckCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                All {fmt(preview.total_parsed)} policies from this file are already on file — nothing to import.
-              </div>
-            )}
+            {/* Note: duplicate check runs at import time, not preview */}
+            <p className="text-xs text-slate-500">
+              Policies already on file will be detected and skipped automatically when you confirm.
+            </p>
 
             {/* Actions */}
             <div className="flex gap-3">
@@ -334,10 +330,9 @@ export default function PolicyImportPage() {
                 Cancel
               </Button>
               <Button
-                disabled={preview.to_insert === 0}
                 onClick={handleImport}
                 className="flex-1 text-white font-medium"
-                style={{ backgroundColor: preview.to_insert > 0 ? '#1F3864' : undefined }}
+                style={{ backgroundColor: '#1F3864' }}
               >
                 Confirm — Import {fmt(preview.to_insert)} {preview.to_insert === 1 ? 'Policy' : 'Policies'}
               </Button>
