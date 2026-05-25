@@ -48,6 +48,8 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
+    // Exclude large-upload API routes from middleware so the request body
+    // is not cloned/buffered by the middleware layer (avoids 10MB clone limit)
+    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$|api/admin/policy-import).*)',
   ],
 }
