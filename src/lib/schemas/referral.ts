@@ -17,6 +17,7 @@ export const referralSchema = z.object({
   referral_type: z.string().min(1, 'Please select a referral type'),
   is_existing_client: z.boolean().default(false),
   allstate_policy_number: z.string().optional(),
+  life_policy_number: z.string().optional(),
   preferred_contact: z.enum(['phone', 'text', 'email']).optional(),
   best_contact_time: z.enum(['morning', 'afternoon', 'evening']).optional(),
   notes: z.string().max(500, 'Keep notes under 500 characters').optional(),
@@ -45,6 +46,7 @@ export const step2Schema = referralSchema.pick({
 
 export const step3Schema = referralSchema.pick({
   referral_type: true, is_existing_client: true, allstate_policy_number: true,
+  life_policy_number: true,
   preferred_contact: true, best_contact_time: true, notes: true,
   life_insurance_outside_work: true, job_change_last_5_years: true,
   review_401k: true, retirement_prep: true, is_hot_lead: true,

@@ -2,6 +2,7 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { referralSchema, type ReferralFormData } from '@/lib/schemas/referral'
+import { PRODUCER_ROUTING, PRODUCER_LABELS } from '@/lib/constants/referral-options'
 
 function toTitleCase(str: string): string {
   return str.trim().replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
@@ -139,6 +140,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       `Referred by: ${form.lsp_name}`,
       form.referral_type          ? `Type: ${form.referral_type}` : null,
       form.allstate_policy_number ? `Allstate Policy: ${form.allstate_policy_number.trim()}` : null,
+      form.life_policy_number     ? `Life Policy: ${form.life_policy_number.trim()}` : null,
       form.preferred_contact      ? `Contact: ${form.preferred_contact}` : null,
       form.best_contact_time      ? `Best time: ${form.best_contact_time}` : null,
       form.notes                  ? `Notes: ${form.notes}` : null,
@@ -160,12 +162,17 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
     }
 
     // 4. Create case
+    // Resolve routing from referral type — baked into the record so it's role-agnostic
+    const routingKey   = form.referral_type ? PRODUCER_ROUTING[form.referral_type as keyof typeof PRODUCER_ROUTING] ?? null : null
+    const routingLabel = routingKey ? (PRODUCER_LABELS[routingKey] ?? routingKey) : null
+
     const { data: newCase, error: caseErr } = await supabase
       .from('cases')
       .insert({
         agency_id:          form.agency_id,
         customer_id:        customerId,
         internal_status:    'triage',
+        lead_source:        form.referral_type ?? null,
         notes:              noteLines.join('\n'),
         is_owner_referral:  isOwnerReferral,
         is_hot_lead:        form.is_hot_lead ?? false,
@@ -180,11 +187,21 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       return { success: false, error: 'Failed to save referral. Please try again.' }
     }
 
-    // 5. Create in-app notification for the internal team
+    // 5. Create in-app notification — routing label baked in so anyone who answers knows where it goes
+    const notifTitle = form.referral_type === 'existing_service'
+      ? `Service request: ${form.client_first_name} ${form.client_last_name}`
+      : `New referral: ${form.client_first_name} ${form.client_last_name}`
+
+    const notifBody = [
+      `Referred by ${form.lsp_name}`,
+      routingLabel ? `→ Route to: ${routingLabel}` : null,
+      form.life_policy_number ? `Policy: ${form.life_policy_number.trim()}` : null,
+    ].filter(Boolean).join(' · ')
+
     await supabase.from('notifications').insert({
       type:  'new_referral',
-      title: `New referral: ${form.client_first_name} ${form.client_last_name}`,
-      body:  `Referred by ${form.lsp_name}`,
+      title: notifTitle,
+      body:  notifBody,
       link:  `/referrals/${newCase.id}`,
     })
 

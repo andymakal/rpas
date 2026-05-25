@@ -10,10 +10,16 @@ export const dynamic = 'force-dynamic'
 export type AgencyOption = { id: string; name: string; display_name: string | null }
 export type AgentOption  = { id: string; first_name: string; last_name: string; agency_id: string | null }
 
-export default async function NewServiceRequestPage() {
+export default async function NewServiceRequestPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ client_name?: string; policy_number?: string; agency_id?: string; agent_id?: string; from_case_id?: string }>
+}) {
   const auth = await createClient()
   const { data: { user } } = await auth.auth.getUser()
   if (!user) redirect('/login')
+
+  const sp = await searchParams
 
   const supabase = createAdminClient()
 
@@ -34,11 +40,22 @@ export default async function NewServiceRequestPage() {
       <div className="max-w-2xl mx-auto">
         <div className="mb-6">
           <h1 className="text-white text-2xl font-semibold">New Service Request</h1>
-          <p className="text-slate-400 text-sm mt-0.5">Log a policy service request and capture policy details</p>
+          <p className="text-slate-400 text-sm mt-0.5">
+            {sp.from_case_id
+              ? 'Pre-populated from referral — review and complete'
+              : 'Log a policy service request and capture policy details'}
+          </p>
         </div>
         <NewServiceRequestClient
           agencies={(agencies as AgencyOption[]) ?? []}
           agents={(agents as AgentOption[]) ?? []}
+          prefill={{
+            clientName:   sp.client_name   ?? '',
+            policyNumber: sp.policy_number ?? '',
+            agencyId:     sp.agency_id     ?? '',
+            agentId:      sp.agent_id      ?? '',
+            fromCaseId:   sp.from_case_id  ?? '',
+          }}
         />
       </div>
     </div>

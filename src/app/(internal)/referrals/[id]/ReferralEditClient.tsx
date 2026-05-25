@@ -7,7 +7,7 @@ import {
   ArrowLeft, Phone, Building2, User, Calendar, Clock,
   MessageSquare, Mail, AlertCircle, PhoneCall, PhoneOff,
   MessageCircle, ChevronDown, ChevronUp, DollarSign, Pencil, Check, X, MapPin,
-  CalendarClock, History, Flame, Send,
+  CalendarClock, History, Flame, Send, Wrench,
 } from 'lucide-react'
 import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember } from './page'
 import { HouseholdCard } from '@/components/HouseholdCard'
@@ -286,6 +286,26 @@ export function ReferralEditClient({
     : null
 
   const isFromTriage = referral.internal_status === 'triage' || referral.internal_status === 'active_referral'
+
+  // ── Service referral detection ──────────────────────────────────
+  // lead_source is set on all new submissions; fall back to notes parsing for older records
+  const parsedNotes     = parseNotes(referral.notes)
+  const isServiceReferral = referral.lead_source === 'existing_service'
+    || parsedNotes['Type'] === 'existing_service'
+  const lifePolicyNumber  = parsedNotes['Life Policy'] ?? null
+
+  // Pre-build the /service/new URL so Abigail lands with everything filled in
+  const serviceNewUrl = (() => {
+    const p = new URLSearchParams()
+    const firstName = referral.customers?.first_name ?? ''
+    const lastName  = referral.customers?.last_name  ?? ''
+    if (firstName || lastName) p.set('client_name', `${firstName} ${lastName}`.trim())
+    if (lifePolicyNumber)      p.set('policy_number', lifePolicyNumber)
+    if (referral.agency_id)    p.set('agency_id', referral.agency_id)
+    if (referral.agent_id)     p.set('agent_id', referral.agent_id ?? '')
+    p.set('from_case_id', referral.id)
+    return `/service/new?${p.toString()}`
+  })()
 
   // ── Handlers ───────────────────────────────────────────────────
 
@@ -589,6 +609,33 @@ export function ReferralEditClient({
           </div>
         )}
       </div>
+
+      {/* ── Service referral banner ─────────────────────────────────
+          Shown whenever lead_source = existing_service (or detected from notes).
+          Whoever picks this up — Dulce, Abigail, anyone — knows exactly where it goes. */}
+      {isServiceReferral && (
+        <div className="mb-5 flex items-center justify-between gap-4 rounded-xl border border-blue-500/30 bg-blue-500/10 px-5 py-4">
+          <div className="flex items-center gap-3">
+            <Wrench className="w-5 h-5 text-blue-400 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-blue-300">Service Request — Route to Abigail</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {lifePolicyNumber
+                  ? `Policy ${lifePolicyNumber} · Create a service request to begin tracking`
+                  : 'Legacy LBL / Everlake policy — create a service request to begin tracking'}
+              </p>
+            </div>
+          </div>
+          <a
+            href={serviceNewUrl}
+            className="shrink-0 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+            style={{ backgroundColor: '#1F3864' }}
+          >
+            <Wrench className="w-3.5 h-3.5" />
+            Create Service Request
+          </a>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 

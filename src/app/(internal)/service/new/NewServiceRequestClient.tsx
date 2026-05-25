@@ -58,21 +58,31 @@ function Field({ label, children, hint }: { label: string; children: React.React
 const inputCls = 'w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-slate-500 placeholder-slate-500'
 const selectCls = 'w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-slate-500'
 
+type Prefill = {
+  clientName:   string
+  policyNumber: string
+  agencyId:     string
+  agentId:      string
+  fromCaseId:   string
+}
+
 // ── Component ──────────────────────────────────────────────────────────────────
 export function NewServiceRequestClient({
   agencies,
   agents,
+  prefill = { clientName: '', policyNumber: '', agencyId: '', agentId: '', fromCaseId: '' },
 }: {
   agencies: AgencyOption[]
   agents:   AgentOption[]
+  prefill?: Prefill
 }) {
   const router = useRouter()
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState<string | null>(null)
 
-  // Policy fields
-  const [clientName,    setClientName]    = useState('')
-  const [policyNumber,  setPolicyNumber]  = useState('')
+  // Policy fields — seeded from prefill when coming from a referral
+  const [clientName,    setClientName]    = useState(prefill.clientName)
+  const [policyNumber,  setPolicyNumber]  = useState(prefill.policyNumber)
   const [carrier,       setCarrier]       = useState('')
   const [carrierOther,  setCarrierOther]  = useState('')
   const [productType,   setProductType]   = useState('')
@@ -82,8 +92,8 @@ export function NewServiceRequestClient({
   const [annualPremium, setAnnualPremium] = useState('')
   const [premiumMode,   setPremiumMode]   = useState('')
   const [rateClass,     setRateClass]     = useState('')
-  const [agencyId,      setAgencyId]      = useState('')
-  const [agentId,       setAgentId]       = useState('')
+  const [agencyId,      setAgencyId]      = useState(prefill.agencyId)
+  const [agentId,       setAgentId]       = useState(prefill.agentId)
   const [policyNotes,   setPolicyNotes]   = useState('')
 
   // SR fields

@@ -30,6 +30,7 @@ const EMPTY_FORM: ReferralFormData = {
   client_phone: '', client_email: '', client_dob: '', client_marital_status: '',
   client_address: '', client_city: '', client_state: '', client_zip: '',
   referral_type: '', is_existing_client: false, allstate_policy_number: '',
+  life_policy_number: '',
   preferred_contact: undefined, best_contact_time: undefined, notes: '',
   life_insurance_outside_work: false,
   job_change_last_5_years: false,
@@ -509,6 +510,27 @@ export function ReferralIntakeForm({
         <Select value={form.referral_type} onChange={(v) => set('referral_type', v)}
           options={REFERRAL_TYPES} placeholder="What brought them to you?" error={errors.referral_type} />
       </Field>
+
+      {/* Life policy number — only shown for service referrals */}
+      {form.referral_type === 'existing_service' && (
+        <div className="rounded-xl border-2 border-blue-200 bg-blue-50 p-4 space-y-3">
+          <div>
+            <p className="text-sm font-semibold text-blue-900">Service Request</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              This will route directly to our service team. Please include the policy number if you have it.
+            </p>
+          </div>
+          <Field label="Life Policy Number" hint="From the client's LBL / Everlake policy statement" error={errors.life_policy_number}>
+            <Input
+              value={form.life_policy_number ?? ''}
+              onChange={(v) => set('life_policy_number', v)}
+              placeholder="e.g. 06T2E62080"
+              error={errors.life_policy_number}
+            />
+          </Field>
+        </div>
+      )}
+
       <Toggle checked={form.is_existing_client} onChange={(v) => {
           set('is_existing_client', v)
           if (!v) set('allstate_policy_number', '')
