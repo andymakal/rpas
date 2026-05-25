@@ -24,7 +24,8 @@ function formatCurrencyFull(val: number | null): string {
 
 function formatDate(iso: string | null): string {
   if (!iso) return '—'
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const d = iso.includes('T') ? new Date(iso) : new Date(iso + 'T12:00:00')
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 type Period = 'month' | 'quarter' | 'ytd' | 'all'
