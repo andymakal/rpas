@@ -7,7 +7,7 @@ import {
   ArrowLeft, Phone, Building2, User, Calendar, Clock,
   MessageSquare, Mail, AlertCircle, PhoneCall, PhoneOff,
   MessageCircle, ChevronDown, ChevronUp, DollarSign, Pencil, Check, X, MapPin,
-  CalendarClock, History, Flame, Send, Wrench,
+  CalendarClock, CalendarX, History, Flame, Send, Wrench,
 } from 'lucide-react'
 import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember, SuspectedDuplicate } from './page'
 import { HouseholdCard } from '@/components/HouseholdCard'
@@ -33,18 +33,21 @@ const TOBACCO_LABELS: Record<string, string> = {
   nicotine_replacement: 'Nicotine Replacement',
 }
 
+// Logger shows only contact types; missed_appointment is logged via its own CTA
 const TOUCH_TYPES: { value: string; label: string; icon: React.ReactNode; short: string }[] = [
-  { value: 'call',      label: 'Call',      short: 'Called',    icon: <PhoneCall     className="w-4 h-4" /> },
-  { value: 'voicemail', label: 'Voicemail', short: 'Voicemail', icon: <PhoneOff      className="w-4 h-4" /> },
-  { value: 'text',      label: 'Text',      short: 'Texted',    icon: <MessageCircle className="w-4 h-4" /> },
-  { value: 'email',     label: 'Email',     short: 'Emailed',   icon: <Mail          className="w-4 h-4" /> },
+  { value: 'call',               label: 'Call',          short: 'Called',    icon: <PhoneCall     className="w-4 h-4" /> },
+  { value: 'voicemail',          label: 'Voicemail',     short: 'Voicemail', icon: <PhoneOff      className="w-4 h-4" /> },
+  { value: 'text',               label: 'Text',          short: 'Texted',    icon: <MessageCircle className="w-4 h-4" /> },
+  { value: 'email',              label: 'Email',         short: 'Emailed',   icon: <Mail          className="w-4 h-4" /> },
+  { value: 'missed_appointment', label: 'Missed Appt.',  short: 'No Show',   icon: <CalendarX     className="w-4 h-4" /> },
 ]
 
 const TOUCH_COLORS: Record<string, string> = {
-  call:      'bg-emerald-900/40 text-emerald-300 border-emerald-800',
-  voicemail: 'bg-slate-800/60  text-slate-400   border-slate-700',
-  text:      'bg-blue-900/40   text-blue-300    border-blue-800',
-  email:     'bg-indigo-900/40 text-indigo-300  border-indigo-800',
+  call:               'bg-emerald-900/40 text-emerald-300 border-emerald-800',
+  voicemail:          'bg-slate-800/60  text-slate-400   border-slate-700',
+  text:               'bg-blue-900/40   text-blue-300    border-blue-800',
+  email:              'bg-indigo-900/40 text-indigo-300  border-indigo-800',
+  missed_appointment: 'bg-amber-900/40  text-amber-300   border-amber-800',
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -256,6 +259,12 @@ export function ReferralEditClient({
   const [spiffEarned, setSpiffEarned] = useState(referral.spiff_earned)
   const [spiffSaving, setSpiffSaving] = useState(false)
 
+  // ── Missed appointment ────────────────────────────────────────
+  const [missedOpen,    setMissedOpen]    = useState(false)
+  const [missedNote,    setMissedNote]    = useState('')
+  const [missedWorking, setMissedWorking] = useState(false)
+  const [missedError,   setMissedError]   = useState<string | null>(null)
+
   // ── App submission ─────────────────────────────────────────────
   const [submitting,  setSubmitting]  = useState(false)
   const [submitMsg,   setSubmitMsg]   = useState<{ ok: boolean; text: string } | null>(null)
@@ -305,6 +314,9 @@ export function ReferralEditClient({
   const showProducerDropdown = PRODUCER_STATUSES.has(status)
   const showRewarmEmail      = status === 'lsp_contact_needed'
   const showApptDate         = APPT_STATUSES.has(status)
+  // Keyed off server-confirmed status (props), not local state — action should
+  // only be available when the DB actually says appointment_set
+  const showMissedAppt       = referral.internal_status === 'appointment_set'
 
   const parsedNotes       = parseNotes(referral.notes)
   const allstatePolicy    = parsedNotes['Allstate Policy'] ?? null
@@ -541,6 +553,27 @@ export function ReferralEditClient({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ spanish_speaking: checked }),
     })
+  }
+
+  async function handleMissedAppointment() {
+    setMissedWorking(true); setMissedError(null)
+    try {
+      const res = await fetch(`/api/cases/${referral.id}/missed-appointment`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ notes: missedNote.trim() || undefined }),
+      })
+      if (!res.ok) {
+        const j = await res.json()
+        setMissedError((j as { error?: string }).error ?? 'Failed to log missed appointment')
+        return
+      }
+      router.push('/triage')
+    } catch {
+      setMissedError('Network error — please try again')
+    } finally {
+      setMissedWorking(false)
+    }
   }
 
   async function handleSubmitApp() {
@@ -1346,6 +1379,61 @@ export function ReferralEditClient({
               </>
             )}
           </div>
+
+          {/* 3b — Missed appointment CTA (only when appointment_set) */}
+          {showMissedAppt && (
+            <div className="rounded-xl border border-amber-700/50 bg-amber-950/20 overflow-hidden">
+              <div className="flex items-center justify-between gap-4 px-5 py-4">
+                <div className="flex items-center gap-3">
+                  <CalendarX className="w-5 h-5 text-amber-400 shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-amber-300">Client didn&apos;t answer?</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Log a no-show and send this back to the triage queue.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setMissedOpen(o => !o); setMissedError(null) }}
+                  className={`shrink-0 text-xs font-semibold rounded-lg px-3 py-2 border transition-all ${
+                    missedOpen
+                      ? 'border-amber-600 bg-amber-900/40 text-amber-300'
+                      : 'border-amber-700/50 text-amber-400 hover:bg-amber-950/40'
+                  }`}
+                >
+                  {missedOpen ? 'Cancel' : 'Log Missed Appointment'}
+                </button>
+              </div>
+
+              {missedOpen && (
+                <div className="border-t border-amber-800/40 bg-amber-950/30 px-5 py-4 space-y-3">
+                  <textarea
+                    value={missedNote}
+                    onChange={e => setMissedNote(e.target.value)}
+                    rows={2}
+                    placeholder="Optional note — e.g. Called at appointment time, no answer. Left voicemail."
+                    className="w-full bg-slate-800 border border-amber-800/40 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-amber-600 placeholder-slate-600 resize-none"
+                  />
+                  {missedError && <p className="text-xs text-red-400">{missedError}</p>}
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs text-slate-500 leading-snug">
+                      Logs a no-show touch and moves this back to triage
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleMissedAppointment}
+                      disabled={missedWorking}
+                      className="shrink-0 inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white bg-amber-700 hover:bg-amber-600 disabled:opacity-50 transition-colors"
+                    >
+                      <CalendarX className="w-4 h-4" />
+                      {missedWorking ? 'Logging…' : 'Confirm — Back to Triage'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* 4 — Appointment & Notes */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">

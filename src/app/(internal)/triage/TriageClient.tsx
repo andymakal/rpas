@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Phone, Mail, Flame, Clock, ChevronDown, ChevronUp } from 'lucide-react'
+import { Search, Phone, Mail, Flame, Clock, ChevronDown, ChevronUp, CalendarX } from 'lucide-react'
 import type { TriageCase } from './page'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -40,6 +40,14 @@ function parseNotes(raw: string | null): Record<string, string> {
     }
   }
   return result
+}
+
+function fmtRelative(iso: string | null): string {
+  if (!iso) return 'never'
+  const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
+  if (d === 0) return 'today'
+  if (d === 1) return 'yesterday'
+  return `${d}d ago`
 }
 
 function QueueAgeBadge({ iso }: { iso: string }) {
@@ -117,6 +125,21 @@ function TriageRow({ c }: { c: TriageCase }) {
               </a>
             </div>
           )}
+          {/* Activity badges */}
+          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            {c.missed_count > 0 && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium rounded border px-2 py-0.5 bg-amber-900/40 text-amber-300 border-amber-700">
+                <CalendarX className="w-3 h-3" />
+                {c.missed_count} missed
+              </span>
+            )}
+            {(c.touches ?? 0) > 0 && (
+              <span className="inline-flex items-center gap-1 text-xs rounded border px-2 py-0.5 bg-slate-800/60 text-slate-400 border-slate-700">
+                <Phone className="w-3 h-3" />
+                {c.touches} touch{c.touches !== 1 ? 'es' : ''} · {fmtRelative(c.last_contact_at)}
+              </span>
+            )}
+          </div>
         </td>
 
         {/* Agency */}

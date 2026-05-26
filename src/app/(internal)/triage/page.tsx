@@ -11,6 +11,9 @@ export type TriageCase = {
   is_hot_lead: boolean
   is_owner_referral: boolean
   notes: string | null
+  touches: number | null
+  last_contact_at: string | null
+  missed_count: number          // injected in page — count of missed_appointment touches
   agencies: { id: string; name: string; display_name: string | null } | null
   customers: {
     first_name: string
@@ -25,7 +28,7 @@ export type TriageCase = {
 export default async function TriagePage() {
   const supabase = createAdminClient()
 
-  const { data: cases } = await supabase
+  const { data: rawCases } = await supabase
     .from('cases')
     .select(`
       id,
@@ -33,6 +36,8 @@ export default async function TriagePage() {
       is_hot_lead,
       is_owner_referral,
       notes,
+      touches,
+      last_contact_at,
       agencies ( id, name, display_name ),
       customers!customer_id ( first_name, last_name, phone, email, date_of_birth ),
       agents ( first_name, last_name, email )
@@ -41,6 +46,25 @@ export default async function TriagePage() {
     .eq('is_test', false)
     .order('is_hot_lead', { ascending: false })
     .order('created_at', { ascending: true })   // oldest first — FIFO
+
+  // Fetch missed-appointment touch counts for all triage cases in one query
+  const caseIds = (rawCases ?? []).map(c => c.id)
+  const missedCounts: Record<string, number> = {}
+  if (caseIds.length > 0) {
+    const { data: misses } = await supabase
+      .from('case_touches')
+      .select('case_id')
+      .in('case_id', caseIds)
+      .eq('touch_type', 'missed_appointment')
+    for (const m of (misses ?? [])) {
+      missedCounts[m.case_id] = (missedCounts[m.case_id] ?? 0) + 1
+    }
+  }
+
+  const cases = (rawCases ?? []).map(c => ({
+    ...c,
+    missed_count: missedCounts[c.id] ?? 0,
+  }))
 
   return (
     <div className="p-8">
