@@ -68,40 +68,53 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: 'carrier is required' }, { status: 400 })
     }
 
-    const { data: policy, error: pErr } = await supabase
+    // Find-or-create: if a policy with this number already exists, use it
+    // rather than inserting a duplicate (policy_number has a unique constraint).
+    const { data: existing } = await supabase
       .from('service_policies')
-      .insert({
-        client_name:           np.client_name.trim(),
-        policy_number:         np.policy_number.trim(),
-        carrier:               np.carrier.trim(),
-        product_type:          np.product_type          ?? null,
-        issue_date:            np.issue_date             ?? null,
-        term_length:           np.term_length?.trim()    ?? null,
-        face_amount:           np.face_amount            ?? null,
-        death_benefit_amount:  np.death_benefit_amount   ?? null,
-        cash_value_amount:     np.cash_value_amount      ?? null,
-        cost_basis:            np.cost_basis             ?? null,
-        annual_premium:        np.annual_premium         ?? null,
-        premium_mode:          np.premium_mode           ?? null,
-        rate_class:            np.rate_class             ?? null,
-        riders:                np.riders                 ?? null,
-        insured_first_name:    np.insured_first_name     ?? null,
-        insured_last_name:     np.insured_last_name      ?? null,
-        primary_beneficiary:   np.primary_beneficiary    ?? null,
-        agency_id:             np.agency_id              ?? null,
-        agent_id:              np.agent_id               ?? null,
-        customer_id:           np.customer_id            ?? null,
-        notes:                 np.notes                  ?? null,
-        sa_status:             'unknown',
-      })
       .select('id')
-      .single()
+      .eq('policy_number', np.policy_number.trim())
+      .maybeSingle()
 
-    if (pErr || !policy) {
-      console.error('service_policy insert error:', pErr)
-      return Response.json({ error: pErr?.message ?? 'Failed to create policy' }, { status: 500 })
+    if (existing) {
+      // Policy is already in the system — just attach the SR to it.
+      policyId = existing.id
+    } else {
+      const { data: policy, error: pErr } = await supabase
+        .from('service_policies')
+        .insert({
+          client_name:           np.client_name.trim(),
+          policy_number:         np.policy_number.trim(),
+          carrier:               np.carrier.trim(),
+          product_type:          np.product_type          ?? null,
+          issue_date:            np.issue_date             ?? null,
+          term_length:           np.term_length?.trim()    ?? null,
+          face_amount:           np.face_amount            ?? null,
+          death_benefit_amount:  np.death_benefit_amount   ?? null,
+          cash_value_amount:     np.cash_value_amount      ?? null,
+          cost_basis:            np.cost_basis             ?? null,
+          annual_premium:        np.annual_premium         ?? null,
+          premium_mode:          np.premium_mode           ?? null,
+          rate_class:            np.rate_class             ?? null,
+          riders:                np.riders                 ?? null,
+          insured_first_name:    np.insured_first_name     ?? null,
+          insured_last_name:     np.insured_last_name      ?? null,
+          primary_beneficiary:   np.primary_beneficiary    ?? null,
+          agency_id:             np.agency_id              ?? null,
+          agent_id:              np.agent_id               ?? null,
+          customer_id:           np.customer_id            ?? null,
+          notes:                 np.notes                  ?? null,
+          sa_status:             'unknown',
+        })
+        .select('id')
+        .single()
+
+      if (pErr || !policy) {
+        console.error('service_policy insert error:', pErr)
+        return Response.json({ error: pErr?.message ?? 'Failed to create policy' }, { status: 500 })
+      }
+      policyId = policy.id
     }
-    policyId = policy.id
   }
 
   // ── Generate SR number: SR-YYYY-NNN ──────────────────────────────────────
