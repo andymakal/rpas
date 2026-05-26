@@ -24,10 +24,7 @@ export async function GET(request: NextRequest) {
 
   let query = supabase
     .from('customers')
-    .select(`
-      id, first_name, last_name, phone, customer_group_id,
-      cases ( id, internal_status, stage_translations ( agency_label, is_won, is_lost ) )
-    `)
+    .select('id, first_name, last_name, phone, customer_group_id')
     .eq('is_test', false)
     .ilike('last_name', `%${q}%`)
     .order('last_name')

@@ -6,7 +6,7 @@ import Link from 'next/link'
 import {
   ArrowLeft, CheckCircle, ShieldOff, FileQuestion, Send,
   AlertTriangle, ChevronRight, Search, X, Building2, User,
-  Link2, Link2Off, ClipboardList, Zap,
+  Link2, Link2Off, ClipboardList, Zap, Pencil, Save,
 } from 'lucide-react'
 import type { PolicyDetail, PolicyReviewRow } from './page'
 import type { ReviewFlag } from '@/lib/reviews/prep'
@@ -149,6 +149,54 @@ export function PolicyDetailClient({
   )
   const [reviews,      setReviews]    = useState<PolicyReviewRow[]>(initialReviews)
   const [autoNotice,   setAutoNotice] = useState<string | null>(null)
+
+  // ── Edit mode state ───────────────────────────────────────────────────────────
+  const [editing, setEditing] = useState(false)
+  const [editFields, setEditFields] = useState({
+    face_amount:          initial.face_amount          != null ? String(initial.face_amount)          : '',
+    death_benefit_amount: initial.death_benefit_amount != null ? String(initial.death_benefit_amount) : '',
+    cash_value_amount:    initial.cash_value_amount    != null ? String(initial.cash_value_amount)    : '',
+    cost_basis:           initial.cost_basis            != null ? String(initial.cost_basis)           : '',
+    annual_premium:       initial.annual_premium        != null ? String(initial.annual_premium)       : '',
+    premium_mode:         initial.premium_mode          ?? '',
+    rate_class:           initial.rate_class            ?? '',
+    primary_beneficiary:  initial.primary_beneficiary   ?? '',
+    riders:               initial.riders                ?? '',
+    coverage_status:      initial.coverage_status       ?? 'Active',
+    notes:                initial.notes                 ?? '',
+  })
+
+  function ef(k: keyof typeof editFields) {
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) =>
+      setEditFields(prev => ({ ...prev, [k]: e.target.value }))
+  }
+
+  async function handleSaveEdit() {
+    setSaving(true)
+    setErr(null)
+    try {
+      const num = (v: string) => v.trim() === '' ? null : parseFloat(v)
+      await patchPolicy({
+        face_amount:          num(editFields.face_amount),
+        death_benefit_amount: num(editFields.death_benefit_amount),
+        cash_value_amount:    num(editFields.cash_value_amount),
+        cost_basis:           num(editFields.cost_basis),
+        annual_premium:       num(editFields.annual_premium),
+        premium_mode:         editFields.premium_mode  || null,
+        rate_class:           editFields.rate_class    || null,
+        primary_beneficiary:  editFields.primary_beneficiary || null,
+        riders:               editFields.riders        || null,
+        coverage_status:      editFields.coverage_status || 'Active',
+        notes:                editFields.notes         || null,
+      })
+      setEditing(false)
+      router.refresh()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   // ── UI state ─────────────────────────────────────────────────────────────────
   const [saving,        setSaving]        = useState(false)
@@ -360,9 +408,38 @@ export function PolicyDetailClient({
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-white text-2xl font-semibold">{initial.client_name}</h1>
               <TypeBadge type={initial.product_type} />
-              <StatusBadge status={initial.coverage_status} />
+              <StatusBadge status={editFields.coverage_status} />
             </div>
             <p className="text-slate-400 text-sm mt-0.5 font-mono">{initial.policy_number} · {initial.carrier}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            {editing ? (
+              <>
+                <button
+                  onClick={() => { setEditing(false); setErr(null) }}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  disabled={saving}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                  style={{ backgroundColor: '#1F3864' }}
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  {saving ? 'Saving…' : 'Save Changes'}
+                </button>
+              </>
+            ) : (
+              <button
+                onClick={() => setEditing(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                Edit Policy
+              </button>
+            )}
           </div>
         </div>
 
@@ -392,20 +469,70 @@ export function PolicyDetailClient({
 
             {/* Coverage details */}
             <Card title="Coverage Details">
-              <Row label="Face Amount"    value={fmt(initial.face_amount)} />
-              <Row label="Death Benefit"  value={fmt(initial.death_benefit_amount)} />
-              <Row label="Cash Value"     value={fmt(initial.cash_value_amount)} />
-              <Row label="Cost Basis"     value={fmt(initial.cost_basis)} />
-              <Row label="Annual Premium" value={
-                initial.annual_premium
-                  ? `${fmt(initial.annual_premium)}${initial.premium_mode ? ` / ${initial.premium_mode.toLowerCase()}` : ''}`
-                  : '—'
-              } />
-              <Row label="Issue Date"  value={fmtDate(initial.issue_date)} />
-              {initial.product_type === 'Term' && (
-                <Row label="Term Length" value={initial.term_length ?? '—'} />
+              {editing ? (
+                <div className="space-y-3">
+                  {[
+                    { label: 'Face Amount ($)',         key: 'face_amount'          },
+                    { label: 'Death Benefit ($)',       key: 'death_benefit_amount' },
+                    { label: 'Cash Value ($)',          key: 'cash_value_amount'    },
+                    { label: 'Cost Basis ($)',          key: 'cost_basis'           },
+                    { label: 'Annual Premium ($)',      key: 'annual_premium'       },
+                  ].map(({ label, key }) => (
+                    <div key={key}>
+                      <label className="block text-xs text-slate-500 mb-1">{label}</label>
+                      <input
+                        type="number"
+                        value={editFields[key as keyof typeof editFields]}
+                        onChange={ef(key as keyof typeof editFields)}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-slate-500"
+                        placeholder="—"
+                      />
+                    </div>
+                  ))}
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Premium Mode</label>
+                    <select value={editFields.premium_mode} onChange={ef('premium_mode')}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-slate-500">
+                      <option value="">—</option>
+                      {['Annual','Semi-Annual','Quarterly','Monthly','EFT Monthly'].map(m => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Rate Class</label>
+                    <input value={editFields.rate_class} onChange={ef('rate_class')}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-slate-500"
+                      placeholder="e.g. Preferred Plus, Standard…" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Coverage Status</label>
+                    <select value={editFields.coverage_status} onChange={ef('coverage_status')}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-slate-500">
+                      {['Active','Lapsed','Surrendered','Pending','Paid Up'].map(s => (
+                        <option key={s} value={s}>{s}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <Row label="Face Amount"    value={fmt(initial.face_amount)} />
+                  <Row label="Death Benefit"  value={fmt(initial.death_benefit_amount)} />
+                  <Row label="Cash Value"     value={fmt(initial.cash_value_amount)} />
+                  <Row label="Cost Basis"     value={fmt(initial.cost_basis)} />
+                  <Row label="Annual Premium" value={
+                    initial.annual_premium
+                      ? `${fmt(initial.annual_premium)}${initial.premium_mode ? ` / ${initial.premium_mode.toLowerCase()}` : ''}`
+                      : '—'
+                  } />
+                  <Row label="Issue Date"  value={fmtDate(initial.issue_date)} />
+                  {initial.product_type === 'Term' && (
+                    <Row label="Term Length" value={initial.term_length ?? '—'} />
+                  )}
+                  <Row label="Rate Class" value={editFields.rate_class || '—'} />
+                </>
               )}
-              <Row label="Rate Class" value={initial.rate_class ?? '—'} />
             </Card>
 
             {/* Insured / Riders */}
@@ -418,13 +545,38 @@ export function PolicyDetailClient({
                     : '—'
                 }
               />
-              <Row label="Primary Beneficiary" value={initial.primary_beneficiary ?? '—'} />
-              <Row label="Riders"              value={initial.riders ?? '—'} />
-              {initial.notes && (
-                <div className="mt-3 pt-3 border-t border-slate-800">
-                  <p className="text-xs text-slate-500 mb-1">Notes</p>
-                  <p className="text-sm text-slate-300 whitespace-pre-wrap">{initial.notes}</p>
+              {editing ? (
+                <div className="space-y-3 mt-3">
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Primary Beneficiary</label>
+                    <input value={editFields.primary_beneficiary} onChange={ef('primary_beneficiary')}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-slate-500"
+                      placeholder="e.g. Jane Doe (spouse)" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Riders</label>
+                    <input value={editFields.riders} onChange={ef('riders')}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-slate-500"
+                      placeholder="e.g. WAIVER, CLTR" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Notes</label>
+                    <textarea value={editFields.notes} onChange={ef('notes')} rows={4}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-slate-500 resize-none"
+                      placeholder="Internal notes about this policy…" />
+                  </div>
                 </div>
+              ) : (
+                <>
+                  <Row label="Primary Beneficiary" value={editFields.primary_beneficiary || '—'} />
+                  <Row label="Riders"              value={editFields.riders || '—'} />
+                  {editFields.notes && (
+                    <div className="mt-3 pt-3 border-t border-slate-800">
+                      <p className="text-xs text-slate-500 mb-1">Notes</p>
+                      <p className="text-sm text-slate-300 whitespace-pre-wrap">{editFields.notes}</p>
+                    </div>
+                  )}
+                </>
               )}
             </Card>
 
