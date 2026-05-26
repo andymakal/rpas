@@ -279,6 +279,7 @@ export function PoliciesClient({
                 return (
                   <tr
                     key={row.id}
+                    onClick={() => router.push(`/policies/${row.id}`)}
                     className="hover:bg-slate-800/40 transition-colors cursor-pointer group"
                   >
                     <td className="px-4 py-3">
