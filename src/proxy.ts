@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from 'next/server'
 
 const PUBLIC_ROUTES = ['/intake', '/portal', '/api/portal']
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname
 
   if (PUBLIC_ROUTES.some((route) => pathname.startsWith(route))) {
@@ -48,8 +48,6 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Exclude large-upload API routes from middleware so the request body
-    // is not cloned/buffered by the middleware layer (avoids 10MB clone limit)
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$|api/admin/policy-import).*)',
   ],
 }

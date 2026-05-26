@@ -23,6 +23,8 @@ import {
   Wrench,
   ClipboardCheck,
   FileSpreadsheet,
+  Shield,
+  BookOpen,
 } from 'lucide-react'
 import { NotificationBell } from '@/components/layout/NotificationBell'
 
@@ -35,6 +37,7 @@ const navItems = [
   { href: '/cases',                  icon: FolderKanban,    label: 'Cases'            },
   { href: '/production',             icon: TrendingUp,      label: 'Production'       },
   { href: '/service',                icon: Wrench,          label: 'Service'          },
+  { href: '/policies',               icon: BookOpen,        label: 'Policies'         },
   { href: '/reviews',                icon: ClipboardCheck,  label: 'Reviews'          },
   { href: '/team',                   icon: Users,           label: 'Team'             },
   { href: '/admin/gdc-import',       icon: Upload,          label: 'GDC Import'       },

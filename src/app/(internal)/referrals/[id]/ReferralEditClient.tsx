@@ -608,7 +608,15 @@ export function ReferralEditClient({
                 </span>
               )}
             </div>
-            <div className="mt-1.5"><StatusBadge st={referral.stage_translations} /></div>
+            <div className="mt-1.5 flex items-center gap-3 flex-wrap">
+              <StatusBadge st={referral.stage_translations} />
+              <Link
+                href={`/customers/${referral.customer_id}`}
+                className="inline-flex items-center gap-1 text-xs text-sky-400 hover:underline"
+              >
+                <User className="w-3 h-3" /> Customer Card
+              </Link>
+            </div>
           </div>
           <button
             onClick={() => setLogOpen(o => !o)}

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -18,6 +19,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const router = useRouter()
   const supabase = createClient()
 
   async function handleLogin(e: React.FormEvent) {
@@ -36,7 +38,8 @@ export default function LoginPage() {
       return
     }
 
-    window.location.href = '/dashboard'
+    router.push('/dashboard')
+    router.refresh()
   }
 
   return (
