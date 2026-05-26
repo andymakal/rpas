@@ -94,34 +94,28 @@ export default async function PortalPage({
         .lte('process_date', yearEnd)
         .gt('production_credit', 0),
 
+      // Service requests — filter by agency via service_policies join
       supabase
         .from('service_requests')
         .select(`
-          id,
-          created_at,
-          resolved_at,
-          customers ( first_name, last_name ),
-          carriers ( short_name ),
-          service_request_types ( name ),
-          request_statuses ( name )
+          id, sr_number, request_type, workflow_status,
+          date_received, date_resolved, created_at,
+          service_policies!inner ( client_name, policy_number )
         `)
-        .eq('agency_id', agency.id)
+        .eq('service_policies.agency_id', agency.id)
         .eq('is_test', false)
         .order('created_at', { ascending: false })
         .limit(20),
 
+      // Policy reviews — filter by agency via service_policies join
       supabase
         .from('policy_reviews')
         .select(`
-          id,
-          created_at,
-          reviewed_at,
-          customers ( first_name, last_name ),
-          carriers ( short_name ),
-          review_statuses ( name ),
-          opportunity_types ( name )
+          id, review_number, review_type, status,
+          assigned_to, outcome, call_completed_at, created_at,
+          service_policies!inner ( client_name, policy_number )
         `)
-        .eq('agency_id', agency.id)
+        .eq('service_policies.agency_id', agency.id)
         .eq('is_test', false)
         .order('created_at', { ascending: false })
         .limit(20),

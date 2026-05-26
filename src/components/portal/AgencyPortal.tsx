@@ -32,22 +32,25 @@ export type Case = {
 
 export type ServiceRequest = {
   id: string
+  sr_number: string | null
   created_at: string
-  resolved_at: string | null
-  customers: { first_name: string; last_name: string } | null
-  carriers: { short_name: string } | null
-  service_request_types: { name: string } | null
-  request_statuses: { name: string } | null
+  request_type: string | null
+  workflow_status: string | null
+  date_received: string | null
+  date_resolved: string | null
+  service_policies: { client_name: string | null; policy_number: string | null } | null
 }
 
 export type PolicyReview = {
   id: string
+  review_number: string | null
   created_at: string
-  reviewed_at: string | null
-  customers: { first_name: string; last_name: string } | null
-  carriers: { short_name: string } | null
-  review_statuses: { name: string } | null
-  opportunity_types: { name: string } | null
+  review_type: string | null
+  status: string | null
+  assigned_to: string | null
+  outcome: string | null
+  call_completed_at: string | null
+  service_policies: { client_name: string | null; policy_number: string | null } | null
 }
 
 export type SpiffRecord = {
@@ -133,20 +136,43 @@ function stageBadgeClass(st: StageTranslation | null): string {
   return 'bg-blue-100 text-blue-700'
 }
 
-function srStatusClass(s: string | undefined) {
-  if (!s) return 'bg-slate-100 text-slate-500'
-  if (s === 'Resolved' || s === 'Converted to Review') return 'bg-green-100 text-green-700'
-  if (s === 'Awaiting Carrier' || s === 'Pending Client Response') return 'bg-amber-100 text-amber-700'
-  return 'bg-blue-100 text-blue-700'
+// workflow_status values: open | sa_form_sent | form_sent_to_client | form_sent_to_carrier | resolved | cannot_service
+const SR_STATUS_LABELS: Record<string, string> = {
+  open:                 'Open',
+  sa_form_sent:         'SA Form Sent',
+  form_sent_to_client:  'Sent to Client',
+  form_sent_to_carrier: 'Sent to Carrier',
+  resolved:             'Resolved',
+  cannot_service:       'Cannot Service',
 }
 
-function prStatusClass(s: string | undefined) {
+function srStatusClass(s: string | null | undefined) {
   if (!s) return 'bg-slate-100 text-slate-500'
-  if (s?.startsWith('New Policy') || s?.startsWith('Completed')) return 'bg-green-100 text-green-700'
-  if (s === 'Client Declined' || s === 'Complete — No Changes') return 'bg-slate-100 text-slate-500'
-  if (s === 'Quoted — Follow Up' || s === 'Follow-Up Needed') return 'bg-amber-100 text-amber-700'
-  if (s === 'In Progress') return 'bg-blue-100 text-blue-700'
-  return 'bg-slate-100 text-slate-600'
+  if (s === 'resolved')             return 'bg-green-100 text-green-700'
+  if (s === 'cannot_service')       return 'bg-slate-100 text-slate-500'
+  if (s === 'form_sent_to_carrier') return 'bg-amber-100 text-amber-700'
+  return 'bg-blue-100 text-blue-700'   // open, sa_form_sent, form_sent_to_client
+}
+
+// status values: prep | complete | no_contact
+const PR_STATUS_LABELS: Record<string, string> = {
+  prep:       'In Queue',
+  complete:   'Complete',
+  no_contact: 'No Contact',
+}
+
+// review_type values: term | permanent_ul | permanent_wl
+const PR_TYPE_LABELS: Record<string, string> = {
+  term:         'Term Review',
+  permanent_ul: 'UL Review',
+  permanent_wl: 'WL Review',
+}
+
+function prStatusClass(s: string | null | undefined) {
+  if (!s) return 'bg-slate-100 text-slate-500'
+  if (s === 'complete')   return 'bg-green-100 text-green-700'
+  if (s === 'no_contact') return 'bg-amber-100 text-amber-700'
+  return 'bg-blue-100 text-blue-700'   // prep
 }
 
 function fmtDate(dateStr: string, opts?: Intl.DateTimeFormatOptions) {
@@ -1011,22 +1037,23 @@ export function AgencyPortal({
             {/* Service Requests */}
             {serviceRequests.length > 0 && (
               <div>
-                <SectionHeader label="Service Requests" count={serviceRequests.filter(r => !r.resolved_at).length} />
+                <SectionHeader label="Service Requests" count={serviceRequests.filter(r => !r.date_resolved).length} />
                 <div className="bg-white rounded-2xl border border-slate-100 divide-y divide-slate-50">
                   {serviceRequests.map(sr => (
                     <div key={sr.id} className="flex items-center justify-between gap-3 px-4 py-3">
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-slate-900 truncate">
-                          {sr.customers ? `${sr.customers.first_name} ${sr.customers.last_name}` : '—'}
+                          {sr.service_policies?.client_name ?? '—'}
                         </p>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          {sr.service_request_types?.name ?? '—'}{sr.carriers?.short_name ? ` · ${sr.carriers.short_name}` : ''}
+                          {sr.request_type ?? '—'}
+                          {sr.service_policies?.policy_number ? ` · ${sr.service_policies.policy_number}` : ''}
                         </p>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        {!sr.resolved_at && <AgeBadge dateStr={sr.created_at} />}
-                        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${srStatusClass(sr.request_statuses?.name)}`}>
-                          {sr.request_statuses?.name ?? '—'}
+                        {!sr.date_resolved && <AgeBadge dateStr={sr.created_at} />}
+                        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${srStatusClass(sr.workflow_status)}`}>
+                          {SR_STATUS_LABELS[sr.workflow_status ?? ''] ?? sr.workflow_status ?? '—'}
                         </span>
                       </div>
                     </div>
@@ -1038,21 +1065,25 @@ export function AgencyPortal({
             {/* Policy Reviews */}
             {policyReviews.length > 0 && (
               <div>
-                <SectionHeader label="Policy Reviews" count={policyReviews.filter(r => !r.reviewed_at).length} />
+                <SectionHeader label="Policy Reviews" count={policyReviews.filter(r => r.status !== 'complete').length} />
                 <div className="bg-white rounded-2xl border border-slate-100 divide-y divide-slate-50">
                   {policyReviews.map(pr => (
                     <div key={pr.id} className="flex items-center justify-between gap-3 px-4 py-3">
                       <div className="min-w-0">
                         <p className="text-sm font-semibold text-slate-900 truncate">
-                          {pr.customers ? `${pr.customers.first_name} ${pr.customers.last_name}` : '—'}
+                          {pr.service_policies?.client_name ?? '—'}
                         </p>
                         <p className="text-xs text-slate-400 mt-0.5">
-                          {pr.carriers?.short_name ?? '—'}{pr.opportunity_types?.name ? ` · ${pr.opportunity_types.name}` : ''}
+                          {PR_TYPE_LABELS[pr.review_type ?? ''] ?? pr.review_type ?? '—'}
+                          {pr.service_policies?.policy_number ? ` · ${pr.service_policies.policy_number}` : ''}
                         </p>
                       </div>
-                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full flex-shrink-0 ${prStatusClass(pr.review_statuses?.name)}`}>
-                        {pr.review_statuses?.name ?? '—'}
-                      </span>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        {pr.status !== 'complete' && <AgeBadge dateStr={pr.created_at} />}
+                        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${prStatusClass(pr.status)}`}>
+                          {PR_STATUS_LABELS[pr.status ?? ''] ?? pr.status ?? '—'}
+                        </span>
+                      </div>
                     </div>
                   ))}
                 </div>
