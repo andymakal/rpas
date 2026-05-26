@@ -49,7 +49,7 @@ export default async function ReferralsPage() {
       is_hot_lead,
       is_owner_referral,
       agencies ( name, display_name ),
-      customers ( first_name, last_name, phone ),
+      customers!customer_id ( first_name, last_name, phone ),
       agents ( first_name, last_name ),
       stage_translations ( agency_label, tier, is_active_case )
     `)

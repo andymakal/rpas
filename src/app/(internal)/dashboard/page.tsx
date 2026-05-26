@@ -49,7 +49,7 @@ export default async function DashboardPage() {
         id,
         internal_status,
         created_at,
-        customers ( first_name, last_name ),
+        customers!customer_id ( first_name, last_name ),
         agencies ( name ),
         stage_translations ( agency_label, tier, is_active_case, is_won )
       `)

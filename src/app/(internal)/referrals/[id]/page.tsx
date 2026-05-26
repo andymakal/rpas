@@ -123,7 +123,7 @@ export default async function ReferralDetailPage({
       internal_status, created_at, status_entered_at, appointment_date,
       follow_up_date, face_amount, annual_premium, policy_number,
       notes, touches, last_contact_at, spiff_earned, spiff_earned_at, is_hot_lead, is_owner_referral, producer_id, lead_source, suspected_duplicate_customer_id,
-      customers ( first_name, last_name, phone, email, street, city, state, zip, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, spanish_speaking, customer_group_id ),
+      customers!customer_id ( first_name, last_name, phone, email, street, city, state, zip, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, spanish_speaking, customer_group_id ),
       agencies ( name, display_name, contact_email ),
       agents ( id, first_name, last_name, email ),
       stage_translations ( agency_label, tier, is_active_case, is_won, is_lost )

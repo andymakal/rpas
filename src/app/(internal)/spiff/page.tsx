@@ -25,7 +25,7 @@ export default async function SpiffPage() {
     .from('spiff_records')
     .select(`
       id, earned_at, paid_at, amount,
-      cases ( id, customers ( first_name, last_name ) ),
+      cases ( id, customers!customer_id ( first_name, last_name ) ),
       agents ( first_name, last_name ),
       agencies ( name, display_name )
     `)

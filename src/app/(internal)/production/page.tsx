@@ -28,7 +28,7 @@ export default async function ProductionPage() {
     .from('cases')
     .select(`
       id, placed_at, face_amount, annual_premium, policy_number,
-      customers ( first_name, last_name ),
+      customers!customer_id ( first_name, last_name ),
       agencies ( name, display_name ),
       agents ( first_name, last_name ),
       products ( name, carriers ( short_name ) )

@@ -34,7 +34,7 @@ export default async function TriagePage() {
       is_owner_referral,
       notes,
       agencies ( id, name, display_name ),
-      customers ( first_name, last_name, phone, email, date_of_birth ),
+      customers!customer_id ( first_name, last_name, phone, email, date_of_birth ),
       agents ( first_name, last_name, email )
     `)
     .eq('internal_status', 'triage')

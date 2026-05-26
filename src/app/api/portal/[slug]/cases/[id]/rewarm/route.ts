@@ -41,7 +41,7 @@ export async function POST(
     // Verify case belongs to this agency
     const { data: existing } = await supabase
       .from('cases')
-      .select('id, notes, internal_status, customers ( first_name, last_name )')
+      .select('id, notes, internal_status, customers!customer_id ( first_name, last_name )')
       .eq('id', id)
       .eq('agency_id', agency.id)
       .eq('is_test', false)
