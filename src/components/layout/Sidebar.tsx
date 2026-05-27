@@ -60,7 +60,7 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
   }
 
   return (
-    <aside className="w-56 flex flex-col shrink-0 border-r border-slate-800 bg-slate-900">
+    <aside style={{ width: '14rem', flexShrink: 0, display: 'flex', flexDirection: 'column', height: '100%' }} className="border-r border-slate-800 bg-slate-900">
       {/* Logo */}
       <div className="flex items-center justify-between px-4 py-4 border-b border-slate-800">
         <div className="flex items-center gap-3">
