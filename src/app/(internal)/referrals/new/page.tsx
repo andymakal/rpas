@@ -34,6 +34,7 @@ const REFERRAL_TYPES: { value: string; label: string }[] = [
   { value: 'tobacco_rerate',      label: 'Tobacco Rerate' },
   { value: 'business_owner',      label: 'Business Owner' },
   { value: 'umbrella_flagged',    label: 'Umbrella Flagged' },
+  { value: 'existing_service',    label: 'Existing Policy Service' },
   { value: 'general',             label: 'General' },
 ]
 
@@ -214,7 +215,18 @@ export default function NewReferralPage() {
     })
 
     if (!result.success) { setError(result.error); setSubmitting(false); return }
-    router.push(`/referrals/${result.case_id}`)
+
+    if (referralType === 'existing_service') {
+      // Route straight to Service Request creation with client info prefilled
+      const p = new URLSearchParams()
+      p.set('from_case_id', result.case_id)
+      p.set('client_name', `${firstName.trim()} ${lastName.trim()}`)
+      if (needsAgency && agencyId)  p.set('agency_id',  agencyId)
+      if (resolvedAgentId)          p.set('agent_id',   resolvedAgentId)
+      router.push(`/service/new?${p.toString()}`)
+    } else {
+      router.push(`/referrals/${result.case_id}`)
+    }
   }
 
   const inputCls  = 'bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 h-9'
