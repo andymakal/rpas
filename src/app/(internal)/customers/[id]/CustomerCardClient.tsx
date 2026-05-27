@@ -12,6 +12,7 @@ import {
 import type {
   CustomerDetail, LinkedCase, LinkedPolicy, LinkedServiceRequest,
 } from './page'
+import { fmtDate } from '@/lib/fmt'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -20,12 +21,6 @@ function fmt(n: number | null | undefined): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`
   if (n >= 1_000)     return `$${(n / 1_000).toFixed(0)}K`
   return `$${Math.round(n)}`
-}
-
-function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return '—'
-  const d = iso.includes('T') ? new Date(iso) : new Date(iso + 'T12:00:00')
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 /** Display DOB as MM/xx/YYYY — never expose the day */

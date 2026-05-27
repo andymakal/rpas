@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember, SuspectedDuplicate } from './page'
 import { HouseholdCard } from '@/components/HouseholdCard'
+import { fmtDate as fmt } from '@/lib/fmt'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -69,14 +70,6 @@ function parseNotes(raw: string | null): Record<string, string> {
 function daysAgo(iso: string | null): number {
   if (!iso) return 0
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
-}
-
-function fmt(iso: string | null): string {
-  if (!iso) return '—'
-  // Date-only strings (YYYY-MM-DD) parse as UTC midnight → shift to noon local
-  // to avoid the "-1 day" display bug in US timezones
-  const d = iso.includes('T') ? new Date(iso) : new Date(iso + 'T12:00:00')
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function fmtTime(iso: string): string {
@@ -1117,7 +1110,7 @@ export function ReferralEditClient({
                           <span className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium border ${TOUCH_COLORS[t.touch_type] ?? TOUCH_COLORS.call}`}>
                             {typeInfo?.icon}{typeInfo?.short ?? t.touch_type}
                           </span>
-                          <span className="text-xs text-slate-500 flex-shrink-0">{fmtTime(t.touched_at)}</span>
+                          <span suppressHydrationWarning className="text-xs text-slate-500 flex-shrink-0">{fmtTime(t.touched_at)}</span>
                         </div>
                         {t.notes && <p className="text-xs text-slate-400 pl-0.5">{t.notes}</p>}
                       </div>

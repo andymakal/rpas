@@ -14,6 +14,7 @@ import {
 } from '@/lib/reviews/prep'
 import type { PolicyForPrep, ReviewFlag } from '@/lib/reviews/prep'
 import type { ReviewDetail } from './page'
+import { fmtDate as fmt } from '@/lib/fmt'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -45,12 +46,6 @@ const SEVERITY_CONFIG: Record<string, { icon: typeof AlertTriangle; ring: string
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmt(iso: string | null): string {
-  if (!iso) return '—'
-  const d = iso.includes('T') ? new Date(iso) : new Date(iso + 'T12:00:00')
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
 
 function fmtCurrency(val: number | null | undefined): string {
   if (val == null) return '—'

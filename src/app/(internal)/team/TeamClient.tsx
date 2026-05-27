@@ -7,18 +7,7 @@ import {
   ChevronDown, ChevronUp, Pencil, Check, X, KeyRound,
 } from 'lucide-react'
 import type { Producer } from './page'
-
-function fmt(iso: string | null) {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
-
-function fmtBirthday(iso: string | null) {
-  if (!iso) return '—'
-  // birthday is a DATE string (YYYY-MM-DD) — parse without timezone shift
-  const [y, m, d] = iso.split('-').map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
+import { fmtDate } from '@/lib/fmt'
 
 type FieldDef = { key: string; label: string; placeholder?: string; type?: string }
 
@@ -337,7 +326,7 @@ export function TeamClient({ members }: { members: Producer[] }) {
                   )}
 
                   <span className="text-xs text-slate-500 shrink-0 hidden sm:block w-32 text-right">
-                    {m.last_sign_in ? `Last in ${fmt(m.last_sign_in)}` : 'Never signed in'}
+                    {m.last_sign_in ? `Last in ${fmtDate(m.last_sign_in)}` : 'Never signed in'}
                   </span>
 
                   {isExpanded ? (
@@ -424,9 +413,9 @@ export function TeamClient({ members }: { members: Producer[] }) {
                           <InfoRow label="Allstate ID"      value={m.allstate_id} />
                           <InfoRow label="NPN"              value={m.npn} />
                           <InfoRow label="Sub-Producer Code" value={m.sub_producer_code} />
-                          <InfoRow label="Birthday"         value={fmtBirthday(m.birthday)} />
-                          <InfoRow label="Last Sign-In"     value={fmt(m.last_sign_in)} />
-                          <InfoRow label="Member Since"     value={fmt(m.created_at)} />
+                          <InfoRow label="Birthday"         value={fmtDate(m.birthday)} />
+                          <InfoRow label="Last Sign-In"     value={fmtDate(m.last_sign_in)} />
+                          <InfoRow label="Member Since"     value={fmtDate(m.created_at)} />
                         </div>
 
                         <div className="flex items-center gap-4 pt-1">

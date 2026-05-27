@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search, ChevronUp, ChevronDown, CalendarClock, AlertTriangle, Flame } from 'lucide-react'
 import type { CaseRow, StageTranslation } from './page'
+import { fmtDate, fmtDateShort } from '@/lib/fmt'
 
 const TIER_BADGE: Record<number, string> = {
   1: 'bg-blue-900/50 text-blue-300 border border-blue-800',
@@ -327,7 +328,7 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
                   {/* Date In */}
                   <td className="px-4 py-3">
                     <p className="text-xs text-slate-400">
-                      {new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                      {fmtDate(r.created_at)}
                     </p>
                     <div className="mt-1">
                       <AgeBadge iso={r.created_at} />
@@ -354,7 +355,7 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
                     {r.follow_up_date ? (
                       <div className="space-y-1">
                         <p className="text-xs text-slate-400">
-                          {new Date(r.follow_up_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          {fmtDateShort(r.follow_up_date)}
                         </p>
                         <FollowUpBadge date={r.follow_up_date} />
                       </div>

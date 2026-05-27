@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronRight, ChevronUp, ChevronDown, Search, Target } from 'lucide-react'
 import type { PlacedCase } from './page'
+import { fmtDate as formatDate } from '@/lib/fmt'
 
 type SortKey = 'client' | 'carrier' | 'face' | 'premium' | 'date'
 
@@ -20,12 +21,6 @@ function formatCurrencyFull(val: number | null): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency', currency: 'USD', maximumFractionDigits: 0,
   }).format(val)
-}
-
-function formatDate(iso: string | null): string {
-  if (!iso) return '—'
-  const d = iso.includes('T') ? new Date(iso) : new Date(iso + 'T12:00:00')
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 type Period = 'month' | 'quarter' | 'ytd' | 'all'

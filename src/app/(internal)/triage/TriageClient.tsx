@@ -4,17 +4,12 @@ import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search, Phone, Mail, Flame, Clock, ChevronDown, ChevronUp, CalendarX } from 'lucide-react'
 import type { TriageCase } from './page'
+import { fmtDate } from '@/lib/fmt'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function daysInQueue(iso: string): number {
   return Math.floor((Date.now() - new Date(iso).getTime()) / 86_400_000)
-}
-
-function fmt(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', {
-    month: 'short', day: 'numeric', year: 'numeric',
-  })
 }
 
 function age(dob: string | null): number | null {
@@ -161,7 +156,7 @@ function TriageRow({ c }: { c: TriageCase }) {
 
         {/* Date in / queue age */}
         <td className="px-4 py-3 text-right">
-          <p className="text-xs text-slate-500 mb-1">{fmt(c.created_at)}</p>
+          <p className="text-xs text-slate-500 mb-1">{fmtDate(c.created_at)}</p>
           <QueueAgeBadge iso={c.created_at} />
         </td>
 

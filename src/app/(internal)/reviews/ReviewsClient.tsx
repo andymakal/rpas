@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { ClipboardList, AlertTriangle, CheckCircle2, Phone, Search, Plus } from 'lucide-react'
 import type { ReviewListRow } from './page'
+import { fmtDate as fmt } from '@/lib/fmt'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -42,12 +43,6 @@ const TYPE_LABELS: Record<string, string> = {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function fmt(iso: string | null): string {
-  if (!iso) return '—'
-  const d = iso.includes('T') ? new Date(iso) : new Date(iso + 'T12:00:00')
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
 
 function fmtAmt(v: number | null | undefined): string {
   if (v == null) return '—'

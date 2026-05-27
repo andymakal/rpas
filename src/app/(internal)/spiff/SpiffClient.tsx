@@ -4,11 +4,7 @@ import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { Check, Search } from 'lucide-react'
 import type { SpiffRow } from './page'
-
-function fmt(iso: string | null) {
-  if (!iso) return '—'
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
+import { fmtDate as fmt } from '@/lib/fmt'
 
 export function SpiffClient({ rows: initial }: { rows: SpiffRow[] }) {
   const [rows, setRows]       = useState(initial)

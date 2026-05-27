@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react'
 import type { ServiceRow } from './page'
+import { fmtDate as formatDate } from '@/lib/fmt'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -42,12 +43,6 @@ const CLOSED_STATUSES = ['resolved', 'cannot_service']
 
 type TabKey = 'open' | 'closed' | 'all'
 type SortKey = 'sr' | 'client' | 'carrier' | 'type' | 'workflow' | 'received'
-
-function formatDate(iso: string | null): string {
-  if (!iso) return '—'
-  const d = iso.includes('T') ? new Date(iso) : new Date(iso + 'T12:00:00')
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-}
 
 // ── Component ─────────────────────────────────────────────────────────────────
 

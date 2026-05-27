@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronRight, ChevronUp, ChevronDown, Search, AlertTriangle, CalendarClock } from 'lucide-react'
 import type { CaseRow } from './page'
+import { fmtDate as formatDate, fmtDateShort } from '@/lib/fmt'
 
 // ── Helpers ───────────────────────────────────────────────────
 function tierBadgeClass(st: CaseRow['stage_translations']): string {
@@ -28,10 +29,6 @@ function formatCurrency(val: number): string {
 function formatCurrencyFull(val: number | null): string {
   if (val === null || val === undefined) return '—'
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val)
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 function daysAgo(iso: string | null): number {
@@ -312,7 +309,7 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
                       {r.follow_up_date ? (
                         <div className="space-y-0.5">
                           <p className="text-xs text-slate-400">
-                            {new Date(r.follow_up_date + 'T00:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                            {fmtDateShort(r.follow_up_date)}
                           </p>
                           <FollowUpBadge date={r.follow_up_date} />
                         </div>
