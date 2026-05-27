@@ -15,9 +15,9 @@ export default async function InternalLayout({
   if (!user) redirect('/login')
 
   return (
-    <div className="flex flex-1 min-h-0 overflow-hidden">
+    <div className="fixed inset-0 flex overflow-hidden">
       <Sidebar userEmail={user.email ?? ''} />
-      <main className="flex-1 overflow-y-auto bg-slate-950">{children}</main>
+      <main className="flex-1 min-w-0 overflow-y-auto bg-slate-950">{children}</main>
     </div>
   )
 }
