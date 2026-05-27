@@ -91,7 +91,7 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
       </div>
 
       {/* Nav items */}
-      <nav className="flex-1 px-2 py-2 space-y-0.5">
+      <nav className="flex-1 min-h-0 overflow-y-auto px-2 py-2 space-y-0.5">
         {navItems.map(({ href, icon: Icon, label }) => {
           const active =
             pathname === href ||
