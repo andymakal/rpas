@@ -70,6 +70,12 @@ export default function NewReferralPage() {
   const [agencyId, setAgencyId] = useState('')
   const [agentId,  setAgentId]  = useState('')
 
+  // LSP — select existing or enter manually
+  const [lspMode,  setLspMode]  = useState<'dropdown' | 'manual'>('dropdown')
+  const [lspFirst, setLspFirst] = useState('')
+  const [lspLast,  setLspLast]  = useState('')
+  const [lspEmail, setLspEmail] = useState('')
+
   // Contact
   const [firstName,     setFirstName]     = useState('')
   const [lastName,      setLastName]      = useState('')
@@ -118,7 +124,11 @@ export default function NewReferralPage() {
   }, [])
 
   useEffect(() => {
-    if (!agencyId) { setAgents([]); setAgentId(''); return }
+    if (!agencyId) {
+      setAgents([]); setAgentId('')
+      setLspMode('dropdown'); setLspFirst(''); setLspLast(''); setLspEmail('')
+      return
+    }
     setLoadingAgents(true)
     setAgentId('')
     async function loadAgents() {
@@ -128,7 +138,12 @@ export default function NewReferralPage() {
         .eq('agency_id', agencyId)
         .eq('is_active', true)
         .order('last_name')
-      if (data) setAgents(data)
+      if (data) {
+        setAgents(data)
+        // Auto-switch to manual entry when agency has no LSPs on file
+        if (data.length === 0) setLspMode('manual')
+        else setLspMode('dropdown')
+      }
       setLoadingAgents(false)
     }
     loadAgents()
@@ -140,6 +155,8 @@ export default function NewReferralPage() {
       setAgencyId('')
       setAgentId('')
       setAgents([])
+      setLspMode('dropdown')
+      setLspFirst(''); setLspLast(''); setLspEmail('')
     }
   }
 
@@ -148,9 +165,32 @@ export default function NewReferralPage() {
     setSubmitting(true)
     setError(null)
 
+    // Resolve agent — either a selected existing agent or a newly-created one
+    let resolvedAgentId = agentId || undefined
+    if (needsAgency && lspMode === 'manual' && lspFirst.trim() && lspLast.trim()) {
+      const res = await fetch('/api/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_name: lspFirst.trim(),
+          last_name:  lspLast.trim(),
+          email:      lspEmail.trim() || null,
+          agency_id:  agencyId,
+        }),
+      })
+      if (!res.ok) {
+        const j = await res.json()
+        setError(j.error ?? 'Failed to save LSP — please try again')
+        setSubmitting(false)
+        return
+      }
+      const { data: newAgent } = await res.json()
+      resolvedAgentId = newAgent.id
+    }
+
     const result = await logCase({
       agency_id:     needsAgency ? agencyId : undefined,
-      agent_id:      agentId || undefined,
+      agent_id:      resolvedAgentId,
       lead_source:   leadSource,
       first_name:    firstName.trim(),
       last_name:     lastName.trim(),
@@ -237,24 +277,64 @@ export default function NewReferralPage() {
               </div>
 
               <div className="space-y-1.5">
-                <Label className="text-slate-300 text-sm">LSP Name *</Label>
-                <select
-                  required={needsAgency}
-                  value={agentId}
-                  onChange={e => setAgentId(e.target.value)}
-                  disabled={!agencyId || loadingAgents}
-                  className={selectCls}
-                >
-                  <option value="">
-                    {!agencyId ? 'Select an agency first'
-                      : loadingAgents ? 'Loading...'
-                      : agents.length === 0 ? 'No LSPs on file for this agency'
-                      : 'Select LSP...'}
-                  </option>
-                  {agents.map(a => (
-                    <option key={a.id} value={a.id}>{a.first_name} {a.last_name}</option>
-                  ))}
-                </select>
+                <div className="flex items-center justify-between">
+                  <Label className="text-slate-300 text-sm">LSP Name</Label>
+                  {agencyId && !loadingAgents && (
+                    lspMode === 'dropdown' ? (
+                      <button type="button" onClick={() => { setLspMode('manual'); setAgentId('') }}
+                        className="text-xs text-blue-400 hover:text-blue-300">
+                        + Enter manually
+                      </button>
+                    ) : agents.length > 0 ? (
+                      <button type="button" onClick={() => { setLspMode('dropdown'); setLspFirst(''); setLspLast(''); setLspEmail('') }}
+                        className="text-xs text-blue-400 hover:text-blue-300">
+                        Pick from list
+                      </button>
+                    ) : null
+                  )}
+                </div>
+
+                {lspMode === 'dropdown' ? (
+                  <select
+                    value={agentId}
+                    onChange={e => setAgentId(e.target.value)}
+                    disabled={!agencyId || loadingAgents}
+                    className={selectCls}
+                  >
+                    <option value="">
+                      {!agencyId ? 'Select an agency first'
+                        : loadingAgents ? 'Loading...'
+                        : 'Select LSP... (optional)'}
+                    </option>
+                    {agents.map(a => (
+                      <option key={a.id} value={a.id}>{a.first_name} {a.last_name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input
+                        value={lspFirst}
+                        onChange={e => setLspFirst(e.target.value)}
+                        placeholder="First name"
+                        className={inputCls}
+                      />
+                      <Input
+                        value={lspLast}
+                        onChange={e => setLspLast(e.target.value)}
+                        placeholder="Last name"
+                        className={inputCls}
+                      />
+                    </div>
+                    <Input
+                      type="email"
+                      value={lspEmail}
+                      onChange={e => setLspEmail(e.target.value)}
+                      placeholder="LSP email (optional)"
+                      className={inputCls}
+                    />
+                  </div>
+                )}
               </div>
             </div>
           )}
