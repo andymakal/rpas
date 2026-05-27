@@ -100,7 +100,7 @@ export default async function PortalPage({
         .select(`
           id, sr_number, request_type, workflow_status,
           date_received, date_resolved, created_at,
-          service_policies!inner ( client_name, policy_number )
+          service_policies!inner ( client_name, policy_number, agents ( first_name, last_name ) )
         `)
         .eq('service_policies.agency_id', agency.id)
         .eq('is_test', false)
@@ -113,7 +113,7 @@ export default async function PortalPage({
         .select(`
           id, review_number, review_type, status,
           assigned_to, outcome, call_completed_at, created_at,
-          service_policies!inner ( client_name, policy_number )
+          service_policies!inner ( client_name, policy_number, agents ( first_name, last_name ) )
         `)
         .eq('service_policies.agency_id', agency.id)
         .eq('is_test', false)

@@ -38,7 +38,11 @@ export type ServiceRequest = {
   workflow_status: string | null
   date_received: string | null
   date_resolved: string | null
-  service_policies: { client_name: string | null; policy_number: string | null } | null
+  service_policies: {
+    client_name: string | null
+    policy_number: string | null
+    agents: { first_name: string; last_name: string } | null
+  } | null
 }
 
 export type PolicyReview = {
@@ -50,7 +54,11 @@ export type PolicyReview = {
   assigned_to: string | null
   outcome: string | null
   call_completed_at: string | null
-  service_policies: { client_name: string | null; policy_number: string | null } | null
+  service_policies: {
+    client_name: string | null
+    policy_number: string | null
+    agents: { first_name: string; last_name: string } | null
+  } | null
 }
 
 export type SpiffRecord = {
@@ -1039,25 +1047,33 @@ export function AgencyPortal({
               <div>
                 <SectionHeader label="Service Requests" count={serviceRequests.filter(r => !r.date_resolved).length} />
                 <div className="bg-white rounded-2xl border border-slate-100 divide-y divide-slate-50">
-                  {serviceRequests.map(sr => (
-                    <div key={sr.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-900 truncate">
-                          {sr.service_policies?.client_name ?? '—'}
-                        </p>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          {sr.request_type ?? '—'}
-                          {sr.service_policies?.policy_number ? ` · ${sr.service_policies.policy_number}` : ''}
-                        </p>
+                  {serviceRequests.map(sr => {
+                    const lsp = sr.service_policies?.agents
+                      ? `${sr.service_policies.agents.first_name} ${sr.service_policies.agents.last_name}`
+                      : null
+                    return (
+                      <div key={sr.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-900 truncate">
+                            {sr.service_policies?.client_name ?? '—'}
+                          </p>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            {sr.request_type ?? '—'}
+                            {sr.service_policies?.policy_number ? ` · ${sr.service_policies.policy_number}` : ''}
+                          </p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                          <div className="flex items-center gap-2">
+                            {!sr.date_resolved && <AgeBadge dateStr={sr.created_at} />}
+                            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${srStatusClass(sr.workflow_status)}`}>
+                              {SR_STATUS_LABELS[sr.workflow_status ?? ''] ?? sr.workflow_status ?? '—'}
+                            </span>
+                          </div>
+                          {lsp && <p className="text-xs text-slate-400">{lsp}</p>}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {!sr.date_resolved && <AgeBadge dateStr={sr.created_at} />}
-                        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${srStatusClass(sr.workflow_status)}`}>
-                          {SR_STATUS_LABELS[sr.workflow_status ?? ''] ?? sr.workflow_status ?? '—'}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )}
@@ -1067,25 +1083,33 @@ export function AgencyPortal({
               <div>
                 <SectionHeader label="Policy Reviews" count={policyReviews.filter(r => r.status !== 'complete').length} />
                 <div className="bg-white rounded-2xl border border-slate-100 divide-y divide-slate-50">
-                  {policyReviews.map(pr => (
-                    <div key={pr.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-slate-900 truncate">
-                          {pr.service_policies?.client_name ?? '—'}
-                        </p>
-                        <p className="text-xs text-slate-400 mt-0.5">
-                          {PR_TYPE_LABELS[pr.review_type ?? ''] ?? pr.review_type ?? '—'}
-                          {pr.service_policies?.policy_number ? ` · ${pr.service_policies.policy_number}` : ''}
-                        </p>
+                  {policyReviews.map(pr => {
+                    const lsp = pr.service_policies?.agents
+                      ? `${pr.service_policies.agents.first_name} ${pr.service_policies.agents.last_name}`
+                      : null
+                    return (
+                      <div key={pr.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-900 truncate">
+                            {pr.service_policies?.client_name ?? '—'}
+                          </p>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            {PR_TYPE_LABELS[pr.review_type ?? ''] ?? pr.review_type ?? '—'}
+                            {pr.service_policies?.policy_number ? ` · ${pr.service_policies.policy_number}` : ''}
+                          </p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                          <div className="flex items-center gap-2">
+                            {pr.status !== 'complete' && <AgeBadge dateStr={pr.created_at} />}
+                            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${prStatusClass(pr.status)}`}>
+                              {PR_STATUS_LABELS[pr.status ?? ''] ?? pr.status ?? '—'}
+                            </span>
+                          </div>
+                          {lsp && <p className="text-xs text-slate-400">{lsp}</p>}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {pr.status !== 'complete' && <AgeBadge dateStr={pr.created_at} />}
-                        <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${prStatusClass(pr.status)}`}>
-                          {PR_STATUS_LABELS[pr.status ?? ''] ?? pr.status ?? '—'}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             )}
