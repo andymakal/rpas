@@ -285,6 +285,12 @@ export function ReferralEditClient({
   const [missedWorking, setMissedWorking] = useState(false)
   const [missedError,   setMissedError]   = useState<string | null>(null)
 
+  // ── LSP re-engagement (lsp_contact_needed → triage) ───────────
+  const [lspReengageOpen,    setLspReengageOpen]    = useState(false)
+  const [lspReengageNote,    setLspReengageNote]    = useState('')
+  const [lspReengageWorking, setLspReengageWorking] = useState(false)
+  const [lspReengageError,   setLspReengageError]   = useState<string | null>(null)
+
   // ── Quote fields ───────────────────────────────────────────────
   // Pre-populated from existing values if the case was already quoted
   const [quotedFaceAmount,   setQuotedFaceAmount]   = useState(
@@ -349,6 +355,7 @@ export function ReferralEditClient({
   // Keyed off server-confirmed status (props), not local state — action should
   // only be available when the DB actually says appointment_set
   const showMissedAppt       = referral.internal_status === 'appointment_set'
+  const showLspReengage      = referral.internal_status === 'lsp_contact_needed'
 
   const parsedNotes       = parseNotes(referral.notes)
   const allstatePolicy    = parsedNotes['Allstate Policy'] ?? null
@@ -633,6 +640,32 @@ export function ReferralEditClient({
       }
     } catch { /* ignore — button re-enables */ }
     finally { setClosingSr(false) }
+  }
+
+  async function handleLspReengage() {
+    setLspReengageWorking(true); setLspReengageError(null)
+    try {
+      const body: Record<string, unknown> = { internal_status: 'triage', is_hot_lead: true }
+      // Append LSP re-engagement note if provided
+      if (lspReengageNote.trim()) {
+        const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+        const header  = `--- LSP re-engaged ${dateStr} (logged internally) ---`
+        const current = referral.notes?.trim() ?? ''
+        body.notes    = [current, header, lspReengageNote.trim()].filter(Boolean).join('\n\n')
+      }
+      const res = await fetch(`/api/cases/${referral.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const j = await res.json()
+        setLspReengageError(j.error ?? 'Failed to update')
+      } else {
+        router.push(isFromTriage ? '/triage' : '/referrals')
+      }
+    } catch { setLspReengageError('Network error') }
+    finally   { setLspReengageWorking(false) }
   }
 
   async function handleSubmitApp() {
@@ -1565,6 +1598,61 @@ export function ReferralEditClient({
                     >
                       <CalendarX className="w-4 h-4" />
                       {missedWorking ? 'Logging…' : 'Confirm — Back to Triage'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* LSP re-engagement — shown when DB status is lsp_contact_needed */}
+          {showLspReengage && (
+            <div className="rounded-xl border border-blue-700/50 bg-blue-950/20 overflow-hidden">
+              <div className="flex items-center justify-between gap-4 px-5 py-4">
+                <div className="flex items-center gap-3">
+                  <Flame className="w-5 h-5 text-blue-400 shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-blue-300">LSP confirmed re-engagement?</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      Move this back to triage so the team can follow up.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setLspReengageOpen(o => !o); setLspReengageError(null) }}
+                  className={`shrink-0 text-xs font-semibold rounded-lg px-3 py-2 border transition-all ${
+                    lspReengageOpen
+                      ? 'border-blue-600 bg-blue-900/40 text-blue-300'
+                      : 'border-blue-700/50 text-blue-400 hover:bg-blue-950/40'
+                  }`}
+                >
+                  {lspReengageOpen ? 'Cancel' : 'Return to Triage'}
+                </button>
+              </div>
+
+              {lspReengageOpen && (
+                <div className="border-t border-blue-800/40 bg-blue-950/30 px-5 py-4 space-y-3">
+                  <textarea
+                    value={lspReengageNote}
+                    onChange={e => setLspReengageNote(e.target.value)}
+                    rows={2}
+                    placeholder="Optional — e.g. LSP called, said client is ready to talk options now."
+                    className="w-full bg-slate-800 border border-blue-800/40 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-600 placeholder-slate-600 resize-none"
+                  />
+                  {lspReengageError && <p className="text-xs text-red-400">{lspReengageError}</p>}
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs text-slate-500 leading-snug">
+                      Flags 🔥 and moves back to the triage queue
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleLspReengage}
+                      disabled={lspReengageWorking}
+                      className="shrink-0 inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white bg-blue-700 hover:bg-blue-600 disabled:opacity-50 transition-colors"
+                    >
+                      <Flame className="w-4 h-4" />
+                      {lspReengageWorking ? 'Moving…' : 'Confirm — Back to Triage'}
                     </button>
                   </div>
                 </div>

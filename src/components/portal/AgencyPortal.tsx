@@ -373,6 +373,92 @@ function ClosedCard({ c, agentFilter, onRewarm }: {
   )
 }
 
+// ── LSP Re-Engage card ────────────────────────────────────────────────────────
+// Shown in the Active Referrals section when a case is at lsp_contact_needed.
+// Lets the LSP signal that the client is still interested, which moves the
+// case back to triage so the RP team can pick it up again.
+
+function LspReEngageCard({ c, agentFilter, onReengage }: {
+  c: Case
+  agentFilter: string
+  onReengage: (caseId: string, note: string, lspName: string) => Promise<void>
+}) {
+  const [expanded, setExpanded]       = useState(false)
+  const [note, setNote]               = useState('')
+  const [submitting, setSubmitting]   = useState(false)
+  const [submitError, setSubmitError] = useState<string | null>(null)
+  const lsp = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
+
+  async function handleSubmit() {
+    if (!note.trim()) return
+    setSubmitting(true)
+    setSubmitError(null)
+    try {
+      await onReengage(c.id, note.trim(), agentFilter)
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : 'Failed to submit. Please try again.')
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className={`rounded-xl border overflow-hidden transition-colors ${expanded ? 'border-blue-300' : 'border-amber-200'}`}>
+      <div className={`px-4 py-3 ${expanded ? 'bg-blue-50' : 'bg-amber-50/60'}`}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-slate-700">
+              {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
+            </p>
+            <p className="text-xs text-amber-700 font-medium mt-0.5">LSP Re-Warm Needed</p>
+          </div>
+          <div className="flex flex-col items-end gap-1 flex-shrink-0">
+            <button
+              onClick={() => { setExpanded(o => !o); setSubmitError(null) }}
+              className={`text-xs font-semibold rounded-lg px-2.5 py-1 border transition-all ${
+                expanded
+                  ? 'border-blue-300 bg-blue-100 text-blue-700'
+                  : 'border-amber-300 text-amber-700 hover:bg-amber-100'
+              }`}
+            >
+              {expanded ? 'Cancel' : 'Still interested?'}
+            </button>
+            {lsp && <p className="text-xs text-slate-400">{lsp}</p>}
+          </div>
+        </div>
+      </div>
+
+      {expanded && (
+        <div className="border-t border-blue-200 bg-blue-50/60 px-4 py-4 space-y-3">
+          <p className="text-xs font-medium text-slate-600">
+            What did the client say? Give us enough detail to follow up effectively.
+          </p>
+          <textarea
+            value={note}
+            onChange={e => setNote(e.target.value)}
+            placeholder="e.g. Spoke with him — he's ready to talk options, best time is evenings after 6pm..."
+            rows={3}
+            autoFocus
+            className="w-full rounded-lg border border-blue-200 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-transparent resize-none"
+          />
+          {submitError && <p className="text-xs text-red-600">{submitError}</p>}
+          <div className="flex items-center justify-between gap-3">
+            <p className="text-xs text-slate-400 leading-snug">
+              Will be flagged 🔥 and returned to the contact queue
+            </p>
+            <button
+              onClick={handleSubmit}
+              disabled={submitting || !note.trim()}
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              {submitting ? 'Submitting…' : 'Back in queue 🔥'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Left column: Owner lock/unlock ────────────────────────────────────────────
 
 function OwnerLock({ slug, isOwner }: { slug: string; isOwner: boolean }) {
@@ -795,6 +881,19 @@ export function AgencyPortal({
     router.refresh()
   }
 
+  async function handleLspReengage(caseId: string, note: string, lspName: string) {
+    const res = await fetch(`/api/portal/${agency.slug}/cases/${caseId}/lsp-reengaged`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ note, lsp_name: lspName || undefined }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      throw new Error((err as { error?: string }).error ?? 'Failed to submit update')
+    }
+    router.refresh()
+  }
+
   // Agent filter options
   const agentNames = Array.from(new Set(
     cases.map(c => c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null).filter(Boolean)
@@ -993,7 +1092,11 @@ export function AgencyPortal({
               <div>
                 <SectionHeader label="Referrals" count={referrals.length} />
                 <div className="space-y-2">
-                  {referrals.map(c => <ReferralCard key={c.id} c={c} />)}
+                  {referrals.map(c =>
+                    c.internal_status === 'lsp_contact_needed'
+                      ? <LspReEngageCard key={c.id} c={c} agentFilter={agentFilter} onReengage={handleLspReengage} />
+                      : <ReferralCard    key={c.id} c={c} />
+                  )}
                 </div>
               </div>
             )}
