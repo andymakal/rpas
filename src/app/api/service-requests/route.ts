@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
     request_type:   string
     notes?:         string | null
     date_received?: string | null
+    from_case_id?:  string | null
   }
 
   try {
@@ -154,6 +155,23 @@ export async function POST(request: NextRequest) {
   if (srErr || !sr) {
     console.error('service_request insert error:', srErr)
     return Response.json({ error: srErr?.message ?? 'Failed to create service request' }, { status: 500 })
+  }
+
+  // ── Remove originating triage case from the queue ─────────────────────────
+  // Only fires when a SR is created from the Triage page or a referral record.
+  // We use the admin client directly (bypasses stage_translations validation).
+  if (body.from_case_id) {
+    const { error: caseErr } = await supabase
+      .from('cases')
+      .update({ internal_status: 'existing_service', updated_at: new Date().toISOString() })
+      .eq('id', body.from_case_id)
+      .eq('internal_status', 'triage')   // safety: only update if still in triage
+
+    if (caseErr) {
+      // SR was created — don't fail the whole request over the case update.
+      // Log and continue so the client still receives the new SR id.
+      console.error('triage case status update error:', caseErr)
+    }
   }
 
   return Response.json({ data: sr }, { status: 201 })

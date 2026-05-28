@@ -256,6 +256,9 @@ export function NewServiceRequestClient({
         }
       }
 
+      // Attach originating triage case so the API can remove it from the queue
+      if (prefill.fromCaseId) bodyPayload.from_case_id = prefill.fromCaseId
+
       const res  = await fetch('/api/service-requests', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
