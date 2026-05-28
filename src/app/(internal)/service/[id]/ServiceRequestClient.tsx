@@ -38,8 +38,10 @@ const REQUEST_TYPES = [
 ]
 
 const CARRIERS = [
-  'Everlake Life', 'Lincoln Benefit Life', 'Prudential',
-  'John Hancock', 'Foresters', 'Gerber Life', 'Other',
+  'Corebridge', 'Everlake Assurance', 'Everlake Life',
+  'Foresters', 'Gerber Life', 'John Hancock',
+  'Lincoln Benefit Life', 'Lincoln Financial', 'Protective', 'Prudential',
+  'Other',
 ]
 
 const PRODUCT_TYPES = [

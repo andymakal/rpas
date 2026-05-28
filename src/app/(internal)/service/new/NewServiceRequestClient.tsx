@@ -6,12 +6,16 @@ import { Search, X, CheckCircle } from 'lucide-react'
 import type { AgencyOption, AgentOption } from './page'
 
 const CARRIERS = [
+  'Corebridge',
+  'Everlake Assurance',
   'Everlake Life',
-  'Lincoln Benefit Life',
-  'Prudential',
-  'John Hancock',
   'Foresters',
   'Gerber Life',
+  'John Hancock',
+  'Lincoln Benefit Life',
+  'Lincoln Financial',
+  'Protective',
+  'Prudential',
   'Other',
 ]
 
