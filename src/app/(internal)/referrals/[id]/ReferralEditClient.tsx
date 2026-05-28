@@ -293,6 +293,9 @@ export function ReferralEditClient({
   const [quotedCarrier,      setQuotedCarrier]      = useState(referral.quoted_carrier      ?? '')
   const [quotedProductType,  setQuotedProductType]  = useState(referral.quoted_product_type ?? '')
 
+  // ── Close as existing service (no new SR needed) ──────────────
+  const [closingSr, setClosingSr] = useState(false)
+
   // ── App submission ─────────────────────────────────────────────
   const [submitting,  setSubmitting]  = useState(false)
   const [submitMsg,   setSubmitMsg]   = useState<{ ok: boolean; text: string } | null>(null)
@@ -613,6 +616,25 @@ export function ReferralEditClient({
     }
   }
 
+  async function handleCloseAsExistingService() {
+    if (!confirm(
+      'Remove this referral from the queue without creating a new service request?\n\n' +
+      'Use this when the service request already exists. The referral will be marked as an existing service case.'
+    )) return
+    setClosingSr(true)
+    try {
+      const res = await fetch(`/api/cases/${referral.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ internal_status: 'existing_service' }),
+      })
+      if (res.ok) {
+        router.push(isFromTriage ? '/triage' : '/referrals')
+      }
+    } catch { /* ignore — button re-enables */ }
+    finally { setClosingSr(false) }
+  }
+
   async function handleSubmitApp() {
     setSubmitting(true); setSubmitMsg(null)
     try {
@@ -777,29 +799,47 @@ export function ReferralEditClient({
           Prominent banner when logged as existing_service; subtle link for all others.
           Either way, anyone who picks this up can route it to Abigail in one click. */}
       {isServiceReferral ? (
-        <div className="mb-5 flex items-center justify-between gap-4 rounded-xl border border-blue-500/30 bg-blue-500/10 px-5 py-4">
-          <div className="flex items-center gap-3">
-            <Wrench className="w-5 h-5 text-blue-400 shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-blue-300">Service Request — Route to Abigail</p>
-              <p className="text-xs text-slate-400 mt-0.5">
-                {lifePolicyNumber
-                  ? `Policy ${lifePolicyNumber} · Create a service request to begin tracking`
-                  : 'Legacy LBL / Everlake policy — create a service request to begin tracking'}
-              </p>
+        <div className="mb-5 rounded-xl border border-blue-500/30 bg-blue-500/10 px-5 py-4 space-y-3">
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Wrench className="w-5 h-5 text-blue-400 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-blue-300">Service Request — Route to Abigail</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {lifePolicyNumber
+                    ? `Policy ${lifePolicyNumber} · Create a service request to begin tracking`
+                    : 'Legacy LBL / Everlake policy — create a service request to begin tracking'}
+                </p>
+              </div>
             </div>
+            <a
+              href={serviceNewUrl}
+              className="shrink-0 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+              style={{ backgroundColor: '#1F3864' }}
+            >
+              <Wrench className="w-3.5 h-3.5" />
+              Create Service Request
+            </a>
           </div>
-          <a
-            href={serviceNewUrl}
-            className="shrink-0 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
-            style={{ backgroundColor: '#1F3864' }}
-          >
-            <Wrench className="w-3.5 h-3.5" />
-            Create Service Request
-          </a>
+          <div className="border-t border-blue-500/20 pt-2">
+            <button
+              onClick={handleCloseAsExistingService}
+              disabled={closingSr}
+              className="text-xs text-slate-500 hover:text-slate-300 disabled:opacity-50 transition-colors"
+            >
+              {closingSr ? 'Removing…' : 'SR already exists — remove from queue without creating a duplicate'}
+            </button>
+          </div>
         </div>
       ) : (
-        <div className="mb-5 flex justify-end">
+        <div className="mb-5 flex items-center justify-end gap-4">
+          <button
+            onClick={handleCloseAsExistingService}
+            disabled={closingSr}
+            className="inline-flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-400 disabled:opacity-50 transition-colors"
+          >
+            {closingSr ? 'Removing…' : 'SR already exists — remove from queue'}
+          </button>
           <a
             href={serviceNewUrl}
             className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
