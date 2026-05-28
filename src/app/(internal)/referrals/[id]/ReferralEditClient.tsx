@@ -18,6 +18,7 @@ import { fmtDate as fmt } from '@/lib/fmt'
 const OUTCOME_STATUSES = [
   { value: 'live_transfer',      label: 'Live Transfer',       desc: 'Connected live — handing off to a producer now' },
   { value: 'appointment_set',    label: 'Appointment Set',     desc: 'Scheduled a future call or meeting' },
+  { value: 'quoted',             label: 'Quote Provided',      desc: 'A quote was run and presented to the client' },
   { value: 'not_interested',     label: 'Not Interested',      desc: 'Client declined at this time' },
   { value: 'lsp_contact_needed', label: 'LSP Re-Warm Needed',  desc: '7+ attempts with no contact — ask the LSP to re-engage' },
 ]
@@ -260,6 +261,12 @@ export function ReferralEditClient({
   const [missedWorking, setMissedWorking] = useState(false)
   const [missedError,   setMissedError]   = useState<string | null>(null)
 
+  // ── Quote face amount ──────────────────────────────────────────
+  // Pre-populated from referral.face_amount if already set; cleared on status change
+  const [quotedFaceAmount, setQuotedFaceAmount] = useState(
+    referral.face_amount ? String(referral.face_amount) : ''
+  )
+
   // ── App submission ─────────────────────────────────────────────
   const [submitting,  setSubmitting]  = useState(false)
   const [submitMsg,   setSubmitMsg]   = useState<{ ok: boolean; text: string } | null>(null)
@@ -309,6 +316,7 @@ export function ReferralEditClient({
   const showProducerDropdown = PRODUCER_STATUSES.has(status)
   const showRewarmEmail      = status === 'lsp_contact_needed'
   const showApptDate         = APPT_STATUSES.has(status)
+  const showFaceAmountInput  = status === 'quoted'
   // Keyed off server-confirmed status (props), not local state — action should
   // only be available when the DB actually says appointment_set
   const showMissedAppt       = referral.internal_status === 'appointment_set'
@@ -365,6 +373,10 @@ export function ReferralEditClient({
       is_hot_lead:     isHotLead,
     }
     if (showProducerDropdown) body.producer_id = producerId || null
+    if (status === 'quoted' && quotedFaceAmount.trim()) {
+      const amt = parseFloat(quotedFaceAmount.replace(/[^0-9.]/g, ''))
+      if (!isNaN(amt) && amt > 0) body.face_amount = amt
+    }
     try {
       const res = await fetch(`/api/cases/${referral.id}`, {
         method: 'PATCH',
@@ -1168,6 +1180,27 @@ export function ReferralEditClient({
                 ))}
               </div>
             </div>
+
+            {/* Face amount — shown when Quote Provided is selected */}
+            {showFaceAmountInput && (
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Face Amount Quoted <span className="text-slate-500 font-normal">(optional)</span>
+                </label>
+                <div className="relative">
+                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+                  <input
+                    type="number"
+                    min="0"
+                    step="1000"
+                    value={quotedFaceAmount}
+                    onChange={e => setQuotedFaceAmount(e.target.value)}
+                    placeholder="e.g. 500000"
+                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg pl-9 pr-3 py-2.5 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 placeholder-slate-600"
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Producer dropdown */}
             {showProducerDropdown && (
