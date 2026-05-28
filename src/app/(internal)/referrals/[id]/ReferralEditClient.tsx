@@ -155,11 +155,13 @@ function buildRewarmMailto(
     'Best,',
     'Makal Financial Services',
   ].join('\n')
-  const params = new URLSearchParams()
-  if (agencyEmail) params.set('cc', agencyEmail)
-  params.set('subject', subject)
-  params.set('body', body)
-  return `mailto:${agentEmail ?? ''}?${params.toString()}`
+  // mailto: URIs require RFC 3986 percent-encoding (encodeURIComponent),
+  // NOT URLSearchParams which uses form-encoding (+) — Outlook renders + literally.
+  const parts: string[] = []
+  if (agencyEmail) parts.push(`cc=${encodeURIComponent(agencyEmail)}`)
+  parts.push(`subject=${encodeURIComponent(subject)}`)
+  parts.push(`body=${encodeURIComponent(body)}`)
+  return `mailto:${agentEmail ?? ''}?${parts.join('&')}`
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
