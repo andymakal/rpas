@@ -41,6 +41,7 @@ const REQUEST_TYPES = [
   'Claims Assistance',
   'General Coverage Question',
   'Policy Review',
+  'Policy Surrender',
   'Other',
 ]
 

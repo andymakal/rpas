@@ -34,7 +34,7 @@ const SA_LABELS: Record<string, string> = {
 const REQUEST_TYPES = [
   'Billing Issue', 'Change Payment Info', 'Beneficiary Change',
   'Statement of Insurance', 'Address Update', 'Lapse / Reinstatement',
-  'Claims Assistance', 'General Coverage Question', 'Policy Review', 'Other',
+  'Claims Assistance', 'General Coverage Question', 'Policy Review', 'Policy Surrender', 'Other',
 ]
 
 const CARRIERS = [
