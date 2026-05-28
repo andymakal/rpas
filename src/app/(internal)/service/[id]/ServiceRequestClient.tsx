@@ -103,6 +103,12 @@ export function ServiceRequestClient({
   const [srError,        setSrError]        = useState<string | null>(null)
   const [srSaved,        setSrSaved]        = useState(false)
 
+  // ── Record Info date editing ────────────────────────────────────────────
+  const [editingDates,  setEditingDates]  = useState(false)
+  const [datesSaving,   setDatesSaving]   = useState(false)
+  const [datesError,    setDatesError]    = useState<string | null>(null)
+  const [datesSaved,    setDatesSaved]    = useState(false)
+
   // ── Policy local state ──────────────────────────────────────────────────
   const [editingPolicy, setEditingPolicy]   = useState(false)
   const [clientName,    setClientName]      = useState(policy?.client_name ?? '')
@@ -171,6 +177,27 @@ export function ServiceRequestClient({
       setTimeout(() => setSrSaved(false), 2500)
     } catch { setSrError('Network error') }
     finally { setSrSaving(false) }
+  }
+
+  // ── Save Record Info dates only ─────────────────────────────────────────
+  async function handleSaveDates() {
+    setDatesSaving(true); setDatesError(null); setDatesSaved(false)
+    try {
+      const res = await fetch(`/api/service-requests/${sr.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date_received: dateReceived || null,
+          date_resolved: dateResolved || null,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setDatesError(json.error ?? 'Failed to save'); return }
+      setDatesSaved(true)
+      setEditingDates(false)
+      setTimeout(() => setDatesSaved(false), 2500)
+    } catch { setDatesError('Network error') }
+    finally { setDatesSaving(false) }
   }
 
   // ── Save policy ─────────────────────────────────────────────────────────
@@ -572,14 +599,62 @@ export function ServiceRequestClient({
             </div>
           </div>
 
-          {/* ── Timestamps ───────────────────────────────────────────── */}
+          {/* ── Record Info ──────────────────────────────────────────── */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-            <h2 className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-3">Record Info</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-xs font-medium text-slate-500 uppercase tracking-wide">Record Info</h2>
+              <button
+                onClick={() => { setEditingDates(o => !o); setDatesError(null) }}
+                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+              >
+                <Pencil className="w-3 h-3" /> {editingDates ? 'Cancel' : 'Edit dates'}
+              </button>
+            </div>
+
             <div className="space-y-1.5">
               <Row label="SR Number"  value={sr.sr_number ?? '—'} mono />
               <Row label="Created"    value={fmt(sr.created_at)} />
               <Row label="Updated"    value={fmt(sr.updated_at)} />
             </div>
+
+            {editingDates ? (
+              <div className="mt-3 pt-3 border-t border-slate-800 space-y-3">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Date Received</label>
+                  <input
+                    type="date"
+                    value={dateReceived ?? ''}
+                    onChange={e => setDateReceived(e.target.value)}
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Date Resolved</label>
+                  <input
+                    type="date"
+                    value={dateResolved}
+                    onChange={e => setDateResolved(e.target.value)}
+                    className={inputCls}
+                  />
+                </div>
+                {datesError && <p className="text-xs text-red-400">{datesError}</p>}
+                {datesSaved  && <p className="text-xs text-emerald-400">Saved ✓</p>}
+                <button
+                  onClick={handleSaveDates}
+                  disabled={datesSaving}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                  style={{ backgroundColor: '#1F3864' }}
+                >
+                  <Save className="w-3 h-3" />
+                  {datesSaving ? 'Saving…' : 'Save Dates'}
+                </button>
+              </div>
+            ) : (
+              <div className="mt-3 pt-3 border-t border-slate-800 space-y-1.5">
+                <Row label="Date Received" value={dateReceived ? fmt(dateReceived) : '—'} />
+                <Row label="Date Resolved" value={dateResolved ? fmt(dateResolved) : '—'} />
+              </div>
+            )}
           </div>
         </div>
       </div>
