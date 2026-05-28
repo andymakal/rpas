@@ -26,6 +26,30 @@ const OUTCOME_STATUSES = [
 const PRODUCER_STATUSES = new Set(['live_transfer', 'appointment_set'])
 const APPT_STATUSES     = new Set(['appointment_set', 'appointment_missed'])
 
+const CARRIERS = [
+  'Corebridge',
+  'Everlake Assurance',
+  'Everlake Life',
+  'Foresters',
+  'Gerber Life',
+  'John Hancock',
+  'Lincoln Benefit Life',
+  'Lincoln Financial',
+  'Protective',
+  'Prudential',
+  'Other',
+]
+
+const PRODUCT_TYPES = [
+  'Term Life',
+  'Whole Life',
+  'Universal Life',
+  'Indexed Universal Life',
+  'Variable Universal Life',
+  'Final Expense',
+  'Other',
+]
+
 const TOBACCO_LABELS: Record<string, string> = {
   none:                 'None',
   cigarettes:           'Cigarettes',
@@ -261,11 +285,13 @@ export function ReferralEditClient({
   const [missedWorking, setMissedWorking] = useState(false)
   const [missedError,   setMissedError]   = useState<string | null>(null)
 
-  // ── Quote face amount ──────────────────────────────────────────
-  // Pre-populated from referral.face_amount if already set; cleared on status change
-  const [quotedFaceAmount, setQuotedFaceAmount] = useState(
+  // ── Quote fields ───────────────────────────────────────────────
+  // Pre-populated from existing values if the case was already quoted
+  const [quotedFaceAmount,   setQuotedFaceAmount]   = useState(
     referral.face_amount ? String(referral.face_amount) : ''
   )
+  const [quotedCarrier,      setQuotedCarrier]      = useState(referral.quoted_carrier      ?? '')
+  const [quotedProductType,  setQuotedProductType]  = useState(referral.quoted_product_type ?? '')
 
   // ── App submission ─────────────────────────────────────────────
   const [submitting,  setSubmitting]  = useState(false)
@@ -373,9 +399,13 @@ export function ReferralEditClient({
       is_hot_lead:     isHotLead,
     }
     if (showProducerDropdown) body.producer_id = producerId || null
-    if (status === 'quoted' && quotedFaceAmount.trim()) {
-      const amt = parseFloat(quotedFaceAmount.replace(/[^0-9.]/g, ''))
-      if (!isNaN(amt) && amt > 0) body.face_amount = amt
+    if (status === 'quoted') {
+      if (quotedCarrier.trim())     body.quoted_carrier      = quotedCarrier.trim()
+      if (quotedProductType.trim()) body.quoted_product_type = quotedProductType.trim()
+      if (quotedFaceAmount.trim()) {
+        const amt = parseFloat(quotedFaceAmount.replace(/[^0-9.]/g, ''))
+        if (!isNaN(amt) && amt > 0) body.face_amount = amt
+      }
     }
     try {
       const res = await fetch(`/api/cases/${referral.id}`, {
@@ -1181,23 +1211,52 @@ export function ReferralEditClient({
               </div>
             </div>
 
-            {/* Face amount — shown when Quote Provided is selected */}
+            {/* Carrier / Product / Face Amount — shown when Quote Provided is selected */}
             {showFaceAmountInput && (
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5">
-                  Face Amount Quoted <span className="text-slate-500 font-normal">(optional)</span>
-                </label>
-                <div className="relative">
-                  <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
-                  <input
-                    type="number"
-                    min="0"
-                    step="1000"
-                    value={quotedFaceAmount}
-                    onChange={e => setQuotedFaceAmount(e.target.value)}
-                    placeholder="e.g. 500000"
-                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg pl-9 pr-3 py-2.5 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 placeholder-slate-600"
-                  />
+              <div className="space-y-3 rounded-lg border border-slate-700/60 bg-slate-800/30 p-3">
+                <p className="text-xs font-medium text-slate-400">Quote details <span className="text-slate-600 font-normal">(all optional)</span></p>
+
+                {/* Carrier + Product type */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Carrier</label>
+                    <select
+                      value={quotedCarrier}
+                      onChange={e => setQuotedCarrier(e.target.value)}
+                      className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30"
+                    >
+                      <option value="">Select…</option>
+                      {CARRIERS.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Product type</label>
+                    <select
+                      value={quotedProductType}
+                      onChange={e => setQuotedProductType(e.target.value)}
+                      className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30"
+                    >
+                      <option value="">Select…</option>
+                      {PRODUCT_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Face amount */}
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Face amount</label>
+                  <div className="relative">
+                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+                    <input
+                      type="number"
+                      min="0"
+                      step="1000"
+                      value={quotedFaceAmount}
+                      onChange={e => setQuotedFaceAmount(e.target.value)}
+                      placeholder="e.g. 500000"
+                      className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 placeholder-slate-600"
+                    />
+                  </div>
                 </div>
               </div>
             )}

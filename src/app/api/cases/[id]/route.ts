@@ -8,6 +8,8 @@ const ALLOWED_FIELDS = new Set([
   'producer_id',
   'product_id',
   'face_amount',
+  'quoted_carrier',
+  'quoted_product_type',
   'annual_premium',
   'rate_class_id',
   'premium_mode_id',

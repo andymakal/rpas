@@ -23,6 +23,8 @@ export type ReferralDetail = {
   appointment_date: string | null
   follow_up_date: string | null
   face_amount: number | null
+  quoted_carrier: string | null
+  quoted_product_type: string | null
   annual_premium: number | null
   policy_number: string | null
   notes: string | null
@@ -121,7 +123,7 @@ export default async function ReferralDetailPage({
     .select(`
       id, customer_id, agent_id, agency_id,
       internal_status, created_at, status_entered_at, appointment_date,
-      follow_up_date, face_amount, annual_premium, policy_number,
+      follow_up_date, face_amount, quoted_carrier, quoted_product_type, annual_premium, policy_number,
       notes, touches, last_contact_at, spiff_earned, spiff_earned_at, is_hot_lead, is_owner_referral, producer_id, lead_source, suspected_duplicate_customer_id,
       customers!customer_id ( first_name, last_name, phone, email, street, city, state, zip, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, spanish_speaking, customer_group_id ),
       agencies ( name, display_name, contact_email ),
