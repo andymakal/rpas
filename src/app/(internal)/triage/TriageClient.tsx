@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Phone, Mail, Flame, Clock, ChevronDown, ChevronUp, CalendarX } from 'lucide-react'
+import { Search, Phone, Mail, Flame, Clock, ChevronDown, ChevronUp, CalendarX, Wrench } from 'lucide-react'
 import type { TriageCase } from './page'
 import { fmtDate } from '@/lib/fmt'
 
@@ -194,9 +194,29 @@ function TriageRow({ c }: { c: TriageCase }) {
                 <span className="max-w-lg"><span className="text-slate-500">Notes </span>{parsed['Notes']}</span>
               )}
             </div>
-            <p className="text-xs text-slate-600 mt-2">
-              Click anywhere on the row to open the full referral record →
-            </p>
+            <div className="flex items-center justify-between mt-2">
+              <p className="text-xs text-slate-600">
+                Click anywhere on the row to open the full referral record →
+              </p>
+              {(() => {
+                const p = new URLSearchParams()
+                p.set('from_case_id', c.id)
+                const name = `${c.customers?.first_name ?? ''} ${c.customers?.last_name ?? ''}`.trim()
+                if (name)            p.set('client_name', name)
+                if (c.agencies?.id)  p.set('agency_id',   c.agencies.id)
+                if (c.agents?.id)    p.set('agent_id',    c.agents.id)
+                return (
+                  <a
+                    href={`/service/new?${p.toString()}`}
+                    onClick={e => e.stopPropagation()}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-blue-300 transition-colors"
+                  >
+                    <Wrench className="w-3.5 h-3.5" />
+                    Route to Service Request
+                  </a>
+                )
+              })()}
+            </div>
           </td>
         </tr>
       )}

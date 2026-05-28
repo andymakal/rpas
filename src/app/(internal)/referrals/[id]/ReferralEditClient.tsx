@@ -732,9 +732,9 @@ export function ReferralEditClient({
       )}
 
       {/* ── Service referral banner ─────────────────────────────────
-          Shown whenever lead_source = existing_service (or detected from notes).
-          Whoever picks this up — Dulce, Abigail, anyone — knows exactly where it goes. */}
-      {isServiceReferral && (
+          Prominent banner when logged as existing_service; subtle link for all others.
+          Either way, anyone who picks this up can route it to Abigail in one click. */}
+      {isServiceReferral ? (
         <div className="mb-5 flex items-center justify-between gap-4 rounded-xl border border-blue-500/30 bg-blue-500/10 px-5 py-4">
           <div className="flex items-center gap-3">
             <Wrench className="w-5 h-5 text-blue-400 shrink-0" />
@@ -754,6 +754,16 @@ export function ReferralEditClient({
           >
             <Wrench className="w-3.5 h-3.5" />
             Create Service Request
+          </a>
+        </div>
+      ) : (
+        <div className="mb-5 flex justify-end">
+          <a
+            href={serviceNewUrl}
+            className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          >
+            <Wrench className="w-3.5 h-3.5" />
+            Route to Service Request
           </a>
         </div>
       )}

@@ -22,7 +22,7 @@ export type TriageCase = {
     email: string | null
     date_of_birth: string | null
   } | null
-  agents: { first_name: string; last_name: string; email: string | null } | null
+  agents: { id: string; first_name: string; last_name: string; email: string | null } | null
 }
 
 export default async function TriagePage() {
@@ -40,7 +40,7 @@ export default async function TriagePage() {
       last_contact_at,
       agencies ( id, name, display_name ),
       customers!customer_id ( first_name, last_name, phone, email, date_of_birth ),
-      agents ( first_name, last_name, email )
+      agents ( id, first_name, last_name, email )
     `)
     .eq('internal_status', 'triage')
     .eq('is_test', false)
