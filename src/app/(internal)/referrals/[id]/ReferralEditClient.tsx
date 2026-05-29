@@ -8,10 +8,12 @@ import {
   MessageSquare, Mail, AlertCircle, PhoneCall, PhoneOff,
   MessageCircle, ChevronDown, ChevronUp, DollarSign, Pencil, Check, X, MapPin,
   CalendarClock, CalendarX, History, Flame, Send, Wrench,
+  ChevronLeft, ChevronRight, Copy,
 } from 'lucide-react'
 import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember, SuspectedDuplicate } from './page'
 import { HouseholdCard } from '@/components/HouseholdCard'
-import { fmtDate as fmt } from '@/lib/fmt'
+import { fmtDate as fmt, fmtEagentNote } from '@/lib/fmt'
+import { useNavList } from '@/lib/nav-list'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -290,6 +292,12 @@ export function ReferralEditClient({
   const [lspReengageNote,    setLspReengageNote]    = useState('')
   const [lspReengageWorking, setLspReengageWorking] = useState(false)
   const [lspReengageError,   setLspReengageError]   = useState<string | null>(null)
+
+  // ── List navigation ────────────────────────────────────────────
+  const { prevId, nextId, position, total } = useNavList(referral.id)
+
+  // ── Notes copy ─────────────────────────────────────────────────
+  const [copied, setCopied] = useState(false)
 
   // ── Quote fields ───────────────────────────────────────────────
   // Pre-populated from existing values if the case was already quoted
@@ -710,13 +718,28 @@ export function ReferralEditClient({
 
       {/* Header */}
       <div className="mb-6">
-        <Link
-          href={isFromTriage ? '/triage' : '/referrals'}
-          className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-200 mb-4 transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          {isFromTriage ? 'Back to Triage' : 'Back to Referrals'}
-        </Link>
+        <div className="flex items-center justify-between mb-4">
+          <Link
+            href={isFromTriage ? '/triage' : '/referrals'}
+            className="inline-flex items-center gap-1.5 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            {isFromTriage ? 'Back to Triage' : 'Back to Referrals'}
+          </Link>
+          {total > 0 && (
+            <div className="flex items-center gap-1">
+              <button onClick={() => router.push(`/referrals/${prevId}`)} disabled={!prevId}
+                className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-25 disabled:cursor-default transition-colors">
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-xs text-slate-500 tabular-nums w-16 text-center">{position} / {total}</span>
+              <button onClick={() => router.push(`/referrals/${nextId}`)} disabled={!nextId}
+                className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-25 disabled:cursor-default transition-colors">
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+        </div>
         <div className="flex items-start justify-between gap-4">
           <div>
             <div className="flex items-center gap-2.5 flex-wrap">
@@ -1662,9 +1685,18 @@ export function ReferralEditClient({
 
           {/* 4 — Appointment & Notes */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-            <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
-              <MessageSquare className="w-3.5 h-3.5" /> Appointment & Notes
-            </h2>
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+                <MessageSquare className="w-3.5 h-3.5" /> Appointment & Notes
+              </h2>
+              <button
+                onClick={() => { navigator.clipboard.writeText(fmtEagentNote(notes)); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+                disabled={!notes.trim()}
+                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 disabled:opacity-30 disabled:cursor-default transition-colors"
+              >
+                {copied ? <><Check className="w-3 h-3 text-emerald-400" /><span className="text-emerald-400">Copied!</span></> : <><Copy className="w-3 h-3" />Copy for eAgent</>}
+              </button>
+            </div>
 
             {showApptDate && (
               <div>

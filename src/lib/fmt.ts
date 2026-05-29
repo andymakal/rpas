@@ -30,6 +30,24 @@ export function fmtDate(iso: string | null | undefined): string {
 }
 
 /**
+ * Format notes for pasting into eAgent (or any compliance comments field).
+ *
+ * Prepends the current local date/time as a stamp so the entry is
+ * self-documenting when pasted.  Uses local time intentionally — this
+ * is triggered by a manual copy action in the browser, never SSR.
+ *
+ * Output:
+ *   05/29/2026 10:34 AM
+ *   [notes content]
+ */
+export function fmtEagentNote(notes: string): string {
+  const now   = new Date()
+  const date  = now.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+  const time  = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+  return `${date} ${time}\n${notes}`
+}
+
+/**
  * "Jan 15" (no year) — same UTC-safe approach.
  */
 export function fmtDateShort(iso: string | null | undefined): string {

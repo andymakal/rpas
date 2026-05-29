@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
-  ChevronLeft, Copy, Check, CheckCircle2, Phone, AlertTriangle,
+  ChevronLeft, ChevronRight, Copy, Check, CheckCircle2, Phone, AlertTriangle,
   Info, TrendingUp, AlertCircle, Save, ClipboardCheck, User,
 } from 'lucide-react'
 import {
@@ -14,7 +14,8 @@ import {
 } from '@/lib/reviews/prep'
 import type { PolicyForPrep, ReviewFlag } from '@/lib/reviews/prep'
 import type { ReviewDetail } from './page'
-import { fmtDate as fmt } from '@/lib/fmt'
+import { fmtDate as fmt, fmtEagentNote } from '@/lib/fmt'
+import { useNavList } from '@/lib/nav-list'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -91,6 +92,9 @@ export function ReviewPrepClient({ review: initialReview }: { review: ReviewDeta
   const router = useRouter()
   const [review, setReview] = useState(initialReview)
   const policy = review.service_policies
+
+  const { prevId, nextId, position, total } = useNavList(review.id)
+  const [copied, setCopied] = useState(false)
 
   // ── Right-panel state ───────────────────────────────────────────────────
   const [assignedTo,     setAssignedTo]     = useState(review.assigned_to ?? '')
@@ -210,12 +214,27 @@ export function ReviewPrepClient({ review: initialReview }: { review: ReviewDeta
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <button
-            onClick={() => router.push('/reviews')}
-            className="inline-flex items-center gap-1 text-sm text-slate-400 hover:text-slate-200 transition-colors mb-3"
-          >
-            <ChevronLeft className="w-4 h-4" /> Reviews
-          </button>
+          <div className="flex items-center justify-between mb-3">
+            <button
+              onClick={() => router.push('/reviews')}
+              className="inline-flex items-center gap-1 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" /> Reviews
+            </button>
+            {total > 0 && (
+              <div className="flex items-center gap-1">
+                <button onClick={() => router.push(`/reviews/${prevId}`)} disabled={!prevId}
+                  className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-25 disabled:cursor-default transition-colors">
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-xs text-slate-500 tabular-nums w-16 text-center">{position} / {total}</span>
+                <button onClick={() => router.push(`/reviews/${nextId}`)} disabled={!nextId}
+                  className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-25 disabled:cursor-default transition-colors">
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
           <div className="flex items-center flex-wrap gap-2.5">
             <h1 className="text-white text-2xl font-semibold">
               {review.review_number ?? 'Policy Review'}
@@ -494,7 +513,16 @@ export function ReviewPrepClient({ review: initialReview }: { review: ReviewDeta
 
           {/* Prep Notes */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-            <h2 className="text-sm font-semibold text-white mb-3">Prep Notes</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-white">Prep Notes</h2>
+              <button
+                onClick={() => { navigator.clipboard.writeText(fmtEagentNote(prepNotes)); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+                disabled={!prepNotes.trim()}
+                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 disabled:opacity-30 disabled:cursor-default transition-colors"
+              >
+                {copied ? <><Check className="w-3 h-3 text-emerald-400" /><span className="text-emerald-400">Copied!</span></> : <><Copy className="w-3 h-3" />Copy for eAgent</>}
+              </button>
+            </div>
             <textarea
               rows={4}
               className={inputCls}

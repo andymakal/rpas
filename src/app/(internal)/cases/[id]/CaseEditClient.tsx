@@ -6,9 +6,9 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Phone, Building2, User, Calendar, Clock,
   MessageSquare, Mail, PhoneCall, PhoneOff, MessageCircle,
-  ChevronDown, ChevronUp, DollarSign, Pencil, Check, X, MapPin,
+  ChevronDown, ChevronUp, ChevronLeft, ChevronRight, DollarSign, Pencil, Check, X, MapPin,
   CalendarClock, History, Flame, Circle, AlertCircle, CheckCircle2,
-  Plus, GitMerge, ExternalLink,
+  Plus, GitMerge, ExternalLink, Copy,
 } from 'lucide-react'
 import type {
   CaseDetail, StageLookup, AgencyLookup, AgentOption, ProductLookup,
@@ -16,7 +16,8 @@ import type {
   PendingRequirementLookup, TouchLog, StatusHistoryEntry, SiblingCase, HouseholdMember,
 } from './page'
 import { HouseholdCard } from '@/components/HouseholdCard'
-import { fmtDate as fmt } from '@/lib/fmt'
+import { fmtDate as fmt, fmtEagentNote } from '@/lib/fmt'
+import { useNavList } from '@/lib/nav-list'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -147,6 +148,12 @@ export default function CaseEditClient({
   siblingCases: initialSiblings, householdId, householdMembers,
 }: Props) {
   const router = useRouter()
+
+  // ── List navigation ────────────────────────────────────────────
+  const { prevId, nextId, position, total } = useNavList(caseData.id)
+
+  // ── Notes copy ─────────────────────────────────────────────────
+  const [copied, setCopied] = useState(false)
 
   // ── Case edit state ────────────────────────────────────────────
   const [status,       setStatus]       = useState(caseData.internal_status)
@@ -586,12 +593,27 @@ export default function CaseEditClient({
           >
             <ArrowLeft className="w-4 h-4" /> Back to Cases
           </Link>
-          <Link
-            href={`/referrals/${caseData.id}`}
-            className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
-          >
-            <GitMerge className="w-3.5 h-3.5" /> Referral History
-          </Link>
+          <div className="flex items-center gap-3">
+            {total > 0 && (
+              <div className="flex items-center gap-1">
+                <button onClick={() => router.push(`/cases/${prevId}`)} disabled={!prevId}
+                  className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-25 disabled:cursor-default transition-colors">
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-xs text-slate-500 tabular-nums w-16 text-center">{position} / {total}</span>
+                <button onClick={() => router.push(`/cases/${nextId}`)} disabled={!nextId}
+                  className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-25 disabled:cursor-default transition-colors">
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+            <Link
+              href={`/referrals/${caseData.id}`}
+              className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              <GitMerge className="w-3.5 h-3.5" /> Referral History
+            </Link>
+          </div>
         </div>
 
         <div className="flex items-start justify-between gap-4">
@@ -1155,9 +1177,18 @@ export default function CaseEditClient({
 
             {/* Notes */}
             <div>
-              <label className="block text-xs font-medium text-slate-300 mb-1.5 flex items-center gap-1.5">
-                <MessageSquare className="w-3.5 h-3.5" /> Notes
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
+                  <MessageSquare className="w-3.5 h-3.5" /> Notes
+                </label>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(fmtEagentNote(notes)); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+                  disabled={!notes.trim()}
+                  className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 disabled:opacity-30 disabled:cursor-default transition-colors"
+                >
+                  {copied ? <><Check className="w-3 h-3 text-emerald-400" /><span className="text-emerald-400">Copied!</span></> : <><Copy className="w-3 h-3" />Copy for eAgent</>}
+                </button>
+              </div>
               <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={5}
                 placeholder="Internal notes — underwriting updates, carrier communications, next steps…"
                 className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 placeholder-slate-600 resize-none" />

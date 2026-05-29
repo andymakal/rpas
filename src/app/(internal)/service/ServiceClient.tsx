@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Search, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react'
 import type { ServiceRow } from './page'
 import { fmtDate as formatDate } from '@/lib/fmt'
+import { setNavList } from '@/lib/nav-list'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -177,7 +178,7 @@ export function ServiceClient({ rows }: { rows: ServiceRow[] }) {
                 return (
                   <tr
                     key={row.id}
-                    onClick={() => router.push(`/service/${row.id}`)}
+                    onClick={() => { setNavList(filtered.map(x => x.id)); router.push(`/service/${row.id}`) }}
                     className={`group cursor-pointer transition-colors hover:bg-slate-800/30 ${!isLast ? 'border-b border-slate-800/50' : ''}`}
                   >
                     <td className="px-4 py-3">

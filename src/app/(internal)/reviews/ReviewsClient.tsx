@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { ClipboardList, AlertTriangle, CheckCircle2, Phone, Search, Plus } from 'lucide-react'
 import type { ReviewListRow } from './page'
 import { fmtDate as fmt } from '@/lib/fmt'
+import { setNavList } from '@/lib/nav-list'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -293,7 +294,7 @@ export function ReviewsClient({ reviews }: { reviews: ReviewListRow[] }) {
                 return (
                   <tr
                     key={r.id}
-                    onClick={() => router.push(`/reviews/${r.id}`)}
+                    onClick={() => { setNavList(filtered.map(x => x.id)); router.push(`/reviews/${r.id}`) }}
                     className="hover:bg-slate-800/40 cursor-pointer transition-colors"
                   >
                     <td className="px-4 py-3 font-mono text-xs text-slate-300 whitespace-nowrap">

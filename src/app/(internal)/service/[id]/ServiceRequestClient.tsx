@@ -2,9 +2,10 @@
 
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, CheckCircle2, XCircle, AlertCircle, Save, Pencil } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, AlertCircle, Save, Pencil, Copy, Check } from 'lucide-react'
 import type { ServiceRequestDetail, AgencyOption, AgentOption } from './page'
-import { fmtDate as fmt } from '@/lib/fmt'
+import { fmtDate as fmt, fmtEagentNote } from '@/lib/fmt'
+import { useNavList } from '@/lib/nav-list'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -89,6 +90,9 @@ export function ServiceRequestClient({
   agents:   AgentOption[]
 }) {
   const router = useRouter()
+
+  const { prevId, nextId, position, total } = useNavList(sr.id)
+  const [copied, setCopied] = useState(false)
 
   // ── SR local state ──────────────────────────────────────────────────────
   const [sr,            setSr]           = useState(initialSr)
@@ -252,12 +256,27 @@ export function ServiceRequestClient({
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div className="flex items-start justify-between">
         <div>
-          <button
-            onClick={() => router.push('/service')}
-            className="inline-flex items-center gap-1 text-sm text-slate-400 hover:text-slate-200 transition-colors mb-3"
-          >
-            <ChevronLeft className="w-4 h-4" /> Service
-          </button>
+          <div className="flex items-center justify-between mb-3">
+            <button
+              onClick={() => router.push('/service')}
+              className="inline-flex items-center gap-1 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" /> Service
+            </button>
+            {total > 0 && (
+              <div className="flex items-center gap-1">
+                <button onClick={() => router.push(`/service/${prevId}`)} disabled={!prevId}
+                  className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-25 disabled:cursor-default transition-colors">
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                <span className="text-xs text-slate-500 tabular-nums w-16 text-center">{position} / {total}</span>
+                <button onClick={() => router.push(`/service/${nextId}`)} disabled={!nextId}
+                  className="p-1 rounded text-slate-400 hover:text-white disabled:opacity-25 disabled:cursor-default transition-colors">
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
           <div className="flex items-center gap-3">
             <h1 className="text-white text-2xl font-semibold">
               {sr.sr_number ?? 'Service Request'}
@@ -574,7 +593,17 @@ export function ServiceRequestClient({
                   <option value="cannot_service">Cannot Service</option>
                 </select>
               </Field>
-              <Field label="Notes">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-medium text-slate-400">Notes</label>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(fmtEagentNote(srNotes)); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+                    disabled={!srNotes.trim()}
+                    className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 disabled:opacity-30 disabled:cursor-default transition-colors"
+                  >
+                    {copied ? <><Check className="w-3 h-3 text-emerald-400" /><span className="text-emerald-400">Copied!</span></> : <><Copy className="w-3 h-3" />Copy for eAgent</>}
+                  </button>
+                </div>
                 <textarea
                   rows={4}
                   className={inputCls}
@@ -582,7 +611,7 @@ export function ServiceRequestClient({
                   value={srNotes}
                   onChange={e => setSrNotes(e.target.value)}
                 />
-              </Field>
+              </div>
 
               {srError  && <p className="text-xs text-red-400">{srError}</p>}
               {srSaved  && <p className="text-xs text-emerald-400">Saved ✓</p>}

@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { ChevronRight, ChevronUp, ChevronDown, Search, AlertTriangle, CalendarClock } from 'lucide-react'
 import type { CaseRow } from './page'
 import { fmtDate as formatDate, fmtDateShort } from '@/lib/fmt'
+import { setNavList } from '@/lib/nav-list'
 
 // ── Helpers ───────────────────────────────────────────────────
 function tierBadgeClass(st: CaseRow['stage_translations']): string {
@@ -272,7 +273,7 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
                 })()
 
                 return (
-                  <tr key={r.id} onClick={() => router.push(`/cases/${r.id}`)}
+                  <tr key={r.id} onClick={() => { setNavList(filtered.map(x => x.id)); router.push(`/cases/${r.id}`) }}
                     className={`group cursor-pointer transition-colors hover:bg-slate-800/30 ${!isLastRow ? 'border-b border-slate-800/50' : ''}`}>
                     <td className="px-4 py-3">
                       <p className="font-medium text-white group-hover:text-blue-300 transition-colors">

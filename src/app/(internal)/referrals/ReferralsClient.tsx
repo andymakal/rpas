@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Search, ChevronUp, ChevronDown, CalendarClock, AlertTriangle, Flame } from 'lucide-react'
 import type { CaseRow, StageTranslation } from './page'
 import { fmtDate, fmtDateShort } from '@/lib/fmt'
+import { setNavList } from '@/lib/nav-list'
 
 const TIER_BADGE: Record<number, string> = {
   1: 'bg-blue-900/50 text-blue-300 border border-blue-800',
@@ -300,7 +301,7 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
               {filtered.map((r, i) => (
                 <tr
                   key={r.id}
-                  onClick={() => router.push(`/referrals/${r.id}`)}
+                  onClick={() => { setNavList(filtered.map(x => x.id)); router.push(`/referrals/${r.id}`) }}
                   className={`cursor-pointer transition-colors hover:bg-slate-800/40 ${
                     i < filtered.length - 1 ? 'border-b border-slate-800/50' : ''
                   }`}

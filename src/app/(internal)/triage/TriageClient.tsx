@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { Search, Phone, Mail, Flame, Clock, ChevronDown, ChevronUp, CalendarX, Wrench } from 'lucide-react'
 import type { TriageCase } from './page'
 import { fmtDate } from '@/lib/fmt'
+import { setNavList } from '@/lib/nav-list'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -60,7 +61,7 @@ function QueueAgeBadge({ iso }: { iso: string }) {
 
 // ── Row ───────────────────────────────────────────────────────────────────────
 
-function TriageRow({ c }: { c: TriageCase }) {
+function TriageRow({ c, allIds }: { c: TriageCase; allIds: string[] }) {
   const router = useRouter()
   const [expanded, setExpanded] = useState(false)
 
@@ -78,6 +79,7 @@ function TriageRow({ c }: { c: TriageCase }) {
     if (target.closest('[data-expand]')) {
       setExpanded(o => !o)
     } else {
+      setNavList(allIds)
       router.push(`/referrals/${c.id}`)
     }
   }
@@ -230,6 +232,7 @@ export function TriageClient({ cases }: { cases: TriageCase[] }) {
   const [search, setSearch]             = useState('')
   const [agencyFilter, setAgencyFilter] = useState('')
 
+
   const agencyOptions = useMemo(() => {
     const seen = new Set<string>()
     for (const c of cases) {
@@ -259,6 +262,7 @@ export function TriageClient({ cases }: { cases: TriageCase[] }) {
     return list
   }, [cases, agencyFilter, search])
 
+  const filteredIds = useMemo(() => filtered.map(c => c.id), [filtered])
   const hotCount = cases.filter(c => c.is_hot_lead).length
 
   if (cases.length === 0) {
@@ -328,7 +332,7 @@ export function TriageClient({ cases }: { cases: TriageCase[] }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map(c => <TriageRow key={c.id} c={c} />)}
+              {filtered.map(c => <TriageRow key={c.id} c={c} allIds={filteredIds} />)}
             </tbody>
           </table>
         )}
