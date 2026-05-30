@@ -8,12 +8,13 @@ import {
   MessageSquare, Mail, AlertCircle, PhoneCall, PhoneOff,
   MessageCircle, ChevronDown, ChevronUp, DollarSign, Pencil, Check, X, MapPin,
   CalendarClock, CalendarX, History, Flame, Send, Wrench,
-  ChevronLeft, ChevronRight, Copy,
+  ChevronLeft, ChevronRight, Copy, Users, UserPlus, Trash2,
 } from 'lucide-react'
 import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember, SuspectedDuplicate } from './page'
 import { HouseholdCard } from '@/components/HouseholdCard'
 import { fmtDate as fmt, fmtEagentNote } from '@/lib/fmt'
 import { useNavList } from '@/lib/nav-list'
+import { buildHouseholdName } from '@/lib/household'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -293,6 +294,62 @@ export function ReferralEditClient({
   const [lspReengageWorking, setLspReengageWorking] = useState(false)
   const [lspReengageError,   setLspReengageError]   = useState<string | null>(null)
 
+  // ── Household members ─────────────────────────────────────────
+  type HouseholdMember = ReferralDetail['household_members'][number]
+  const [members, setMembers]             = useState<HouseholdMember[]>(referral.household_members ?? [])
+  const [editingMemberId, setEditingMemberId] = useState<string | null>(null)
+  const [memberEdits, setMemberEdits]     = useState<Partial<HouseholdMember>>({})
+  const [memberSaving, setMemberSaving]   = useState(false)
+  const [memberError, setMemberError]     = useState<string | null>(null)
+  const [addingMember, setAddingMember]   = useState(false)
+  const [newMember, setNewMember]         = useState({ first_name: '', last_name: '', date_of_birth: '' })
+  const [addSaving, setAddSaving]         = useState(false)
+  const [addError, setAddError]           = useState<string | null>(null)
+
+  async function handleSaveMember(id: string) {
+    setMemberSaving(true); setMemberError(null)
+    try {
+      const res = await fetch(`/api/cases/${referral.id}/household-members/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(memberEdits),
+      })
+      if (!res.ok) { const j = await res.json(); setMemberError(j.error ?? 'Save failed'); return }
+      const { data } = await res.json()
+      setMembers(prev => prev.map(m => m.id === id ? { ...m, ...data } : m))
+      setEditingMemberId(null)
+    } catch { setMemberError('Network error') }
+    finally { setMemberSaving(false) }
+  }
+
+  async function handleDeleteMember(id: string) {
+    if (!confirm('Remove this household member?')) return
+    try {
+      await fetch(`/api/cases/${referral.id}/household-members/${id}`, { method: 'DELETE' })
+      setMembers(prev => prev.filter(m => m.id !== id))
+      if (editingMemberId === id) setEditingMemberId(null)
+    } catch { /* ignore */ }
+  }
+
+  async function handleAddMember() {
+    if (!newMember.first_name.trim() || !newMember.last_name.trim()) {
+      setAddError('First and last name are required')
+      return
+    }
+    setAddSaving(true); setAddError(null)
+    try {
+      const res = await fetch(`/api/cases/${referral.id}/household-members`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newMember),
+      })
+      if (!res.ok) { const j = await res.json(); setAddError(j.error ?? 'Failed to add'); return }
+      const { data } = await res.json()
+      setMembers(prev => [...prev, data])
+      setNewMember({ first_name: '', last_name: '', date_of_birth: '' })
+      setAddingMember(false)
+    } catch { setAddError('Network error') }
+    finally { setAddSaving(false) }
+  }
+
   // ── List navigation ────────────────────────────────────────────
   const { prevId, nextId, position, total } = useNavList(referral.id)
 
@@ -369,7 +426,10 @@ export function ReferralEditClient({
   const allstatePolicy    = parsedNotes['Allstate Policy'] ?? null
 
   const [displayName,  setDisplayName]  = useState(
-    referral.customers ? `${referral.customers.first_name} ${referral.customers.last_name}` : 'Unknown'
+    buildHouseholdName(
+      referral.customers ?? null,
+      referral.household_members ?? [],
+    )
   )
   const [displayAgent, setDisplayAgent] = useState(
     referral.agents ? `${referral.agents.first_name} ${referral.agents.last_name}` : null
@@ -494,7 +554,10 @@ export function ReferralEditClient({
         const j = await res.json()
         setContactMsg({ ok: false, text: j.error ?? 'Save failed' })
       } else {
-        setDisplayName(`${cFirstName.trim()} ${cLastName.trim()}`)
+        setDisplayName(buildHouseholdName(
+          { first_name: cFirstName.trim(), last_name: cLastName.trim() },
+          members,
+        ))
         setContactMsg({ ok: true, text: 'Contact updated' })
         setEditingContact(false)
         setEditingQuoteInfo(false)
@@ -1031,7 +1094,191 @@ export function ReferralEditClient({
             )}
           </div>
 
-          {/* 2 — Activity */}
+          {/* 2 — Household Members */}
+          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+                <Users className="w-3.5 h-3.5" /> Household
+                {members.length > 0 && (
+                  <span className="ml-1 text-xs font-normal text-slate-500">+{members.length}</span>
+                )}
+              </h2>
+              {!addingMember && (
+                <button onClick={() => { setAddingMember(true); setAddError(null) }}
+                  className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors">
+                  <UserPlus className="w-3 h-3" /> Add
+                </button>
+              )}
+            </div>
+
+            {/* Existing members */}
+            {members.length === 0 && !addingMember && (
+              <p className="text-xs text-slate-600">No additional household members yet.</p>
+            )}
+            {members.map(m => (
+              <div key={m.id} className="rounded-lg border border-slate-800 bg-slate-800/30 p-3 space-y-2">
+                {editingMemberId === m.id ? (
+                  <>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">First name</label>
+                        <input value={memberEdits.first_name ?? m.first_name}
+                          onChange={e => setMemberEdits(p => ({ ...p, first_name: e.target.value }))}
+                          className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Last name</label>
+                        <input value={memberEdits.last_name ?? m.last_name}
+                          onChange={e => setMemberEdits(p => ({ ...p, last_name: e.target.value }))}
+                          className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Date of birth</label>
+                      <input type="date" value={memberEdits.date_of_birth ?? m.date_of_birth ?? ''}
+                        onChange={e => setMemberEdits(p => ({ ...p, date_of_birth: e.target.value }))}
+                        className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Gender</label>
+                        <select value={memberEdits.gender ?? m.gender ?? ''}
+                          onChange={e => setMemberEdits(p => ({ ...p, gender: e.target.value }))}
+                          className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+                          <option value="">Select</option>
+                          <option value="male">Male</option>
+                          <option value="female">Female</option>
+                          <option value="other">Other</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Tobacco</label>
+                        <select value={memberEdits.tobacco_use ?? m.tobacco_use ?? ''}
+                          onChange={e => setMemberEdits(p => ({ ...p, tobacco_use: e.target.value }))}
+                          className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+                          <option value="">Select</option>
+                          <option value="none">None</option>
+                          <option value="cigarettes">Cigarettes</option>
+                          <option value="cigars">Cigars</option>
+                          <option value="vaping">Vaping</option>
+                          <option value="chewing">Chewing</option>
+                          <option value="nicotine_replacement">Nicotine replacement</option>
+                        </select>
+                      </div>
+                    </div>
+                    {/* Quote fields */}
+                    <p className="text-xs font-medium text-slate-400 pt-1">Quote</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Carrier</label>
+                        <select value={memberEdits.quoted_carrier ?? m.quoted_carrier ?? ''}
+                          onChange={e => setMemberEdits(p => ({ ...p, quoted_carrier: e.target.value }))}
+                          className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+                          <option value="">Select…</option>
+                          {CARRIERS.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Product</label>
+                        <select value={memberEdits.quoted_product_type ?? m.quoted_product_type ?? ''}
+                          onChange={e => setMemberEdits(p => ({ ...p, quoted_product_type: e.target.value }))}
+                          className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+                          <option value="">Select…</option>
+                          {PRODUCT_TYPES.map(p => <option key={p} value={p}>{p}</option>)}
+                        </select>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Face amount</label>
+                      <div className="relative">
+                        <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+                        <input type="number" min="0" step="1000"
+                          value={memberEdits.face_amount ?? m.face_amount ?? ''}
+                          onChange={e => setMemberEdits(p => ({ ...p, face_amount: e.target.value ? Number(e.target.value) : null }))}
+                          placeholder="e.g. 500000"
+                          className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600" />
+                      </div>
+                    </div>
+                    {memberError && <p className="text-xs text-red-400">{memberError}</p>}
+                    <div className="flex items-center gap-2 pt-1">
+                      <button onClick={() => handleSaveMember(m.id)} disabled={memberSaving}
+                        className="flex-1 rounded-lg px-3 py-1.5 text-xs font-medium text-white bg-blue-700 hover:bg-blue-600 disabled:opacity-50 transition-colors">
+                        {memberSaving ? 'Saving…' : 'Save'}
+                      </button>
+                      <button onClick={() => { setEditingMemberId(null); setMemberEdits({}); setMemberError(null) }}
+                        className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors">
+                        Cancel
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-sm font-medium text-white">{m.first_name} {m.last_name}</p>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 mt-0.5">
+                        {m.date_of_birth && <p className="text-xs text-slate-500">{fmt(m.date_of_birth)}</p>}
+                        {m.quoted_carrier && (
+                          <p className="text-xs text-slate-400">{m.quoted_carrier}{m.quoted_product_type ? ` · ${m.quoted_product_type}` : ''}</p>
+                        )}
+                        {m.face_amount && (
+                          <p className="text-xs text-slate-400">${m.face_amount.toLocaleString()}</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button onClick={() => { setEditingMemberId(m.id); setMemberEdits({}); setMemberError(null) }}
+                        className="p-1 text-slate-500 hover:text-slate-300 transition-colors">
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => handleDeleteMember(m.id)}
+                        className="p-1 text-slate-600 hover:text-red-400 transition-colors">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {/* Add member form */}
+            {addingMember && (
+              <div className="rounded-lg border border-blue-800/40 bg-blue-950/20 p-3 space-y-2">
+                <p className="text-xs font-medium text-slate-300">New household member</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">First name *</label>
+                    <input value={newMember.first_name} onChange={e => setNewMember(p => ({ ...p, first_name: e.target.value }))}
+                      placeholder="Jane"
+                      className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Last name *</label>
+                    <input value={newMember.last_name} onChange={e => setNewMember(p => ({ ...p, last_name: e.target.value }))}
+                      placeholder="Smith"
+                      className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Date of birth</label>
+                  <input type="date" value={newMember.date_of_birth} onChange={e => setNewMember(p => ({ ...p, date_of_birth: e.target.value }))}
+                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+                </div>
+                {addError && <p className="text-xs text-red-400">{addError}</p>}
+                <div className="flex items-center gap-2 pt-1">
+                  <button onClick={handleAddMember} disabled={addSaving}
+                    className="flex-1 rounded-lg px-3 py-1.5 text-xs font-medium text-white bg-blue-700 hover:bg-blue-600 disabled:opacity-50 transition-colors">
+                    {addSaving ? 'Adding…' : 'Add to household'}
+                  </button>
+                  <button onClick={() => { setAddingMember(false); setNewMember({ first_name: '', last_name: '', date_of_birth: '' }); setAddError(null) }}
+                    className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* 3 — Activity */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
             <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide">Activity</h2>
             <div className="flex items-start gap-2.5">

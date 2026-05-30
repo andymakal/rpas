@@ -3,6 +3,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { referralSchema, type ReferralFormData } from '@/lib/schemas/referral'
 import { PRODUCER_ROUTING, PRODUCER_LABELS } from '@/lib/constants/referral-options'
+import { buildHouseholdName } from '@/lib/household'
 
 function toTitleCase(str: string): string {
   return str.trim().replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
@@ -208,7 +209,21 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       return { success: false, error: 'Failed to save referral. Please try again.' }
     }
 
-    // 5. Create in-app notification — routing label baked in so anyone who answers knows where it goes
+    // 5. Insert household members if provided
+    if (form.household_members && form.household_members.length > 0) {
+      await supabase.from('case_household_members').insert(
+        form.household_members
+          .filter(m => m.first_name.trim() && m.last_name.trim())
+          .map(m => ({
+            case_id:       newCase.id,
+            first_name:    toTitleCase(m.first_name),
+            last_name:     toTitleCase(m.last_name),
+            date_of_birth: m.date_of_birth || null,
+          }))
+      )
+    }
+
+    // 7. Create in-app notification — routing label baked in so anyone who answers knows where it goes
     const notifTitle = form.referral_type === 'existing_service'
       ? `Service request: ${form.client_first_name} ${form.client_last_name}`
       : `New referral: ${form.client_first_name} ${form.client_last_name}`
@@ -227,7 +242,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       link:  `/referrals/${newCase.id}`,
     })
 
-    // 6. Back-fill agent email if provided and not already on file
+    // 8. Back-fill agent email if provided and not already on file
     if (form.lsp_email && form.lsp_name) {
       const parts     = form.lsp_name.trim().split(/\s+/)
       const firstName = parts[0]
@@ -249,7 +264,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       }
     }
 
-    // 7. Save to intake_raw as audit trail (already processed — case_id set)
+    // 9. Save to intake_raw as audit trail (already processed — case_id set)
     // Non-critical: log errors but don't fail the submission over an audit record
     const { error: rawErr } = await supabase.from('intake_raw').insert({
       agency_id:    form.agency_id,
@@ -261,10 +276,15 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
     })
     if (rawErr) console.error('intake_raw insert failed (case still created):', rawErr)
 
+    const displayName = buildHouseholdName(
+      { first_name: form.client_first_name, last_name: form.client_last_name },
+      (form.household_members ?? []).filter(m => m.first_name.trim() && m.last_name.trim()),
+    )
+
     return {
       success:     true,
       referral_id: newCase.id,
-      client_name: `${form.client_first_name} ${form.client_last_name}`,
+      client_name: displayName,
     }
   } catch (err) {
     console.error('Unexpected error:', err)

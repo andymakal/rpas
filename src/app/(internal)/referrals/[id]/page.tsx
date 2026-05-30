@@ -36,6 +36,22 @@ export type ReferralDetail = {
   is_owner_referral: boolean
   producer_id: string | null
   lead_source: string | null
+  household_members: {
+    id: string
+    first_name: string
+    last_name: string
+    date_of_birth: string | null
+    gender: string | null
+    tobacco_use: string | null
+    height_ft: number | null
+    height_in: number | null
+    weight_lbs: number | null
+    health_notes: string | null
+    quoted_carrier: string | null
+    quoted_product_type: string | null
+    face_amount: number | null
+    linked_case_id: string | null
+  }[]
   customers: {
     first_name: string
     last_name: string
@@ -124,6 +140,7 @@ export default async function ReferralDetailPage({
       id, customer_id, agent_id, agency_id,
       internal_status, created_at, status_entered_at, appointment_date,
       follow_up_date, face_amount, quoted_carrier, quoted_product_type, annual_premium, policy_number,
+      case_household_members ( id, first_name, last_name, date_of_birth, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, quoted_carrier, quoted_product_type, face_amount, linked_case_id ),
       notes, touches, last_contact_at, spiff_earned, spiff_earned_at, is_hot_lead, is_owner_referral, producer_id, lead_source, suspected_duplicate_customer_id,
       customers!customer_id ( first_name, last_name, phone, email, street, city, state, zip, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, spanish_speaking, customer_group_id ),
       agencies ( name, display_name, contact_email ),

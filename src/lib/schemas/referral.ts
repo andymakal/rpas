@@ -30,6 +30,12 @@ export const referralSchema = z.object({
   consent_confirmed: z.literal(true, {
     error: 'You must confirm client consent before submitting',
   }),
+  // Optional additional household members (e.g. spouse / partner)
+  household_members: z.array(z.object({
+    first_name:    z.string().min(1, 'First name required'),
+    last_name:     z.string().min(1, 'Last name required'),
+    date_of_birth: z.string().optional(),
+  })).optional().default([]),
 })
 
 export type ReferralFormData = z.infer<typeof referralSchema>

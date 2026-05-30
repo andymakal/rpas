@@ -39,6 +39,7 @@ const EMPTY_FORM: ReferralFormData = {
   is_hot_lead: false,
   spanish_speaking: false,
   consent_confirmed: undefined as unknown as true,
+  household_members: [],
 }
 
 const STEP_SCHEMAS = [step1Schema, step2Schema, step3Schema]
@@ -287,6 +288,20 @@ export function ReferralIntakeForm({
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<SubmitReferralResult | null>(null)
 
+  // Household — tracks whether the spouse/partner section is expanded
+  const [showSpouse, setShowSpouse] = useState(false)
+  const spouse = form.household_members?.[0] ?? { first_name: '', last_name: '', date_of_birth: '' }
+
+  function setSpouseField(field: 'first_name' | 'last_name' | 'date_of_birth', value: string) {
+    const updated = { ...spouse, [field]: value }
+    setForm(prev => ({ ...prev, household_members: [updated] }))
+  }
+
+  function clearSpouse() {
+    setShowSpouse(false)
+    setForm(prev => ({ ...prev, household_members: [] }))
+  }
+
   // Pre-fill LSP name + email from localStorage
   useEffect(() => {
     if (!agencySlug) return
@@ -464,6 +479,47 @@ export function ReferralIntakeForm({
         label="Spanish Speaking"
         description="Client's primary language is Spanish"
       />
+
+      {/* Spouse / Partner — optional */}
+      <div className="border-t border-slate-100 pt-4">
+        {!showSpouse ? (
+          <button
+            type="button"
+            onClick={() => setShowSpouse(true)}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-lg border-2 border-dashed border-slate-200 text-sm text-slate-500 hover:border-slate-400 hover:text-slate-700 transition-colors"
+          >
+            <span className="text-lg leading-none">+</span>
+            Add spouse or partner to this referral
+          </button>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-slate-800">Spouse / Partner</p>
+              <button type="button" onClick={clearSpouse}
+                className="text-xs text-slate-400 hover:text-slate-600 transition-colors">
+                Remove
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="First Name" required>
+                <Input value={spouse.first_name} onChange={v => setSpouseField('first_name', v)}
+                  placeholder="John" />
+              </Field>
+              <Field label="Last Name" required>
+                <Input value={spouse.last_name} onChange={v => setSpouseField('last_name', v)}
+                  placeholder="Smith" />
+              </Field>
+            </div>
+            <Field label="Date of Birth" hint="Optional — helps us quote accurately">
+              <Input value={spouse.date_of_birth ?? ''} onChange={v => setSpouseField('date_of_birth', v)}
+                type="date" />
+            </Field>
+            <p className="text-xs text-slate-500">
+              Address and phone will be shared with the primary applicant&apos;s information.
+            </p>
+          </div>
+        )}
+      </div>
 
       {/* Consent attestation */}
       <div className={`rounded-xl border-2 p-4 transition-colors ${

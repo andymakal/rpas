@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { GaugeChart, GDC_BANDS, APP_BANDS } from './GaugeChart'
+import { buildHouseholdName } from '@/lib/household'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -28,6 +29,7 @@ export type Case = {
   agents: { first_name: string; last_name: string } | null
   stage_translations: StageTranslation | null
   products: { name: string; carriers: { short_name: string } | null } | null
+  case_household_members: { first_name: string; last_name: string }[] | null
 }
 
 export type ServiceRequest = {
@@ -209,7 +211,7 @@ function ReferralCard({ c }: { c: Case }) {
         <div>
           <p className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
             {c.is_hot_lead && <span title="Hot Lead" className="text-base leading-none">🔥</span>}
-            {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
+            {buildHouseholdName(c.customers ?? null, c.case_household_members ?? [])}
           </p>
           <p className="text-xs text-slate-400 mt-0.5">{date}</p>
         </div>
@@ -240,7 +242,7 @@ function PendingCard({ c }: { c: Case }) {
         <div>
           <p className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
             {c.is_hot_lead && <span title="Hot Lead" className="text-base leading-none">🔥</span>}
-            {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
+            {buildHouseholdName(c.customers ?? null, c.case_household_members ?? [])}
           </p>
           {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
         </div>
@@ -271,7 +273,7 @@ function PlacedCard({ c }: { c: Case }) {
         <div>
           <p className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
             {c.is_hot_lead && <span title="Hot Lead" className="text-base leading-none">🔥</span>}
-            {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
+            {buildHouseholdName(c.customers ?? null, c.case_household_members ?? [])}
           </p>
           {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
           <p className="text-xs text-emerald-600 mt-0.5">Placed {date}</p>
@@ -317,7 +319,7 @@ function ClosedCard({ c, agentFilter, onRewarm }: {
           <div>
             <p className="text-sm font-medium text-slate-500">
               {c.is_hot_lead && <span className="mr-1">🔥</span>}
-              {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
+              {buildHouseholdName(c.customers ?? null, c.case_household_members ?? [])}
             </p>
           </div>
           <div className="flex flex-col items-end gap-1 flex-shrink-0">
@@ -407,7 +409,7 @@ function LspReEngageCard({ c, agentFilter, onReengage }: {
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-sm font-medium text-slate-700">
-              {c.customers?.first_name ?? '—'} {c.customers?.last_name ?? ''}
+              {buildHouseholdName(c.customers ?? null, c.case_household_members ?? [])}
             </p>
             <p className="text-xs text-amber-700 font-medium mt-0.5">LSP Re-Warm Needed</p>
           </div>

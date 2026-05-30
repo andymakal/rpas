@@ -6,6 +6,7 @@ import { Search, Phone, Mail, Flame, Clock, ChevronDown, ChevronUp, CalendarX, W
 import type { TriageCase } from './page'
 import { fmtDate } from '@/lib/fmt'
 import { setNavList } from '@/lib/nav-list'
+import { buildHouseholdName } from '@/lib/household'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -66,9 +67,10 @@ function TriageRow({ c, allIds }: { c: TriageCase; allIds: string[] }) {
   const [expanded, setExpanded] = useState(false)
 
   const agency    = c.agencies?.display_name ?? c.agencies?.name ?? '—'
-  const client    = c.customers
-    ? `${c.customers.first_name} ${c.customers.last_name}`
-    : 'Unknown'
+  const client    = buildHouseholdName(
+    c.customers ?? null,
+    c.household_members ?? [],
+  )
   const lsp       = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
   const clientAge = age(c.customers?.date_of_birth ?? null)
   const parsed    = parseNotes(c.notes)
