@@ -91,7 +91,7 @@ export function ServiceRequestClient({
 }) {
   const router = useRouter()
 
-  const { prevId, nextId, position, total } = useNavList(sr.id)
+  const { prevId, nextId, position, total } = useNavList(initialSr.id)
   const [copied, setCopied] = useState(false)
 
   // ── SR local state ──────────────────────────────────────────────────────
