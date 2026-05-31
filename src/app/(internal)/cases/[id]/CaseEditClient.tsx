@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Phone, Building2, User, Calendar, Clock,
-  MessageSquare, Mail, PhoneCall, PhoneOff, MessageCircle,
+  MessageSquare, Mail, PhoneCall, PhoneOff, MessageCircle, Send,
   ChevronDown, ChevronUp, ChevronLeft, ChevronRight, DollarSign, Pencil, Check, X, MapPin,
   CalendarClock, History, Flame, Circle, AlertCircle, CheckCircle2,
   Plus, GitMerge, ExternalLink, Copy,
@@ -18,6 +18,7 @@ import type {
 import { HouseholdCard } from '@/components/HouseholdCard'
 import { fmtDate as fmt, fmtEagentNote } from '@/lib/fmt'
 import { useNavList } from '@/lib/nav-list'
+import { TEMPLATES, UNDERWRITING_SCENARIOS, interpolate, buildMailto } from '@/lib/templates'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -151,6 +152,15 @@ export default function CaseEditClient({
 
   // ── List navigation ────────────────────────────────────────────
   const { prevId, nextId, position, total } = useNavList(caseData.id)
+
+  // ── Email CTAs ─────────────────────────────────────────────────
+  const [emailSenderName,     setEmailSenderName]     = useState('')
+  const [uwScenario,          setUwScenario]          = useState('')
+  const [uwCustomNote,        setUwCustomNote]        = useState('')
+  const uwNote = uwScenario === '__custom__' ? uwCustomNote : uwScenario
+  const carrierName = caseData.products?.carriers?.short_name ?? ''
+  const clientFirstName = caseData.customers?.first_name ?? ''
+  const clientEmail = caseData.customers?.email ?? null
 
   // ── Notes copy ─────────────────────────────────────────────────
   const [copied, setCopied] = useState(false)
@@ -1205,6 +1215,120 @@ export default function CaseEditClient({
               </button>
             </div>
           </div>
+
+          {/* ── Email CTAs ──────────────────────────────────────────────────── */}
+
+          {/* Underwriting Update */}
+          {caseData.internal_status === 'in_underwriting' && (
+            <div className="rounded-xl border border-blue-800/40 bg-blue-950/20 p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <Mail className="w-4 h-4 text-blue-400" />
+                <h2 className="text-sm font-semibold text-blue-300">Send Underwriting Update</h2>
+              </div>
+              <p className="text-xs text-slate-400">Keep {clientFirstName} in the loop on where things stand.</p>
+              <div className="space-y-1.5">
+                {UNDERWRITING_SCENARIOS.map(s => (
+                  <button key={s} type="button" onClick={() => { setUwScenario(s); setUwCustomNote('') }}
+                    className={`w-full text-left text-xs rounded-lg border px-3 py-2 transition-all ${
+                      uwScenario === s
+                        ? 'border-blue-500 bg-blue-950/40 text-blue-300'
+                        : 'border-slate-700 text-slate-400 hover:border-slate-600'
+                    }`}>{s}</button>
+                ))}
+                <button type="button" onClick={() => setUwScenario('__custom__')}
+                  className={`w-full text-left text-xs rounded-lg border px-3 py-2 transition-all ${
+                    uwScenario === '__custom__'
+                      ? 'border-blue-500 bg-blue-950/40 text-blue-300'
+                      : 'border-slate-700 text-slate-400 hover:border-slate-600'
+                  }`}>Write my own…</button>
+                {uwScenario === '__custom__' && (
+                  <textarea value={uwCustomNote} onChange={e => setUwCustomNote(e.target.value)}
+                    rows={2} placeholder="Describe the carrier's current request…"
+                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600 resize-none" />
+                )}
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Your name</label>
+                <input value={emailSenderName} onChange={e => setEmailSenderName(e.target.value)}
+                  placeholder="Dulce"
+                  className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600" />
+              </div>
+              <a href={uwNote.trim() && clientEmail ? buildMailto(
+                  clientEmail,
+                  TEMPLATES.underwriting_update.subject,
+                  interpolate(TEMPLATES.underwriting_update.body, {
+                    first_name:       clientFirstName,
+                    carrier:          carrierName,
+                    underwriting_note: uwNote.trim(),
+                    sender_name:      emailSenderName || '{sender_name}',
+                  })
+                ) : '#'}
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                  uwNote.trim() && clientEmail
+                    ? 'text-white bg-blue-700 hover:bg-blue-600'
+                    : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'
+                }`}>
+                <Mail className="w-3.5 h-3.5" />
+                {!clientEmail ? 'No client email on file' : !uwNote.trim() ? 'Select a scenario first' : 'Open in Outlook'}
+              </a>
+            </div>
+          )}
+
+          {/* Approved */}
+          {caseData.internal_status === 'approved' && (
+            <div className="rounded-xl border border-emerald-800/40 bg-emerald-950/20 p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <Mail className="w-4 h-4 text-emerald-400" />
+                <h2 className="text-sm font-semibold text-emerald-300">Send Approval Email</h2>
+              </div>
+              <p className="text-xs text-slate-400">Share the good news with {clientFirstName}.</p>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Your name</label>
+                <input value={emailSenderName} onChange={e => setEmailSenderName(e.target.value)}
+                  placeholder="Dulce"
+                  className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600" />
+              </div>
+              <a href={buildMailto(
+                  clientEmail,
+                  TEMPLATES.approved.subject,
+                  interpolate(TEMPLATES.approved.body, {
+                    first_name:  clientFirstName,
+                    carrier:     carrierName,
+                    sender_name: emailSenderName || '{sender_name}',
+                  })
+                )}
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${clientEmail ? 'text-white bg-emerald-700 hover:bg-emerald-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}>
+                <Mail className="w-3.5 h-3.5" />
+                {clientEmail ? 'Open in Outlook' : 'No client email on file'}
+              </a>
+            </div>
+          )}
+
+          {/* Policy in Force — from Andy */}
+          {caseData.internal_status === 'placed' && (
+            <div className="rounded-xl border border-emerald-700/50 bg-emerald-950/30 p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <Send className="w-4 h-4 text-emerald-400" />
+                <h2 className="text-sm font-semibold text-emerald-300">Send Policy in Force Email</h2>
+              </div>
+              <p className="text-xs text-slate-400">
+                Let {clientFirstName} know their {carrierName ? `${carrierName} ` : ''}policy is active.
+                <span className="text-slate-500"> Sends from Andy.</span>
+              </p>
+              <a href={buildMailto(
+                  clientEmail,
+                  TEMPLATES.policy_in_force.subject,
+                  interpolate(TEMPLATES.policy_in_force.body, {
+                    first_name: clientFirstName,
+                    carrier:    carrierName || 'your carrier',
+                  })
+                )}
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${clientEmail ? 'text-white bg-emerald-700 hover:bg-emerald-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}>
+                <Mail className="w-3.5 h-3.5" />
+                {clientEmail ? 'Open in Outlook' : 'No client email on file'}
+              </a>
+            </div>
+          )}
 
           {/* 2 — Policy Details */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">

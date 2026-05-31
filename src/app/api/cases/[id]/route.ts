@@ -15,6 +15,7 @@ const ALLOWED_FIELDS = new Set([
   'premium_mode_id',
   'policy_number',
   'appointment_date',
+  'appointment_time',
   'follow_up_date',
   'placed_at',
   'submitted_at',       // manual override for imported cases
