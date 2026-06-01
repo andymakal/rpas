@@ -98,7 +98,11 @@ export async function PUT(request: NextRequest) {
   const tempPass = Array.from({ length: 10 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
     + '!'
 
-  const { error } = await supabase.auth.admin.updateUserById(body.userId, { password: tempPass })
+  // email_confirm: true ensures accounts that show "Pending" become active on reset
+  const { error } = await supabase.auth.admin.updateUserById(body.userId, {
+    password:      tempPass,
+    email_confirm: true,
+  })
   if (error) return Response.json({ error: error.message }, { status: 500 })
 
   return Response.json({ tempPass })
