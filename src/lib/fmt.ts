@@ -30,6 +30,45 @@ export function fmtDate(iso: string | null | undefined): string {
 }
 
 /**
+ * Address normalization helpers.
+ *
+ * Applied on every customer save so addresses are consistent regardless
+ * of how they were originally entered (all-caps, all-lowercase, mixed).
+ *
+ * Street:  title case, but cardinal directions and "PO" stay uppercase
+ *          "123 ne main st apt 2b" → "123 NE Main St Apt 2B"
+ * City:    standard title case  "BLOOMSBURG" → "Bloomsburg"
+ * State:   always uppercase     "pa" → "PA"
+ */
+
+const STREET_UPPERCASE = new Set([
+  'N', 'S', 'E', 'W', 'NE', 'NW', 'SE', 'SW',
+  'NNE', 'NNW', 'SSE', 'SSW', 'ENE', 'ESE', 'WNW', 'WSW',
+  'PO', 'US', 'USA',
+])
+
+export function normalizeStreet(raw: string | null | undefined): string | null {
+  if (!raw?.trim()) return null
+  return raw.trim().replace(/\b\w+/g, w =>
+    STREET_UPPERCASE.has(w.toUpperCase())
+      ? w.toUpperCase()
+      : w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+  )
+}
+
+export function normalizeCity(raw: string | null | undefined): string | null {
+  if (!raw?.trim()) return null
+  return raw.trim().replace(/\b\w+/g, w =>
+    w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()
+  )
+}
+
+export function normalizeState(raw: string | null | undefined): string | null {
+  if (!raw?.trim()) return null
+  return raw.trim().toUpperCase()
+}
+
+/**
  * Format notes for pasting into eAgent (or any compliance comments field).
  *
  * Prepends the current local date/time as a stamp so the entry is

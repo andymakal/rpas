@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { referralSchema, type ReferralFormData } from '@/lib/schemas/referral'
 import { PRODUCER_ROUTING, PRODUCER_LABELS } from '@/lib/constants/referral-options'
 import { buildHouseholdName } from '@/lib/household'
+import { normalizeStreet, normalizeCity, normalizeState } from '@/lib/fmt'
 
 function toTitleCase(str: string): string {
   return str.trim().replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
@@ -45,10 +46,10 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       if (!existing.email         && form.client_email)   contactUpdate.email         = form.client_email
       if (!existing.date_of_birth && form.client_dob)     contactUpdate.date_of_birth = form.client_dob
       if (!existing.street        && form.client_address) {
-        contactUpdate.street = form.client_address
-        if (form.client_city)  contactUpdate.city  = form.client_city
-        if (form.client_state) contactUpdate.state = form.client_state
-        if (form.client_zip)   contactUpdate.zip   = form.client_zip
+        contactUpdate.street = normalizeStreet(form.client_address)
+        if (form.client_city)  contactUpdate.city  = normalizeCity(form.client_city)
+        if (form.client_state) contactUpdate.state = normalizeState(form.client_state)
+        if (form.client_zip)   contactUpdate.zip   = form.client_zip.trim()
       }
       if (Object.keys(contactUpdate).length > 0) {
         await supabase.from('customers').update(contactUpdate).eq('id', existing.id)
@@ -112,10 +113,10 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
           phone:         form.client_phone    || null,
           email:         form.client_email    || null,
           date_of_birth: form.client_dob      || null,
-          street:        form.client_address  || null,
-          city:          form.client_city     || null,
-          state:         form.client_state    || null,
-          zip:              form.client_zip      || null,
+          street:        normalizeStreet(form.client_address) ?? null,
+          city:          normalizeCity(form.client_city)     ?? null,
+          state:         normalizeState(form.client_state)   ?? null,
+          zip:           form.client_zip?.trim()             || null,
           spanish_speaking: form.spanish_speaking ?? false,
           is_test:          false,
         })
