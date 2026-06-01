@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { referralSchema, type ReferralFormData } from '@/lib/schemas/referral'
 import { PRODUCER_ROUTING, PRODUCER_LABELS } from '@/lib/constants/referral-options'
 import { buildHouseholdName } from '@/lib/household'
-import { normalizeStreet, normalizeCity, normalizeState, normalizePhone } from '@/lib/fmt'
+import { normalizeStreet, normalizeCity, normalizeState, normalizePhone, normalizeEmail } from '@/lib/fmt'
 
 function toTitleCase(str: string): string {
   return str.trim().replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
@@ -43,7 +43,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       // Back-fill any contact fields that were missing on the original record
       const contactUpdate: Record<string, unknown> = {}
       if (!existing.phone         && form.client_phone)   contactUpdate.phone         = normalizePhone(form.client_phone) ?? form.client_phone
-      if (!existing.email         && form.client_email)   contactUpdate.email         = form.client_email
+      if (!existing.email         && form.client_email)   contactUpdate.email         = normalizeEmail(form.client_email) ?? form.client_email
       if (!existing.date_of_birth && form.client_dob)     contactUpdate.date_of_birth = form.client_dob
       if (!existing.street        && form.client_address) {
         contactUpdate.street = normalizeStreet(form.client_address)
@@ -111,7 +111,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
           first_name:    toTitleCase(form.client_first_name),
           last_name:     toTitleCase(form.client_last_name),
           phone:         normalizePhone(form.client_phone) ?? null,
-          email:         form.client_email    || null,
+          email:         normalizeEmail(form.client_email) ?? null,
           date_of_birth: form.client_dob      || null,
           street:        normalizeStreet(form.client_address) ?? null,
           city:          normalizeCity(form.client_city)     ?? null,

@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest } from 'next/server'
+import { normalizeEmail } from '@/lib/fmt'
 
 // POST — create a new agent for an agency
 export async function POST(request: NextRequest) {
@@ -26,7 +27,7 @@ export async function POST(request: NextRequest) {
       agency_id:  body.agency_id,
       first_name: body.first_name.trim(),
       last_name:  body.last_name.trim(),
-      email:      body.email?.trim() || null,
+      email:      normalizeEmail(body.email) ?? null,
     })
     .select()
     .single()

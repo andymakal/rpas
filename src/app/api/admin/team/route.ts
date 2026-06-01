@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest } from 'next/server'
+import { normalizeEmail } from '@/lib/fmt'
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://right-path-agency-system.vercel.app'
 
@@ -19,7 +20,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const email     = body.email?.trim().toLowerCase()
+  const email     = normalizeEmail(body.email) ?? ''
   const full_name = body.full_name?.trim()
   if (!email || !full_name) {
     return Response.json({ error: 'Email and name are required' }, { status: 400 })

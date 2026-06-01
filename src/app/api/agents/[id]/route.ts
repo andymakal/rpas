@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest } from 'next/server'
+import { normalizeEmail } from '@/lib/fmt'
 
 const ALLOWED = new Set(['first_name', 'last_name', 'email'])
 
@@ -19,7 +20,10 @@ export async function PATCH(
 
   const updates: Record<string, unknown> = {}
   for (const [k, v] of Object.entries(body)) {
-    if (ALLOWED.has(k)) updates[k] = v
+    if (!ALLOWED.has(k)) continue
+    updates[k] = (k === 'email' && typeof v === 'string')
+      ? (normalizeEmail(v) ?? v)
+      : v
   }
 
   if (!Object.keys(updates).length) {

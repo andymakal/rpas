@@ -1,7 +1,7 @@
 'use server'
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { normalizePhone, normalizeStreet, normalizeCity, normalizeState } from '@/lib/fmt'
+import { normalizePhone, normalizeEmail, normalizeStreet, normalizeCity, normalizeState } from '@/lib/fmt'
 
 export type LogCaseResult =
   | { success: true; case_id: string }
@@ -52,7 +52,7 @@ export async function logCase(data: {
         first_name:       data.first_name.trim(),
         last_name:        data.last_name.trim(),
         phone:            normalizePhone(data.phone)        ?? data.phone.trim(),
-        email:            data.email?.trim()               || null,
+        email:            normalizeEmail(data.email)        ?? null,
         date_of_birth:    data.dob                        || null,
         street:           normalizeStreet(data.street)    ?? null,
         city:             normalizeCity(data.city)        ?? null,

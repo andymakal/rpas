@@ -80,6 +80,15 @@ export function normalizeState(raw: string | null | undefined): string | null {
  *   "1-814-808-7526" → "(814) 808-7526"   strips country code
  *   "+18148087526"   → "(814) 808-7526"
  */
+/**
+ * Normalize an email address — lowercase and trimmed.
+ * Applied on every save so emails are always consistent.
+ */
+export function normalizeEmail(raw: string | null | undefined): string | null {
+  if (!raw?.trim()) return null
+  return raw.trim().toLowerCase()
+}
+
 export function normalizePhone(raw: string | null | undefined): string | null {
   if (!raw?.trim()) return null
   const digits = raw.replace(/\D/g, '')
