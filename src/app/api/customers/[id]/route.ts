@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest } from 'next/server'
-import { normalizeStreet, normalizeCity, normalizeState } from '@/lib/fmt'
+import { normalizeStreet, normalizeCity, normalizeState, normalizePhone } from '@/lib/fmt'
 
 const ALLOWED = new Set([
   'first_name', 'last_name', 'phone', 'email',
@@ -11,6 +11,7 @@ const ALLOWED = new Set([
 ])
 
 const NAME_FIELDS   = new Set(['first_name', 'last_name'])
+const PHONE_FIELDS  = new Set(['phone'])
 const STREET_FIELDS = new Set(['street'])
 const CITY_FIELDS   = new Set(['city'])
 const STATE_FIELDS  = new Set(['state'])
@@ -37,7 +38,8 @@ export async function PATCH(
   for (const [k, v] of Object.entries(body)) {
     if (!ALLOWED.has(k)) continue
     if (typeof v === 'string') {
-      if (NAME_FIELDS.has(k))   { updates[k] = toTitleCase(v);           continue }
+      if (NAME_FIELDS.has(k))   { updates[k] = toTitleCase(v);            continue }
+      if (PHONE_FIELDS.has(k))  { updates[k] = normalizePhone(v)  ?? v;  continue }
       if (STREET_FIELDS.has(k)) { updates[k] = normalizeStreet(v) ?? v;  continue }
       if (CITY_FIELDS.has(k))   { updates[k] = normalizeCity(v)   ?? v;  continue }
       if (STATE_FIELDS.has(k))  { updates[k] = normalizeState(v)  ?? v;  continue }

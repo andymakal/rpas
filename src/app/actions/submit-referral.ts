@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { referralSchema, type ReferralFormData } from '@/lib/schemas/referral'
 import { PRODUCER_ROUTING, PRODUCER_LABELS } from '@/lib/constants/referral-options'
 import { buildHouseholdName } from '@/lib/household'
-import { normalizeStreet, normalizeCity, normalizeState } from '@/lib/fmt'
+import { normalizeStreet, normalizeCity, normalizeState, normalizePhone } from '@/lib/fmt'
 
 function toTitleCase(str: string): string {
   return str.trim().replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
@@ -42,7 +42,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
 
       // Back-fill any contact fields that were missing on the original record
       const contactUpdate: Record<string, unknown> = {}
-      if (!existing.phone         && form.client_phone)   contactUpdate.phone         = form.client_phone
+      if (!existing.phone         && form.client_phone)   contactUpdate.phone         = normalizePhone(form.client_phone) ?? form.client_phone
       if (!existing.email         && form.client_email)   contactUpdate.email         = form.client_email
       if (!existing.date_of_birth && form.client_dob)     contactUpdate.date_of_birth = form.client_dob
       if (!existing.street        && form.client_address) {
@@ -110,7 +110,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
           agency_id:     form.agency_id,
           first_name:    toTitleCase(form.client_first_name),
           last_name:     toTitleCase(form.client_last_name),
-          phone:         form.client_phone    || null,
+          phone:         normalizePhone(form.client_phone) ?? null,
           email:         form.client_email    || null,
           date_of_birth: form.client_dob      || null,
           street:        normalizeStreet(form.client_address) ?? null,
@@ -134,11 +134,12 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       // to a different customer anywhere in the system (cross-agency).
       // We flag the case rather than blocking the submission so Dulce can
       // review and decide whether to merge or dismiss.
-      if (form.client_phone) {
+      const normalizedClientPhone = normalizePhone(form.client_phone)
+      if (normalizedClientPhone) {
         const { data: phoneMatch } = await supabase
           .from('customers')
           .select('id, first_name, last_name')
-          .eq('phone', form.client_phone)
+          .eq('phone', normalizedClientPhone)
           .eq('is_test', false)
           .neq('id', customerId)
           .limit(1)
