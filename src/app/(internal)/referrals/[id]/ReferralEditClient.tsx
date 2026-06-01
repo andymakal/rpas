@@ -10,7 +10,7 @@ import {
   CalendarClock, CalendarX, History, Flame, Send, Wrench,
   ChevronLeft, ChevronRight, Copy, Users, UserPlus, Trash2,
 } from 'lucide-react'
-import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember, SuspectedDuplicate } from './page'
+import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember, SuspectedDuplicate, NotInterestedReason } from './page'
 import { HouseholdCard } from '@/components/HouseholdCard'
 import { fmtDate as fmt, fmtEagentNote } from '@/lib/fmt'
 import { useNavList } from '@/lib/nav-list'
@@ -196,22 +196,24 @@ function buildRewarmMailto(
 // ── Main component ─────────────────────────────────────────────────────────────
 
 type Props = {
-  referral:            ReferralDetail
-  stages:              Tier1Stage[]
-  touchLog:            TouchLog[]
-  agentsList:          AgentOption[]
-  agenciesList:        AgencyOption[]
-  statusHistory:       StatusHistoryEntry[]
-  producersList:       ProducerOption[]
-  householdId:         string | null
-  householdMembers:    HouseholdMember[]
-  suspectedDuplicate:  SuspectedDuplicate | null
+  referral:               ReferralDetail
+  stages:                 Tier1Stage[]
+  touchLog:               TouchLog[]
+  agentsList:             AgentOption[]
+  agenciesList:           AgencyOption[]
+  statusHistory:          StatusHistoryEntry[]
+  producersList:          ProducerOption[]
+  householdId:            string | null
+  householdMembers:       HouseholdMember[]
+  suspectedDuplicate:     SuspectedDuplicate | null
+  notInterestedReasons:   NotInterestedReason[]
 }
 
 export function ReferralEditClient({
   referral, stages: _stages, touchLog: initialTouchLog,
   agentsList, agenciesList, statusHistory, producersList,
   householdId, householdMembers, suspectedDuplicate: initialSuspectedDuplicate,
+  notInterestedReasons,
 }: Props) {
   const router = useRouter()
 
@@ -265,6 +267,7 @@ export function ReferralEditClient({
   const [followUpDate, setFollowUpDate] = useState(referral.follow_up_date ?? '')
   const [notes,        setNotes]        = useState(referral.notes ?? '')
   const [alPolicy,     setAlPolicy]     = useState(referral.allstate_policy_number ?? '')
+  const [lostReasonId, setLostReasonId] = useState(referral.lost_reason_id ?? '')
   const [isHotLead,    setIsHotLead]    = useState(referral.is_hot_lead)
   const [saving,       setSaving]       = useState(false)
   const [saveMsg,      setSaveMsg]      = useState<{ ok: boolean; text: string } | null>(null)
@@ -422,10 +425,11 @@ export function ReferralEditClient({
   const [agencyMsg,    setAgencyMsg]    = useState<{ ok: boolean; text: string } | null>(null)
 
   // ── Derived ────────────────────────────────────────────────────
-  const showProducerDropdown = PRODUCER_STATUSES.has(status)
-  const showRewarmEmail      = status === 'lsp_contact_needed'
-  const showApptDate         = APPT_STATUSES.has(status)
-  const showFaceAmountInput  = status === 'quoted'
+  const showProducerDropdown    = PRODUCER_STATUSES.has(status)
+  const showRewarmEmail         = status === 'lsp_contact_needed'
+  const showApptDate            = APPT_STATUSES.has(status)
+  const showFaceAmountInput     = status === 'quoted'
+  const showNotInterestedReason = status === 'not_interested' && notInterestedReasons.length > 0
   // Keyed off server-confirmed status (props), not local state — action should
   // only be available when the DB actually says appointment_set
   const showMissedAppt       = referral.internal_status === 'appointment_set'
@@ -486,6 +490,10 @@ export function ReferralEditClient({
       is_hot_lead:     isHotLead,
     }
     if (showProducerDropdown) body.producer_id = producerId || null
+    // Save the "not interested" reason alongside the status
+    body.lost_reason_id = (status === 'not_interested' && lostReasonId)
+      ? lostReasonId
+      : null
     if (status === 'quoted') {
       if (quotedCarrier.trim())     body.quoted_carrier      = quotedCarrier.trim()
       if (quotedProductType.trim()) body.quoted_product_type = quotedProductType.trim()
@@ -1568,6 +1576,25 @@ export function ReferralEditClient({
                 ))}
               </div>
             </div>
+
+            {/* Not Interested reason dropdown */}
+            {showNotInterestedReason && (
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">
+                  Reason <span className="text-slate-500 font-normal">(optional)</span>
+                </label>
+                <select
+                  value={lostReasonId}
+                  onChange={e => setLostReasonId(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 cursor-pointer"
+                >
+                  <option value="">Select a reason…</option>
+                  {notInterestedReasons.map(r => (
+                    <option key={r.id} value={r.id}>{r.agency_label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             {/* Carrier / Product / Face Amount — shown when Quote Provided is selected */}
             {showFaceAmountInput && (

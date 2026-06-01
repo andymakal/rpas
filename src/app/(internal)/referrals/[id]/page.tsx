@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notFound } from 'next/navigation'
 import { ReferralEditClient } from './ReferralEditClient'
+export type { NotInterestedReason }
 
 export const dynamic = 'force-dynamic'
 
@@ -21,6 +22,7 @@ export type ReferralDetail = {
   created_at: string
   status_entered_at: string | null
   allstate_policy_number: string | null
+  lost_reason_id: string | null
   appointment_date: string | null
   appointment_time: string | null
   follow_up_date: string | null
@@ -84,7 +86,8 @@ export type ReferralDetail = {
   } | null
 }
 
-export type Tier1Stage    = { id: string; internal_status: string; agency_label: string }
+export type NotInterestedReason = { id: string; internal_code: string; agency_label: string; sort_order: number }
+export type Tier1Stage          = { id: string; internal_status: string; agency_label: string }
 export type TouchLog      = { id: string; touch_type: string; notes: string | null; touched_at: string }
 export type HouseholdMember = {
   id: string
@@ -141,7 +144,7 @@ export default async function ReferralDetailPage({
     .select(`
       id, customer_id, agent_id, agency_id,
       internal_status, created_at, status_entered_at, appointment_date,
-      allstate_policy_number, follow_up_date, appointment_time, face_amount, quoted_carrier, quoted_product_type, annual_premium, policy_number,
+      allstate_policy_number, lost_reason_id, follow_up_date, appointment_time, face_amount, quoted_carrier, quoted_product_type, annual_premium, policy_number,
       case_household_members!case_id ( id, first_name, last_name, date_of_birth, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, quoted_carrier, quoted_product_type, face_amount, linked_case_id ),
       notes, touches, last_contact_at, spiff_earned, spiff_earned_at, is_hot_lead, is_owner_referral, producer_id, lead_source, suspected_duplicate_customer_id,
       customers!customer_id ( first_name, last_name, phone, email, street, city, state, zip, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, spanish_speaking, customer_group_id ),
@@ -167,7 +170,7 @@ export default async function ReferralDetailPage({
   const householdId        = (cd.customers as unknown as { customer_group_id: string | null } | null)?.customer_group_id ?? null
   const suspectedDupId     = (cd as unknown as { suspected_duplicate_customer_id: string | null }).suspected_duplicate_customer_id ?? null
 
-  const [{ data: stages }, { data: touchLog }, { data: agentsList }, { data: agenciesList }, { data: statusHistory }, { data: producersList }, { data: householdMembers }, dupResult] = await Promise.all([
+  const [{ data: stages }, { data: touchLog }, { data: agentsList }, { data: agenciesList }, { data: statusHistory }, { data: producersList }, { data: householdMembers }, dupResult, { data: notInterestedReasons }] = await Promise.all([
     supabase
       .from('stage_translations')
       .select('id, internal_status, agency_label')
@@ -214,6 +217,11 @@ export default async function ReferralDetailPage({
           .eq('id', suspectedDupId)
           .single()
       : Promise.resolve({ data: null }),
+    supabase
+      .from('lost_reasons')
+      .select('id, internal_code, agency_label, sort_order')
+      .like('internal_code', 'not_interested%')
+      .order('sort_order'),
   ])
 
   // Shape suspected duplicate
@@ -269,6 +277,7 @@ export default async function ReferralDetailPage({
       householdId={householdId}
       householdMembers={shapedMembers}
       suspectedDuplicate={suspectedDuplicate}
+      notInterestedReasons={(notInterestedReasons as unknown as NotInterestedReason[]) ?? []}
     />
   )
 }
