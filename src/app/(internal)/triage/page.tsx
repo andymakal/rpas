@@ -11,6 +11,7 @@ export type TriageCase = {
   is_hot_lead: boolean
   is_owner_referral: boolean
   notes: string | null
+  allstate_policy_number: string | null
   touches: number | null
   last_contact_at: string | null
   missed_count: number          // injected in page — count of missed_appointment touches
@@ -37,6 +38,7 @@ export default async function TriagePage() {
       is_hot_lead,
       is_owner_referral,
       notes,
+      allstate_policy_number,
       touches,
       last_contact_at,
       agencies ( id, name, display_name ),

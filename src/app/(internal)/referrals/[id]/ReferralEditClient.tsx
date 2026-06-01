@@ -264,6 +264,7 @@ export function ReferralEditClient({
   const [appointmentTime, setAppointmentTime] = useState(referral.appointment_time ?? '')
   const [followUpDate, setFollowUpDate] = useState(referral.follow_up_date ?? '')
   const [notes,        setNotes]        = useState(referral.notes ?? '')
+  const [alPolicy,     setAlPolicy]     = useState(referral.allstate_policy_number ?? '')
   const [isHotLead,    setIsHotLead]    = useState(referral.is_hot_lead)
   const [saving,       setSaving]       = useState(false)
   const [saveMsg,      setSaveMsg]      = useState<{ ok: boolean; text: string } | null>(null)
@@ -513,7 +514,10 @@ export function ReferralEditClient({
 
   async function handleSaveNotes() {
     setNotesSaving(true); setNotesMsg(null)
-    const body: Record<string, unknown> = { notes: notes || null }
+    const body: Record<string, unknown> = {
+      notes:                  notes || null,
+      allstate_policy_number: alPolicy.trim() || null,
+    }
     if (showApptDate) {
       body.appointment_date = appointmentDate || null
       body.appointment_time = appointmentTime || null
@@ -1069,12 +1073,12 @@ export function ReferralEditClient({
                     <button onClick={() => setEditingContact(true)} className="text-sm text-slate-600 hover:text-slate-400 italic transition-colors">No address — add one</button>
                   )}
                 </div>
-                {allstatePolicy && (
+                {alPolicy && (
                   <div className="flex items-start gap-2.5">
                     <Building2 className="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5" />
                     <div>
                       <p className="text-xs text-slate-500">Allstate Policy</p>
-                      <p className="text-sm text-slate-300 font-mono">{allstatePolicy}</p>
+                      <p className="text-sm text-slate-300 font-mono">{alPolicy}</p>
                     </div>
                   </div>
                 )}
@@ -2049,6 +2053,18 @@ export function ReferralEditClient({
               >
                 {copied ? <><Check className="w-3 h-3 text-emerald-400" /><span className="text-emerald-400">Copied!</span></> : <><Copy className="w-3 h-3" />Copy for eAgent</>}
               </button>
+            </div>
+
+            {/* Allstate Policy # — always editable */}
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">Allstate Policy #</label>
+              <input
+                type="text"
+                value={alPolicy}
+                onChange={e => setAlPolicy(e.target.value)}
+                placeholder="e.g. 123456789"
+                className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm font-mono rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 placeholder-slate-600"
+              />
             </div>
 
             {showApptDate && (

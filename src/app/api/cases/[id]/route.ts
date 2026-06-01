@@ -7,6 +7,7 @@ const ALLOWED_FIELDS = new Set([
   'agent_id',
   'producer_id',
   'product_id',
+  'allstate_policy_number',
   'face_amount',
   'quoted_carrier',
   'quoted_product_type',

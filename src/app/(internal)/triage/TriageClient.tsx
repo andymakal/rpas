@@ -185,10 +185,10 @@ function TriageRow({ c, allIds }: { c: TriageCase; allIds: string[] }) {
               {c.agents?.email && (
                 <span><span className="text-slate-500">LSP email </span>{c.agents.email}</span>
               )}
-              {parsed['Allstate Policy'] && (
+              {(c.allstate_policy_number || parsed['Allstate Policy']) && (
                 <span>
                   <span className="text-slate-500">Allstate Policy </span>
-                  <span className="font-mono">{parsed['Allstate Policy']}</span>
+                  <span className="font-mono">{c.allstate_policy_number ?? parsed['Allstate Policy']}</span>
                 </span>
               )}
               {parsed['Flags'] && (

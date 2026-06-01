@@ -197,6 +197,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
         internal_status:                  'triage',
         lead_source:                      form.referral_type ?? null,
         notes:                            noteLines.join('\n'),
+        allstate_policy_number:           form.allstate_policy_number?.trim() || null,
         is_owner_referral:                isOwnerReferral,
         is_hot_lead:                      form.is_hot_lead ?? false,
         consent_given_at:                 new Date().toISOString(),
