@@ -279,7 +279,7 @@ export default async function ReviewPrintPage(
       <body>
 
         {/* Print button (hidden on print) */}
-        <button className="print-btn no-print" onClick="window.print()">
+        <button className="print-btn no-print" onClick={() => window.print()}>
           🖨 Print / Save as PDF
         </button>
 
