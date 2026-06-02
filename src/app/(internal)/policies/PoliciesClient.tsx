@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useTransition, useCallback } from 'react'
+import { useState, useTransition, useCallback, useMemo } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import Link from 'next/link'
 import {
   Search, AlertTriangle, CheckCircle, Clock, FileQuestion,
-  Send, Shield, ShieldOff, ChevronRight,
+  Send, Shield, ShieldOff, ChevronRight, Cigarette,
 } from 'lucide-react'
 import type { PolicyListRow } from './page'
 
@@ -140,7 +140,8 @@ export function PoliciesClient({
   const router   = useRouter()
   const pathname = usePathname()
   const [, startTransition] = useTransition()
-  const [search, setSearch] = useState(activeQ)
+  const [search,      setSearch]      = useState(activeQ)
+  const [tobaccoOnly, setTobaccoOnly] = useState(false)
 
   const navigate = useCallback((q: string, sa: string, type: string) => {
     const params = new URLSearchParams()
@@ -158,10 +159,17 @@ export function PoliciesClient({
   }
 
   // Summary counts
-  const confirmed  = rows.filter(r => r.sa_status === 'confirmed').length
-  const notChecked = rows.filter(r => r.sa_status === 'unknown').length
-  const formSent   = rows.filter(r => r.sa_status === 'not_on_file' && r.sa_form_sent_at).length
-  const notSa      = rows.filter(r => r.sa_status === 'not_on_file' && !r.sa_form_sent_at).length
+  const confirmed    = rows.filter(r => r.sa_status === 'confirmed').length
+  const notChecked   = rows.filter(r => r.sa_status === 'unknown').length
+  const formSent     = rows.filter(r => r.sa_status === 'not_on_file' && r.sa_form_sent_at).length
+  const notSa        = rows.filter(r => r.sa_status === 'not_on_file' && !r.sa_form_sent_at).length
+  const tobaccoCount = useMemo(() => rows.filter(r => isTobacco(r.rate_class)).length, [rows])
+
+  // Client-side filtered rows (tobacco toggle; SA/type/search are server-side)
+  const displayRows = useMemo(
+    () => tobaccoOnly ? rows.filter(r => isTobacco(r.rate_class)) : rows,
+    [rows, tobaccoOnly]
+  )
 
   return (
     <div className="p-8">
@@ -171,17 +179,18 @@ export function PoliciesClient({
         <div>
           <h1 className="text-white text-2xl font-semibold">Policies</h1>
           <p className="text-slate-400 text-sm mt-0.5">
-            LBL / Everlake in-force book · {rows.length} showing
+            LBL / Everlake in-force book · {displayRows.length}{tobaccoOnly ? ' tobacco-rated' : ''} showing
           </p>
         </div>
 
         {/* SA summary chips */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
           {[
             { label: 'Confirmed SA',  count: confirmed,  icon: CheckCircle, color: 'text-green-400' },
             { label: 'Not Checked',   count: notChecked, icon: FileQuestion, color: 'text-slate-400' },
             { label: 'Not SA',        count: notSa,      icon: ShieldOff,   color: 'text-amber-400' },
             { label: 'Form Sent',     count: formSent,   icon: Send,        color: 'text-sky-400'   },
+          { label: 'Tobacco Rated', count: tobaccoCount, icon: Cigarette,  color: 'text-red-400'   },
           ].map(({ label, count, icon: Icon, color }) => (
             <div key={label} className="bg-slate-900 border border-slate-800 rounded-xl p-4 flex items-center gap-3">
               <Icon className={`w-5 h-5 shrink-0 ${color}`} />
@@ -247,6 +256,19 @@ export function PoliciesClient({
               </button>
             ))}
           </div>
+
+          {/* Tobacco toggle */}
+          <button
+            onClick={() => setTobaccoOnly(v => !v)}
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+              tobaccoOnly
+                ? 'bg-red-900/40 border-red-700 text-red-300'
+                : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800'
+            }`}
+          >
+            <Cigarette className="w-3.5 h-3.5" />
+            Tobacco only
+          </button>
         </div>
 
         {/* Table */}
@@ -272,7 +294,7 @@ export function PoliciesClient({
                   </td>
                 </tr>
               )}
-              {rows.map(row => {
+              {displayRows.map(row => {
                 const flags = getFlags(row)
                 const agencyName = row.agencies?.display_name ?? row.agencies?.name
                 const customerName = row.customers
@@ -345,7 +367,7 @@ export function PoliciesClient({
               })}
             </tbody>
           </table>
-          {rows.length === 300 && (
+          {displayRows.length === 300 && (
             <div className="px-4 py-3 border-t border-slate-800 text-center text-slate-500 text-xs">
               Showing top 300 by face amount — use search or filters to narrow results
             </div>
