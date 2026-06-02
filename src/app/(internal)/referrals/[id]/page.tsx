@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation'
 import { ReferralEditClient } from './ReferralEditClient'
 
 export const dynamic = 'force-dynamic'
+export const revalidate = 0
 
 export type StatusHistoryEntry = {
   id: string
