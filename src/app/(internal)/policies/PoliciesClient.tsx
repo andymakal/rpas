@@ -6,8 +6,10 @@ import Link from 'next/link'
 import {
   Search, AlertTriangle, CheckCircle, Clock, FileQuestion,
   Send, Shield, ShieldOff, ChevronRight, Cigarette,
+  ChevronUp, ChevronDown, ChevronsUpDown,
 } from 'lucide-react'
 import type { PolicyListRow } from './page'
+import { fmtDate } from '@/lib/fmt'
 
 // ── Flag helpers (mirrors prep engine logic, client-side) ─────────────────────
 
@@ -142,6 +144,25 @@ export function PoliciesClient({
   const [, startTransition] = useTransition()
   const [search,      setSearch]      = useState(activeQ)
   const [tobaccoOnly, setTobaccoOnly] = useState(false)
+  const [yearFilter,  setYearFilter]  = useState('')
+  const [sortBy,      setSortBy]      = useState<'face_amount' | 'issue_date'>('face_amount')
+  const [sortDir,     setSortDir]     = useState<'asc' | 'desc'>('desc')
+
+  function handleSort(key: 'face_amount' | 'issue_date') {
+    if (sortBy === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setSortBy(key)
+      setSortDir(key === 'issue_date' ? 'asc' : 'desc')
+    }
+  }
+
+  // Unique years derived from the data for the year filter dropdown
+  const yearOptions = useMemo(() => {
+    const seen = new Set<string>()
+    rows.forEach(r => { if (r.issue_date) seen.add(r.issue_date.slice(0, 4)) })
+    return Array.from(seen).sort()
+  }, [rows])
 
   const navigate = useCallback((q: string, sa: string, type: string) => {
     const params = new URLSearchParams()
@@ -165,11 +186,24 @@ export function PoliciesClient({
   const notSa        = rows.filter(r => r.sa_status === 'not_on_file' && !r.sa_form_sent_at).length
   const tobaccoCount = useMemo(() => rows.filter(r => isTobacco(r.rate_class)).length, [rows])
 
-  // Client-side filtered rows (tobacco toggle; SA/type/search are server-side)
-  const displayRows = useMemo(
-    () => tobaccoOnly ? rows.filter(r => isTobacco(r.rate_class)) : rows,
-    [rows, tobaccoOnly]
-  )
+  // Client-side filtered + sorted rows
+  const displayRows = useMemo(() => {
+    let result = [...rows]
+    if (tobaccoOnly) result = result.filter(r => isTobacco(r.rate_class))
+    if (yearFilter)  result = result.filter(r => r.issue_date?.startsWith(yearFilter))
+    result.sort((a, b) => {
+      if (sortBy === 'issue_date') {
+        const da = a.issue_date ?? ''
+        const db = b.issue_date ?? ''
+        return sortDir === 'asc' ? da.localeCompare(db) : db.localeCompare(da)
+      }
+      // face_amount (default)
+      const fa = a.face_amount ?? 0
+      const fb = b.face_amount ?? 0
+      return sortDir === 'asc' ? fa - fb : fb - fa
+    })
+    return result
+  }, [rows, tobaccoOnly, yearFilter, sortBy, sortDir])
 
   return (
     <div className="p-8">
@@ -257,6 +291,18 @@ export function PoliciesClient({
             ))}
           </div>
 
+          {/* Year issued filter */}
+          <select
+            value={yearFilter}
+            onChange={e => setYearFilter(e.target.value)}
+            className="bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-slate-600 cursor-pointer"
+          >
+            <option value="">All years</option>
+            {yearOptions.map(y => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+
           {/* Tobacco toggle */}
           <button
             onClick={() => setTobaccoOnly(v => !v)}
@@ -279,7 +325,32 @@ export function PoliciesClient({
                 <th className="text-left px-4 py-3 font-medium">Client</th>
                 <th className="text-left px-4 py-3 font-medium">Policy #</th>
                 <th className="text-left px-4 py-3 font-medium">Type</th>
-                <th className="text-right px-4 py-3 font-medium">Face Amt</th>
+                <th className="text-left px-4 py-3 font-medium">
+                  <button
+                    onClick={() => handleSort('issue_date')}
+                    className="inline-flex items-center gap-1 hover:text-slate-300 transition-colors"
+                  >
+                    Issue Date
+                    {sortBy === 'issue_date'
+                      ? sortDir === 'asc'
+                        ? <ChevronUp className="w-3 h-3" />
+                        : <ChevronDown className="w-3 h-3" />
+                      : <ChevronsUpDown className="w-3 h-3 opacity-40" />}
+                  </button>
+                </th>
+                <th className="text-right px-4 py-3 font-medium">
+                  <button
+                    onClick={() => handleSort('face_amount')}
+                    className="inline-flex items-center gap-1 hover:text-slate-300 transition-colors ml-auto"
+                  >
+                    {sortBy === 'face_amount'
+                      ? sortDir === 'asc'
+                        ? <ChevronUp className="w-3 h-3" />
+                        : <ChevronDown className="w-3 h-3" />
+                      : <ChevronsUpDown className="w-3 h-3 opacity-40" />}
+                    Face Amt
+                  </button>
+                </th>
                 <th className="text-left px-4 py-3 font-medium">SA Status</th>
                 <th className="text-left px-4 py-3 font-medium">Agency</th>
                 <th className="text-left px-4 py-3 font-medium">Flags</th>
@@ -289,7 +360,7 @@ export function PoliciesClient({
             <tbody className="divide-y divide-slate-800/60">
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-slate-500 text-sm">
+                  <td colSpan={9} className="px-4 py-12 text-center text-slate-500 text-sm">
                     No policies found
                   </td>
                 </tr>
@@ -325,6 +396,9 @@ export function PoliciesClient({
                     </td>
                     <td className="px-4 py-3">
                       <TypeBadge type={row.product_type} />
+                    </td>
+                    <td className="px-4 py-3 text-slate-400 text-xs">
+                      {row.issue_date ? fmtDate(row.issue_date) : '—'}
                     </td>
                     <td className="px-4 py-3 text-right text-slate-200 font-medium">
                       {row.face_amount ? fmt(row.face_amount) : '—'}
