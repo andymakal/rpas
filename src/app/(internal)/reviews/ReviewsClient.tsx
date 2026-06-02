@@ -55,7 +55,8 @@ function fmtAmt(v: number | null | undefined): string {
 function isTobaccoPolicy(rateClass: string | null | undefined): boolean {
   if (!rateClass) return false
   const r = rateClass.toLowerCase()
-  return r.includes('tobacco') || r.includes('smoker') || r.includes('table')
+  const hasTobacco = r.includes('tobacco') && !r.includes('non-tobacco') && !r.includes('non tobacco')
+  return hasTobacco || r.includes('smoker')
 }
 
 // ── New Review Modal ──────────────────────────────────────────────────────────

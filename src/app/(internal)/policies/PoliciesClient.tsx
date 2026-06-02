@@ -14,7 +14,9 @@ import type { PolicyListRow } from './page'
 function isTobacco(rateClass: string | null) {
   if (!rateClass) return false
   const r = rateClass.toLowerCase()
-  return r.includes('tobacco') || r.includes('smoker') || r.includes('table')
+  // "Non-Tobacco" must not match — check for tobacco but exclude non-tobacco
+  const hasTobacco = r.includes('tobacco') && !r.includes('non-tobacco') && !r.includes('non tobacco')
+  return hasTobacco || r.includes('smoker')
 }
 
 function yearsRemaining(issueIso: string | null, termStr: string | null): number | null {
