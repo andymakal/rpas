@@ -2,7 +2,6 @@ import type { Metadata } from 'next'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notFound } from 'next/navigation'
 import { ReferralEditClient } from './ReferralEditClient'
-export type { NotInterestedReason }
 
 export const dynamic = 'force-dynamic'
 
