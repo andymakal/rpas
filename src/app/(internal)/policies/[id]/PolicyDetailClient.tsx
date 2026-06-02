@@ -38,12 +38,17 @@ function TypeBadge({ type }: { type: string | null }) {
 }
 
 function StatusBadge({ status }: { status: string }) {
+  const s = status.toLowerCase()
   const color =
-    status === 'active' ? 'bg-green-900/40 text-green-300' :
-    status === 'lapsed' ? 'bg-red-900/40 text-red-300' :
+    s === 'active'     ? 'bg-emerald-900/40 text-emerald-300' :
+    s === 'pending'    ? 'bg-blue-900/40    text-blue-300'    :
+    s === 'paid up'    ? 'bg-indigo-900/40  text-indigo-300'  :
+    s === 'lapsed'     ? 'bg-amber-900/40   text-amber-300'   :
+    s === 'surrendered'? 'bg-red-900/40     text-red-300'     :
+    s === 'terminated' ? 'bg-slate-700      text-slate-400'   :
     'bg-slate-700 text-slate-400'
   return (
-    <span className={`text-xs px-2 py-0.5 rounded font-medium capitalize ${color}`}>
+    <span className={`text-xs px-2 py-0.5 rounded font-medium ${color}`}>
       {status}
     </span>
   )
@@ -504,7 +509,7 @@ export function PolicyDetailClient({
                     <label className="block text-xs text-slate-500 mb-1">Coverage Status</label>
                     <select value={editFields.coverage_status} onChange={ef('coverage_status')}
                       className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-slate-500">
-                      {['Active','Lapsed','Surrendered','Pending','Paid Up'].map(s => (
+                      {['Active','Pending','Paid Up','Lapsed','Surrendered','Terminated'].map(s => (
                         <option key={s} value={s}>{s}</option>
                       ))}
                     </select>

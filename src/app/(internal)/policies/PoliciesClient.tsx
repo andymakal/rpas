@@ -130,80 +130,102 @@ const TYPE_FILTERS = [
 
 export function PoliciesClient({
   rows,
+  totalCount,
+  page,
+  pageSize,
   activeQ,
   activeSa,
   activeType,
+  activeYear,
+  activeTobacco,
+  activeSort,
+  activeDir,
+  showInactive,
 }: {
-  rows: PolicyListRow[]
-  activeQ: string
-  activeSa: string
-  activeType: string
+  rows:         PolicyListRow[]
+  totalCount:   number
+  page:         number
+  pageSize:     number
+  activeQ:      string
+  activeSa:     string
+  activeType:   string
+  activeYear:   string
+  activeTobacco: boolean
+  activeSort:   string
+  activeDir:    string
+  showInactive: boolean
 }) {
   const router   = useRouter()
   const pathname = usePathname()
   const [, startTransition] = useTransition()
-  const [search,      setSearch]      = useState(activeQ)
-  const [tobaccoOnly, setTobaccoOnly] = useState(false)
-  const [yearFilter,  setYearFilter]  = useState('')
-  const [sortBy,      setSortBy]      = useState<'face_amount' | 'issue_date'>('face_amount')
-  const [sortDir,     setSortDir]     = useState<'asc' | 'desc'>('desc')
+  const [search, setSearch] = useState(activeQ)
 
-  function handleSort(key: 'face_amount' | 'issue_date') {
-    if (sortBy === key) {
-      setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    } else {
-      setSortBy(key)
-      setSortDir(key === 'issue_date' ? 'asc' : 'desc')
-    }
-  }
-
-  // Unique years derived from the data for the year filter dropdown
+  // Year options: 1985 → current year
   const yearOptions = useMemo(() => {
-    const seen = new Set<string>()
-    rows.forEach(r => { if (r.issue_date) seen.add(r.issue_date.slice(0, 4)) })
-    return Array.from(seen).sort()
-  }, [rows])
+    const current = new Date().getFullYear()
+    return Array.from({ length: current - 1984 }, (_, i) => String(current - i))
+  }, [])
 
-  const navigate = useCallback((q: string, sa: string, type: string) => {
+  // All filters are server-side URL params; navigate resets to page 1 on filter change
+  const navigate = useCallback((overrides: Record<string, string>) => {
     const params = new URLSearchParams()
-    if (q)    params.set('q', q)
-    if (sa)   params.set('sa', sa)
-    if (type) params.set('type', type)
+    const merged = {
+      q:        activeQ,
+      sa:       activeSa,
+      type:     activeType,
+      year:     activeYear,
+      sort:     activeSort,
+      dir:      activeDir,
+      tobacco:  activeTobacco ? '1' : '',
+      inactive: showInactive   ? '1' : '',
+      page:     '1',   // reset to page 1 on any filter change
+      ...overrides,
+    }
+    Object.entries(merged).forEach(([k, v]) => { if (v && v !== '1' || k === 'page' && v !== '1') params.set(k, v) })
+    // Cleaner: just set all non-empty values
+    params.delete('page')
+    Object.entries(merged).forEach(([k, v]) => { if (v) params.set(k, v) })
+    if (merged.page === '1') params.delete('page')
     startTransition(() => {
       router.push(`${pathname}${params.size ? '?' + params.toString() : ''}`)
     })
-  }, [router, pathname])
+  }, [router, pathname, activeQ, activeSa, activeType, activeYear, activeSort, activeDir, activeTobacco, showInactive])
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault()
-    navigate(search, activeSa, activeType)
+    navigate({ q: search })
   }
 
-  // Summary counts
-  const confirmed    = rows.filter(r => r.sa_status === 'confirmed').length
-  const notChecked   = rows.filter(r => r.sa_status === 'unknown').length
-  const formSent     = rows.filter(r => r.sa_status === 'not_on_file' && r.sa_form_sent_at).length
-  const notSa        = rows.filter(r => r.sa_status === 'not_on_file' && !r.sa_form_sent_at).length
-  const tobaccoCount = useMemo(() => rows.filter(r => isTobacco(r.rate_class)).length, [rows])
-
-  // Client-side filtered + sorted rows
-  const displayRows = useMemo(() => {
-    let result = [...rows]
-    if (tobaccoOnly) result = result.filter(r => isTobacco(r.rate_class))
-    if (yearFilter)  result = result.filter(r => r.issue_date?.startsWith(yearFilter))
-    result.sort((a, b) => {
-      if (sortBy === 'issue_date') {
-        const da = a.issue_date ?? ''
-        const db = b.issue_date ?? ''
-        return sortDir === 'asc' ? da.localeCompare(db) : db.localeCompare(da)
-      }
-      // face_amount (default)
-      const fa = a.face_amount ?? 0
-      const fb = b.face_amount ?? 0
-      return sortDir === 'asc' ? fa - fb : fb - fa
+  function goToPage(p: number) {
+    const params = new URLSearchParams()
+    if (activeQ)       params.set('q',       activeQ)
+    if (activeSa)      params.set('sa',      activeSa)
+    if (activeType)    params.set('type',    activeType)
+    if (activeYear)    params.set('year',    activeYear)
+    if (activeSort && activeSort !== 'face_amount') params.set('sort', activeSort)
+    if (activeDir  && activeDir  !== 'desc')        params.set('dir',  activeDir)
+    if (activeTobacco) params.set('tobacco', '1')
+    if (showInactive)  params.set('inactive', '1')
+    if (p > 1)         params.set('page', String(p))
+    startTransition(() => {
+      router.push(`${pathname}${params.size ? '?' + params.toString() : ''}`)
     })
-    return result
-  }, [rows, tobaccoOnly, yearFilter, sortBy, sortDir])
+  }
+
+  // Server already sorted; client only removes tobacco false-positives (non-tobacco rate classes)
+  const displayRows = useMemo(
+    () => activeTobacco ? rows.filter(r => isTobacco(r.rate_class)) : rows,
+    [rows, activeTobacco]
+  )
+
+  const totalPages = Math.ceil(totalCount / pageSize)
+
+  // Summary counts from current page
+  const confirmed  = rows.filter(r => r.sa_status === 'confirmed').length
+  const notChecked = rows.filter(r => r.sa_status === 'unknown').length
+  const formSent   = rows.filter(r => r.sa_status === 'not_on_file' && r.sa_form_sent_at).length
+  const notSa      = rows.filter(r => r.sa_status === 'not_on_file' && !r.sa_form_sent_at).length
+  const tobaccoCount = displayRows.filter(r => isTobacco(r.rate_class)).length
 
   return (
     <div className="p-8">
@@ -213,7 +235,8 @@ export function PoliciesClient({
         <div>
           <h1 className="text-white text-2xl font-semibold">Policies</h1>
           <p className="text-slate-400 text-sm mt-0.5">
-            LBL / Everlake in-force book · {displayRows.length}{tobaccoOnly ? ' tobacco-rated' : ''} showing
+            LBL / Everlake in-force book · {totalCount.toLocaleString()} policies
+            {activeTobacco ? ' (tobacco-rated)' : ''}{showInactive ? ' incl. inactive' : ''}
           </p>
         </div>
 
@@ -262,7 +285,7 @@ export function PoliciesClient({
             {SA_FILTERS.map(f => (
               <button
                 key={f.value}
-                onClick={() => navigate(search, f.value, activeType)}
+                onClick={() => navigate({ sa: f.value })}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                   activeSa === f.value
                     ? 'bg-slate-700 text-white'
@@ -279,7 +302,7 @@ export function PoliciesClient({
             {TYPE_FILTERS.map(f => (
               <button
                 key={f.value}
-                onClick={() => navigate(search, activeSa, f.value)}
+                onClick={() => navigate({ type: f.value })}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                   activeType === f.value
                     ? 'bg-slate-700 text-white'
@@ -293,8 +316,8 @@ export function PoliciesClient({
 
           {/* Year issued filter */}
           <select
-            value={yearFilter}
-            onChange={e => setYearFilter(e.target.value)}
+            value={activeYear}
+            onChange={e => navigate({ year: e.target.value })}
             className="bg-slate-900 border border-slate-800 text-slate-300 text-xs rounded-lg px-3 py-1.5 focus:outline-none focus:border-slate-600 cursor-pointer"
           >
             <option value="">All years</option>
@@ -305,15 +328,27 @@ export function PoliciesClient({
 
           {/* Tobacco toggle */}
           <button
-            onClick={() => setTobaccoOnly(v => !v)}
+            onClick={() => navigate({ tobacco: activeTobacco ? '' : '1' })}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-              tobaccoOnly
+              activeTobacco
                 ? 'bg-red-900/40 border-red-700 text-red-300'
                 : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800'
             }`}
           >
             <Cigarette className="w-3.5 h-3.5" />
             Tobacco only
+          </button>
+
+          {/* Show inactive toggle */}
+          <button
+            onClick={() => navigate({ inactive: showInactive ? '' : '1' })}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+              showInactive
+                ? 'bg-amber-900/40 border-amber-700 text-amber-300'
+                : 'bg-slate-900 border-slate-800 text-slate-400 hover:bg-slate-800'
+            }`}
+          >
+            {showInactive ? 'Hiding inactive' : 'Show inactive'}
           </button>
         </div>
 
@@ -327,26 +362,28 @@ export function PoliciesClient({
                 <th className="text-left px-4 py-3 font-medium">Type</th>
                 <th className="text-left px-4 py-3 font-medium">
                   <button
-                    onClick={() => handleSort('issue_date')}
+                    onClick={() => navigate({
+                      sort: 'issue_date',
+                      dir: activeSort === 'issue_date' && activeDir === 'asc' ? 'desc' : 'asc',
+                    })}
                     className="inline-flex items-center gap-1 hover:text-slate-300 transition-colors"
                   >
                     Issue Date
-                    {sortBy === 'issue_date'
-                      ? sortDir === 'asc'
-                        ? <ChevronUp className="w-3 h-3" />
-                        : <ChevronDown className="w-3 h-3" />
+                    {activeSort === 'issue_date'
+                      ? activeDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
                       : <ChevronsUpDown className="w-3 h-3 opacity-40" />}
                   </button>
                 </th>
                 <th className="text-right px-4 py-3 font-medium">
                   <button
-                    onClick={() => handleSort('face_amount')}
+                    onClick={() => navigate({
+                      sort: 'face_amount',
+                      dir: activeSort === 'face_amount' && activeDir === 'desc' ? 'asc' : 'desc',
+                    })}
                     className="inline-flex items-center gap-1 hover:text-slate-300 transition-colors ml-auto"
                   >
-                    {sortBy === 'face_amount'
-                      ? sortDir === 'asc'
-                        ? <ChevronUp className="w-3 h-3" />
-                        : <ChevronDown className="w-3 h-3" />
+                    {activeSort === 'face_amount'
+                      ? activeDir === 'desc' ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />
                       : <ChevronsUpDown className="w-3 h-3 opacity-40" />}
                     Face Amt
                   </button>
@@ -441,9 +478,55 @@ export function PoliciesClient({
               })}
             </tbody>
           </table>
-          {displayRows.length === 300 && (
-            <div className="px-4 py-3 border-t border-slate-800 text-center text-slate-500 text-xs">
-              Showing top 300 by face amount — use search or filters to narrow results
+          {/* Pagination controls */}
+          {totalPages > 1 && (
+            <div className="px-4 py-3 border-t border-slate-800 flex items-center justify-between gap-4">
+              <p className="text-xs text-slate-500">
+                Page {page} of {totalPages} · {totalCount.toLocaleString()} policies
+              </p>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => goToPage(page - 1)}
+                  disabled={page <= 1}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-default transition-colors"
+                >
+                  ← Prev
+                </button>
+
+                {/* Page number pills — show up to 7 around current page */}
+                {Array.from({ length: totalPages }, (_, i) => i + 1)
+                  .filter(p => p === 1 || p === totalPages || Math.abs(p - page) <= 2)
+                  .reduce<(number | '…')[]>((acc, p, i, arr) => {
+                    if (i > 0 && p - (arr[i - 1] as number) > 1) acc.push('…')
+                    acc.push(p)
+                    return acc
+                  }, [])
+                  .map((item, i) =>
+                    item === '…'
+                      ? <span key={`ellipsis-${i}`} className="text-xs text-slate-600 px-1">…</span>
+                      : <button
+                          key={item}
+                          onClick={() => goToPage(item as number)}
+                          className={`w-8 h-7 rounded-lg text-xs font-medium transition-colors ${
+                            item === page
+                              ? 'text-white'
+                              : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                          }`}
+                          style={item === page ? { backgroundColor: '#1F3864' } : undefined}
+                        >
+                          {item}
+                        </button>
+                  )
+                }
+
+                <button
+                  onClick={() => goToPage(page + 1)}
+                  disabled={page >= totalPages}
+                  className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 text-slate-300 hover:bg-slate-700 disabled:opacity-30 disabled:cursor-default transition-colors"
+                >
+                  Next →
+                </button>
+              </div>
             </div>
           )}
         </div>
