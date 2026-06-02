@@ -16,9 +16,10 @@ import { fmtDate } from '@/lib/fmt'
 function isTobacco(rateClass: string | null) {
   if (!rateClass) return false
   const r = rateClass.toLowerCase()
-  // "Non-Tobacco" must not match — check for tobacco but exclude non-tobacco
-  const hasTobacco = r.includes('tobacco') && !r.includes('non-tobacco') && !r.includes('non tobacco')
-  return hasTobacco || r.includes('smoker')
+  // Exclude any variant meaning "non-tobacco" / "no-tobacco"
+  const isNonTobacco = r.includes('non-tobacco') || r.includes('non tobacco')
+                    || r.includes('no-tobacco')  || r.includes('no tobacco')
+  return (r.includes('tobacco') && !isNonTobacco) || r.includes('smoker')
 }
 
 function yearsRemaining(issueIso: string | null, termStr: string | null): number | null {
