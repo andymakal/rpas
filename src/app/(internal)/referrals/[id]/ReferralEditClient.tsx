@@ -16,6 +16,7 @@ import { fmtDate as fmt, fmtEagentNote } from '@/lib/fmt'
 import { useNavList } from '@/lib/nav-list'
 import { buildHouseholdName } from '@/lib/household'
 import { TEMPLATES, TOPIC_MAP, interpolate, buildMailto, fmtEmailDate, fmtTime12 } from '@/lib/templates'
+import { LEAD_SOURCE_OPTIONS } from '@/lib/constants/referral-options'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -268,6 +269,7 @@ export function ReferralEditClient({
   const [notes,        setNotes]        = useState(referral.notes ?? '')
   const [alPolicy,     setAlPolicy]     = useState(referral.allstate_policy_number ?? '')
   const [lostReasonId, setLostReasonId] = useState(referral.lost_reason_id ?? '')
+  const [leadSource,   setLeadSource]   = useState(referral.lead_source ?? '')
   const [isHotLead,    setIsHotLead]    = useState(referral.is_hot_lead)
   const [saving,       setSaving]       = useState(false)
   const [saveMsg,      setSaveMsg]      = useState<{ ok: boolean; text: string } | null>(null)
@@ -488,6 +490,7 @@ export function ReferralEditClient({
       internal_status: status,
       follow_up_date:  followUpDate || null,
       is_hot_lead:     isHotLead,
+      lead_source:     leadSource   || null,
     }
     if (showProducerDropdown) body.producer_id = producerId || null
     // Save the "not interested" reason alongside the status
@@ -1090,11 +1093,11 @@ export function ReferralEditClient({
                     </div>
                   </div>
                 )}
-                {referral.lead_source && (
+                {leadSource && (
                   <div className="flex items-center gap-2.5">
                     <span className="w-4 h-4 flex-shrink-0 flex items-center justify-center text-slate-500 text-xs font-bold">src</span>
-                    <span className="text-xs text-slate-500 capitalize">
-                      {referral.lead_source === 'agency_referral' ? 'Agency Referral' : referral.lead_source.replace(/_/g, ' ')}
+                    <span className="text-xs text-slate-500">
+                      {LEAD_SOURCE_OPTIONS.find(o => o.value === leadSource)?.label ?? leadSource.replace(/_/g, ' ')}
                     </span>
                   </div>
                 )}
@@ -1705,6 +1708,21 @@ export function ReferralEditClient({
                 <p className="text-xs text-slate-500 mt-0.5">High priority — flag for immediate attention</p>
               </div>
             </label>
+
+            {/* Lead source */}
+            <div>
+              <label className="block text-xs font-medium text-slate-300 mb-1.5">Lead Source</label>
+              <select
+                value={leadSource}
+                onChange={e => setLeadSource(e.target.value)}
+                className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 cursor-pointer"
+              >
+                <option value="">— Not set —</option>
+                {LEAD_SOURCE_OPTIONS.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
 
             {/* Follow-up date */}
             <div>

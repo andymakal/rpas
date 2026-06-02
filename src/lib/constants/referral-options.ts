@@ -1,3 +1,25 @@
+/**
+ * All valid lead_source values for the cases table.
+ * Used on the Referral edit page to designate or correct the source
+ * of an existing referral (e.g. imported Lead Manager cases that need
+ * to be marked as Allstate.com or self-generated).
+ */
+export const LEAD_SOURCE_OPTIONS = [
+  { value: 'agency_referral',    label: 'Agency Referral (LSP)' },
+  { value: 'allstate_web',       label: 'Allstate.com Web Lead' },
+  { value: 'self_generated',     label: 'Self Generated' },
+  { value: 'mortgage_protection',label: 'Mortgage Protection' },
+  { value: 'term_life',          label: 'Term Life Insurance' },
+  { value: 'life_review',        label: 'Life Insurance Review' },
+  { value: 'financial_planning', label: 'Financial Planning' },
+  { value: 'retirement_planning',label: 'Retirement Planning' },
+  { value: 'medicare_planning',  label: 'Medicare Planning' },
+  { value: 'business_owner',     label: 'Business Owner' },
+  { value: '1035_exchange',      label: '1035 Exchange' },
+  { value: 'existing_service',   label: 'Existing Client — Service' },
+  { value: 'existing_sales',     label: 'Existing Client — Additional Coverage' },
+] as const
+
 export const REFERRAL_TYPES = [
   { value: 'mortgage_protection', label: 'Mortgage Protection' },
   { value: 'term_life', label: 'Term Life Insurance' },
