@@ -591,6 +591,16 @@ export function ReviewPrepClient({
             {saving ? 'Saving…' : 'Save Review'}
           </button>
 
+          {/* Print client summary */}
+          <a
+            href={`/reviews/${review.id}/print`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg text-sm font-medium text-slate-300 border border-slate-700 hover:bg-slate-800 transition-colors"
+          >
+            🖨 Print Client Summary
+          </a>
+
           {/* Create linked Service Request */}
           {policy?.id && (
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
