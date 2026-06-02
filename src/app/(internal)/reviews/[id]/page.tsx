@@ -97,10 +97,19 @@ export default async function ReviewPrepPage(
 
   if (!review) notFound()
 
+  const { data: producers } = await supabase
+    .from('producers')
+    .select('id, first_name, last_name')
+    .eq('is_active', true)
+    .order('first_name')
+
   return (
     <div className="p-8">
       <div className="max-w-7xl mx-auto">
-        <ReviewPrepClient review={review as unknown as ReviewDetail} />
+        <ReviewPrepClient
+          review={review as unknown as ReviewDetail}
+          producers={(producers ?? []) as { id: string; first_name: string; last_name: string }[]}
+        />
       </div>
     </div>
   )

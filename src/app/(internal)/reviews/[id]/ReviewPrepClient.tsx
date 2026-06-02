@@ -89,13 +89,43 @@ function FlagCard({ flag }: { flag: ReviewFlag }) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function ReviewPrepClient({ review: initialReview }: { review: ReviewDetail }) {
+type ProducerOption = { id: string; first_name: string; last_name: string }
+
+export function ReviewPrepClient({
+  review: initialReview,
+  producers = [],
+}: {
+  review:    ReviewDetail
+  producers?: ProducerOption[]
+}) {
   const router = useRouter()
   const [review, setReview] = useState(initialReview)
   const policy = review.service_policies
 
   const { prevId, nextId, position, total } = useNavList(review.id)
   const [notesCopied, setNotesCopied] = useState(false)
+
+  // ── Create linked SR from this review ──────────────────────────
+  const [srRequestType, setSrRequestType] = useState('')
+  const [srCreating,    setSrCreating]    = useState(false)
+  const [srError,       setSrError]       = useState<string | null>(null)
+
+  async function handleCreateSr() {
+    if (!policy?.id) return
+    if (!srRequestType) { setSrError('Select a request type first'); return }
+    setSrCreating(true); setSrError(null)
+    try {
+      const res = await fetch('/api/service-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ policy_id: policy.id, request_type: srRequestType }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setSrError(json.error ?? 'Failed to create'); return }
+      router.push(`/service/${json.data.id}`)
+    } catch { setSrError('Network error') }
+    finally { setSrCreating(false) }
+  }
 
   useEffect(() => {
     const client = review.service_policies?.client_name ?? 'Policy Review'
@@ -389,8 +419,11 @@ export function ReviewPrepClient({ review: initialReview }: { review: ReviewDeta
                   onChange={e => setAssignedTo(e.target.value)}
                 >
                   <option value="">Unassigned</option>
-                  <option value="Tyler">Tyler</option>
-                  <option value="Lucas">Lucas</option>
+                  {producers.map(p => (
+                    <option key={p.id} value={`${p.first_name} ${p.last_name}`}>
+                      {p.first_name} {p.last_name}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>
@@ -557,6 +590,39 @@ export function ReviewPrepClient({ review: initialReview }: { review: ReviewDeta
             <Save className="w-3.5 h-3.5" />
             {saving ? 'Saving…' : 'Save Review'}
           </button>
+
+          {/* Create linked Service Request */}
+          {policy?.id && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+              <h2 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                Create Service Request
+              </h2>
+              <p className="text-xs text-slate-500">
+                Found something that needs action? Log an SR directly from this review.
+              </p>
+              <div>
+                <select
+                  value={srRequestType}
+                  onChange={e => setSrRequestType(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-slate-500"
+                >
+                  <option value="">Select request type…</option>
+                  {['Beneficiary Change','Banking / EFT Change','Face Amount Change',
+                    'Policy Loan / Withdrawal','Policy Surrender','Policy Document Request',
+                    'Payment / Reinstatement','Coverage / Status Question','Other',
+                  ].map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              {srError && <p className="text-xs text-red-400">{srError}</p>}
+              <button
+                onClick={handleCreateSr}
+                disabled={srCreating || !srRequestType}
+                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-white bg-amber-700 hover:bg-amber-600 disabled:opacity-50 transition-colors"
+              >
+                {srCreating ? 'Creating…' : 'Create Service Request →'}
+              </button>
+            </div>
+          )}
 
           {/* Record info */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">

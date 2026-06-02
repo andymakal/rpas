@@ -95,6 +95,27 @@ export function ServiceRequestClient({
   const { prevId, nextId, position, total } = useNavList(initialSr.id)
   const [copied, setCopied] = useState(false)
 
+  // ── Queue a linked Policy Review from this SR ────────────────────
+  const [reviewCreating, setReviewCreating] = useState(false)
+  const [reviewError,    setReviewError]    = useState<string | null>(null)
+
+  async function handleQueueReview() {
+    const policyId = initialSr.service_policies?.id
+    if (!policyId) return
+    setReviewCreating(true); setReviewError(null)
+    try {
+      const res = await fetch('/api/policy-reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ policy_id: policyId }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setReviewError(json.error ?? 'Failed to create'); return }
+      router.push(`/reviews/${json.data.id}`)
+    } catch { setReviewError('Network error') }
+    finally { setReviewCreating(false) }
+  }
+
   useEffect(() => {
     const client = initialSr.service_policies?.client_name ?? 'Service Request'
     addRecentItem({
@@ -696,6 +717,26 @@ export function ServiceRequestClient({
                 <Row label="Date Resolved" value={dateResolved ? fmt(dateResolved) : '—'} />
               </div>
             )}
+          {/* ── Queue a Policy Review from this SR ─────────────── */}
+          {initialSr.service_policies?.id && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-4 space-y-3">
+              <h2 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                Policy Review
+              </h2>
+              <p className="text-xs text-slate-500">
+                Need a full review call for this policy? Queue one directly from here.
+              </p>
+              {reviewError && <p className="text-xs text-red-400">{reviewError}</p>}
+              <button
+                onClick={handleQueueReview}
+                disabled={reviewCreating}
+                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-white bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 transition-colors"
+              >
+                {reviewCreating ? 'Queuing…' : 'Queue Policy Review →'}
+              </button>
+            </div>
+          )}
+
           </div>
         </div>
       </div>

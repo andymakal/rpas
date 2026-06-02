@@ -7,6 +7,8 @@ import { ReviewsClient } from './ReviewsClient'
 export const metadata: Metadata = { title: 'Policy Reviews' }
 export const dynamic = 'force-dynamic'
 
+export type AssigneeOption = { id: string; first_name: string; last_name: string }
+
 export type ReviewListRow = {
   id: string
   review_number: string | null
@@ -39,7 +41,8 @@ export default async function ReviewsPage() {
 
   const supabase = createAdminClient()
 
-  const { data: reviews } = await supabase
+  const [{ data: reviews }, { data: producers }] = await Promise.all([
+    supabase
     .from('policy_reviews')
     .select(`
       id, review_number, review_type, assigned_to, status, outcome,
@@ -50,7 +53,13 @@ export default async function ReviewsPage() {
       )
     `)
     .eq('is_test', false)
-    .order('created_at', { ascending: false })
+    .order('created_at', { ascending: false }),
+    supabase
+      .from('producers')
+      .select('id, first_name, last_name')
+      .eq('is_active', true)
+      .order('first_name'),
+  ])
 
   return (
     <div className="p-8">
@@ -63,7 +72,10 @@ export default async function ReviewsPage() {
             </p>
           </div>
         </div>
-        <ReviewsClient reviews={(reviews as unknown as ReviewListRow[]) ?? []} />
+        <ReviewsClient
+          reviews={(reviews as unknown as ReviewListRow[]) ?? []}
+          producers={(producers as unknown as AssigneeOption[]) ?? []}
+        />
       </div>
     </div>
   )

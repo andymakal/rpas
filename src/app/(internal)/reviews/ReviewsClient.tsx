@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { ClipboardList, AlertTriangle, CheckCircle2, Phone, Search, Plus } from 'lucide-react'
-import type { ReviewListRow } from './page'
+import type { ReviewListRow, AssigneeOption } from './page'
 import { fmtDate as fmt } from '@/lib/fmt'
 import { setNavList } from '@/lib/nav-list'
 
@@ -61,7 +61,7 @@ function isTobaccoPolicy(rateClass: string | null | undefined): boolean {
 
 // ── New Review Modal ──────────────────────────────────────────────────────────
 
-function NewReviewModal({ onClose }: { onClose: (id?: string) => void }) {
+function NewReviewModal({ onClose, producers }: { onClose: (id?: string) => void; producers: AssigneeOption[] }) {
   const [policyId,   setPolicyId]   = useState('')
   const [assignedTo, setAssignedTo] = useState('')
   const [saving,     setSaving]     = useState(false)
@@ -111,8 +111,11 @@ function NewReviewModal({ onClose }: { onClose: (id?: string) => void }) {
               onChange={e => setAssignedTo(e.target.value)}
             >
               <option value="">Unassigned</option>
-              <option value="Tyler">Tyler</option>
-              <option value="Lucas">Lucas</option>
+              {producers.map(p => (
+                <option key={p.id} value={`${p.first_name} ${p.last_name}`}>
+                  {p.first_name} {p.last_name}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -142,7 +145,7 @@ function NewReviewModal({ onClose }: { onClose: (id?: string) => void }) {
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
-export function ReviewsClient({ reviews }: { reviews: ReviewListRow[] }) {
+export function ReviewsClient({ reviews, producers }: { reviews: ReviewListRow[]; producers: AssigneeOption[] }) {
   const router = useRouter()
 
   const [search,      setSearch]      = useState('')
@@ -192,7 +195,7 @@ export function ReviewsClient({ reviews }: { reviews: ReviewListRow[] }) {
 
   return (
     <>
-      {showModal && <NewReviewModal onClose={handleModalClose} />}
+      {showModal && <NewReviewModal onClose={handleModalClose} producers={producers} />}
 
       {/* ── Summary chips ───────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-3 mb-5">
@@ -235,8 +238,10 @@ export function ReviewsClient({ reviews }: { reviews: ReviewListRow[] }) {
 
           <FilterSelect value={assignFilter} onChange={setAssignFilter} options={[
             { value: 'all',        label: 'All producers' },
-            { value: 'Tyler',      label: 'Tyler' },
-            { value: 'Lucas',      label: 'Lucas' },
+            ...producers.map(p => ({
+              value: `${p.first_name} ${p.last_name}`,
+              label: `${p.first_name} ${p.last_name}`,
+            })),
             { value: 'unassigned', label: 'Unassigned' },
           ]} />
 
