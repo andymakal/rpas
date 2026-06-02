@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, AlertCircle, Save, Pencil, Copy, Check } from 'lucide-react'
 import type { ServiceRequestDetail, AgencyOption, AgentOption } from './page'
 import { fmtDate as fmt, fmtEagentNote } from '@/lib/fmt'
 import { useNavList } from '@/lib/nav-list'
+import { addRecentItem } from '@/lib/recent-items'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -93,6 +94,17 @@ export function ServiceRequestClient({
 
   const { prevId, nextId, position, total } = useNavList(initialSr.id)
   const [copied, setCopied] = useState(false)
+
+  useEffect(() => {
+    const client = initialSr.service_policies?.client_name ?? 'Service Request'
+    addRecentItem({
+      id:       initialSr.id,
+      type:     'service',
+      label:    client,
+      sublabel: initialSr.sr_number ?? 'Service Request',
+      href:     `/service/${initialSr.id}`,
+    })
+  }, [initialSr.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── SR local state ──────────────────────────────────────────────────────
   const [sr,            setSr]           = useState(initialSr)

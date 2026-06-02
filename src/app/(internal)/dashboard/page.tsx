@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { Plus } from 'lucide-react'
+import { RecentlyViewed } from '@/components/RecentlyViewed'
 
 export const metadata: Metadata = { title: 'Dashboard' }
 
@@ -140,6 +141,8 @@ export default async function DashboardPage() {
           </div>
         )}
       </div>
+
+      <RecentlyViewed />
 
     </div>
   )

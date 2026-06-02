@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -15,6 +15,7 @@ import { HouseholdCard } from '@/components/HouseholdCard'
 import { fmtDate as fmt, fmtEagentNote } from '@/lib/fmt'
 import { useNavList } from '@/lib/nav-list'
 import { buildHouseholdName } from '@/lib/household'
+import { addRecentItem } from '@/lib/recent-items'
 import { TEMPLATES, TOPIC_MAP, interpolate, buildMailto, fmtEmailDate, fmtTime12 } from '@/lib/templates'
 import { LEAD_SOURCE_OPTIONS } from '@/lib/constants/referral-options'
 
@@ -363,6 +364,17 @@ export function ReferralEditClient({
   const [emailSenderName, setEmailSenderName] = useState(
     assignedProducer ? `${assignedProducer.first_name} ${assignedProducer.last_name}` : ''
   )
+
+  // ── Recently viewed ────────────────────────────────────────────
+  useEffect(() => {
+    addRecentItem({
+      id:       referral.id,
+      type:     'referral',
+      label:    buildHouseholdName(referral.customers ?? null, referral.household_members ?? []),
+      sublabel: referral.stage_translations?.agency_label ?? referral.internal_status,
+      href:     `/referrals/${referral.id}`,
+    })
+  }, [referral.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── List navigation ────────────────────────────────────────────
   const { prevId, nextId, position, total } = useNavList(referral.id)

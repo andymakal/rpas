@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ChevronLeft, ChevronRight, Copy, Check, CheckCircle2, Phone, AlertTriangle,
@@ -16,6 +16,7 @@ import type { PolicyForPrep, ReviewFlag } from '@/lib/reviews/prep'
 import type { ReviewDetail } from './page'
 import { fmtDate as fmt, fmtEagentNote } from '@/lib/fmt'
 import { useNavList } from '@/lib/nav-list'
+import { addRecentItem } from '@/lib/recent-items'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -95,6 +96,17 @@ export function ReviewPrepClient({ review: initialReview }: { review: ReviewDeta
 
   const { prevId, nextId, position, total } = useNavList(review.id)
   const [notesCopied, setNotesCopied] = useState(false)
+
+  useEffect(() => {
+    const client = review.service_policies?.client_name ?? 'Policy Review'
+    addRecentItem({
+      id:       review.id,
+      type:     'review',
+      label:    client,
+      sublabel: review.review_number ?? 'Policy Review',
+      href:     `/reviews/${review.id}`,
+    })
+  }, [review.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Right-panel state ───────────────────────────────────────────────────
   const [assignedTo,     setAssignedTo]     = useState(review.assigned_to ?? '')

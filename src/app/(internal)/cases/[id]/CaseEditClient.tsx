@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
@@ -19,6 +19,7 @@ import { HouseholdCard } from '@/components/HouseholdCard'
 import { fmtDate as fmt, fmtEagentNote } from '@/lib/fmt'
 import { useNavList } from '@/lib/nav-list'
 import { TEMPLATES, UNDERWRITING_SCENARIOS, interpolate, buildMailto } from '@/lib/templates'
+import { addRecentItem } from '@/lib/recent-items'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -152,6 +153,20 @@ export default function CaseEditClient({
 
   // ── List navigation ────────────────────────────────────────────
   const { prevId, nextId, position, total } = useNavList(caseData.id)
+
+  // ── Recently viewed ────────────────────────────────────────────
+  useEffect(() => {
+    const name = caseData.customers
+      ? `${caseData.customers.first_name} ${caseData.customers.last_name}`
+      : 'Unknown'
+    addRecentItem({
+      id:       caseData.id,
+      type:     'case',
+      label:    name,
+      sublabel: caseData.stage_translations?.agency_label ?? caseData.internal_status,
+      href:     `/cases/${caseData.id}`,
+    })
+  }, [caseData.id]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Email CTAs ─────────────────────────────────────────────────
   const [emailSenderName,     setEmailSenderName]     = useState('')
