@@ -156,6 +156,20 @@ export function ReviewPrepClient({
   // ── Script copy state ───────────────────────────────────────────────────
   const [copied, setCopied]   = useState(false)
 
+  // ── Delete review ────────────────────────────────────────────────────────
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting,      setDeleting]      = useState(false)
+
+  async function handleDelete() {
+    setDeleting(true)
+    try {
+      const res = await fetch(`/api/policy-reviews/${review.id}`, { method: 'DELETE' })
+      if (!res.ok) { const j = await res.json(); setError(j.error ?? 'Delete failed'); setConfirmDelete(false); return }
+      router.push('/reviews')
+    } catch { setError('Network error'); setConfirmDelete(false) }
+    finally { setDeleting(false) }
+  }
+
   // ── Policy snapshot inline edit ──────────────────────────────────────────
   const [policyEditing, setPolicyEditing] = useState(false)
   const [policyEdit,    setPolicyEdit]    = useState({
@@ -774,6 +788,35 @@ export function ReviewPrepClient({
           >
             🖨 Print Client Summary
           </a>
+
+          {/* Delete review */}
+          {confirmDelete ? (
+            <div className="rounded-lg border border-red-500/30 bg-red-500/5 p-3 space-y-2">
+              <p className="text-xs text-red-300">Delete this review permanently? This cannot be undone.</p>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleDelete}
+                  disabled={deleting}
+                  className="flex-1 py-1.5 rounded-md text-xs font-medium bg-red-600 hover:bg-red-500 text-white disabled:opacity-50 transition-colors"
+                >
+                  {deleting ? 'Deleting…' : 'Yes, delete'}
+                </button>
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  className="flex-1 py-1.5 rounded-md text-xs font-medium border border-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              className="w-full py-2 rounded-lg text-xs text-slate-600 hover:text-red-400 transition-colors"
+            >
+              Delete this review
+            </button>
+          )}
 
           {/* Create linked Service Request */}
           {policy?.id && (

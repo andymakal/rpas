@@ -74,3 +74,29 @@ export async function PATCH(
 
   return Response.json({ data })
 }
+
+/**
+ * DELETE /api/policy-reviews/[id]
+ *
+ * Permanently removes a policy review record.
+ * The associated service_policy is NOT deleted — only the review row.
+ */
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params
+  const supabase = createAdminClient()
+
+  const { error } = await supabase
+    .from('policy_reviews')
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    console.error('policy_review delete error:', error)
+    return Response.json({ error: error.message }, { status: 500 })
+  }
+
+  return Response.json({ success: true })
+}
