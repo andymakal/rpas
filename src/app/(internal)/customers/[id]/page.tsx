@@ -63,6 +63,14 @@ export type LinkedServiceRequest = {
   client_name:     string | null
 }
 
+export type CaseStatusHistoryEntry = {
+  id:          string
+  case_id:     string
+  from_status: string | null
+  to_status:   string
+  changed_at:  string
+}
+
 export default async function CustomerCardPage({
   params,
 }: {
@@ -129,6 +137,18 @@ export default async function CustomerCardPage({
     agencies:        (Array.isArray(p.agencies) ? p.agencies[0] : p.agencies) as { name: string; display_name: string | null } | null,
   }))
 
+  // Fetch case status history for all linked cases
+  const caseIds = (cases ?? []).map(c => c.id)
+  let caseHistory: CaseStatusHistoryEntry[] = []
+  if (caseIds.length > 0) {
+    const { data: histRaw } = await supabase
+      .from('case_status_history')
+      .select('id, case_id, from_status, to_status, changed_at')
+      .in('case_id', caseIds)
+      .order('changed_at', { ascending: false })
+    caseHistory = (histRaw ?? []) as CaseStatusHistoryEntry[]
+  }
+
   // Fetch service requests via linked policy IDs
   const policyIds = (policiesRaw ?? []).map(p => p.id)
   let serviceRequests: LinkedServiceRequest[] = []
@@ -165,6 +185,7 @@ export default async function CustomerCardPage({
       cases={(cases ?? []) as unknown as LinkedCase[]}
       policies={policies}
       serviceRequests={serviceRequests}
+      caseHistory={caseHistory}
     />
   )
 }

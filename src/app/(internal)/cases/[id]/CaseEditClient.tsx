@@ -172,6 +172,7 @@ export default function CaseEditClient({
   const [emailSenderName,     setEmailSenderName]     = useState('')
   const [uwScenario,          setUwScenario]          = useState('')
   const [uwCustomNote,        setUwCustomNote]        = useState('')
+  const [interviewMode,       setInterviewMode]       = useState<'tele' | 'email'>('tele')
   const uwNote = uwScenario === '__custom__' ? uwCustomNote : uwScenario
   const carrierName = caseData.products?.carriers?.short_name ?? ''
   const clientFirstName = caseData.customers?.first_name ?? ''
@@ -330,6 +331,21 @@ export default function CaseEditClient({
   }
 
   // ── Handlers ──────────────────────────────────────────────────
+
+  async function handleReturnToTriage() {
+    if (!confirm('Return this case to Triage? This will undo the Application Submitted status.')) return
+    setSaving(true); setSaveMsg(null)
+    try {
+      const res = await fetch(`/api/cases/${caseData.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ internal_status: 'triage' }),
+      })
+      if (!res.ok) { const j = await res.json(); setSaveMsg({ ok: false, text: j.error ?? 'Failed' }); return }
+      router.push('/triage')
+    } catch { setSaveMsg({ ok: false, text: 'Network error' }) }
+    finally { setSaving(false) }
+  }
 
   async function handleSave() {
     setSaving(true); setSaveMsg(null)
@@ -1002,9 +1018,20 @@ export default function CaseEditClient({
           {/* 6 — Status History */}
           {statusHistory.length > 0 && (
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-              <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
-                <History className="w-3.5 h-3.5" /> Status History
-              </h2>
+              <div className="flex items-center justify-between">
+                <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+                  <History className="w-3.5 h-3.5" /> Status History
+                </h2>
+                {caseData.internal_status !== 'triage' && (
+                  <button
+                    onClick={handleReturnToTriage}
+                    disabled={saving}
+                    className="text-xs text-slate-500 hover:text-amber-400 transition-colors disabled:opacity-40"
+                  >
+                    ↩ Return to Triage
+                  </button>
+                )}
+              </div>
               <div className="space-y-3">
                 {statusHistory.map((h, i) => (
                   <div key={h.id} className="flex items-start gap-2.5">
@@ -1229,9 +1256,104 @@ export default function CaseEditClient({
                 {saving ? 'Saving…' : 'Save Changes'}
               </button>
             </div>
+
+            {caseData.internal_status === 'app_submitted' && (
+              <div className="pt-2 border-t border-slate-700/50 text-right">
+                <button
+                  onClick={handleReturnToTriage}
+                  disabled={saving}
+                  className="text-xs text-slate-500 hover:text-amber-400 transition-colors disabled:opacity-40"
+                >
+                  ↩ Accidentally submitted? Return to Triage
+                </button>
+              </div>
+            )}
           </div>
 
           {/* ── Email CTAs ──────────────────────────────────────────────────── */}
+
+          {/* e-PHI Needed — app in progress or additional info requested at underwriting */}
+          {(caseData.internal_status === 'app_submitted' || caseData.internal_status === 'in_underwriting') && (
+            <div className="rounded-xl border border-amber-800/40 bg-amber-950/20 p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <Mail className="w-4 h-4 text-amber-400" />
+                <h2 className="text-sm font-semibold text-amber-300">Send e-PHI Request</h2>
+              </div>
+              <p className="text-xs text-slate-400">
+                Let {clientFirstName} know {carrierName || 'the carrier'} will contact them electronically for health information.
+              </p>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Your name</label>
+                <input value={emailSenderName} onChange={e => setEmailSenderName(e.target.value)}
+                  placeholder="Nikki"
+                  className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500 placeholder-slate-600" />
+              </div>
+              <a href={buildMailto(
+                  clientEmail,
+                  interpolate(TEMPLATES.ephi_needed.subject, { carrier: carrierName || 'your carrier' }),
+                  interpolate(TEMPLATES.ephi_needed.body, {
+                    first_name:  clientFirstName,
+                    carrier:     carrierName || 'your carrier',
+                    sender_name: emailSenderName || '{sender_name}',
+                  })
+                )}
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${clientEmail ? 'text-white bg-amber-700 hover:bg-amber-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}>
+                <Mail className="w-3.5 h-3.5" />
+                {clientEmail ? 'Open in Outlook' : 'No client email on file'}
+              </a>
+            </div>
+          )}
+
+          {/* Interview Reminder — tele or e-interview */}
+          {caseData.internal_status === 'app_submitted' && (
+            <div className="rounded-xl border border-violet-800/40 bg-violet-950/20 p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <Mail className="w-4 h-4 text-violet-400" />
+                <h2 className="text-sm font-semibold text-violet-300">Send Interview Reminder</h2>
+              </div>
+              {/* Toggle */}
+              <div className="flex rounded-lg border border-slate-700 overflow-hidden text-xs font-medium w-fit">
+                <button type="button" onClick={() => setInterviewMode('tele')}
+                  className={`px-3 py-1.5 transition-colors ${interviewMode === 'tele' ? 'bg-violet-700 text-white' : 'text-slate-400 hover:text-slate-200'}`}>
+                  Tele-Interview
+                </button>
+                <button type="button" onClick={() => setInterviewMode('email')}
+                  className={`px-3 py-1.5 transition-colors ${interviewMode === 'email' ? 'bg-violet-700 text-white' : 'text-slate-400 hover:text-slate-200'}`}>
+                  E-Interview
+                </button>
+              </div>
+              <p className="text-xs text-slate-400">
+                {interviewMode === 'tele'
+                  ? `Heads up that ${carrierName || 'the carrier'} will call ${clientFirstName} for a phone interview.`
+                  : `Heads up that ${carrierName || 'the carrier'} will email ${clientFirstName} a health questionnaire.`}
+              </p>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Your name</label>
+                <input value={emailSenderName} onChange={e => setEmailSenderName(e.target.value)}
+                  placeholder="Nikki"
+                  className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500 placeholder-slate-600" />
+              </div>
+              <a href={buildMailto(
+                  clientEmail,
+                  interpolate(
+                    interviewMode === 'tele' ? TEMPLATES.tele_interview.subject : TEMPLATES.einterview.subject,
+                    { carrier: carrierName || 'your carrier' }
+                  ),
+                  interpolate(
+                    interviewMode === 'tele' ? TEMPLATES.tele_interview.body : TEMPLATES.einterview.body,
+                    {
+                      first_name:  clientFirstName,
+                      carrier:     carrierName || 'your carrier',
+                      sender_name: emailSenderName || '{sender_name}',
+                    }
+                  )
+                )}
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${clientEmail ? 'text-white bg-violet-700 hover:bg-violet-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}>
+                <Mail className="w-3.5 h-3.5" />
+                {clientEmail ? 'Open in Outlook' : 'No client email on file'}
+              </a>
+            </div>
+          )}
 
           {/* Underwriting Update */}
           {caseData.internal_status === 'in_underwriting' && (

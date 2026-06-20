@@ -121,9 +121,12 @@ export async function POST(req: NextRequest) {
     const norm = normalizeAgencyName(csvName)
     if (agencyByNorm.has(norm)) return agencyByNorm.get(norm)!
 
-    // If name looks like "Last, First" (Lead Manager format), try "First Last" too
+    // If name looks like "Last, First" or "Last, First - STATE" (Lead Manager format),
+    // strip any trailing "- XX" state suffix before flipping to "First Last".
+    // e.g. "McCall, Amanda - VA" → "McCall, Amanda" → "Amanda McCall"
     if (csvName.includes(',')) {
-      const [last, first] = csvName.split(',').map(s => s.trim())
+      const cleanName = csvName.replace(/\s*-\s*[A-Z]{2}\s*$/, '').trim()
+      const [last, first] = cleanName.split(',').map(s => s.trim())
       const flipped = normalizeAgencyName(`${first} ${last}`)
       if (agencyByNorm.has(flipped)) return agencyByNorm.get(flipped)!
       for (const [key, id] of agencyByNorm.entries()) {
@@ -288,6 +291,55 @@ export async function POST(req: NextRequest) {
           if (Object.keys(contactUpdate).length > 0) {
             await supabase.from('customers').update(contactUpdate).eq('id', existing.id)
             customersUpdated++
+          }
+        } else if (phone) {
+          // Fallback: phone-number match — catches records entered manually or under a
+          // different agency where the name+agency lookup above came up empty.
+          const { data: phoneMatch } = await supabase
+            .from('customers')
+            .select('id, phone, email, street')
+            .eq('phone', phone)
+            .maybeSingle()
+
+          if (phoneMatch) {
+            customerId = phoneMatch.id
+
+            const contactUpdate: Record<string, unknown> = {}
+            if (!phoneMatch.email  && email)  contactUpdate.email  = email
+            if (!phoneMatch.street && street) {
+              contactUpdate.street = street
+              if (city)  contactUpdate.city  = city
+              if (state) contactUpdate.state = state
+              if (zip)   contactUpdate.zip   = zip
+            }
+            if (Object.keys(contactUpdate).length > 0) {
+              await supabase.from('customers').update(contactUpdate).eq('id', phoneMatch.id)
+              customersUpdated++
+            }
+          } else {
+            const { data: newCust, error: custErr } = await supabase
+              .from('customers')
+              .insert({
+                first_name: firstName,
+                last_name:  lastName,
+                agency_id:  agencyId,
+                phone,
+                email,
+                street,
+                city,
+                state,
+                zip,
+              })
+              .select('id')
+              .single()
+
+            if (custErr || !newCust) {
+              errors.push(`Row ${i + 2}: could not create customer ${firstName} ${lastName} — ${custErr?.message}`)
+              continue
+            }
+
+            customerId = newCust.id
+            customersCreated++
           }
         } else {
           const { data: newCust, error: custErr } = await supabase

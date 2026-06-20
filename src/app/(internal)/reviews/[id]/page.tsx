@@ -34,6 +34,7 @@ export type ReviewDetail = {
     face_amount: number | null
     death_benefit_amount: number | null
     cash_value_amount: number | null
+    cash_value_as_of_date: string | null
     cost_basis: number | null
     annual_premium: number | null
     premium_mode: string | null
@@ -85,7 +86,7 @@ export default async function ReviewPrepPage(
       service_policies (
         id, client_name, policy_number, carrier, product_type,
         issue_date, term_length, face_amount, death_benefit_amount,
-        cash_value_amount, cost_basis, annual_premium, premium_mode,
+        cash_value_amount, cash_value_as_of_date, cost_basis, annual_premium, premium_mode,
         rate_class, riders, insured_first_name, insured_last_name,
         primary_beneficiary, sa_status,
         agencies ( id, name, display_name ),

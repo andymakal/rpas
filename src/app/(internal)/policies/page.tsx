@@ -45,8 +45,8 @@ export default async function PoliciesPage({
 
   const page       = Math.max(1, parseInt(pageStr ?? '1', 10))
   const offset     = (page - 1) * PAGE_SIZE
-  const sortCol    = sort === 'issue_date' ? 'issue_date' : 'face_amount'
-  const ascending  = dir === 'asc'
+  const sortCol    = sort === 'issue_date' ? 'issue_date' : sort === 'face_amount' ? 'face_amount' : 'carrier'
+  const ascending  = sortCol === 'carrier' ? dir !== 'desc' : dir === 'asc'
   const showInactive = inactive === '1'
 
   const fields = `
@@ -64,7 +64,11 @@ export default async function PoliciesPage({
     .select(fields, { count: 'exact' })
     .eq('is_test', false)
     .order(sortCol, { ascending, nullsFirst: false })
-    .range(offset, offset + PAGE_SIZE - 1)
+
+  // Secondary sort by client name when grouping by carrier
+  if (sortCol === 'carrier') {
+    query = query.order('client_name', { ascending: true })
+  }
 
   if (q?.trim()) {
     query = query.or(`client_name.ilike.%${q.trim()}%,policy_number.ilike.%${q.trim()}%`)
@@ -81,7 +85,7 @@ export default async function PoliciesPage({
     query = query.not('coverage_status', 'in', `(${INACTIVE_STATUSES.join(',')})`)
   }
 
-  const { data, count, error } = await query
+  const { data, count, error } = await query.range(offset, offset + PAGE_SIZE - 1)
   if (error) console.error('Policies fetch error:', error)
 
   return (

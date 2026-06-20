@@ -14,7 +14,9 @@ export async function logCase(data: {
   agency_id?: string
   agent_id?: string
   lead_source: LeadSource
-  // Contact
+  // Existing customer — if provided, skips creating a new customer record
+  customer_id?: string
+  // Contact (required when customer_id is not provided)
   first_name: string
   last_name: string
   phone: string
@@ -45,27 +47,35 @@ export async function logCase(data: {
   const supabase = createAdminClient()
 
   try {
-    const { data: customer, error: custError } = await supabase
-      .from('customers')
-      .insert({
-        agency_id:        data.agency_id ?? null,
-        first_name:       data.first_name.trim(),
-        last_name:        data.last_name.trim(),
-        phone:            normalizePhone(data.phone)        ?? data.phone.trim(),
-        email:            normalizeEmail(data.email)        ?? null,
-        date_of_birth:    data.dob                        || null,
-        street:           normalizeStreet(data.street)    ?? null,
-        city:             normalizeCity(data.city)        ?? null,
-        state:            normalizeState(data.state)      ?? null,
-        zip:              data.zip?.trim()                || null,
-        spanish_speaking: data.spanish_speaking ?? false,
-      })
-      .select('id')
-      .single()
+    // Resolve customer — link to existing record or create a new one
+    let customerId: string
 
-    if (custError) {
-      console.error('Customer insert error:', custError)
-      return { success: false, error: 'Failed to create customer record.' }
+    if (data.customer_id) {
+      customerId = data.customer_id
+    } else {
+      const { data: customer, error: custError } = await supabase
+        .from('customers')
+        .insert({
+          agency_id:        data.agency_id ?? null,
+          first_name:       data.first_name.trim(),
+          last_name:        data.last_name.trim(),
+          phone:            normalizePhone(data.phone)        ?? data.phone.trim(),
+          email:            normalizeEmail(data.email)        ?? null,
+          date_of_birth:    data.dob                        || null,
+          street:           normalizeStreet(data.street)    ?? null,
+          city:             normalizeCity(data.city)        ?? null,
+          state:            normalizeState(data.state)      ?? null,
+          zip:              data.zip?.trim()                || null,
+          spanish_speaking: data.spanish_speaking ?? false,
+        })
+        .select('id')
+        .single()
+
+      if (custError) {
+        console.error('Customer insert error:', custError)
+        return { success: false, error: 'Failed to create customer record.' }
+      }
+      customerId = customer.id
     }
 
     // Build notes in the same key:value format as the portal intake form
@@ -95,7 +105,7 @@ export async function logCase(data: {
       .from('cases')
       .insert({
         agency_id:       data.agency_id ?? null,
-        customer_id:     customer.id,
+        customer_id:     customerId,
         agent_id:        data.agent_id || null,
         internal_status: initialStatus,
         lead_source:     data.lead_source,

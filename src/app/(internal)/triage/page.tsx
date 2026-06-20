@@ -44,7 +44,7 @@ export default async function TriagePage() {
       agencies ( id, name, display_name ),
       customers!customer_id ( first_name, last_name, phone, email, date_of_birth ),
       agents ( id, first_name, last_name, email ),
-      case_household_members!case_id ( id, first_name, last_name )
+      household_members:case_household_members!case_id ( id, first_name, last_name )
     `)
     .eq('internal_status', 'triage')
     .eq('is_test', false)

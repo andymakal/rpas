@@ -203,8 +203,8 @@ export function PoliciesClient({
     if (activeSa)      params.set('sa',      activeSa)
     if (activeType)    params.set('type',    activeType)
     if (activeYear)    params.set('year',    activeYear)
-    if (activeSort && activeSort !== 'face_amount') params.set('sort', activeSort)
-    if (activeDir  && activeDir  !== 'desc')        params.set('dir',  activeDir)
+    if (activeSort && activeSort !== 'carrier') params.set('sort', activeSort)
+    if (activeDir  && activeDir  !== 'asc')     params.set('dir',  activeDir)
     if (activeTobacco) params.set('tobacco', '1')
     if (showInactive)  params.set('inactive', '1')
     if (p > 1)         params.set('page', String(p))
@@ -360,6 +360,20 @@ export function PoliciesClient({
               <tr className="border-b border-slate-800 text-slate-500 text-xs">
                 <th className="text-left px-4 py-3 font-medium">Client</th>
                 <th className="text-left px-4 py-3 font-medium">Policy #</th>
+                <th className="text-left px-4 py-3 font-medium">
+                  <button
+                    onClick={() => navigate({
+                      sort: 'carrier',
+                      dir: activeSort === 'carrier' && activeDir === 'asc' ? 'desc' : 'asc',
+                    })}
+                    className="inline-flex items-center gap-1 hover:text-slate-300 transition-colors"
+                  >
+                    Carrier
+                    {activeSort === 'carrier'
+                      ? activeDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
+                      : <ChevronsUpDown className="w-3 h-3 opacity-40" />}
+                  </button>
+                </th>
                 <th className="text-left px-4 py-3 font-medium">Type</th>
                 <th className="text-left px-4 py-3 font-medium">
                   <button
@@ -431,6 +445,9 @@ export function PoliciesClient({
                     </td>
                     <td className="px-4 py-3 font-mono text-slate-300 text-xs">
                       {row.policy_number}
+                    </td>
+                    <td className="px-4 py-3 text-slate-300 text-xs truncate max-w-32">
+                      {row.carrier || '—'}
                     </td>
                     <td className="px-4 py-3">
                       <TypeBadge type={row.product_type} />

@@ -7,10 +7,11 @@ import {
   ArrowLeft, Phone, Mail, MapPin, User,
   Shield, CheckCircle, ShieldOff, FileQuestion, Send,
   AlertTriangle, ChevronRight, Search, X,
-  FolderKanban, Wrench, Link2,
+  FolderKanban, Wrench, Link2, History,
 } from 'lucide-react'
 import type {
   CustomerDetail, LinkedCase, LinkedPolicy, LinkedServiceRequest,
+  CaseStatusHistoryEntry,
 } from './page'
 import { fmtDate } from '@/lib/fmt'
 
@@ -89,6 +90,29 @@ function CaseStatusBadge({ st }: { st: LinkedCase['stage_translations'] }) {
   )
 }
 
+const STATUS_LABELS: Record<string, string> = {
+  triage:          'Triage',
+  active_referral: 'Active Referral',
+  quote_provided:  'Quote Provided',
+  app_submitted:   'App Submitted',
+  in_underwriting: 'In Underwriting',
+  placed:          'Placed',
+  not_interested:  'Not Interested',
+  lost:            'Lost',
+}
+
+function fmtStatus(s: string | null): string {
+  if (!s) return '—'
+  return STATUS_LABELS[s] ?? s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
+function statusDotColor(s: string): string {
+  if (s === 'placed')                        return 'bg-green-500 border-green-700'
+  if (s === 'not_interested' || s === 'lost') return 'bg-red-500 border-red-700'
+  if (s === 'triage')                        return 'bg-slate-600 border-slate-500'
+  return 'bg-blue-500 border-blue-700'
+}
+
 function SrStatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     open:        'bg-amber-900/40 text-amber-300',
@@ -148,11 +172,13 @@ export function CustomerCardClient({
   cases,
   policies: initialPolicies,
   serviceRequests,
+  caseHistory,
 }: {
   customer:        CustomerDetail
   cases:           LinkedCase[]
   policies:        LinkedPolicy[]
   serviceRequests: LinkedServiceRequest[]
+  caseHistory:     CaseStatusHistoryEntry[]
 }) {
   const router = useRouter()
   const [policies,    setPolicies]    = useState<LinkedPolicy[]>(initialPolicies)
@@ -493,6 +519,60 @@ export function CustomerCardClient({
             </table>
           )}
         </Section>
+
+        {/* Case History */}
+        {(caseHistory.length > 0 || cases.length > 0) && (
+          <Section
+            title="Case History"
+            icon={History}
+            count={caseHistory.length}
+          >
+            {caseHistory.length === 0 ? (
+              <div className="px-5 py-6 text-center text-slate-500 text-sm">
+                No status transitions recorded yet
+              </div>
+            ) : (
+              <div className="px-5 py-4">
+                <div className="relative">
+                  <div className="absolute left-2 top-2.5 bottom-2.5 w-px bg-slate-800" />
+                  <div className="space-y-4">
+                    {caseHistory.map(entry => {
+                      const linkedCase = cases.find(c => c.id === entry.case_id)
+                      const agencyName = linkedCase?.agencies?.display_name ?? linkedCase?.agencies?.name
+                      return (
+                        <div key={entry.id} className="relative flex gap-3.5">
+                          <div className={`relative z-10 mt-1 w-4 h-4 rounded-full border-2 shrink-0 ${statusDotColor(entry.to_status)}`} />
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs text-slate-500">{fmtDate(entry.changed_at)}</span>
+                              {agencyName && (
+                                <Link
+                                  href={`/referrals/${entry.case_id}`}
+                                  className="text-xs text-slate-500 hover:text-slate-300 underline underline-offset-2 transition-colors"
+                                >
+                                  {agencyName}
+                                </Link>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 mt-0.5 flex-wrap">
+                              {entry.from_status && (
+                                <>
+                                  <span className="text-xs text-slate-500">{fmtStatus(entry.from_status)}</span>
+                                  <span className="text-slate-600 text-xs">→</span>
+                                </>
+                              )}
+                              <span className="text-sm font-medium text-slate-200">{fmtStatus(entry.to_status)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </Section>
+        )}
 
         {/* Service requests */}
         {serviceRequests.length > 0 && (

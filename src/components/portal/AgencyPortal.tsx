@@ -25,6 +25,7 @@ export type Case = {
   face_amount: number | null
   annual_premium: number | null
   is_hot_lead: boolean
+  lead_source: string | null
   customers: { first_name: string; last_name: string } | null
   agents: { first_name: string; last_name: string } | null
   stage_translations: StageTranslation | null
@@ -222,6 +223,9 @@ function ReferralCard({ c }: { c: Case }) {
               {label}
             </span>
           </div>
+          {c.lead_source && c.lead_source !== 'agency_referral' && (
+            <p className="text-xs font-medium text-indigo-500">EFS Generated</p>
+          )}
           {lsp && <p className="text-xs text-slate-400">{lsp}</p>}
         </div>
       </div>
@@ -253,6 +257,9 @@ function PendingCard({ c }: { c: Case }) {
               {label}
             </span>
           </div>
+          {c.lead_source && c.lead_source !== 'agency_referral' && (
+            <p className="text-xs font-medium text-indigo-500">EFS Generated</p>
+          )}
           {lsp && <p className="text-xs text-slate-400">{lsp}</p>}
         </div>
       </div>
@@ -282,6 +289,9 @@ function PlacedCard({ c }: { c: Case }) {
           <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-700">
             Policy Placed
           </span>
+          {c.lead_source && c.lead_source !== 'agency_referral' && (
+            <p className="text-xs font-medium text-indigo-500">EFS Generated</p>
+          )}
           {lsp && <p className="text-xs text-slate-400">{lsp}</p>}
         </div>
       </div>
@@ -338,7 +348,10 @@ function ClosedCard({ c, agentFilter, onRewarm }: {
                 {expanded ? 'Cancel' : 'Re-Warm 🔥'}
               </button>
             </div>
-            {lsp && <p className="text-xs text-slate-400">{lsp}</p>}
+            {c.lead_source && c.lead_source !== 'agency_referral' && (
+            <p className="text-xs font-medium text-indigo-500">EFS Generated</p>
+          )}
+          {lsp && <p className="text-xs text-slate-400">{lsp}</p>}
           </div>
         </div>
       </div>
@@ -424,7 +437,10 @@ function LspReEngageCard({ c, agentFilter, onReengage }: {
             >
               {expanded ? 'Cancel' : 'Still interested?'}
             </button>
-            {lsp && <p className="text-xs text-slate-400">{lsp}</p>}
+            {c.lead_source && c.lead_source !== 'agency_referral' && (
+            <p className="text-xs font-medium text-indigo-500">EFS Generated</p>
+          )}
+          {lsp && <p className="text-xs text-slate-400">{lsp}</p>}
           </div>
         </div>
       </div>

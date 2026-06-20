@@ -23,17 +23,22 @@ export default async function NewServiceRequestPage({
 
   const supabase = createAdminClient()
 
-  const [{ data: agencies }, { data: agents }] = await Promise.all([
+  const [{ data: agenciesRaw }, { data: agents }] = await Promise.all([
     supabase
       .from('agencies')
       .select('id, name, display_name')
-      .eq('is_active', true)
-      .order('name'),
+      .eq('is_active', true),
     supabase
       .from('agents')
       .select('id, first_name, last_name, agency_id')
       .order('first_name'),
   ])
+
+  const agencies = (agenciesRaw ?? []).sort((a, b) => {
+    const nameA = ((a.display_name ?? a.name) as string).toLowerCase()
+    const nameB = ((b.display_name ?? b.name) as string).toLowerCase()
+    return nameA.localeCompare(nameB)
+  })
 
   return (
     <div className="p-8">

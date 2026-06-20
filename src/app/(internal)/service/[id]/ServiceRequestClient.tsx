@@ -42,13 +42,13 @@ const REQUEST_TYPES = [
 const CARRIERS = [
   'Corebridge', 'Everlake Assurance', 'Everlake Life',
   'Foresters', 'Gerber Life', 'John Hancock',
-  'Lincoln Benefit Life', 'Lincoln Financial', 'Protective', 'Prudential',
+  'Lincoln Benefit Life', 'Lincoln Financial', 'Pacific Life', 'Protective', 'Prudential',
   'Other',
 ]
 
 const PRODUCT_TYPES = [
-  'Term Life', 'Whole Life', 'Universal Life', 'Variable Universal Life',
-  'Indexed Universal Life', 'Final Expense', 'Other',
+  'Final Expense', 'Indexed Universal Life', 'Term Life',
+  'Universal Life', 'Variable Universal Life', 'Whole Life', 'Other',
 ]
 
 const PREMIUM_MODES = ['Annual', 'Semi-Annual', 'Quarterly', 'Monthly', 'EFT Monthly']

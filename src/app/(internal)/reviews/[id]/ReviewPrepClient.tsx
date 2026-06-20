@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ChevronLeft, ChevronRight, Copy, Check, CheckCircle2, Phone, AlertTriangle,
-  Info, TrendingUp, AlertCircle, Save, ClipboardCheck, User,
+  Info, TrendingUp, AlertCircle, Save, ClipboardCheck, User, Pencil,
 } from 'lucide-react'
 import {
   generateCallScript,
@@ -146,13 +146,85 @@ export function ReviewPrepClient({
   const [stillUsing,     setStillUsing]     = useState<boolean | null>(review.still_using_tobacco ?? null)
   const [tobaccoProduct, setTobaccoProduct] = useState(review.tobacco_product ?? '')
   const [beneConfirmed,  setBeneConfirmed]  = useState(review.primary_beneficiary_confirmed ?? '')
-  const [prepNotes,      setPrepNotes]      = useState(review.prep_notes ?? '')
-  const [saving,         setSaving]         = useState(false)
-  const [saved,          setSaved]          = useState(false)
-  const [error,          setError]          = useState<string | null>(null)
+  const [prepNotes,         setPrepNotes]         = useState(review.prep_notes ?? '')
+  const [callCompletedAt,   setCallCompletedAt]   = useState(review.call_completed_at ? review.call_completed_at.slice(0, 10) : '')
+  const [editingRecordDate, setEditingRecordDate] = useState(false)
+  const [saving,            setSaving]            = useState(false)
+  const [saved,             setSaved]             = useState(false)
+  const [error,             setError]             = useState<string | null>(null)
 
   // ── Script copy state ───────────────────────────────────────────────────
   const [copied, setCopied]   = useState(false)
+
+  // ── Policy snapshot inline edit ──────────────────────────────────────────
+  const [policyEditing, setPolicyEditing] = useState(false)
+  const [policyEdit,    setPolicyEdit]    = useState({
+    face_amount:           policy?.face_amount          != null ? String(policy.face_amount)          : '',
+    death_benefit_amount:  policy?.death_benefit_amount != null ? String(policy.death_benefit_amount) : '',
+    cash_value_amount:     policy?.cash_value_amount    != null ? String(policy.cash_value_amount)    : '',
+    cash_value_as_of_date: policy?.cash_value_as_of_date ?? '',
+    cost_basis:            policy?.cost_basis            != null ? String(policy.cost_basis)           : '',
+    annual_premium:        policy?.annual_premium        != null ? String(policy.annual_premium)       : '',
+    premium_mode:          policy?.premium_mode          ?? '',
+    rate_class:            policy?.rate_class            ?? '',
+    riders:                policy?.riders               ?? '',
+    primary_beneficiary:   policy?.primary_beneficiary  ?? '',
+  })
+  const [policySaving, setPolicySaving] = useState(false)
+  const [policySaved,  setPolicySaved]  = useState(false)
+  const [policyError,  setPolicyError]  = useState<string | null>(null)
+
+  function pef(k: keyof typeof policyEdit) {
+    return (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+      setPolicyEdit(prev => ({ ...prev, [k]: e.target.value }))
+  }
+
+  async function handleSavePolicyEdit() {
+    if (!policy?.id) return
+    const num = (v: string) => v.trim() === '' ? null : parseFloat(v.replace(/[^0-9.]/g, ''))
+    setPolicySaving(true); setPolicyError(null)
+    try {
+      const res = await fetch(`/api/service-policies/${policy.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          face_amount:           num(policyEdit.face_amount),
+          death_benefit_amount:  num(policyEdit.death_benefit_amount),
+          cash_value_amount:     num(policyEdit.cash_value_amount),
+          cash_value_as_of_date: policyEdit.cash_value_as_of_date || null,
+          cost_basis:            num(policyEdit.cost_basis),
+          annual_premium:        num(policyEdit.annual_premium),
+          premium_mode:          policyEdit.premium_mode          || null,
+          rate_class:            policyEdit.rate_class.trim()     || null,
+          riders:                policyEdit.riders.trim()         || null,
+          primary_beneficiary:   policyEdit.primary_beneficiary.trim() || null,
+        }),
+      })
+      if (!res.ok) { const j = await res.json(); setPolicyError(j.error ?? 'Save failed'); return }
+      // Patch local review state so snapshot reflects saved values immediately
+      setReview(prev => prev.service_policies ? {
+        ...prev,
+        service_policies: {
+          ...prev.service_policies,
+          face_amount:           num(policyEdit.face_amount),
+          death_benefit_amount:  num(policyEdit.death_benefit_amount),
+          cash_value_amount:     num(policyEdit.cash_value_amount),
+          cash_value_as_of_date: policyEdit.cash_value_as_of_date || null,
+          cost_basis:            num(policyEdit.cost_basis),
+          annual_premium:        num(policyEdit.annual_premium),
+          premium_mode:          policyEdit.premium_mode          || null,
+          rate_class:            policyEdit.rate_class.trim()     || null,
+          riders:                policyEdit.riders.trim()         || null,
+          primary_beneficiary:   policyEdit.primary_beneficiary.trim() || null,
+        },
+      } : prev)
+      setPolicySaved(true)
+      setPolicyEditing(false)
+      setTimeout(() => setPolicySaved(false), 2500)
+      router.refresh()
+    } catch { setPolicyError('Network error') }
+    finally { setPolicySaving(false) }
+  }
 
   // ── Build prep data ─────────────────────────────────────────────────────
   const policyForPrep: PolicyForPrep | null = policy ? {
@@ -208,6 +280,7 @@ export function ReviewPrepClient({
           tobacco_product:              tobaccoProduct.trim() || null,
           primary_beneficiary_confirmed: beneConfirmed.trim() || null,
           prep_notes:                   prepNotes.trim() || null,
+          call_completed_at:            callCompletedAt || null,
         }),
       })
       const json = await res.json()
@@ -366,41 +439,142 @@ export function ReviewPrepClient({
 
           {/* Policy Snapshot */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-            <h2 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
-              <User className="w-4 h-4 text-slate-500" />
-              Policy Snapshot
-            </h2>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
-              <Row label="Client"       value={policy?.client_name ?? '—'} />
-              <Row label="Policy #"     value={policy?.policy_number ?? '—'} mono />
-              <Row label="Carrier"      value={policy?.carrier ?? '—'} />
-              <Row label="Product Type" value={policy?.product_type ?? '—'} />
-              <Row label="Issue Date"   value={fmt(policy?.issue_date ?? null)} />
-              {policy?.term_length && <Row label="Term"        value={policy.term_length} />}
-              <Row label="Rate Class"   value={policy?.rate_class ?? '—'} />
-              <Row label="Face Amount"  value={fmtCurrency(policy?.face_amount)} />
-              {policy?.death_benefit_amount != null && policy.death_benefit_amount !== policy.face_amount && (
-                <Row label="Death Benefit" value={fmtCurrency(policy.death_benefit_amount)} />
-              )}
-              {policy?.cash_value_amount != null && (
-                <Row label="Cash Value" value={fmtCurrency(policy.cash_value_amount)} />
-              )}
-              {policy?.cost_basis != null && (
-                <Row label="Cost Basis" value={fmtCurrency(policy.cost_basis)} />
-              )}
-              <Row label="Annual Premium" value={fmtCurrency(policy?.annual_premium)} />
-              {policy?.premium_mode && <Row label="Mode" value={policy.premium_mode} />}
-              {policy?.riders && <Row label="Riders" value={policy.riders} span />}
-              {policy?.primary_beneficiary && (
-                <Row label="Primary Bene (file)" value={policy.primary_beneficiary} span />
-              )}
-              {policy?.agencies && (
-                <Row label="Agency" value={policy.agencies.display_name ?? policy.agencies.name} />
-              )}
-              {policy?.agents && (
-                <Row label="LSP" value={`${policy.agents.first_name} ${policy.agents.last_name}`} />
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+                <User className="w-4 h-4 text-slate-500" />
+                Policy Snapshot
+              </h2>
+              {policy != null && (
+                policyEditing ? (
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => { setPolicyEditing(false); setPolicyError(null) }}
+                      className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSavePolicyEdit}
+                      disabled={policySaving}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400 hover:text-emerald-300 disabled:opacity-50 transition-colors"
+                    >
+                      <Save className="w-3 h-3" />
+                      {policySaving ? 'Saving…' : 'Save'}
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setPolicyEditing(true)}
+                    className="inline-flex items-center gap-1 text-xs rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-slate-400 hover:text-slate-200 hover:border-slate-600 transition-colors"
+                  >
+                    <Pencil className="w-3 h-3" />
+                    Edit
+                  </button>
+                )
               )}
             </div>
+
+            {policyEditing ? (
+              <div className="space-y-3">
+                {/* Structural fields — read-only in edit mode */}
+                <div className="grid grid-cols-2 gap-x-6 gap-y-1.5 pb-3 border-b border-slate-800">
+                  <Row label="Client"       value={policy?.client_name ?? '—'} />
+                  <Row label="Policy #"     value={policy?.policy_number ?? '—'} mono />
+                  <Row label="Carrier"      value={policy?.carrier ?? '—'} />
+                  <Row label="Product Type" value={policy?.product_type ?? '—'} />
+                  <Row label="Issue Date"   value={fmt(policy?.issue_date ?? null)} />
+                  {policy?.term_length && <Row label="Term" value={policy.term_length} />}
+                </div>
+
+                {/* Editable financial / detail fields */}
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { label: 'Face Amount ($)',        key: 'face_amount'          },
+                    { label: 'Death Benefit ($)',      key: 'death_benefit_amount' },
+                    { label: 'Cash / Surrender Value ($)', key: 'cash_value_amount' },
+                    { label: 'Cost Basis ($)',         key: 'cost_basis'           },
+                    { label: 'Annual Premium ($)',     key: 'annual_premium'       },
+                  ].map(({ label, key }) => (
+                    <div key={key}>
+                      <label className="block text-xs text-slate-500 mb-1">{label}</label>
+                      <input
+                        type="text" inputMode="decimal"
+                        value={policyEdit[key as keyof typeof policyEdit]}
+                        onChange={pef(key as keyof typeof policyEdit)}
+                        placeholder="—"
+                        className={inputCls}
+                      />
+                    </div>
+                  ))}
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">CSV As of Date</label>
+                    <input type="date" value={policyEdit.cash_value_as_of_date}
+                      onChange={pef('cash_value_as_of_date')} className={inputCls} />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Premium Mode</label>
+                    <select value={policyEdit.premium_mode} onChange={pef('premium_mode')} className={inputCls}>
+                      <option value="">—</option>
+                      {['Annual','Semi-Annual','Quarterly','Monthly','EFT Monthly'].map(m => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Rate Class</label>
+                    <input type="text" value={policyEdit.rate_class}
+                      onChange={pef('rate_class')} placeholder="e.g. Preferred Plus" className={inputCls} />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Riders</label>
+                  <input type="text" value={policyEdit.riders}
+                    onChange={pef('riders')} placeholder="e.g. WAIVER, CLTR" className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Primary Beneficiary (on file)</label>
+                  <input type="text" value={policyEdit.primary_beneficiary}
+                    onChange={pef('primary_beneficiary')} placeholder="e.g. Jane Doe (spouse)" className={inputCls} />
+                </div>
+                {policyError  && <p className="text-xs text-red-400">{policyError}</p>}
+                {policySaved  && <p className="text-xs text-emerald-400">Saved ✓</p>}
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-x-6 gap-y-1.5">
+                <Row label="Client"       value={policy?.client_name ?? '—'} />
+                <Row label="Policy #"     value={policy?.policy_number ?? '—'} mono />
+                <Row label="Carrier"      value={policy?.carrier ?? '—'} />
+                <Row label="Product Type" value={policy?.product_type ?? '—'} />
+                <Row label="Issue Date"   value={fmt(policy?.issue_date ?? null)} />
+                {policy?.term_length && <Row label="Term"        value={policy.term_length} />}
+                <Row label="Rate Class"   value={policy?.rate_class ?? '—'} />
+                <Row label="Face Amount"  value={fmtCurrency(policy?.face_amount)} />
+                {policy?.death_benefit_amount != null && policy.death_benefit_amount !== policy.face_amount && (
+                  <Row label="Death Benefit" value={fmtCurrency(policy.death_benefit_amount)} />
+                )}
+                {policy?.cash_value_amount != null && (
+                  <Row
+                    label={policy.cash_value_as_of_date ? `Cash Value (as of ${fmt(policy.cash_value_as_of_date)})` : 'Cash Value'}
+                    value={fmtCurrency(policy.cash_value_amount)}
+                  />
+                )}
+                {policy?.cost_basis != null && (
+                  <Row label="Cost Basis" value={fmtCurrency(policy.cost_basis)} />
+                )}
+                <Row label="Annual Premium" value={fmtCurrency(policy?.annual_premium)} />
+                {policy?.premium_mode && <Row label="Mode" value={policy.premium_mode} />}
+                {policy?.riders && <Row label="Riders" value={policy.riders} span />}
+                {policy?.primary_beneficiary && (
+                  <Row label="Primary Bene (file)" value={policy.primary_beneficiary} span />
+                )}
+                {policy?.agencies && (
+                  <Row label="Agency" value={policy.agencies.display_name ?? policy.agencies.name} />
+                )}
+                {policy?.agents && (
+                  <Row label="LSP" value={`${policy.agents.first_name} ${policy.agents.last_name}`} />
+                )}
+              </div>
+            )}
           </div>
         </div>
 
@@ -636,12 +810,41 @@ export function ReviewPrepClient({
 
           {/* Record info */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
-            <h2 className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-3">Record Info</h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-xs font-medium text-slate-500 uppercase tracking-wide">Record Info</h2>
+              {!editingRecordDate ? (
+                <button
+                  onClick={() => setEditingRecordDate(true)}
+                  className="inline-flex items-center gap-1 text-xs rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-slate-400 hover:text-slate-200 hover:border-slate-600 transition-colors"
+                >
+                  <Pencil className="w-3 h-3" /> Edit
+                </button>
+              ) : (
+                <button
+                  onClick={() => setEditingRecordDate(false)}
+                  className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  Done
+                </button>
+              )}
+            </div>
             <div className="space-y-1.5">
-              <Row label="Review #"  value={review.review_number ?? '—'} mono />
-              <Row label="Queued"    value={fmt(review.created_at)} />
-              {review.call_completed_at && (
-                <Row label="Completed" value={fmt(review.call_completed_at)} />
+              <Row label="Review #" value={review.review_number ?? '—'} mono />
+              <Row label="Queued"   value={fmt(review.created_at)} />
+              {editingRecordDate ? (
+                <div className="flex items-center justify-between gap-3 text-sm py-0.5">
+                  <span className="text-slate-500 shrink-0">Completed</span>
+                  <input
+                    type="date"
+                    value={callCompletedAt}
+                    onChange={e => setCallCompletedAt(e.target.value)}
+                    className="bg-slate-800 border border-slate-600 text-slate-100 text-xs rounded-md px-2 py-1 focus:outline-none focus:border-slate-500"
+                  />
+                </div>
+              ) : (
+                callCompletedAt
+                  ? <Row label="Completed" value={fmt(callCompletedAt)} />
+                  : <p className="text-xs text-slate-600 italic">No completion date set</p>
               )}
             </div>
           </div>

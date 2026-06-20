@@ -151,6 +151,63 @@ export const TEMPLATES = {
   },
 
   /**
+   * #5a — e-PHI Needed
+   * Trigger: app_submitted or in_underwriting — carrier needs health info electronically
+   * Sender: Nikki
+   */
+  ephi_needed: {
+    subject: 'Action Needed — Health Info Request from {carrier}',
+    body: [
+      'Hi {first_name},',
+      '',
+      'As part of your application with {carrier}, they will be reaching out electronically to collect some health information. Please watch for an email or text from them and complete it as soon as possible — a quick response helps keep your application on track.',
+      '',
+      'If you have any questions in the meantime, don\'t hesitate to reach out.',
+      '',
+      '{sender_name}',
+      'Allstate Financial Services',
+    ].join('\n'),
+  },
+
+  /**
+   * #5b — E-Interview
+   * Trigger: app_submitted — carrier will email a health questionnaire
+   * Sender: Nikki
+   */
+  einterview: {
+    subject: 'Your {carrier} Application — Electronic Interview',
+    body: [
+      'Hi {first_name},',
+      '',
+      '{carrier} will be sending you an email with a brief health questionnaire to complete electronically as part of your application. Please watch for it and respond as soon as possible.',
+      '',
+      'Let us know if you have any questions!',
+      '',
+      '{sender_name}',
+      'Allstate Financial Services',
+    ].join('\n'),
+  },
+
+  /**
+   * #5c — Tele-Interview
+   * Trigger: app_submitted — carrier will call for a phone interview
+   * Sender: Nikki
+   */
+  tele_interview: {
+    subject: 'Your {carrier} Application — Telephone Interview',
+    body: [
+      'Hi {first_name},',
+      '',
+      '{carrier} will be calling you for a brief telephone interview as part of your application. The call typically takes about 15–20 minutes and covers basic health history. Please be on the lookout for their call and pick up when they reach out — it\'s an important step in getting your application completed.',
+      '',
+      'Let us know if you have any questions!',
+      '',
+      '{sender_name}',
+      'Allstate Financial Services',
+    ].join('\n'),
+  },
+
+  /**
    * #9 — Annual Review
    * Trigger: daily cron finds cases where placed_at ≈ 1 year ago
    * Sender: always Andy

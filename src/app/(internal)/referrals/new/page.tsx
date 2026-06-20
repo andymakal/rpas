@@ -8,11 +8,28 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import Link from 'next/link'
-import { ArrowLeft, Loader2, Flame } from 'lucide-react'
+import { ArrowLeft, Loader2, Flame, AlertTriangle, CheckCircle, X, UserCheck } from 'lucide-react'
 import { US_STATES } from '@/lib/constants/referral-options'
 
 type Agency = { id: string; name: string; display_name: string | null }
 type Agent  = { id: string; agency_id: string; first_name: string; last_name: string }
+
+type CustomerMatch = {
+  id:            string
+  first_name:    string
+  last_name:     string
+  phone:         string | null
+  date_of_birth: string | null
+  city:          string | null
+  state:         string | null
+  case_count:    number
+}
+
+function maskDob(iso: string | null): string {
+  if (!iso) return '—'
+  const d = iso.includes('T') ? new Date(iso) : new Date(iso + 'T12:00:00')
+  return `${String(d.getUTCMonth() + 1).padStart(2, '0')}/xx/${d.getUTCFullYear()}`
+}
 
 const supabase = createClient()
 
@@ -106,6 +123,12 @@ export default function NewReferralPage() {
   // Notes
   const [notes, setNotes] = useState('')
 
+  // Customer dedup search
+  const [customerMatches,   setCustomerMatches]   = useState<CustomerMatch[]>([])
+  const [searchingCustomer, setSearchingCustomer] = useState(false)
+  const [showMatchPanel,    setShowMatchPanel]    = useState(false)
+  const [linkedCustomer,    setLinkedCustomer]    = useState<CustomerMatch | null>(null)
+
   const [submitting, setSubmitting] = useState(false)
   const [error,      setError]      = useState<string | null>(null)
 
@@ -150,6 +173,47 @@ export default function NewReferralPage() {
     loadAgents()
   }, [agencyId])
 
+  // Search for existing customers when first+last name are both filled
+  useEffect(() => {
+    if (linkedCustomer) return
+    const name = `${firstName.trim()} ${lastName.trim()}`.trim()
+    if (firstName.trim().length < 2 || lastName.trim().length < 2) {
+      setCustomerMatches([]); setShowMatchPanel(false); return
+    }
+    const t = setTimeout(async () => {
+      setSearchingCustomer(true)
+      try {
+        const res  = await fetch(`/api/customers/search?dedup=true&q=${encodeURIComponent(name)}`)
+        const json = await res.json()
+        const matches: CustomerMatch[] = json.data ?? []
+        setCustomerMatches(matches)
+        setShowMatchPanel(matches.length > 0)
+      } catch { /* silent */ } finally {
+        setSearchingCustomer(false)
+      }
+    }, 400)
+    return () => clearTimeout(t)
+  }, [firstName, lastName, linkedCustomer])
+
+  function handleLinkCustomer(match: CustomerMatch) {
+    setLinkedCustomer(match)
+    setShowMatchPanel(false)
+    setCustomerMatches([])
+    // Pre-fill phone so the form displays it (field is hidden when linked, no validation needed)
+    if (match.phone) setPhone(match.phone)
+  }
+
+  function handleUnlinkCustomer() {
+    setLinkedCustomer(null)
+    setPhone('')
+    setEmail('')
+    setDob('')
+    setStreet('')
+    setCity('')
+    setState('')
+    setZip('')
+  }
+
   function handleLeadSourceChange(source: LeadSource) {
     setLeadSource(source)
     if (source !== 'agency_referral') {
@@ -193,6 +257,7 @@ export default function NewReferralPage() {
       agency_id:     needsAgency ? agencyId : undefined,
       agent_id:      resolvedAgentId,
       lead_source:   leadSource,
+      customer_id:   linkedCustomer?.id,
       first_name:    firstName.trim(),
       last_name:     lastName.trim(),
       phone:         phone.trim(),
@@ -366,59 +431,146 @@ export default function NewReferralPage() {
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
             <h2 className="text-white text-sm font-medium">Contact Information</h2>
 
+            {/* Name — always shown; triggers duplicate search */}
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <Label className="text-slate-300 text-sm">First Name *</Label>
-                <Input required value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="Jane" className={inputCls} />
+                <Input
+                  required
+                  value={firstName}
+                  onChange={e => { setFirstName(e.target.value); setLinkedCustomer(null) }}
+                  placeholder="Jane"
+                  className={inputCls}
+                />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-slate-300 text-sm">Last Name *</Label>
-                <Input required value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Smith" className={inputCls} />
+                <div className="relative">
+                  <Input
+                    required
+                    value={lastName}
+                    onChange={e => { setLastName(e.target.value); setLinkedCustomer(null) }}
+                    placeholder="Smith"
+                    className={inputCls}
+                  />
+                  {searchingCustomer && (
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs animate-pulse">searching…</span>
+                  )}
+                </div>
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label className="text-slate-300 text-sm">Date of Birth *</Label>
-                <Input required type="date" value={dob} onChange={e => setDob(e.target.value)} className={inputCls} />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-slate-300 text-sm">Phone *</Label>
-                <Input required type="tel" value={phone} onChange={e => setPhone(formatPhone(e.target.value))} placeholder="(570) 555-0100" className={inputCls} />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-slate-300 text-sm">
-                Email <span className="text-slate-500 font-normal">— optional</span>
-              </Label>
-              <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@email.com" className={inputCls} />
-            </div>
-
-            <div className="space-y-1.5">
-              <Label className="text-slate-300 text-sm">Street Address *</Label>
-              <Input required value={street} onChange={e => setStreet(e.target.value)} placeholder="123 Main St" className={inputCls} />
-            </div>
-
-            <div className="grid grid-cols-6 gap-3">
-              <div className="col-span-3 space-y-1.5">
-                <Label className="text-slate-300 text-sm">City *</Label>
-                <Input required value={city} onChange={e => setCity(e.target.value)} placeholder="Scranton" className={inputCls} />
-              </div>
-              <div className="col-span-2 space-y-1.5">
-                <Label className="text-slate-300 text-sm">State *</Label>
-                <select required value={state} onChange={e => setState(e.target.value)} className={selectCls}>
-                  <option value="">—</option>
-                  {US_STATES.map(s => (
-                    <option key={s.value} value={s.value}>{s.value}</option>
+            {/* Possible match panel */}
+            {showMatchPanel && !linkedCustomer && (
+              <div className="bg-amber-950/30 border border-amber-800/60 rounded-xl p-4 space-y-3">
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <p className="text-sm font-medium text-amber-300">Possible existing record{customerMatches.length > 1 ? 's' : ''} found</p>
+                </div>
+                <div className="space-y-2">
+                  {customerMatches.map(m => (
+                    <div key={m.id} className="flex items-center justify-between gap-3 bg-amber-950/40 rounded-lg px-3 py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-white">{m.first_name} {m.last_name}</p>
+                        <p className="text-xs text-slate-400 mt-0.5">
+                          DOB {maskDob(m.date_of_birth)}
+                          {m.phone && <> · {m.phone}</>}
+                          {(m.city || m.state) && <> · {[m.city, m.state].filter(Boolean).join(', ')}</>}
+                          {m.case_count > 0 && <> · {m.case_count} previous case{m.case_count !== 1 ? 's' : ''}</>}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleLinkCustomer(m)}
+                        className="shrink-0 text-xs bg-amber-700 hover:bg-amber-600 text-white px-3 py-1.5 rounded-md font-medium transition-colors"
+                      >
+                        Use this record
+                      </button>
+                    </div>
                   ))}
-                </select>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowMatchPanel(false)}
+                  className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                >
+                  None of these — this is a new person
+                </button>
               </div>
-              <div className="col-span-1 space-y-1.5">
-                <Label className="text-slate-300 text-sm">ZIP *</Label>
-                <Input required value={zip} onChange={e => setZip(e.target.value)} placeholder="18503" className={inputCls} />
+            )}
+
+            {/* Linked customer confirmation */}
+            {linkedCustomer && (
+              <div className="bg-green-950/30 border border-green-800/60 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <UserCheck className="w-4 h-4 text-green-400 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm text-green-300 font-medium">
+                      Linking to {linkedCustomer.first_name} {linkedCustomer.last_name}&apos;s existing record
+                    </p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      New case will be added to their history · to update contact info, edit their Customer Card after saving
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleUnlinkCustomer}
+                  className="shrink-0 text-slate-400 hover:text-slate-200 transition-colors"
+                  title="Unlink — create a new customer record instead"
+                >
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-            </div>
+            )}
+
+            {/* Rest of contact info — hidden when linking to existing customer */}
+            {!linkedCustomer && (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <Label className="text-slate-300 text-sm">Date of Birth *</Label>
+                    <Input required type="date" value={dob} onChange={e => setDob(e.target.value)} className={inputCls} />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-slate-300 text-sm">Phone *</Label>
+                    <Input required type="tel" value={phone} onChange={e => setPhone(formatPhone(e.target.value))} placeholder="(570) 555-0100" className={inputCls} />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300 text-sm">
+                    Email <span className="text-slate-500 font-normal">— optional</span>
+                  </Label>
+                  <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="jane@email.com" className={inputCls} />
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300 text-sm">Street Address *</Label>
+                  <Input required value={street} onChange={e => setStreet(e.target.value)} placeholder="123 Main St" className={inputCls} />
+                </div>
+
+                <div className="grid grid-cols-6 gap-3">
+                  <div className="col-span-3 space-y-1.5">
+                    <Label className="text-slate-300 text-sm">City *</Label>
+                    <Input required value={city} onChange={e => setCity(e.target.value)} placeholder="Scranton" className={inputCls} />
+                  </div>
+                  <div className="col-span-2 space-y-1.5">
+                    <Label className="text-slate-300 text-sm">State *</Label>
+                    <select required value={state} onChange={e => setState(e.target.value)} className={selectCls}>
+                      <option value="">—</option>
+                      {US_STATES.map(s => (
+                        <option key={s.value} value={s.value}>{s.value}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="col-span-1 space-y-1.5">
+                    <Label className="text-slate-300 text-sm">ZIP *</Label>
+                    <Input required value={zip} onChange={e => setZip(e.target.value)} placeholder="18503" className={inputCls} />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
 
           {/* Contact Preference */}

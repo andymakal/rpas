@@ -14,18 +14,19 @@ const CARRIERS = [
   'John Hancock',
   'Lincoln Benefit Life',
   'Lincoln Financial',
+  'Pacific Life',
   'Protective',
   'Prudential',
   'Other',
 ]
 
 const PRODUCT_TYPES = [
+  'Final Expense',
+  'Indexed Universal Life',
   'Term Life',
-  'Whole Life',
   'Universal Life',
   'Variable Universal Life',
-  'Indexed Universal Life',
-  'Final Expense',
+  'Whole Life',
   'Other',
 ]
 
