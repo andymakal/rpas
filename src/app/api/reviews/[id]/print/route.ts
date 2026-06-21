@@ -53,7 +53,7 @@ function toTitle(s: string): string {
 
 function pdfTitle(
   policy: { client_name: string; insured_first_name: string | null; insured_last_name: string | null; product_type: string | null; policy_number: string },
-  year: number
+  date: Date
 ): string {
   let name: string
   if (policy.insured_last_name && policy.insured_first_name) {
@@ -65,7 +65,9 @@ function pdfTitle(
       : toTitle(policy.client_name)
   }
   const product = policy.product_type ?? 'Life'
-  return `${name} - ${year} Annual ${product} Policy Review ${policy.policy_number}`
+  const mm = String(date.getMonth() + 1).padStart(2, '0')
+  const yy = String(date.getFullYear()).slice(-2)
+  return `${name} - Annual ${product} Policy Review ${mm}${yy} ${policy.policy_number}`
 }
 
 // ── Route Handler — returns raw HTML (no Next.js layout wrapping) ─────────────
@@ -106,9 +108,9 @@ export async function GET(
     return new Response('Policy not found', { status: 404 })
   }
 
-  const reviewYear   = review.call_completed_at
-    ? new Date(review.call_completed_at).getFullYear()
-    : new Date().getFullYear()
+  const reviewDateObj = review.call_completed_at
+    ? new Date(review.call_completed_at)
+    : new Date()
   const reviewDate   = review.call_completed_at
     ? fmtDate(review.call_completed_at)
     : new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
@@ -209,7 +211,7 @@ export async function GET(
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>${e(pdfTitle(policy, reviewYear))}</title>
+  <title>${e(pdfTitle(policy, reviewDateObj))}</title>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Segoe UI',Arial,sans-serif;font-size:13px;color:#222;background:#fff;padding:32px 40px;max-width:860px;margin:0 auto}
