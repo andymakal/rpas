@@ -2,7 +2,7 @@
 
 import { useState, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { Users, Search, Link2, Unlink, ExternalLink, X, Loader2 } from 'lucide-react'
+import { Users, Search, Link2, Unlink, ExternalLink, X, Loader2, UserPlus } from 'lucide-react'
 
 export type HouseholdMember = {
   id: string
@@ -66,6 +66,11 @@ export function HouseholdCard({
   const [linking,      setLinking]      = useState<string | null>(null)   // customer id being linked
   const [unlinking,    setUnlinking]    = useState<string | null>(null)   // customer id being unlinked
   const [error,        setError]        = useState<string | null>(null)
+  const [creating,     setCreating]     = useState(false)
+  const [createLoading, setCreateLoading] = useState(false)
+  const [newFirst,     setNewFirst]     = useState('')
+  const [newLast,      setNewLast]      = useState('')
+  const [newPhone,     setNewPhone]     = useState('')
 
   const doSearch = useCallback(async (q: string) => {
     if (q.length < 2) { setSearchResults([]); return }
@@ -132,6 +137,49 @@ export function HouseholdCard({
     }
   }
 
+  async function handleCreate() {
+    if (!newFirst.trim() || !newLast.trim()) return
+    setCreateLoading(true); setError(null)
+    try {
+      const res = await fetch('/api/customer-groups/create-and-link', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          first_name:           newFirst.trim(),
+          last_name:            newLast.trim(),
+          phone:                newPhone.trim() || undefined,
+          agency_id:            agencyId,
+          existing_customer_id: currentCustomerId,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setError(json.error ?? 'Failed to create'); return }
+
+      const { new_customer_id, case_id, customer_group_id } = json.data
+      setHouseholdId(customer_group_id)
+      setMembers(prev => [...prev, {
+        id:                new_customer_id,
+        first_name:        newFirst.trim(),
+        last_name:         newLast.trim(),
+        phone:             newPhone.trim() || null,
+        customer_group_id: customer_group_id,
+        latest_case: {
+          id:              case_id,
+          internal_status: 'triage',
+          agency_label:    'Triage',
+          is_won:          false,
+          is_lost:         false,
+          is_referral:     false,
+        },
+      }])
+      setCreating(false)
+      setNewFirst(''); setNewLast(''); setNewPhone('')
+      router.refresh()
+    } finally {
+      setCreateLoading(false)
+    }
+  }
+
   async function handleUnlink(targetCustomerId: string, memberHouseholdId: string) {
     setUnlinking(targetCustomerId); setError(null)
     try {
@@ -159,13 +207,21 @@ export function HouseholdCard({
         <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
           <Users className="w-3.5 h-3.5" /> Household
         </h2>
-        {!searching && (
-          <button
-            onClick={() => { setSearching(true); setError(null) }}
-            className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
-          >
-            <Link2 className="w-3 h-3" /> Link member
-          </button>
+        {!searching && !creating && (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => { setCreating(true); setError(null) }}
+              className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              <UserPlus className="w-3 h-3" /> New member
+            </button>
+            <button
+              onClick={() => { setSearching(true); setError(null) }}
+              className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              <Link2 className="w-3 h-3" /> Link member
+            </button>
+          </div>
         )}
       </div>
 
@@ -309,8 +365,74 @@ export function HouseholdCard({
           )}
 
           {!searchLoading && searchQ.length >= 2 && searchResults.length === 0 && (
-            <p className="text-xs text-slate-500">No customers found matching &quot;{searchQ}&quot;</p>
+            <div className="space-y-2">
+              <p className="text-xs text-slate-500">No customers found matching &quot;{searchQ}&quot;</p>
+              <button
+                onClick={() => {
+                  setSearching(false); setSearchQ(''); setSearchResults([])
+                  setNewLast(searchQ.trim()); setCreating(true); setError(null)
+                }}
+                className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+              >
+                <UserPlus className="w-3 h-3" /> Create a new customer record instead
+              </button>
+            </div>
           )}
+        </div>
+      )}
+
+      {/* Create new member panel */}
+      {creating && (
+        <div className="space-y-3 pt-1">
+          <p className="text-xs text-slate-500">Creates a new customer record and links them to this household. A triage case will open for them automatically.</p>
+          <div className="grid grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">First name *</label>
+              <input
+                autoFocus
+                type="text"
+                value={newFirst}
+                onChange={e => setNewFirst(e.target.value)}
+                placeholder="First"
+                className="w-full bg-slate-800 border border-slate-600 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">Last name *</label>
+              <input
+                type="text"
+                value={newLast}
+                onChange={e => setNewLast(e.target.value)}
+                placeholder="Last"
+                className="w-full bg-slate-800 border border-slate-600 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Phone</label>
+            <input
+              type="tel"
+              value={newPhone}
+              onChange={e => setNewPhone(e.target.value)}
+              placeholder="(555) 000-0000"
+              className="w-full bg-slate-800 border border-slate-600 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleCreate}
+              disabled={createLoading || !newFirst.trim() || !newLast.trim()}
+              className="flex-1 py-2 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-500 text-white disabled:opacity-50 transition-colors"
+            >
+              {createLoading ? 'Creating…' : 'Create & link'}
+            </button>
+            <button
+              onClick={() => { setCreating(false); setNewFirst(''); setNewLast(''); setNewPhone('') }}
+              className="py-2 px-3 rounded-lg text-xs text-slate-400 hover:text-slate-200 border border-slate-700 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
