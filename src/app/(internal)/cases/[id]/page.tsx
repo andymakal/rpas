@@ -273,13 +273,19 @@ export default async function CaseDetailPage({
     .select('id, first_name, last_name, email')
     .order('first_name')
 
+  const sortedProducts = (products ?? []).sort((a, b) => {
+    const aKey = (a.carriers?.short_name ? `${a.carriers.short_name} ${a.name}` : `zzz ${a.name}`).toLowerCase()
+    const bKey = (b.carriers?.short_name ? `${b.carriers.short_name} ${b.name}` : `zzz ${b.name}`).toLowerCase()
+    return aKey.localeCompare(bKey)
+  })
+
   return (
     <CaseEditClient
       caseData={cd}
       stages={(stages as unknown as StageLookup[]) ?? []}
       agencies={(agencies as unknown as AgencyLookup[]) ?? []}
       agentsList={(agentsList as unknown as AgentOption[]) ?? []}
-      products={(products as unknown as ProductLookup[]) ?? []}
+      products={(sortedProducts as unknown as ProductLookup[]) ?? []}
       rateClasses={(rateClasses as unknown as RateClassLookup[]) ?? []}
       premiumModes={(premiumModes as unknown as PremiumModeLookup[]) ?? []}
       lostReasons={(lostReasons as unknown as LostReasonLookup[]) ?? []}
