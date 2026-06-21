@@ -273,7 +273,7 @@ export default async function CaseDetailPage({
     .select('id, first_name, last_name, email')
     .order('first_name')
 
-  const sortedProducts = (products ?? []).sort((a, b) => {
+  const sortedProducts = ((products ?? []) as unknown as ProductLookup[]).sort((a, b) => {
     const aKey = (a.carriers?.short_name ? `${a.carriers.short_name} ${a.name}` : `zzz ${a.name}`).toLowerCase()
     const bKey = (b.carriers?.short_name ? `${b.carriers.short_name} ${b.name}` : `zzz ${b.name}`).toLowerCase()
     return aKey.localeCompare(bKey)
