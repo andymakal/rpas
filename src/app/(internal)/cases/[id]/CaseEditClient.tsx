@@ -685,6 +685,14 @@ export default function CaseEditClient({
                   Imported — Lead Manager
                 </span>
               )}
+              {caseData.customer_id && (
+                <Link
+                  href={`/customers/${caseData.customer_id}`}
+                  className="inline-flex items-center gap-1 text-xs text-sky-400 hover:underline"
+                >
+                  <User className="w-3 h-3" /> Customer Card
+                </Link>
+              )}
             </div>
           </div>
           <button
