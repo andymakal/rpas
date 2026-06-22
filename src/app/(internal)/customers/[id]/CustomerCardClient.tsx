@@ -6,7 +6,7 @@ import Link from 'next/link'
 import {
   ArrowLeft, Phone, Mail, MapPin, User,
   Shield, CheckCircle, ShieldOff, FileQuestion, Send,
-  AlertTriangle, ChevronRight, Search, X,
+  AlertTriangle, ChevronRight, Search, X, Trash2,
   FolderKanban, Wrench, Link2, History,
 } from 'lucide-react'
 import type {
@@ -169,7 +169,7 @@ type PolicySearchResult = {
 
 export function CustomerCardClient({
   customer,
-  cases,
+  cases: initialCases,
   policies: initialPolicies,
   serviceRequests,
   caseHistory,
@@ -181,6 +181,7 @@ export function CustomerCardClient({
   caseHistory:     CaseStatusHistoryEntry[]
 }) {
   const router = useRouter()
+  const [cases,       setCases]       = useState<LinkedCase[]>(initialCases)
   const [policies,    setPolicies]    = useState<LinkedPolicy[]>(initialPolicies)
   const [policySearch, setPolicySearch] = useState('')
   const [policyResults, setPolicyResults] = useState<PolicySearchResult[]>([])
@@ -188,6 +189,9 @@ export function CustomerCardClient({
   const [showPolicyDrop, setShowPolicyDrop] = useState(false)
   const [linking, setLinking]   = useState(false)
   const [linkErr, setLinkErr]   = useState<string | null>(null)
+  const [confirmDeleteCase, setConfirmDeleteCase] = useState<string | null>(null)
+  const [deletingCase,      setDeletingCase]      = useState(false)
+  const [caseDeleteErr,     setCaseDeleteErr]     = useState<string | null>(null)
 
   const searchRef = useRef<HTMLInputElement>(null)
   const dropRef   = useRef<HTMLDivElement>(null)
@@ -264,6 +268,24 @@ export function CustomerCardClient({
     }
   }
 
+  async function handleDeleteCase(caseId: string) {
+    setDeletingCase(true); setCaseDeleteErr(null)
+    try {
+      const res = await fetch(`/api/cases/${caseId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const j = await res.json()
+        setCaseDeleteErr(j.error ?? 'Delete failed')
+        setConfirmDeleteCase(null)
+        return
+      }
+      setCases(prev => prev.filter(c => c.id !== caseId))
+      setConfirmDeleteCase(null)
+      router.refresh()
+    } finally {
+      setDeletingCase(false)
+    }
+  }
+
   const fullName = `${customer.first_name} ${customer.last_name}`
 
   return (
@@ -316,7 +338,7 @@ export function CustomerCardClient({
             <div className="flex gap-3 text-center">
               <div className="bg-slate-800 rounded-lg px-4 py-2">
                 <p className="text-white font-semibold text-lg leading-none">{cases.length}</p>
-                <p className="text-slate-500 text-xs mt-0.5">Cases</p>
+                <p className="text-slate-500 text-xs mt-0.5">{cases.length === 1 ? 'Case' : 'Cases'}</p>
               </div>
               <div className="bg-slate-800 rounded-lg px-4 py-2">
                 <p className="text-white font-semibold text-lg leading-none">{policies.length}</p>
@@ -481,6 +503,14 @@ export function CustomerCardClient({
 
         {/* Cases */}
         <Section title="Cases" icon={FolderKanban} count={cases.length}>
+          {caseDeleteErr && (
+            <div className="px-5 py-2 border-b border-slate-800/60">
+              <p className="text-xs text-red-400 flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" /> {caseDeleteErr}
+                <button onClick={() => setCaseDeleteErr(null)} className="ml-1"><X className="w-3 h-3" /></button>
+              </p>
+            </div>
+          )}
           {cases.length === 0 ? (
             <div className="px-5 py-6 text-center text-slate-500 text-sm">No cases</div>
           ) : (
@@ -506,12 +536,42 @@ export function CustomerCardClient({
                     <td className="px-4 py-3 text-right text-slate-200 text-sm">{fmt(c.face_amount)}</td>
                     <td className="px-4 py-3 text-slate-500 text-xs">{fmtDate(c.created_at)}</td>
                     <td className="px-4 py-3">
-                      <Link
-                        href={`/referrals/${c.id}`}
-                        className="flex items-center justify-end text-slate-600 hover:text-slate-300 transition-colors"
-                      >
-                        <ChevronRight className="w-4 h-4" />
-                      </Link>
+                      {confirmDeleteCase === c.id ? (
+                        <div className="flex items-center justify-end gap-2">
+                          <span className="text-xs text-red-400">Delete?</span>
+                          <button
+                            onClick={() => handleDeleteCase(c.id)}
+                            disabled={deletingCase}
+                            className="text-xs font-medium text-red-400 hover:text-red-300 disabled:opacity-50"
+                          >
+                            {deletingCase ? '…' : 'Yes'}
+                          </button>
+                          <button
+                            onClick={() => setConfirmDeleteCase(null)}
+                            className="text-xs text-slate-500 hover:text-slate-300"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-end gap-0.5">
+                          <Link
+                            href={`/referrals/${c.id}`}
+                            className="p-0.5 text-slate-600 hover:text-slate-300 transition-colors"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </Link>
+                          {cases.length >= 2 && (
+                            <button
+                              onClick={() => setConfirmDeleteCase(c.id)}
+                              className="p-0.5 text-slate-700 hover:text-red-400 transition-colors"
+                              title="Delete duplicate case"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}

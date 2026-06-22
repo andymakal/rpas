@@ -129,3 +129,20 @@ export async function PATCH(
 
   return Response.json({ data })
 }
+
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params
+  const supabase = createAdminClient()
+  // Child records (case_touches, case_status_history, case_pending_requirements,
+  // spiff_records, case_household_members) all have ON DELETE CASCADE.
+  // intake_raw.case_id and policy_reviews.resulting_case_id are ON DELETE SET NULL.
+  const { error } = await supabase.from('cases').delete().eq('id', id)
+  if (error) {
+    console.error('Case delete error:', error)
+    return Response.json({ error: error.message }, { status: 500 })
+  }
+  return Response.json({ success: true })
+}
