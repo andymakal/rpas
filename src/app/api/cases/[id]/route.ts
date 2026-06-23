@@ -33,6 +33,108 @@ const ALLOWED_FIELDS = new Set([
   'suspected_duplicate_customer_id',  // null to dismiss the duplicate flag
 ])
 
+// Maps product_types.name (long form) → service_policies.product_type (short form)
+function abbrevProductType(fullName: string | null): string | null {
+  if (!fullName) return null
+  if (fullName.startsWith('Term'))     return 'Term'
+  if (fullName.includes('Variable'))   return 'VUL'
+  if (fullName.includes('Indexed'))    return 'IUL'
+  if (fullName.includes('Guaranteed')) return 'GUL'
+  if (fullName.includes('Universal'))  return 'UL'
+  if (fullName.includes('Whole'))      return 'WL'
+  if (fullName.includes('Long-Term'))  return 'LTC'
+  return null
+}
+
+/**
+ * When a case is placed AND a policy_number is recorded, auto-create (or sync)
+ * a service_policies row so the policy appears on Customer Cards and is
+ * selectable in Policy Reviews. Runs after the case PATCH succeeds.
+ *
+ * Fires on:
+ *   - internal_status → 'placed'
+ *   - policy_number / face_amount / annual_premium updates on an already-placed case
+ *
+ * Both orderings work: place-then-number or number-then-place.
+ */
+async function promoteCaseToPolicy(
+  supabase: ReturnType<typeof createAdminClient>,
+  caseId:   string,
+  updates:  Record<string, unknown>
+): Promise<void> {
+  const relevant =
+    updates.internal_status === 'placed' ||
+    updates.policy_number   !== undefined ||
+    updates.face_amount     !== undefined ||
+    updates.annual_premium  !== undefined
+
+  if (!relevant) return
+
+  // Fetch case in its post-update state (update already applied to DB)
+  const { data: c } = await supabase
+    .from('cases')
+    .select(`
+      internal_status, policy_number, face_amount, annual_premium,
+      customer_id, agency_id, agent_id,
+      customers (first_name, last_name),
+      products (carriers (short_name), product_types (name))
+    `)
+    .eq('id', caseId)
+    .single()
+
+  if (!c)                          return
+  if (c.internal_status !== 'placed') return
+  if (!c.policy_number?.trim())    return
+  if (!c.customer_id)              return
+
+  type ProductRow = { carriers: { short_name: string } | null; product_types: { name: string } | null }
+  type CustomerRow = { first_name: string; last_name: string }
+
+  const product  = c.products  as unknown as ProductRow  | null
+  const customer = c.customers as unknown as CustomerRow | null
+  const carrier  = product?.carriers?.short_name
+
+  if (!carrier || !customer) return
+
+  const productType = abbrevProductType(product?.product_types?.name ?? null)
+
+  // One service_policy per case (unique index on source_case_id enforces this)
+  const { data: existing } = await supabase
+    .from('service_policies')
+    .select('id')
+    .eq('source_case_id', caseId)
+    .maybeSingle()
+
+  if (existing) {
+    await supabase
+      .from('service_policies')
+      .update({
+        policy_number:  c.policy_number,
+        face_amount:    c.face_amount    ?? null,
+        annual_premium: c.annual_premium ?? null,
+      })
+      .eq('id', existing.id)
+  } else {
+    await supabase.from('service_policies').insert({
+      source_case_id:     caseId,
+      client_name:        `${customer.first_name} ${customer.last_name}`,
+      policy_number:      c.policy_number,
+      carrier:            carrier,
+      product_type:       productType,
+      face_amount:        c.face_amount    ?? null,
+      annual_premium:     c.annual_premium ?? null,
+      insured_first_name: customer.first_name,
+      insured_last_name:  customer.last_name,
+      customer_id:        c.customer_id,
+      agency_id:          (c.agency_id as string | null) ?? null,
+      agent_id:           (c.agent_id  as string | null) ?? null,
+      coverage_status:    'Active',
+      sa_status:          'unknown',
+      is_test:            false,
+    })
+  }
+}
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -126,6 +228,11 @@ export async function PATCH(
     console.error('Case update error:', error)
     return Response.json({ error: error.message }, { status: 500 })
   }
+
+  // Auto-promote placed case to service_policies (non-blocking — case update already succeeded)
+  promoteCaseToPolicy(supabase, id, updates).catch(err =>
+    console.error('promote-to-policy error:', err)
+  )
 
   return Response.json({ data })
 }
