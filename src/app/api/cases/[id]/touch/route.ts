@@ -30,8 +30,10 @@ export async function POST(
 
   const now = new Date().toISOString()
 
-  // Auto-advance: first touch on a triage case moves it to active_referral
-  const advanceToActive = current.internal_status === 'triage'
+  // Auto-advance: only a connected call (not voicemail/text/email) moves a
+  // triage case to active_referral. Unanswered attempts stay in triage so
+  // Gabe and Dulce can see them in the queue with a touch count.
+  const advanceToActive = current.internal_status === 'triage' && touch_type === 'call'
 
   const caseUpdate: Record<string, unknown> = {
     touches: (current.touches ?? 0) + 1,
