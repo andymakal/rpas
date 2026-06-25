@@ -444,7 +444,15 @@ export function ReferralEditClient({
   const showRewarmEmail         = status === 'lsp_contact_needed'
   const showApptDate            = APPT_STATUSES.has(status)
   const showFaceAmountInput     = status === 'quoted'
-  const showNotInterestedReason = status === 'not_interested' && notInterestedReasons.length > 0
+
+  // Filter lost reasons by pipeline stage: triage-side cases see triage+both;
+  // producer-side cases see producer+both.
+  const TRIAGE_STATUSES = new Set(['triage', 'active_referral', 'lsp_contact_needed'])
+  const contextForReasons = TRIAGE_STATUSES.has(referral.internal_status) ? 'triage' : 'producer'
+  const filteredNiReasons = notInterestedReasons.filter(
+    r => r.context === contextForReasons || r.context === 'both'
+  )
+  const showNotInterestedReason = status === 'not_interested' && filteredNiReasons.length > 0
   // Keyed off server-confirmed status (props), not local state — action should
   // only be available when the DB actually says appointment_set
   const showMissedAppt       = referral.internal_status === 'appointment_set'
@@ -1605,7 +1613,7 @@ export function ReferralEditClient({
                   className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 cursor-pointer"
                 >
                   <option value="">Select a reason…</option>
-                  {notInterestedReasons.map(r => (
+                  {filteredNiReasons.map(r => (
                     <option key={r.id} value={r.id}>{r.agency_label}</option>
                   ))}
                 </select>

@@ -86,7 +86,7 @@ export type ReferralDetail = {
   } | null
 }
 
-export type NotInterestedReason = { id: string; internal_code: string; agency_label: string; sort_order: number }
+export type NotInterestedReason = { id: string; internal_code: string; agency_label: string; sort_order: number; context: string }
 export type Tier1Stage          = { id: string; internal_status: string; agency_label: string }
 export type TouchLog      = { id: string; touch_type: string; notes: string | null; touched_at: string }
 export type HouseholdMember = {
@@ -219,8 +219,7 @@ export default async function ReferralDetailPage({
       : Promise.resolve({ data: null }),
     supabase
       .from('lost_reasons')
-      .select('id, internal_code, agency_label, sort_order')
-      .like('internal_code', 'not_interested%')
+      .select('id, internal_code, agency_label, sort_order, context')
       .order('sort_order'),
   ])
 

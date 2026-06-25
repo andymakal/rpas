@@ -30,25 +30,17 @@ export async function POST(
 
   const now = new Date().toISOString()
 
-  // Auto-advance: only a connected call (not voicemail/text/email) moves a
-  // triage case to active_referral. Unanswered attempts stay in triage so
-  // Gabe and Dulce can see them in the queue with a touch count.
-  const advanceToActive = current.internal_status === 'triage' && touch_type === 'call'
-
-  const caseUpdate: Record<string, unknown> = {
-    touches: (current.touches ?? 0) + 1,
-    last_contact_at: now,
-    updated_at: now,
-  }
-  if (advanceToActive) {
-    caseUpdate.internal_status  = 'active_referral'
-    caseUpdate.status_entered_at = now
-  }
-
+  // Touches only increment the counter and record last contact — they never
+  // change internal_status. Status transitions are deliberate actions only
+  // (Live Transfer, Appointment Set, Not Interested, etc.).
   const [caseResult, touchResult] = await Promise.all([
     supabase
       .from('cases')
-      .update(caseUpdate)
+      .update({
+        touches:         (current.touches ?? 0) + 1,
+        last_contact_at: now,
+        updated_at:      now,
+      })
       .eq('id', id)
       .select('touches, last_contact_at, internal_status')
       .single(),
@@ -68,22 +60,12 @@ export async function POST(
     return Response.json({ error: caseResult.error.message }, { status: 500 })
   }
 
-  // Log the status transition to history if we auto-advanced
-  if (advanceToActive) {
-    await supabase.from('case_status_history').insert({
-      case_id:     id,
-      from_status: 'triage',
-      to_status:   'active_referral',
-      changed_at:  now,
-    })
-  }
-
   return Response.json({
     data: {
       touches:            caseResult.data.touches,
       last_contact_at:    caseResult.data.last_contact_at,
       touch:              touchResult.data,
-      advanced_to_active: advanceToActive,
+      advanced_to_active: false,
     },
   })
 }
