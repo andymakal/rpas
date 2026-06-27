@@ -8,6 +8,7 @@ import {
   Shield, CheckCircle, ShieldOff, FileQuestion, Send,
   AlertTriangle, ChevronRight, Search, X, Trash2,
   FolderKanban, Wrench, Link2, History, Compass, ChevronDown,
+  Pencil, Check,
 } from 'lucide-react'
 import type {
   CustomerDetail, LinkedCase, LinkedPolicy, LinkedServiceRequest,
@@ -253,6 +254,27 @@ export function CustomerCardClient({
   const [editingSegment, setEditingSegment] = useState(false)
   const [segmentSaving,  setSegmentSaving]  = useState(false)
 
+  const [displayFirst, setDisplayFirst] = useState(customer.first_name)
+  const [displayLast,  setDisplayLast]  = useState(customer.last_name)
+
+  const [editingContact,  setEditingContact]  = useState(false)
+  const [editFirst,       setEditFirst]       = useState(customer.first_name)
+  const [editLast,        setEditLast]        = useState(customer.last_name)
+  const [editPhone,       setEditPhone]       = useState(customer.phone ?? '')
+  const [editEmail,       setEditEmail]       = useState(customer.email ?? '')
+  const [editStreet,      setEditStreet]      = useState(customer.street ?? '')
+  const [editCity,        setEditCity]        = useState(customer.city ?? '')
+  const [editState,       setEditState]       = useState(customer.state ?? '')
+  const [editZip,         setEditZip]         = useState(customer.zip ?? '')
+  const [editDob,         setEditDob]         = useState(customer.date_of_birth ?? '')
+  const [editGender,      setEditGender]      = useState(customer.gender ?? '')
+  const [editMarital,     setEditMarital]     = useState(customer.marital_status ?? '')
+  const [editTobacco,     setEditTobacco]     = useState(customer.tobacco_use ?? 'none')
+  const [editSpanish,     setEditSpanish]     = useState(customer.spanish_speaking)
+  const [editHealthNotes, setEditHealthNotes] = useState(customer.health_notes ?? '')
+  const [contactSaving,   setContactSaving]   = useState(false)
+  const [contactMsg,      setContactMsg]      = useState<{ ok: boolean; text: string } | null>(null)
+
   const segmentRef = useRef<HTMLDivElement>(null)
   const searchRef  = useRef<HTMLInputElement>(null)
   const dropRef   = useRef<HTMLDivElement>(null)
@@ -364,7 +386,45 @@ export function CustomerCardClient({
     }
   }
 
-  const fullName = `${customer.first_name} ${customer.last_name}`
+  async function handleSaveContact() {
+    setContactSaving(true); setContactMsg(null)
+    try {
+      const res = await fetch(`/api/customers/${customer.id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          first_name:      editFirst.trim(),
+          last_name:       editLast.trim(),
+          phone:           editPhone.trim()  || null,
+          email:           editEmail.trim()  || null,
+          street:          editStreet.trim() || null,
+          city:            editCity.trim()   || null,
+          state:           editState.trim()  || null,
+          zip:             editZip.trim()    || null,
+          date_of_birth:   editDob           || null,
+          gender:          editGender        || null,
+          marital_status:  editMarital       || null,
+          tobacco_use:     editTobacco       || 'none',
+          spanish_speaking: editSpanish,
+          health_notes:    editHealthNotes.trim() || null,
+        }),
+      })
+      if (!res.ok) {
+        const j = await res.json()
+        setContactMsg({ ok: false, text: j.error ?? 'Save failed' })
+      } else {
+        setDisplayFirst(editFirst.trim() || customer.first_name)
+        setDisplayLast(editLast.trim()   || customer.last_name)
+        setContactMsg({ ok: true, text: 'Saved' })
+        setEditingContact(false)
+        router.refresh()
+        setTimeout(() => setContactMsg(null), 2000)
+      }
+    } catch { setContactMsg({ ok: false, text: 'Network error' }) }
+    finally   { setContactSaving(false) }
+  }
+
+  const inputCls = 'w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 placeholder-slate-600'
 
   return (
     <div className="p-8">
@@ -379,119 +439,266 @@ export function CustomerCardClient({
           Back
         </Link>
 
-        {/* Customer header */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-          <div className="flex flex-wrap items-start justify-between gap-4">
+        {/* Customer header — CRM contact card */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+          <div className="p-5">
             <div className="flex items-start gap-4">
+
+              {/* Avatar */}
               <div
-                className="w-12 h-12 rounded-full flex items-center justify-center text-white font-semibold text-lg shrink-0"
+                className="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-xl shrink-0"
                 style={{ backgroundColor: '#1F3864' }}
               >
-                {customer.first_name[0]}{customer.last_name[0]}
+                {displayFirst[0]}{displayLast[0]}
               </div>
-              <div>
-                <h1 className="text-white text-xl font-semibold">{fullName}</h1>
-                <div className="flex flex-wrap items-center gap-3 mt-1.5">
-                  {customer.phone && (
-                    <a href={`tel:${customer.phone}`} className="flex items-center gap-1 text-sm text-slate-400 hover:text-white transition-colors">
-                      <Phone className="w-3.5 h-3.5" /> {customer.phone}
-                    </a>
-                  )}
-                  {customer.email && (
-                    <a href={`mailto:${customer.email}`} className="flex items-center gap-1 text-sm text-slate-400 hover:text-white transition-colors">
-                      <Mail className="w-3.5 h-3.5" /> {customer.email}
-                    </a>
-                  )}
-                  {(customer.city || customer.state) && (
-                    <span className="flex items-center gap-1 text-sm text-slate-500">
-                      <MapPin className="w-3.5 h-3.5" />
-                      {[customer.city, customer.state].filter(Boolean).join(', ')}
-                    </span>
+
+              {/* Main info */}
+              <div className="flex-1 min-w-0">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h1 className="text-white text-xl font-semibold leading-tight">
+                      {displayFirst} {displayLast}
+                    </h1>
+
+                    {/* Segment badge + editor */}
+                    <div ref={segmentRef} className="relative mt-1.5">
+                      <button
+                        onClick={() => setEditingSegment(o => !o)}
+                        disabled={segmentSaving}
+                        className="inline-flex items-center gap-1.5 focus:outline-none disabled:opacity-50"
+                      >
+                        <SegmentBadge segment={segment} />
+                        <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform ${editingSegment ? 'rotate-180' : ''}`} />
+                      </button>
+                      {editingSegment && (
+                        <div className="absolute left-0 top-full mt-1.5 z-20 bg-slate-800 border border-slate-700 rounded-xl shadow-xl p-2 min-w-64">
+                          <p className="text-xs text-slate-500 px-2 pb-2 font-medium uppercase tracking-wide">Assign tier</p>
+                          <div className="space-y-1">
+                            {SEGMENTS.map(s => (
+                              <button
+                                key={s.value}
+                                onClick={() => handleSegmentChange(s.value)}
+                                disabled={segmentSaving}
+                                className={`w-full text-left flex items-center justify-between px-3 py-2 rounded-lg border transition-colors disabled:opacity-50 ${
+                                  segment === s.value
+                                    ? s.btn + ' bg-slate-700/60'
+                                    : 'border-transparent hover:bg-slate-700/50 text-slate-300'
+                                }`}
+                              >
+                                <span className="text-sm font-medium">{s.label}</span>
+                                <span className="text-xs text-slate-500">{s.desc}</span>
+                              </button>
+                            ))}
+                            {segment && (
+                              <button
+                                onClick={() => handleSegmentChange(null)}
+                                disabled={segmentSaving}
+                                className="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-600 hover:text-slate-400 hover:bg-slate-700/30 transition-colors disabled:opacity-50"
+                              >
+                                Clear assignment
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Edit contact button */}
+                  {!editingContact && (
+                    <button
+                      onClick={() => setEditingContact(true)}
+                      className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-500 rounded-lg px-3 py-1.5 transition-colors shrink-0"
+                    >
+                      <Pencil className="w-3 h-3" /> Edit
+                    </button>
                   )}
                 </div>
 
-                {/* Segment badge + editor */}
-                <div ref={segmentRef} className="relative mt-2.5">
-                  <button
-                    onClick={() => setEditingSegment(o => !o)}
-                    disabled={segmentSaving}
-                    className="inline-flex items-center gap-1.5 focus:outline-none disabled:opacity-50"
-                  >
-                    <SegmentBadge segment={segment} />
-                    <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform ${editingSegment ? 'rotate-180' : ''}`} />
-                  </button>
+                {/* Contact info — read mode */}
+                {!editingContact && (
+                  <div className="mt-4 space-y-2">
+                    <div className="flex flex-wrap gap-x-6 gap-y-1.5">
+                      {customer.phone && (
+                        <a href={`tel:${customer.phone}`} className="flex items-center gap-1.5 text-sm text-slate-300 hover:text-white transition-colors">
+                          <Phone className="w-3.5 h-3.5 text-slate-500 shrink-0" /> {customer.phone}
+                        </a>
+                      )}
+                      {customer.email && (
+                        <a href={`mailto:${customer.email}`} className="flex items-center gap-1.5 text-sm text-slate-300 hover:text-white transition-colors">
+                          <Mail className="w-3.5 h-3.5 text-slate-500 shrink-0" /> {customer.email}
+                        </a>
+                      )}
+                    </div>
+                    {(customer.street || customer.city || customer.state) && (
+                      <div className="flex items-start gap-1.5 text-sm text-slate-400">
+                        <MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0 mt-0.5" />
+                        <span>
+                          {customer.street && <>{customer.street}<br /></>}
+                          {[customer.city, customer.state, customer.zip].filter(Boolean).join(', ')}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-xs text-slate-500">
+                      {customer.date_of_birth && (
+                        <span>DOB: <span className="text-slate-300 font-mono">{maskDob(customer.date_of_birth)}</span></span>
+                      )}
+                      {customer.gender && (
+                        <span>Gender: <span className="text-slate-300">{customer.gender}</span></span>
+                      )}
+                      {customer.marital_status && (
+                        <span>Marital: <span className="text-slate-300 capitalize">{customer.marital_status}</span></span>
+                      )}
+                      {customer.tobacco_use && customer.tobacco_use !== 'none' && (
+                        <span className="text-amber-400">Tobacco: {customer.tobacco_use}</span>
+                      )}
+                      {customer.spanish_speaking && (
+                        <span className="text-sky-400">Spanish speaking</span>
+                      )}
+                      {customer.health_notes && (
+                        <span>Health: <span className="text-slate-300">{customer.health_notes}</span></span>
+                      )}
+                    </div>
+                  </div>
+                )}
 
-                  {editingSegment && (
-                    <div className="absolute left-0 top-full mt-1.5 z-20 bg-slate-800 border border-slate-700 rounded-xl shadow-xl p-2 min-w-64">
-                      <p className="text-xs text-slate-500 px-2 pb-2 font-medium uppercase tracking-wide">Assign tier</p>
-                      <div className="space-y-1">
-                        {SEGMENTS.map(s => (
-                          <button
-                            key={s.value}
-                            onClick={() => handleSegmentChange(s.value)}
-                            disabled={segmentSaving}
-                            className={`w-full text-left flex items-center justify-between px-3 py-2 rounded-lg border transition-colors disabled:opacity-50 ${
-                              segment === s.value
-                                ? s.btn + ' bg-slate-700/60'
-                                : 'border-transparent hover:bg-slate-700/50 text-slate-300'
-                            }`}
-                          >
-                            <span className="text-sm font-medium">{s.label}</span>
-                            <span className="text-xs text-slate-500">{s.desc}</span>
-                          </button>
-                        ))}
-                        {segment && (
-                          <button
-                            onClick={() => handleSegmentChange(null)}
-                            disabled={segmentSaving}
-                            className="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-600 hover:text-slate-400 hover:bg-slate-700/30 transition-colors disabled:opacity-50"
-                          >
-                            Clear assignment
-                          </button>
-                        )}
+                {/* Contact edit form */}
+                {editingContact && (
+                  <div className="mt-4 space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">First name</label>
+                        <input value={editFirst} onChange={e => setEditFirst(e.target.value)} className={inputCls} />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Last name</label>
+                        <input value={editLast} onChange={e => setEditLast(e.target.value)} className={inputCls} />
                       </div>
                     </div>
-                  )}
-                </div>
-              </div>
-            </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Phone</label>
+                        <input value={editPhone} onChange={e => setEditPhone(e.target.value)} type="tel" className={inputCls} />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Email</label>
+                        <input value={editEmail} onChange={e => setEditEmail(e.target.value)} type="email" className={inputCls} />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Street address</label>
+                      <input value={editStreet} onChange={e => setEditStreet(e.target.value)} className={inputCls} />
+                    </div>
+                    <div className="grid grid-cols-6 gap-3">
+                      <div className="col-span-3">
+                        <label className="block text-xs text-slate-500 mb-1">City</label>
+                        <input value={editCity} onChange={e => setEditCity(e.target.value)} className={inputCls} />
+                      </div>
+                      <div className="col-span-1">
+                        <label className="block text-xs text-slate-500 mb-1">State</label>
+                        <input value={editState} onChange={e => setEditState(e.target.value)} maxLength={2} className={inputCls} />
+                      </div>
+                      <div className="col-span-2">
+                        <label className="block text-xs text-slate-500 mb-1">ZIP</label>
+                        <input value={editZip} onChange={e => setEditZip(e.target.value)} className={inputCls} />
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-3">
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Date of birth</label>
+                        <input value={editDob} onChange={e => setEditDob(e.target.value)} type="date" className={inputCls} />
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Gender</label>
+                        <select value={editGender} onChange={e => setEditGender(e.target.value)} className={inputCls}>
+                          <option value="">—</option>
+                          <option value="Male">Male</option>
+                          <option value="Female">Female</option>
+                          <option value="Non-binary">Non-binary</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Marital status</label>
+                        <select value={editMarital} onChange={e => setEditMarital(e.target.value)} className={inputCls}>
+                          <option value="">—</option>
+                          <option value="single">Single</option>
+                          <option value="married">Married</option>
+                          <option value="divorced">Divorced</option>
+                          <option value="widowed">Widowed</option>
+                          <option value="separated">Separated</option>
+                        </select>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Tobacco use</label>
+                        <select value={editTobacco} onChange={e => setEditTobacco(e.target.value)} className={inputCls}>
+                          <option value="none">None</option>
+                          <option value="cigarettes">Cigarettes</option>
+                          <option value="cigars">Cigars</option>
+                          <option value="vaping">Vaping / E-Cig</option>
+                          <option value="chewing">Chewing / Dip</option>
+                          <option value="nicotine_replacement">Nicotine Replacement</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Health notes</label>
+                        <input value={editHealthNotes} onChange={e => setEditHealthNotes(e.target.value)} className={inputCls} placeholder="Conditions, medications…" />
+                      </div>
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={editSpanish} onChange={e => setEditSpanish(e.target.checked)} className="rounded border-slate-600 bg-slate-800 accent-blue-500" />
+                      <span className="text-xs text-slate-300">Spanish speaking</span>
+                    </label>
 
-            {/* Quick stats */}
-            <div className="flex gap-3 text-center">
-              <div className="bg-slate-800 rounded-lg px-4 py-2">
-                <p className="text-white font-semibold text-lg leading-none">{cases.length}</p>
-                <p className="text-slate-500 text-xs mt-0.5">{cases.length === 1 ? 'Case' : 'Cases'}</p>
-              </div>
-              <div className="bg-slate-800 rounded-lg px-4 py-2">
-                <p className="text-white font-semibold text-lg leading-none">{policies.length}</p>
-                <p className="text-slate-500 text-xs mt-0.5">Policies</p>
-              </div>
-              <div className="bg-slate-800 rounded-lg px-4 py-2">
-                <p className="text-white font-semibold text-lg leading-none">{serviceRequests.length}</p>
-                <p className="text-slate-500 text-xs mt-0.5">Service Reqs</p>
+                    {contactMsg && (
+                      <p className={`text-xs ${contactMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{contactMsg.text}</p>
+                    )}
+
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        onClick={handleSaveContact}
+                        disabled={contactSaving}
+                        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg disabled:opacity-50 transition-colors"
+                      >
+                        {contactSaving ? '…' : <><Check className="w-3.5 h-3.5" /> Save</>}
+                      </button>
+                      <button
+                        onClick={() => { setEditingContact(false); setContactMsg(null) }}
+                        className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          {/* Customer detail row */}
-          <div className="flex flex-wrap gap-4 mt-4 pt-4 border-t border-slate-800 text-xs text-slate-500">
-            {customer.date_of_birth && (
-              <span>DOB: <span className="text-slate-300 font-mono">{maskDob(customer.date_of_birth)}</span></span>
-            )}
-            {customer.gender && (
-              <span>Gender: <span className="text-slate-300">{customer.gender}</span></span>
-            )}
-            {customer.marital_status && (
-              <span>Marital: <span className="text-slate-300 capitalize">{customer.marital_status}</span></span>
-            )}
-            {customer.tobacco_use && customer.tobacco_use !== 'none' && (
-              <span className="text-amber-400">Tobacco: {customer.tobacco_use}</span>
-            )}
-            {customer.spanish_speaking && (
-              <span className="text-sky-400">Spanish speaking</span>
-            )}
-            {customer.health_notes && (
-              <span>Health: <span className="text-slate-300">{customer.health_notes}</span></span>
+          {/* Stats strip */}
+          <div className="border-t border-slate-800 px-5 py-3 flex items-center gap-5 text-sm">
+            <div className="flex items-center gap-1.5">
+              <span className="text-white font-semibold">{cases.length}</span>
+              <span className="text-slate-500 text-xs">{cases.length === 1 ? 'Case' : 'Cases'}</span>
+            </div>
+            <div className="w-px h-3 bg-slate-800" />
+            <div className="flex items-center gap-1.5">
+              <span className="text-white font-semibold">{policies.length}</span>
+              <span className="text-slate-500 text-xs">Policies</span>
+            </div>
+            <div className="w-px h-3 bg-slate-800" />
+            <div className="flex items-center gap-1.5">
+              <span className="text-white font-semibold">{serviceRequests.length}</span>
+              <span className="text-slate-500 text-xs">{serviceRequests.length === 1 ? 'Service Request' : 'Service Requests'}</span>
+            </div>
+            {policies.filter(p => p.sa_status === 'confirmed').length > 0 && (
+              <>
+                <div className="w-px h-3 bg-slate-800" />
+                <span className="text-xs text-slate-500">
+                  <span className="text-emerald-400 font-medium">{policies.filter(p => p.sa_status === 'confirmed').length}</span> SA confirmed
+                </span>
+              </>
             )}
           </div>
         </div>
