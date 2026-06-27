@@ -212,6 +212,14 @@ function Section({ title, icon: Icon, count, children, action }: {
   )
 }
 
+const CARRIERS = [
+  'Corebridge', 'Everlake Assurance', 'Everlake Life', 'Foresters',
+  'Gerber Life', 'John Hancock', 'Lincoln Benefit Life', 'Lincoln Financial',
+  'Pacific Life', 'Protective', 'Prudential', 'Other',
+]
+
+const POLICY_TYPES = ['Term', 'UL', 'VUL', 'WL', 'IUL', 'GUL', 'LTC', 'FA', 'MVA', 'Other']
+
 type PolicySearchResult = {
   id:           string
   policy_number: string
@@ -249,6 +257,16 @@ export function CustomerCardClient({
   const [confirmDeleteCase, setConfirmDeleteCase] = useState<string | null>(null)
   const [deletingCase,      setDeletingCase]      = useState(false)
   const [caseDeleteErr,     setCaseDeleteErr]     = useState<string | null>(null)
+
+  const [addingPolicy,    setAddingPolicy]    = useState(false)
+  const [newCarrier,      setNewCarrier]      = useState('')
+  const [newPolicyNum,    setNewPolicyNum]    = useState('')
+  const [newProductType,  setNewProductType]  = useState('')
+  const [newFaceAmount,   setNewFaceAmount]   = useState('')
+  const [newPremium,      setNewPremium]      = useState('')
+  const [newIssueDate,    setNewIssueDate]    = useState('')
+  const [addPolicySaving, setAddPolicySaving] = useState(false)
+  const [addPolicyErr,    setAddPolicyErr]    = useState<string | null>(null)
 
   const [segment,        setSegment]        = useState<string | null>(customer.segment)
   const [editingSegment, setEditingSegment] = useState(false)
@@ -370,6 +388,54 @@ export function CustomerCardClient({
     } finally {
       setDeletingCase(false)
     }
+  }
+
+  async function handleAddPolicy() {
+    if (!newCarrier || !newPolicyNum.trim()) {
+      setAddPolicyErr('Carrier and policy number are required')
+      return
+    }
+    setAddPolicySaving(true); setAddPolicyErr(null)
+    try {
+      const res = await fetch('/api/service-policies', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          customer_id:    customer.id,
+          client_name:    `${displayFirst} ${displayLast}`,
+          policy_number:  newPolicyNum.trim(),
+          carrier:        newCarrier,
+          product_type:   newProductType  || null,
+          face_amount:    newFaceAmount   ? parseFloat(newFaceAmount)   : null,
+          annual_premium: newPremium      ? parseFloat(newPremium)      : null,
+          issue_date:     newIssueDate    || null,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setAddPolicyErr(json.error ?? 'Failed to add policy'); return }
+
+      const p = json.data
+      setPolicies(prev => [{
+        id:              p.id,
+        policy_number:   p.policy_number,
+        client_name:     p.client_name,
+        carrier:         p.carrier,
+        product_type:    p.product_type,
+        face_amount:     p.face_amount,
+        annual_premium:  p.annual_premium,
+        coverage_status: p.coverage_status,
+        sa_status:       p.sa_status,
+        sa_form_sent_at: null,
+        flag_count:      0,
+        agencies:        null,
+      }, ...prev])
+
+      // Reset form
+      setNewCarrier(''); setNewPolicyNum(''); setNewProductType('')
+      setNewFaceAmount(''); setNewPremium(''); setNewIssueDate('')
+      setAddingPolicy(false)
+    } catch { setAddPolicyErr('Network error') }
+    finally   { setAddPolicySaving(false) }
   }
 
   async function handleSegmentChange(newSegment: string | null) {
@@ -709,11 +775,81 @@ export function CustomerCardClient({
           icon={Shield}
           count={policies.length}
           action={
-            <span className="text-xs text-slate-500">
-              {policies.filter(p => p.sa_status === 'confirmed').length} confirmed SA
-            </span>
+            <div className="flex items-center gap-3">
+              {policies.filter(p => p.sa_status === 'confirmed').length > 0 && (
+                <span className="text-xs text-slate-500">
+                  {policies.filter(p => p.sa_status === 'confirmed').length} confirmed SA
+                </span>
+              )}
+              <button
+                onClick={() => { setAddingPolicy(o => !o); setAddPolicyErr(null) }}
+                className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-500 rounded-md px-2 py-1 transition-colors"
+              >
+                {addingPolicy ? <X className="w-3 h-3" /> : '+'} {addingPolicy ? 'Cancel' : 'Add policy'}
+              </button>
+            </div>
           }
         >
+          {/* Add policy form */}
+          {addingPolicy && (
+            <div className="px-5 py-4 border-b border-slate-800/60 space-y-3 bg-slate-800/20">
+              <p className="text-xs font-medium text-slate-400">New policy</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Carrier <span className="text-red-500">*</span></label>
+                  <select value={newCarrier} onChange={e => setNewCarrier(e.target.value)} className={inputCls}>
+                    <option value="">Select…</option>
+                    {CARRIERS.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Policy number <span className="text-red-500">*</span></label>
+                  <input value={newPolicyNum} onChange={e => setNewPolicyNum(e.target.value)} placeholder="e.g. LF-123456" className={inputCls} />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Product type</label>
+                  <select value={newProductType} onChange={e => setNewProductType(e.target.value)} className={inputCls}>
+                    <option value="">—</option>
+                    {POLICY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Face amount</label>
+                  <input value={newFaceAmount} onChange={e => setNewFaceAmount(e.target.value)} type="number" min="0" step="1000" placeholder="e.g. 500000" className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Annual premium</label>
+                  <input value={newPremium} onChange={e => setNewPremium(e.target.value)} type="number" min="0" step="1" placeholder="e.g. 1200" className={inputCls} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Issue date</label>
+                  <input value={newIssueDate} onChange={e => setNewIssueDate(e.target.value)} type="date" className={inputCls} />
+                </div>
+              </div>
+              {addPolicyErr && (
+                <p className="text-xs text-red-400 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" /> {addPolicyErr}
+                </p>
+              )}
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  onClick={handleAddPolicy}
+                  disabled={addPolicySaving}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg disabled:opacity-50 transition-colors"
+                >
+                  {addPolicySaving ? '…' : <><Check className="w-3.5 h-3.5" /> Add policy</>}
+                </button>
+                <button onClick={() => { setAddingPolicy(false); setAddPolicyErr(null) }} className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Link policy search */}
           <div className="px-5 py-3 border-b border-slate-800/60">
             <div className="relative">
