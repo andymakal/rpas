@@ -982,24 +982,34 @@ export function CustomerCardClient({
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-slate-500 text-xs border-b border-slate-800/60">
-                  <th className="text-left px-5 py-2.5 font-medium">Agency</th>
+                  <th className="text-left px-5 py-2.5 font-medium">Agency · Carrier</th>
                   <th className="text-left px-4 py-2.5 font-medium">Status</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Policy #</th>
                   <th className="text-right px-4 py-2.5 font-medium">Face Amt</th>
-                  <th className="text-left px-4 py-2.5 font-medium">Created</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Date</th>
                   <th className="px-4 py-2.5" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {cases.map(c => (
+                {cases.map(c => {
+                  const carrier = c.products?.carriers?.short_name ?? c.products?.name ?? null
+                  const dateLabel = c.placed_at
+                    ? `Placed ${fmtDate(c.placed_at)}`
+                    : `Created ${fmtDate(c.created_at)}`
+                  return (
                   <tr key={c.id} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="px-5 py-3 text-slate-300 text-sm">
-                      {c.agencies?.display_name ?? c.agencies?.name ?? '—'}
+                    <td className="px-5 py-3">
+                      <p className="text-slate-300 text-sm">{c.agencies?.display_name ?? c.agencies?.name ?? '—'}</p>
+                      {carrier && <p className="text-slate-500 text-xs mt-0.5">{carrier}</p>}
                     </td>
                     <td className="px-4 py-3">
                       <CaseStatusBadge st={c.stage_translations} />
                     </td>
+                    <td className="px-4 py-3 text-slate-400 text-xs font-mono">
+                      {c.policy_number ?? <span className="text-slate-700">—</span>}
+                    </td>
                     <td className="px-4 py-3 text-right text-slate-200 text-sm">{fmt(c.face_amount)}</td>
-                    <td className="px-4 py-3 text-slate-500 text-xs">{fmtDate(c.created_at)}</td>
+                    <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{dateLabel}</td>
                     <td className="px-4 py-3">
                       {confirmDeleteCase === c.id ? (
                         <div className="flex items-center justify-end gap-2">
@@ -1039,7 +1049,8 @@ export function CustomerCardClient({
                       )}
                     </td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           )}

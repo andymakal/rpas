@@ -43,6 +43,8 @@ export type PolicyDetail = {
   } | null
 }
 
+export type RateClassOption = { id: string; name: string }
+
 export type PolicyReviewRow = {
   id:            string
   review_number: string
@@ -84,6 +86,12 @@ export default async function PolicyDetailPage({
     .select('id, name, display_name')
     .order('name')
 
+  // Fetch rate classes for dropdown
+  const { data: rateClasses } = await supabase
+    .from('rate_classes')
+    .select('id, name')
+    .order('name')
+
   // Fetch existing reviews for this policy
   const { data: reviews } = await supabase
     .from('policy_reviews')
@@ -98,6 +106,7 @@ export default async function PolicyDetailPage({
     <PolicyDetailClient
       policy={policy as unknown as PolicyDetail}
       agencies={agencies ?? []}
+      rateClasses={(rateClasses ?? []) as RateClassOption[]}
       reviews={(reviews ?? []) as PolicyReviewRow[]}
       flags={flags}
     />

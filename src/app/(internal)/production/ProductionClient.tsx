@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronRight, ChevronUp, ChevronDown, Search, Target } from 'lucide-react'
+import { ChevronRight, ChevronUp, ChevronDown, Search, Target, UserCircle } from 'lucide-react'
 import type { PlacedCase } from './page'
 import { fmtDate as formatDate } from '@/lib/fmt'
 
@@ -282,8 +282,19 @@ export default function ProductionClient({ cases }: { cases: PlacedCase[] }) {
                     <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">
                       {formatDate(c.placed_at)}
                     </td>
-                    <td className="px-4 py-3 text-slate-600">
-                      <ChevronRight className="w-4 h-4 group-hover:text-slate-400 transition-colors" />
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1">
+                        {c.customer_id && (
+                          <button
+                            onClick={e => { e.stopPropagation(); router.push(`/customers/${c.customer_id}`) }}
+                            title="Open Customer Card"
+                            className="p-0.5 text-slate-600 hover:text-blue-400 transition-colors"
+                          >
+                            <UserCircle className="w-4 h-4" />
+                          </button>
+                        )}
+                        <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-slate-400 transition-colors" />
+                      </div>
                     </td>
                   </tr>
                 )

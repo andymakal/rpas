@@ -6,9 +6,9 @@ import Link from 'next/link'
 import {
   ArrowLeft, CheckCircle, ShieldOff, FileQuestion, Send,
   AlertTriangle, ChevronRight, Search, X, Building2, User,
-  Link2, Link2Off, ClipboardList, Zap, Pencil, Save,
+  Link2, Link2Off, ClipboardList, Pencil, Save,
 } from 'lucide-react'
-import type { PolicyDetail, PolicyReviewRow } from './page'
+import type { PolicyDetail, PolicyReviewRow, RateClassOption } from './page'
 import type { ReviewFlag } from '@/lib/reviews/prep'
 import { fmtDate } from '@/lib/fmt'
 
@@ -127,13 +127,15 @@ type CustomerResult = {
 export function PolicyDetailClient({
   policy: initial,
   agencies,
+  rateClasses,
   reviews: initialReviews,
   flags,
 }: {
-  policy:   PolicyDetail
-  agencies: { id: string; name: string; display_name: string | null }[]
-  reviews:  PolicyReviewRow[]
-  flags:    ReviewFlag[]
+  policy:      PolicyDetail
+  agencies:    { id: string; name: string; display_name: string | null }[]
+  rateClasses: RateClassOption[]
+  reviews:     PolicyReviewRow[]
+  flags:       ReviewFlag[]
 }) {
   const router = useRouter()
 
@@ -148,7 +150,6 @@ export function PolicyDetailClient({
       : null
   )
   const [reviews,      setReviews]    = useState<PolicyReviewRow[]>(initialReviews)
-  const [autoNotice,   setAutoNotice] = useState<string | null>(null)
 
   // ── Edit mode state ───────────────────────────────────────────────────────────
   const [editing, setEditing] = useState(false)
@@ -159,7 +160,11 @@ export function PolicyDetailClient({
     cost_basis:           initial.cost_basis            != null ? String(initial.cost_basis)           : '',
     annual_premium:       initial.annual_premium        != null ? String(initial.annual_premium)       : '',
     premium_mode:         initial.premium_mode          ?? '',
+    issue_date:           initial.issue_date            ?? '',
+    term_length:          initial.term_length           ?? '',
     rate_class:           initial.rate_class            ?? '',
+    insured_first_name:   initial.insured_first_name    ?? '',
+    insured_last_name:    initial.insured_last_name     ?? '',
     primary_beneficiary:  initial.primary_beneficiary   ?? '',
     riders:               initial.riders                ?? '',
     coverage_status:      initial.coverage_status       ?? 'Active',
@@ -182,12 +187,16 @@ export function PolicyDetailClient({
         cash_value_amount:    num(editFields.cash_value_amount),
         cost_basis:           num(editFields.cost_basis),
         annual_premium:       num(editFields.annual_premium),
-        premium_mode:         editFields.premium_mode  || null,
-        rate_class:           editFields.rate_class    || null,
-        primary_beneficiary:  editFields.primary_beneficiary || null,
-        riders:               editFields.riders        || null,
-        coverage_status:      editFields.coverage_status || 'Active',
-        notes:                editFields.notes         || null,
+        premium_mode:         editFields.premium_mode             || null,
+        issue_date:           editFields.issue_date               || null,
+        term_length:          editFields.term_length.trim()       || null,
+        rate_class:           editFields.rate_class               || null,
+        insured_first_name:   editFields.insured_first_name.trim() || null,
+        insured_last_name:    editFields.insured_last_name.trim()  || null,
+        primary_beneficiary:  editFields.primary_beneficiary        || null,
+        riders:               editFields.riders                     || null,
+        coverage_status:      editFields.coverage_status            || 'Active',
+        notes:                editFields.notes                      || null,
       })
       setEditing(false)
       router.refresh()
@@ -243,7 +252,6 @@ export function PolicyDetailClient({
     if (newStatus === saStatus) return
     setSaving(true)
     setErr(null)
-    setAutoNotice(null)
     try {
       const patch: Record<string, unknown> = { sa_status: newStatus }
       // Clear form_sent when changing away from not_on_file
@@ -252,20 +260,6 @@ export function PolicyDetailClient({
       setSaStatus(newStatus)
       if (newStatus !== 'not_on_file') setFormSentAt(null)
 
-      // Auto-queue notice
-      if (json.auto_queued_review) {
-        const rv = json.auto_queued_review as { id: string; review_number: string }
-        setAutoNotice(`Review ${rv.review_number} auto-queued based on policy flags.`)
-        // Prepend to local reviews list
-        setReviews(prev => [{
-          id:            rv.id,
-          review_number: rv.review_number,
-          review_type:   'auto',
-          status:        'prep',
-          assigned_to:   null,
-          created_at:    new Date().toISOString(),
-        }, ...prev])
-      }
       router.refresh()
     } catch (e) {
       setErr(e instanceof Error ? e.message : 'Save failed')
@@ -452,14 +446,6 @@ export function PolicyDetailClient({
           </div>
         )}
 
-        {/* Auto-queue notice */}
-        {autoNotice && (
-          <div className="bg-green-900/30 border border-green-800 rounded-lg px-4 py-3 text-green-300 text-sm flex items-center gap-2">
-            <Zap className="w-4 h-4 shrink-0" />
-            {autoNotice}
-            <button onClick={() => setAutoNotice(null)} className="ml-auto"><X className="w-4 h-4" /></button>
-          </div>
-        )}
 
         {/* Main grid */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
@@ -471,6 +457,22 @@ export function PolicyDetailClient({
             <Card title="Coverage Details">
               {editing ? (
                 <div className="space-y-3">
+                  {/* Insured name */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Insured First Name</label>
+                      <input value={editFields.insured_first_name} onChange={ef('insured_first_name')}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-slate-500"
+                        placeholder="First" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Insured Last Name</label>
+                      <input value={editFields.insured_last_name} onChange={ef('insured_last_name')}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-slate-500"
+                        placeholder="Last" />
+                    </div>
+                  </div>
+                  {/* Dollar amounts */}
                   {[
                     { label: 'Face Amount ($)',         key: 'face_amount'          },
                     { label: 'Death Benefit ($)',       key: 'death_benefit_amount' },
@@ -499,11 +501,29 @@ export function PolicyDetailClient({
                       ))}
                     </select>
                   </div>
+                  {/* Issue date & term length */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Issue Date</label>
+                      <input type="date" value={editFields.issue_date} onChange={ef('issue_date')}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-slate-500" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Term Length</label>
+                      <input value={editFields.term_length} onChange={ef('term_length')}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-slate-500"
+                        placeholder="e.g. 20 Year" />
+                    </div>
+                  </div>
                   <div>
                     <label className="block text-xs text-slate-500 mb-1">Rate Class</label>
-                    <input value={editFields.rate_class} onChange={ef('rate_class')}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-slate-500"
-                      placeholder="e.g. Preferred Plus, Standard…" />
+                    <select value={editFields.rate_class ?? ''} onChange={ef('rate_class')}
+                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-slate-500">
+                      <option value="">—</option>
+                      {rateClasses.map(r => (
+                        <option key={r.id} value={r.name}>{r.name}</option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-xs text-slate-500 mb-1">Coverage Status</label>
@@ -517,15 +537,19 @@ export function PolicyDetailClient({
                 </div>
               ) : (
                 <>
+                  {(initial.insured_first_name || initial.insured_last_name) && (
+                    <Row label="Insured" value={`${initial.insured_first_name ?? ''} ${initial.insured_last_name ?? ''}`.trim()} />
+                  )}
                   <Row label="Face Amount"    value={fmt(initial.face_amount)} />
                   <Row label="Death Benefit"  value={fmt(initial.death_benefit_amount)} />
                   <Row label="Cash Value"     value={fmt(initial.cash_value_amount)} />
                   <Row label="Cost Basis"     value={fmt(initial.cost_basis)} />
-                  <Row label="Annual Premium" value={
-                    initial.annual_premium
-                      ? `${fmt(initial.annual_premium)}${initial.premium_mode ? ` / ${initial.premium_mode.toLowerCase()}` : ''}`
-                      : '—'
-                  } />
+                  <Row
+                    label={initial.premium_mode && initial.premium_mode.toLowerCase() !== 'annual'
+                      ? `Annual Premium (paid ${initial.premium_mode.toLowerCase()})`
+                      : 'Annual Premium'}
+                    value={fmt(initial.annual_premium)}
+                  />
                   <Row label="Issue Date"  value={fmtDate(initial.issue_date)} />
                   {initial.product_type === 'Term' && (
                     <Row label="Term Length" value={initial.term_length ?? '—'} />
@@ -535,18 +559,10 @@ export function PolicyDetailClient({
               )}
             </Card>
 
-            {/* Insured / Riders */}
+            {/* Policy Details */}
             <Card title="Policy Details">
-              <Row
-                label="Insured"
-                value={
-                  initial.insured_first_name || initial.insured_last_name
-                    ? `${initial.insured_first_name ?? ''} ${initial.insured_last_name ?? ''}`.trim()
-                    : '—'
-                }
-              />
               {editing ? (
-                <div className="space-y-3 mt-3">
+                <div className="space-y-3">
                   <div>
                     <label className="block text-xs text-slate-500 mb-1">Primary Beneficiary</label>
                     <input value={editFields.primary_beneficiary} onChange={ef('primary_beneficiary')}

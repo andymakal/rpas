@@ -29,13 +29,19 @@ export type LinkedCase = {
   id:              string
   internal_status: string
   created_at:      string
+  placed_at:       string | null
   face_amount:     number | null
   annual_premium:  number | null
+  policy_number:   string | null
   agencies: { name: string; display_name: string | null } | null
   stage_translations: {
     agency_label: string
     is_won:       boolean
     is_lost:      boolean
+  } | null
+  products: {
+    name: string
+    carriers: { short_name: string } | null
   } | null
 }
 
@@ -99,9 +105,10 @@ export default async function CustomerCardPage({
   const { data: cases } = await supabase
     .from('cases')
     .select(`
-      id, internal_status, created_at, face_amount, annual_premium,
+      id, internal_status, created_at, placed_at, face_amount, annual_premium, policy_number,
       agencies ( name, display_name ),
-      stage_translations ( agency_label, is_won, is_lost )
+      stage_translations ( agency_label, is_won, is_lost ),
+      products ( name, carriers ( short_name ) )
     `)
     .eq('customer_id', id)
     .eq('is_test', false)

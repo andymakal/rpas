@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic'
 
 export type PlacedCase = {
   id: string
+  customer_id: string | null
   placed_at: string | null
   face_amount: number | null
   annual_premium: number | null
@@ -27,15 +28,15 @@ export default async function ProductionPage() {
   const { data, error } = await supabase
     .from('cases')
     .select(`
-      id, placed_at, face_amount, annual_premium, policy_number,
+      id, customer_id, placed_at, face_amount, annual_premium, policy_number,
       customers!customer_id ( first_name, last_name ),
       agencies ( name, display_name ),
       agents ( first_name, last_name ),
       products ( name, carriers ( short_name ) )
     `)
-    .not('placed_at', 'is', null)
+    .eq('internal_status', 'placed')
     .eq('is_test', false)
-    .order('placed_at', { ascending: false })
+    .order('placed_at', { ascending: false, nullsFirst: false })
 
   if (error) {
     console.error('Production fetch error:', error)
