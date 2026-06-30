@@ -22,6 +22,7 @@ type EditState = {
   contact_state:  string
   contact_zip:    string
   portal_pin:     string
+  slug:           string
 }
 
 type RowStatus = 'idle' | 'saving' | 'saved' | 'error'
@@ -39,6 +40,7 @@ function toEdit(a: AgencyRow): EditState {
     contact_state:  a.contact_state ?? '',
     contact_zip:    a.contact_zip ?? '',
     portal_pin:     a.portal_pin ?? '',
+    slug:           a.slug,
   }
 }
 
@@ -67,7 +69,8 @@ function isDirty(a: AgencyRow, e: EditState) {
     (e.contact_city   || null) !== (a.contact_city   ?? null) ||
     (e.contact_state  || null) !== (a.contact_state  ?? null) ||
     (e.contact_zip    || null) !== (a.contact_zip    ?? null) ||
-    (e.portal_pin     || null) !== (a.portal_pin     ?? null)
+    (e.portal_pin     || null) !== (a.portal_pin     ?? null) ||
+    e.slug                     !== a.slug
   )
 }
 
@@ -123,6 +126,7 @@ export function AgenciesClient({ agencies, teams }: Props) {
         contact_state:  edit.contact_state  || null,
         contact_zip:    edit.contact_zip    || null,
         portal_pin:     edit.portal_pin     || null,
+        slug:           edit.slug,
       }),
     })
 
@@ -384,8 +388,16 @@ export function AgenciesClient({ agencies, teams }: Props) {
                       </select>
                     </td>
 
-                    {/* Slug — read only */}
-                    <td className="py-2.5 px-4 text-xs text-slate-600 font-mono">{agency.slug}</td>
+                    {/* Slug */}
+                    <td className="py-2.5 px-4">
+                      <input
+                        type="text"
+                        value={edit?.slug ?? ''}
+                        onChange={e => update(agency.id, 'slug', e.target.value)}
+                        title="Used in the portal URL — changing it breaks any bookmarked links"
+                        className={`${INPUT} font-mono`}
+                      />
+                    </td>
 
                     {/* Active toggle */}
                     <td className="py-2.5 px-4 text-center">

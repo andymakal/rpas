@@ -6,7 +6,7 @@ const ALLOWED_FIELDS = new Set([
   'display_name', 'sml_team_id', 'is_active',
   'agent_number', 'contact_phone', 'contact_email',
   'contact_street', 'contact_city', 'contact_state', 'contact_zip',
-  'portal_pin',
+  'portal_pin', 'slug',
 ])
 
 export async function PATCH(
@@ -32,6 +32,17 @@ export async function PATCH(
     return Response.json({ error: 'No valid fields to update' }, { status: 400 })
   }
 
+  // Slug drives the portal URL — normalize to the same shape used at creation
+  // and reject blank values so the portal link never breaks silently.
+  if ('slug' in updates) {
+    const slug = String(updates.slug ?? '').trim().toLowerCase()
+      .replace(/['']/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+    if (!slug) {
+      return Response.json({ error: 'Slug cannot be blank' }, { status: 400 })
+    }
+    updates.slug = slug
+  }
+
   // If a portal_pin is being set, ensure the agency has a dashboard_token.
   // The token is the secret stored in the cookie after login — without it the
   // PIN auth loop never resolves.
@@ -54,6 +65,9 @@ export async function PATCH(
     .single()
 
   if (error) {
+    if (error.code === '23505' && 'slug' in updates) {
+      return Response.json({ error: `Slug "${updates.slug}" is already in use by another agency` }, { status: 409 })
+    }
     return Response.json({ error: error.message }, { status: 500 })
   }
 
