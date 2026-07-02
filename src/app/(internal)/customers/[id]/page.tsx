@@ -122,12 +122,22 @@ export default async function CustomerCardPage({
       face_amount, death_benefit_amount, annual_premium, cash_value_amount, cost_basis,
       premium_mode, issue_date, term_length, rate_class, riders,
       insured_first_name, insured_last_name, primary_beneficiary,
-      coverage_status, sa_status, sa_form_sent_at,
+      coverage_status, sa_status, sa_form_sent_at, source_case_id,
       agencies ( name, display_name )
     `)
     .eq('customer_id', id)
     .eq('is_test', false)
     .order('face_amount', { ascending: false, nullsFirst: false })
+
+  // Placed cases that don't have a service_policies record yet —
+  // shown in the Policies section as pending entries so the user knows to add the policy number.
+  const policiedCaseIds = new Set(
+    (policiesRaw ?? [])
+      .map(p => (p as { source_case_id?: string | null }).source_case_id)
+      .filter((x): x is string => Boolean(x))
+  )
+  const pendingCasePolicies = ((cases ?? []) as unknown as LinkedCase[])
+    .filter(c => c.internal_status === 'placed' && !policiedCaseIds.has(c.id))
 
   // Compute flag counts server-side
   const policies: LinkedPolicy[] = (policiesRaw ?? []).map(p => ({
@@ -192,6 +202,7 @@ export default async function CustomerCardPage({
       customer={customer as CustomerDetail}
       cases={(cases ?? []) as unknown as LinkedCase[]}
       policies={policies}
+      pendingCasePolicies={pendingCasePolicies}
       serviceRequests={serviceRequests}
       caseHistory={caseHistory}
     />

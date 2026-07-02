@@ -114,6 +114,17 @@ function statusDotColor(s: string): string {
   return 'bg-blue-500 border-blue-700'
 }
 
+function abbrevProduct(name: string | null | undefined): string | null {
+  if (!name) return null
+  if (name.startsWith('Term'))     return 'Term'
+  if (name.includes('Variable'))   return 'VUL'
+  if (name.includes('Indexed'))    return 'IUL'
+  if (name.includes('Guaranteed')) return 'GUL'
+  if (name.includes('Universal'))  return 'UL'
+  if (name.includes('Whole'))      return 'WL'
+  return null
+}
+
 function SrStatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
     open:        'bg-amber-900/40 text-amber-300',
@@ -236,14 +247,16 @@ export function CustomerCardClient({
   customer,
   cases: initialCases,
   policies: initialPolicies,
+  pendingCasePolicies,
   serviceRequests,
   caseHistory,
 }: {
-  customer:        CustomerDetail
-  cases:           LinkedCase[]
-  policies:        LinkedPolicy[]
-  serviceRequests: LinkedServiceRequest[]
-  caseHistory:     CaseStatusHistoryEntry[]
+  customer:             CustomerDetail
+  cases:                LinkedCase[]
+  policies:             LinkedPolicy[]
+  pendingCasePolicies:  LinkedCase[]
+  serviceRequests:      LinkedServiceRequest[]
+  caseHistory:          CaseStatusHistoryEntry[]
 }) {
   const router = useRouter()
   const [cases,       setCases]       = useState<LinkedCase[]>(initialCases)
@@ -911,12 +924,64 @@ export function CustomerCardClient({
             )}
           </div>
 
+          {/* Placed cases with no policy record yet */}
+          {pendingCasePolicies.length > 0 && (
+            <div className="border-b border-slate-800/60">
+              <div className="px-5 py-2 flex items-center gap-2">
+                <AlertTriangle className="w-3 h-3 text-amber-400" />
+                <span className="text-xs text-amber-400 font-medium">Policy number needed</span>
+              </div>
+              <table className="w-full text-sm">
+                <tbody className="divide-y divide-slate-800/40">
+                  {pendingCasePolicies.map(c => {
+                    const carrier = c.products?.carriers?.short_name ?? '—'
+                    const ptype   = abbrevProduct(c.products?.name)
+                    return (
+                      <tr key={c.id} className="bg-amber-950/10 hover:bg-amber-950/20 transition-colors">
+                        <td className="px-5 py-3">
+                          <p className="text-slate-300 text-sm font-medium">{carrier}</p>
+                          <p className="text-slate-500 text-xs">
+                            {c.agencies?.display_name ?? c.agencies?.name ?? '—'}
+                          </p>
+                        </td>
+                        <td className="px-4 py-3 font-mono text-slate-600 text-xs">—</td>
+                        <td className="px-4 py-3">
+                          {ptype
+                            ? <TypeBadge type={ptype} />
+                            : <span className="text-slate-600 text-xs">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-200 text-sm font-medium">
+                          {fmt(c.face_amount)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="inline-flex items-center gap-1 text-xs bg-amber-900/40 text-amber-300 px-1.5 py-0.5 rounded-full">
+                            Placed — no policy #
+                          </span>
+                        </td>
+                        <td className="px-4 py-3" />
+                        <td className="px-4 py-3">
+                          <Link
+                            href={`/cases/${c.id}`}
+                            className="flex items-center justify-end text-amber-600 hover:text-amber-400 transition-colors"
+                            title="Open case to add policy number"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </Link>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           {/* Policy list */}
-          {policies.length === 0 ? (
+          {policies.length === 0 && pendingCasePolicies.length === 0 ? (
             <div className="px-5 py-8 text-center text-slate-500 text-sm">
               No policies linked — use the search above
             </div>
-          ) : (
+          ) : policies.length === 0 ? null : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-slate-500 text-xs border-b border-slate-800/60">
