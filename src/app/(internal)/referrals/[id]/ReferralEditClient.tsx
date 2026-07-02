@@ -243,6 +243,9 @@ export function ReferralEditClient({
   const [mergeTarget,    setMergeTarget]    = useState<MergeCandidate | null>(null)
   const [mergeWorking,   setMergeWorking]   = useState(false)
   const [mergeError,     setMergeError]     = useState<string | null>(null)
+  const [deleteConfirm,  setDeleteConfirm]  = useState(false)
+  const [deleting,       setDeleting]       = useState(false)
+  const [deleteError,    setDeleteError]    = useState<string | null>(null)
 
   async function handleMerge() {
     if (!suspectedDuplicate) return
@@ -312,6 +315,20 @@ export function ReferralEditClient({
       router.push('/referrals')
     } catch { setMergeError('Network error') }
     finally { setMergeWorking(false) }
+  }
+
+  async function handleDeleteReferral() {
+    setDeleting(true); setDeleteError(null)
+    try {
+      const res = await fetch(`/api/cases/${referral.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const json = await res.json()
+        setDeleteError(json.error ?? 'Delete failed')
+        return
+      }
+      router.push('/referrals')
+    } catch { setDeleteError('Network error') }
+    finally { setDeleting(false) }
   }
 
   // ── Case fields ───────────────────────────────────────────────
@@ -1619,15 +1636,50 @@ export function ReferralEditClient({
             </div>
           )}
 
-          {/* Merge duplicate — manual trigger for duplicates missed by auto-detection */}
-          <div className="pt-1 border-t border-slate-800/50">
-            <button
-              onClick={() => { setMergeOpen(o => !o); setMergeQuery(''); setMergeResults([]); setMergeTarget(null); setMergeError(null) }}
-              className="inline-flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-400 transition-colors"
-            >
-              <GitMerge className="w-3.5 h-3.5" />
-              {mergeOpen ? 'Cancel merge' : 'Merge duplicate…'}
-            </button>
+          {/* Danger zone — merge or delete */}
+          <div className="pt-1 border-t border-slate-800/50 space-y-3">
+            <div className="flex items-center gap-4">
+              <button
+                onClick={() => { setMergeOpen(o => !o); setMergeQuery(''); setMergeResults([]); setMergeTarget(null); setMergeError(null); setDeleteConfirm(false) }}
+                className="inline-flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-400 transition-colors"
+              >
+                <GitMerge className="w-3.5 h-3.5" />
+                {mergeOpen ? 'Cancel merge' : 'Merge duplicate…'}
+              </button>
+              <button
+                onClick={() => { setDeleteConfirm(o => !o); setMergeOpen(false); setDeleteError(null) }}
+                className="inline-flex items-center gap-1.5 text-xs text-slate-600 hover:text-red-400 transition-colors"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                {deleteConfirm ? 'Cancel' : 'Delete referral…'}
+              </button>
+            </div>
+
+            {deleteConfirm && (
+              <div className="rounded-xl border border-red-800/50 bg-red-950/20 p-4 space-y-3">
+                <p className="text-xs text-slate-300">
+                  Permanently delete this referral for{' '}
+                  <span className="font-medium">{cFirstName} {cLastName}</span>?
+                  Touch history and all associated data will be removed. This cannot be undone.
+                </p>
+                {deleteError && <p className="text-xs text-red-400">{deleteError}</p>}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleDeleteReferral}
+                    disabled={deleting}
+                    className="flex-1 rounded-lg px-3 py-2 text-xs font-semibold text-white bg-red-700 hover:bg-red-600 disabled:opacity-50 transition-colors"
+                  >
+                    {deleting ? 'Deleting…' : 'Yes, delete referral'}
+                  </button>
+                  <button
+                    onClick={() => { setDeleteConfirm(false); setDeleteError(null) }}
+                    className="px-3 py-2 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
 
             {mergeOpen && (
               <div className="mt-3 rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-3">
