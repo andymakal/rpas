@@ -137,7 +137,10 @@ export default async function CustomerCardPage({
       .filter((x): x is string => Boolean(x))
   )
   const pendingCasePolicies = ((cases ?? []) as unknown as LinkedCase[])
-    .filter(c => c.internal_status === 'placed' && !policiedCaseIds.has(c.id))
+    .filter(c =>
+      (c.internal_status === 'placed' || Boolean(c.placed_at)) &&
+      !policiedCaseIds.has(c.id)
+    )
 
   // Compute flag counts server-side
   const policies: LinkedPolicy[] = (policiesRaw ?? []).map(p => ({
