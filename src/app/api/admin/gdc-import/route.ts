@@ -100,6 +100,28 @@ export async function POST(req: NextRequest) {
   const matchedCount   = records.filter(r => r.agency_id !== null).length
   const unmatchedCount = records.filter(r => r.agency_id === null).length
 
+  // Deduplicate: delete existing gdc_records for each affected agency within
+  // the date range covered by this import so re-importing is idempotent.
+  const agencyDateRanges = new Map<string, { min: string; max: string }>()
+  for (const r of records) {
+    if (!r.agency_id || !r.process_date) continue
+    const cur = agencyDateRanges.get(r.agency_id)
+    if (!cur) {
+      agencyDateRanges.set(r.agency_id, { min: r.process_date, max: r.process_date })
+    } else {
+      if (r.process_date < cur.min) cur.min = r.process_date
+      if (r.process_date > cur.max) cur.max = r.process_date
+    }
+  }
+  for (const [agencyId, { min, max }] of agencyDateRanges) {
+    await supabase
+      .from('gdc_records')
+      .delete()
+      .eq('agency_id', agencyId)
+      .gte('process_date', min)
+      .lte('process_date', max)
+  }
+
   const CHUNK = 200
   for (let i = 0; i < records.length; i += CHUNK) {
     const { error } = await supabase.from('gdc_records').insert(records.slice(i, i + CHUNK))
