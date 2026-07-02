@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Upload, CheckCircle, AlertCircle, Loader2 } from 'lucide-react'
+import { Upload, CheckCircle, AlertCircle, Loader2, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 type ImportResult = {
@@ -13,12 +13,34 @@ type ImportResult = {
   unrecognized_partners: string[]
 }
 
+const CURRENT_YEAR = new Date().getFullYear()
+
 export default function GdcImportPage() {
   const inputRef = useRef<HTMLInputElement>(null)
   const [file, setFile]         = useState<File | null>(null)
   const [loading, setLoading]   = useState(false)
   const [result, setResult]     = useState<ImportResult | null>(null)
   const [error, setError]       = useState<string | null>(null)
+
+  const [clearConfirm, setClearConfirm] = useState(false)
+  const [clearing, setClearing]         = useState(false)
+  const [clearResult, setClearResult]   = useState<{ deleted: number; year: number } | null>(null)
+  const [clearError, setClearError]     = useState<string | null>(null)
+
+  async function handleClear() {
+    setClearing(true)
+    setClearError(null)
+    setClearResult(null)
+    const res  = await fetch(`/api/admin/gdc-import?year=${CURRENT_YEAR}`, { method: 'DELETE' })
+    const json = await res.json()
+    if (!res.ok) {
+      setClearError((json as { error?: string }).error ?? 'Clear failed')
+    } else {
+      setClearResult(json as { deleted: number; year: number })
+      setClearConfirm(false)
+    }
+    setClearing(false)
+  }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0] ?? null
@@ -106,6 +128,59 @@ export default function GdcImportPage() {
             {error}
           </div>
         )}
+
+        {/* Clear year data */}
+        <div className="border-t border-slate-800 pt-6 space-y-3">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Danger Zone</p>
+          <p className="text-slate-500 text-xs">
+            Deletes all GDC records with a process date in {CURRENT_YEAR}. Use this before a full
+            re-import to reset everyone&rsquo;s gauge to a clean baseline.
+          </p>
+
+          {!clearConfirm ? (
+            <button
+              onClick={() => { setClearConfirm(true); setClearResult(null); setClearError(null) }}
+              className="flex items-center gap-2 text-sm font-medium text-red-400 hover:text-red-300 transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+              Clear all {CURRENT_YEAR} GDC data…
+            </button>
+          ) : (
+            <div className="bg-red-950 border border-red-800 rounded-xl p-4 space-y-3">
+              <p className="text-red-300 text-sm font-semibold">
+                This will permanently delete all {CURRENT_YEAR} GDC records for every agency.
+                Re-import the comp report immediately after.
+              </p>
+              {clearError && (
+                <p className="text-red-400 text-xs">{clearError}</p>
+              )}
+              <div className="flex gap-3">
+                <button
+                  onClick={handleClear}
+                  disabled={clearing}
+                  className="flex items-center gap-2 rounded-lg bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 transition-colors"
+                >
+                  {clearing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  {clearing ? 'Clearing…' : `Yes, delete all ${CURRENT_YEAR} data`}
+                </button>
+                <button
+                  onClick={() => setClearConfirm(false)}
+                  disabled={clearing}
+                  className="rounded-lg border border-slate-700 text-slate-400 text-sm px-4 py-2 hover:bg-slate-800 transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {clearResult && (
+            <div className="flex items-center gap-2 text-sm text-emerald-400">
+              <CheckCircle className="w-4 h-4" />
+              Deleted {clearResult.deleted} records for {clearResult.year}. Ready to re-import.
+            </div>
+          )}
+        </div>
 
         {result && (
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">

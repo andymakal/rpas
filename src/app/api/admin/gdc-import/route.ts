@@ -2,6 +2,26 @@ import { NextRequest, NextResponse } from 'next/server'
 import * as XLSX from 'xlsx'
 import { createAdminClient } from '@/lib/supabase/admin'
 
+export async function DELETE(req: NextRequest) {
+  const year = req.nextUrl.searchParams.get('year') ?? String(new Date().getFullYear())
+  if (!/^\d{4}$/.test(year)) {
+    return NextResponse.json({ error: 'Invalid year' }, { status: 400 })
+  }
+
+  const supabase = createAdminClient()
+  const { count, error } = await supabase
+    .from('gdc_records')
+    .delete({ count: 'exact' })
+    .gte('process_date', `${year}-01-01`)
+    .lte('process_date', `${year}-12-31`)
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  return NextResponse.json({ deleted: count ?? 0, year })
+}
+
 export async function POST(req: NextRequest) {
   const formData = await req.formData()
   const file = formData.get('file') as File | null
