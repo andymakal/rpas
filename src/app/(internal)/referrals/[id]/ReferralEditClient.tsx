@@ -8,7 +8,7 @@ import {
   MessageSquare, Mail, AlertCircle, PhoneCall, PhoneOff,
   MessageCircle, ChevronDown, ChevronUp, DollarSign, Pencil, Check, X, MapPin,
   CalendarClock, CalendarX, History, Flame, Send, Wrench,
-  ChevronLeft, ChevronRight, Copy, Users, UserPlus, Trash2,
+  ChevronLeft, ChevronRight, Copy, Users, UserPlus, Trash2, GitMerge,
 } from 'lucide-react'
 import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember, SuspectedDuplicate, NotInterestedReason } from './page'
 import { HouseholdCard } from '@/components/HouseholdCard'
@@ -198,6 +198,16 @@ function buildRewarmMailto(
 
 // ── Main component ─────────────────────────────────────────────────────────────
 
+type MergeCandidate = {
+  id: string
+  first_name: string
+  last_name: string
+  phone: string | null
+  city: string | null
+  state: string | null
+  case_count: number
+}
+
 type Props = {
   referral:               ReferralDetail
   stages:                 Tier1Stage[]
@@ -224,6 +234,15 @@ export function ReferralEditClient({
   const [suspectedDuplicate, setSuspectedDuplicate] = useState<SuspectedDuplicate | null>(initialSuspectedDuplicate)
   const [dupWorking,         setDupWorking]         = useState(false)
   const [dupError,           setDupError]           = useState<string | null>(null)
+
+  // ── Manual merge state ────────────────────────────────────────
+  const [mergeOpen,      setMergeOpen]      = useState(false)
+  const [mergeQuery,     setMergeQuery]     = useState('')
+  const [mergeResults,   setMergeResults]   = useState<MergeCandidate[]>([])
+  const [mergeSearching, setMergeSearching] = useState(false)
+  const [mergeTarget,    setMergeTarget]    = useState<MergeCandidate | null>(null)
+  const [mergeWorking,   setMergeWorking]   = useState(false)
+  const [mergeError,     setMergeError]     = useState<string | null>(null)
 
   async function handleMerge() {
     if (!suspectedDuplicate) return
@@ -258,6 +277,41 @@ export function ReferralEditClient({
       setSuspectedDuplicate(null)
     } catch { setDupError('Network error') }
     finally { setDupWorking(false) }
+  }
+
+  async function handleMergeSearch(q: string) {
+    setMergeQuery(q)
+    setMergeTarget(null)
+    if (q.trim().length < 2) { setMergeResults([]); return }
+    setMergeSearching(true)
+    try {
+      const res = await fetch(`/api/customers/search?q=${encodeURIComponent(q.trim())}&dedup=true`)
+      const json = await res.json()
+      setMergeResults(
+        (json.data ?? []).filter((c: MergeCandidate) => c.id !== referral.customer_id)
+      )
+    } catch { setMergeResults([]) }
+    finally { setMergeSearching(false) }
+  }
+
+  async function handleManualMerge() {
+    if (!mergeTarget) return
+    if (!confirm(
+      `Merge this record (${cFirstName} ${cLastName}) into ${mergeTarget.first_name} ${mergeTarget.last_name}?\n\n` +
+      `All cases from this record will move to the other. This record will then be deleted. This cannot be undone.`
+    )) return
+    setMergeWorking(true); setMergeError(null)
+    try {
+      const res = await fetch(`/api/customers/${referral.customer_id}/merge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ merge_into_id: mergeTarget.id }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setMergeError(json.error ?? 'Merge failed'); return }
+      router.push('/referrals')
+    } catch { setMergeError('Network error') }
+    finally { setMergeWorking(false) }
   }
 
   // ── Case fields ───────────────────────────────────────────────
@@ -1564,6 +1618,90 @@ export function ReferralEditClient({
               )}
             </div>
           )}
+
+          {/* Merge duplicate — manual trigger for duplicates missed by auto-detection */}
+          <div className="pt-1 border-t border-slate-800/50">
+            <button
+              onClick={() => { setMergeOpen(o => !o); setMergeQuery(''); setMergeResults([]); setMergeTarget(null); setMergeError(null) }}
+              className="inline-flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-400 transition-colors"
+            >
+              <GitMerge className="w-3.5 h-3.5" />
+              {mergeOpen ? 'Cancel merge' : 'Merge duplicate…'}
+            </button>
+
+            {mergeOpen && (
+              <div className="mt-3 rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-3">
+                <p className="text-xs font-medium text-slate-300">Find the record to keep</p>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  All cases from{' '}
+                  <span className="text-slate-300">{cFirstName} {cLastName}</span>{' '}
+                  will move to the selected record, then this record will be deleted.
+                </p>
+                <input
+                  type="text"
+                  value={mergeQuery}
+                  onChange={e => handleMergeSearch(e.target.value)}
+                  placeholder="Search by name or phone…"
+                  className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
+                />
+                {mergeSearching && <p className="text-xs text-slate-500">Searching…</p>}
+                {mergeResults.length > 0 && !mergeTarget && (
+                  <div className="divide-y divide-slate-800 rounded-lg border border-slate-700 overflow-hidden">
+                    {mergeResults.map(c => (
+                      <button
+                        key={c.id}
+                        onClick={() => setMergeTarget(c)}
+                        className="w-full flex items-start justify-between gap-2 px-3 py-2.5 text-left hover:bg-slate-800 transition-colors"
+                      >
+                        <div>
+                          <p className="text-sm text-slate-200 font-medium">{c.first_name} {c.last_name}</p>
+                          <p className="text-xs text-slate-500">
+                            {c.phone ?? 'No phone'}
+                            {c.city ? ` · ${c.city}${c.state ? `, ${c.state}` : ''}` : ''}
+                          </p>
+                        </div>
+                        <span className="text-xs text-slate-500 shrink-0">
+                          {c.case_count} case{c.case_count !== 1 ? 's' : ''}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {mergeTarget && (
+                  <div className="rounded-lg border border-amber-700/50 bg-amber-950/20 p-3 space-y-3">
+                    <div className="text-xs space-y-1.5">
+                      <p>
+                        <span className="text-slate-500">Delete: </span>
+                        <span className="text-slate-200">{cFirstName} {cLastName}</span>
+                        <span className="text-slate-600"> (this record)</span>
+                      </p>
+                      <p>
+                        <span className="text-slate-500">Keep: </span>
+                        <span className="text-slate-200">{mergeTarget.first_name} {mergeTarget.last_name}</span>
+                        <span className="text-slate-600"> ({mergeTarget.case_count} case{mergeTarget.case_count !== 1 ? 's' : ''})</span>
+                      </p>
+                    </div>
+                    {mergeError && <p className="text-xs text-red-400">{mergeError}</p>}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleManualMerge}
+                        disabled={mergeWorking}
+                        className="flex-1 rounded-lg px-3 py-2 text-xs font-semibold text-white bg-red-700 hover:bg-red-600 disabled:opacity-50 transition-colors"
+                      >
+                        {mergeWorking ? 'Merging…' : 'Confirm Merge'}
+                      </button>
+                      <button
+                        onClick={() => setMergeTarget(null)}
+                        className="px-3 py-2 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                      >
+                        Back
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
         </div>
 
