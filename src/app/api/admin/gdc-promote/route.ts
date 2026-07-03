@@ -25,14 +25,17 @@ function parseInsuredName(raw: string): { first: string; last: string } {
 function parseCarrier(product: string | null): string {
   if (!product) return 'Allstate Life'
   const p = product.toUpperCase()
-  if (p.includes('LINCOLN'))      return 'Lincoln Benefit Life'
-  if (p.includes('JOHN HANCOCK')) return 'John Hancock'
-  if (p.includes('COREBRIDGE'))   return 'Corebridge Financial'
-  if (p.includes('PRUDENTIAL'))   return 'Prudential'
-  if (p.includes('PROTECTIVE'))   return 'Protective Life'
-  if (p.includes('BANNER'))       return 'Banner Life'
-  if (p.includes('PACIFIC LIFE')) return 'Pacific Life'
-  if (p.includes('AMERICAN GENERAL')) return 'American General'
+  if (p.includes('LINCOLN'))           return 'Lincoln Benefit Life'
+  if (p.includes('JOHN HANCOCK'))      return 'John Hancock'
+  if (p.includes('COREBRIDGE'))        return 'Corebridge Financial'
+  if (p.includes('PRUDENTIAL'))        return 'Prudential'
+  if (p.includes('PROTECTIVE'))        return 'Protective Life'
+  if (p.includes('BANNER'))            return 'Banner Life'
+  if (p.includes('PACIFIC LIFE'))      return 'Pacific Life'
+  if (p.includes('AMERICAN GENERAL'))  return 'American General'
+  if (p.includes('FORESTERS'))         return 'Foresters Financial'
+  if (p.includes('SAMMONS'))           return 'Sammons Financial'
+  if (p.startsWith('EQU ') || p.includes('EQUITABLE')) return 'Equitable'
   return 'Allstate Life'
 }
 
@@ -44,7 +47,10 @@ function parseProductType(product: string | null): string | null {
   if (p.includes('UNIVERSAL LIFE') || /\bUL\b/.test(p))     return 'UL'
   if (p.includes('WHOLE LIFE') || /\bWL\b/.test(p))         return 'WL'
   if (p.includes('TERM'))                                    return 'Term'
-  if (p.includes('ANNUIT') || p.includes('INDEX-LINKED') || p.includes('FIXED INDEXED')) return 'Annuity'
+  if (
+    p.includes('ANNUIT') || p.includes('INDEX-LINKED') || p.includes('FIXED INDEXED') ||
+    /\bVA\b/.test(p) || p.startsWith('EQU ')
+  ) return 'Annuity'
   return null
 }
 
@@ -54,7 +60,7 @@ export async function POST() {
   const yearStart = `${year}-01-01`
   const yearEnd   = `${year}-12-31`
 
-  // All positive, agency-matched GDC records for the year
+  // All positive, agency-matched GDC records for the year — exclude mutual fund trails
   const { data: gdcRows, error: gdcErr } = await supabase
     .from('gdc_records')
     .select('policy_number, insured_name, product, app_date, process_date, agency_id')
@@ -63,6 +69,7 @@ export async function POST() {
     .gt('production_credit', 0)
     .not('agency_id', 'is', null)
     .not('policy_number', 'is', null)
+    .neq('product', 'Mutual Fund')
 
   if (gdcErr) return NextResponse.json({ error: gdcErr.message }, { status: 500 })
 
