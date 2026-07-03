@@ -112,7 +112,7 @@ export async function POST() {
     try {
       const { first, last } = parseInsuredName(row.insured_name ?? '')
       const agencyId        = row.agency_id as string
-      const placedAt        = (row.app_date ?? row.process_date) as string | null
+      const placedAt        = (row.process_date ?? row.app_date) as string | null
 
       // Match existing customer within the same agency by name
       let customerId: string | null = null
@@ -169,26 +169,43 @@ export async function POST() {
         continue
       }
 
-      // Create service_policies record
+      // Create or link service_policies record.
+      // If a legacy service_policy already exists for this policy_number (e.g. from
+      // a CSV import), update it in place rather than inserting a duplicate.
       const clientName = [first, last].filter(Boolean).join(' ') || row.insured_name || 'Unknown'
-      const { error: spErr } = await supabase
+      const { data: existingSp } = await supabase
         .from('service_policies')
-        .insert({
-          customer_id:    customerId,
-          agency_id:      agencyId,
-          source_case_id: newCase.id,
-          policy_number:  policyNumber,
-          client_name:    clientName,
-          carrier:        parseCarrier(row.product),
-          product_type:   parseProductType(row.product),
-          issue_date:     placedAt,
-          coverage_status: 'active',
-          sa_status:      'unknown',
-          is_test:        false,
-        })
+        .select('id')
+        .eq('policy_number', policyNumber)
+        .maybeSingle()
 
-      if (spErr) {
-        errors.push(`Service policy create failed for ${policyNumber}: ${spErr.message}`)
+      if (existingSp) {
+        const { error: spErr } = await supabase
+          .from('service_policies')
+          .update({
+            source_case_id: newCase.id,
+            customer_id:    customerId,
+            agency_id:      agencyId,
+          })
+          .eq('id', existingSp.id)
+        if (spErr) errors.push(`Service policy link failed for ${policyNumber}: ${spErr.message}`)
+      } else {
+        const { error: spErr } = await supabase
+          .from('service_policies')
+          .insert({
+            customer_id:    customerId,
+            agency_id:      agencyId,
+            source_case_id: newCase.id,
+            policy_number:  policyNumber,
+            client_name:    clientName,
+            carrier:        parseCarrier(row.product),
+            product_type:   parseProductType(row.product),
+            issue_date:     placedAt,
+            coverage_status: 'active',
+            sa_status:      'unknown',
+            is_test:        false,
+          })
+        if (spErr) errors.push(`Service policy create failed for ${policyNumber}: ${spErr.message}`)
       }
 
       created++
