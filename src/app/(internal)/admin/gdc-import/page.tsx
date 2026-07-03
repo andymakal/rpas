@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Upload, CheckCircle, AlertCircle, Loader2, Trash2 } from 'lucide-react'
+import { Upload, CheckCircle, AlertCircle, Loader2, Trash2, ArrowUpCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 type ImportResult = {
@@ -11,6 +11,13 @@ type ImportResult = {
   matched_count: number
   unmatched_count: number
   unrecognized_partners: string[]
+}
+
+type PromoteResult = {
+  created: number
+  skipped: number
+  customers_created: number
+  errors: string[]
 }
 
 const CURRENT_YEAR = new Date().getFullYear()
@@ -26,6 +33,24 @@ export default function GdcImportPage() {
   const [clearing, setClearing]         = useState(false)
   const [clearResult, setClearResult]   = useState<{ deleted: number; year: number } | null>(null)
   const [clearError, setClearError]     = useState<string | null>(null)
+
+  const [promoting, setPromoting]       = useState(false)
+  const [promoteResult, setPromoteResult] = useState<PromoteResult | null>(null)
+  const [promoteError, setPromoteError] = useState<string | null>(null)
+
+  async function handlePromote() {
+    setPromoting(true)
+    setPromoteError(null)
+    setPromoteResult(null)
+    const res  = await fetch('/api/admin/gdc-promote', { method: 'POST' })
+    const json = await res.json()
+    if (!res.ok) {
+      setPromoteError((json as { error?: string }).error ?? 'Promote failed')
+    } else {
+      setPromoteResult(json as PromoteResult)
+    }
+    setPromoting(false)
+  }
 
   async function handleClear() {
     setClearing(true)
@@ -128,6 +153,53 @@ export default function GdcImportPage() {
             {error}
           </div>
         )}
+
+        {/* Promote to placed cases */}
+        <div className="border-t border-slate-800 pt-6 space-y-3">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Promote to Cases</p>
+          <p className="text-slate-500 text-xs">
+            For every {CURRENT_YEAR} GDC policy not yet in the system, creates a customer record,
+            a placed case linked to the correct agency, and a service policy record.
+            Run this after each import to keep the portal current. Safe to run multiple times.
+          </p>
+
+          <button
+            onClick={handlePromote}
+            disabled={promoting}
+            className="flex items-center gap-2 text-sm font-medium text-emerald-400 hover:text-emerald-300 disabled:opacity-50 transition-colors"
+          >
+            {promoting
+              ? <Loader2 className="w-4 h-4 animate-spin" />
+              : <ArrowUpCircle className="w-4 h-4" />}
+            {promoting ? 'Promoting…' : `Promote ${CURRENT_YEAR} GDC to placed cases`}
+          </button>
+
+          {promoteError && (
+            <p className="text-red-400 text-xs">{promoteError}</p>
+          )}
+
+          {promoteResult && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm text-emerald-400">
+                <CheckCircle className="w-4 h-4" />
+                {promoteResult.created} case{promoteResult.created !== 1 ? 's' : ''} created
+                {promoteResult.customers_created > 0 && ` · ${promoteResult.customers_created} new customer${promoteResult.customers_created !== 1 ? 's' : ''}`}
+                {promoteResult.skipped > 0 && <span className="text-slate-500"> · {promoteResult.skipped} already existed</span>}
+              </div>
+              {promoteResult.errors.length > 0 && (
+                <div className="bg-amber-950 border border-amber-800 rounded-lg p-3 space-y-1">
+                  <p className="text-amber-300 text-xs font-semibold">{promoteResult.errors.length} row{promoteResult.errors.length !== 1 ? 's' : ''} had errors</p>
+                  {promoteResult.errors.slice(0, 5).map((e, i) => (
+                    <p key={i} className="text-amber-400/70 text-xs font-mono truncate">{e}</p>
+                  ))}
+                  {promoteResult.errors.length > 5 && (
+                    <p className="text-amber-500 text-xs">…and {promoteResult.errors.length - 5} more</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
 
         {/* Clear year data */}
         <div className="border-t border-slate-800 pt-6 space-y-3">
