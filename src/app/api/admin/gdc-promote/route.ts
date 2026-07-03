@@ -60,16 +60,16 @@ export async function POST() {
   const yearStart = `${year}-01-01`
   const yearEnd   = `${year}-12-31`
 
-  // All positive, agency-matched GDC records for the year — exclude mutual fund trails
+  // New-business-only GDC records for the year: policy_count = 1 means Allstate counted it
+  // as an app. Renewals, MF trails, and chargebacks all have policy_count = 0 or -1.
   const { data: gdcRows, error: gdcErr } = await supabase
     .from('gdc_records')
     .select('policy_number, insured_name, product, app_date, process_date, agency_id')
     .gte('process_date', yearStart)
     .lte('process_date', yearEnd)
-    .gt('production_credit', 0)
+    .eq('policy_count', 1)
     .not('agency_id', 'is', null)
     .not('policy_number', 'is', null)
-    .neq('product', 'Mutual Fund')
 
   if (gdcErr) return NextResponse.json({ error: gdcErr.message }, { status: 500 })
 

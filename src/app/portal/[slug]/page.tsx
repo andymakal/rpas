@@ -94,8 +94,7 @@ export default async function PortalPage({
         .eq('agency_id', agency.id)
         .gte('process_date', yearStart)
         .lte('process_date', yearEnd)
-        .gt('production_credit', 0)
-        .neq('product', 'Mutual Fund'),
+        .eq('policy_count', 1),
 
       // Service requests — filter by agency via service_policies join
       supabase

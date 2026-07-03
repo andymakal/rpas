@@ -110,6 +110,7 @@ export async function POST(req: NextRequest) {
       insured_name:            String(row['Insured Name']   ?? '').trim() || null,
       product:                 String(row['Product']        ?? '').trim() || null,
       production_credit:       credit,
+      policy_count:            Number(row['Policy Count']   ?? 0),
       app_date:                parseDate(row['App Date']),
       process_date:            parseDate(row['Issued Credit Release Date']),
       allstate_partner_number: fullPartner,
