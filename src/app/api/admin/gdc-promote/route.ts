@@ -89,11 +89,14 @@ export async function POST() {
   const policyNumbers = unique.map(r => r.policy_number as string)
   const { data: existingCases } = await supabase
     .from('cases')
-    .select('policy_number')
+    .select('id, policy_number')
     .in('policy_number', policyNumbers)
 
   const existingPolicies = new Set(
     (existingCases ?? []).map(c => c.policy_number).filter(Boolean)
+  )
+  const existingCaseIdByPolicy = new Map(
+    (existingCases ?? []).map(c => [c.policy_number as string, c.id as string])
   )
 
   let created = 0
@@ -105,6 +108,22 @@ export async function POST() {
     const policyNumber = row.policy_number as string
 
     if (existingPolicies.has(policyNumber)) {
+      // Case exists — still correct the carrier/product_type on any linked service_policy
+      const { data: existingSp } = await supabase
+        .from('service_policies')
+        .select('id')
+        .eq('policy_number', policyNumber)
+        .maybeSingle()
+      if (existingSp) {
+        await supabase
+          .from('service_policies')
+          .update({
+            carrier:      parseCarrier(row.product),
+            product_type: parseProductType(row.product),
+            source_case_id: existingCaseIdByPolicy.get(policyNumber) ?? null,
+          })
+          .eq('id', existingSp.id)
+      }
       skipped++
       continue
     }

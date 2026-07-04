@@ -154,6 +154,8 @@ export function PolicyDetailClient({
   // ── Edit mode state ───────────────────────────────────────────────────────────
   const [editing, setEditing] = useState(false)
   const [editFields, setEditFields] = useState({
+    carrier:              initial.carrier               ?? '',
+    product_type:         initial.product_type          ?? '',
     face_amount:          initial.face_amount          != null ? String(initial.face_amount)          : '',
     death_benefit_amount: initial.death_benefit_amount != null ? String(initial.death_benefit_amount) : '',
     cash_value_amount:    initial.cash_value_amount    != null ? String(initial.cash_value_amount)    : '',
@@ -182,6 +184,8 @@ export function PolicyDetailClient({
     try {
       const num = (v: string) => v.trim() === '' ? null : parseFloat(v)
       await patchPolicy({
+        carrier:              editFields.carrier.trim()            || initial.carrier,
+        product_type:         editFields.product_type             || null,
         face_amount:          num(editFields.face_amount),
         death_benefit_amount: num(editFields.death_benefit_amount),
         cash_value_amount:    num(editFields.cash_value_amount),
@@ -457,6 +461,25 @@ export function PolicyDetailClient({
             <Card title="Coverage Details">
               {editing ? (
                 <div className="space-y-3">
+                  {/* Carrier & product type */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Carrier</label>
+                      <input value={editFields.carrier} onChange={ef('carrier')}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-slate-500"
+                        placeholder="e.g. Lincoln Financial" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Product Type</label>
+                      <select value={editFields.product_type} onChange={ef('product_type')}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-slate-500">
+                        <option value="">—</option>
+                        {['Term','UL','IUL','VUL','WL','PERM','Annuity'].map(t => (
+                          <option key={t} value={t}>{t}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
                   {/* Insured name */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
