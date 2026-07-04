@@ -25,7 +25,7 @@ function parseInsuredName(raw: string): { first: string; last: string } {
 function parseCarrier(product: string | null): string {
   if (!product) return 'Allstate Life'
   const p = product.toUpperCase()
-  if (p.includes('LINCOLN'))           return 'Lincoln Benefit Life'
+  if (p.includes('LINCOLN'))           return 'Lincoln Financial'
   if (p.includes('JOHN HANCOCK'))      return 'John Hancock'
   if (p.includes('COREBRIDGE'))        return 'Corebridge Financial'
   if (p.includes('PRUDENTIAL'))        return 'Prudential'
