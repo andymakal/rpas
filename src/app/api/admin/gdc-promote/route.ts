@@ -186,6 +186,8 @@ export async function POST() {
             source_case_id: newCase.id,
             customer_id:    customerId,
             agency_id:      agencyId,
+            carrier:        parseCarrier(row.product),
+            product_type:   parseProductType(row.product),
           })
           .eq('id', existingSp.id)
         if (spErr) errors.push(`Service policy link failed for ${policyNumber}: ${spErr.message}`)
