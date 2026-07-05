@@ -75,6 +75,7 @@ async function promoteCaseToPolicy(
     .from('cases')
     .select(`
       internal_status, policy_number, face_amount, annual_premium,
+      quoted_carrier, quoted_product_type,
       customer_id, agency_id, agent_id,
       customers (first_name, last_name),
       products (carriers (short_name), product_types (name))
@@ -82,21 +83,26 @@ async function promoteCaseToPolicy(
     .eq('id', caseId)
     .single()
 
-  if (!c)                          return
+  if (!c)                             return
   if (c.internal_status !== 'placed') return
-  if (!c.policy_number?.trim())    return
-  if (!c.customer_id)              return
+  if (!c.policy_number?.trim())       return
+  if (!c.customer_id)                 return
 
   type ProductRow = { carriers: { short_name: string } | null; product_types: { name: string } | null }
   type CustomerRow = { first_name: string; last_name: string }
 
   const product  = c.products  as unknown as ProductRow  | null
   const customer = c.customers as unknown as CustomerRow | null
-  const carrier  = product?.carriers?.short_name
 
-  if (!carrier || !customer) return
+  // Use products table carrier if linked, fall back to the quoted_carrier text field
+  const carrier = product?.carriers?.short_name
+    ?? (c as unknown as Record<string, unknown>).quoted_carrier as string | null
+    ?? 'Unknown'
+
+  if (!customer) return
 
   const productType = abbrevProductType(product?.product_types?.name ?? null)
+    ?? (c as unknown as Record<string, unknown>).quoted_product_type as string | null
 
   // One service_policy per case (unique index on source_case_id enforces this)
   const { data: existing } = await supabase
