@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -224,12 +224,13 @@ function Section({ title, icon: Icon, count, children, action }: {
 }
 
 const CARRIERS = [
-  'Corebridge', 'Everlake Assurance', 'Everlake Life', 'Foresters',
+  'Allstate Life', 'American General', 'Banner Life', 'Corebridge Financial',
+  'Equitable', 'Everlake Assurance', 'Everlake Life', 'Foresters Financial',
   'Gerber Life', 'John Hancock', 'Lincoln Benefit Life', 'Lincoln Financial',
-  'Pacific Life', 'Protective', 'Prudential', 'Other',
+  'Pacific Life', 'Protective Life', 'Prudential', 'Sammons Financial', 'Other',
 ]
 
-const POLICY_TYPES = ['Term', 'UL', 'VUL', 'WL', 'IUL', 'GUL', 'LTC', 'FA', 'MVA', 'Other']
+const POLICY_TYPES = ['Term', 'UL', 'VUL', 'WL', 'IUL', 'GUL', 'LTC', 'Annuity', 'FA', 'MVA', 'Other']
 
 type PolicySearchResult = {
   id:           string
@@ -280,6 +281,16 @@ export function CustomerCardClient({
   const [newIssueDate,    setNewIssueDate]    = useState('')
   const [addPolicySaving, setAddPolicySaving] = useState(false)
   const [addPolicyErr,    setAddPolicyErr]    = useState<string | null>(null)
+
+  const [editingPolicyId,  setEditingPolicyId]  = useState<string | null>(null)
+  const [editPolCarrier,   setEditPolCarrier]   = useState('')
+  const [editPolNumber,    setEditPolNumber]    = useState('')
+  const [editPolType,      setEditPolType]      = useState('')
+  const [editPolFace,      setEditPolFace]      = useState('')
+  const [editPolPremium,   setEditPolPremium]   = useState('')
+  const [editPolStatus,    setEditPolStatus]    = useState('')
+  const [editPolSaving,    setEditPolSaving]    = useState(false)
+  const [editPolErr,       setEditPolErr]       = useState<string | null>(null)
 
   const [segment,        setSegment]        = useState<string | null>(customer.segment)
   const [editingSegment, setEditingSegment] = useState(false)
@@ -449,6 +460,52 @@ export function CustomerCardClient({
       setAddingPolicy(false)
     } catch { setAddPolicyErr('Network error') }
     finally   { setAddPolicySaving(false) }
+  }
+
+  function startEditPolicy(p: LinkedPolicy) {
+    setEditingPolicyId(p.id)
+    setEditPolCarrier(p.carrier ?? '')
+    setEditPolNumber(p.policy_number ?? '')
+    setEditPolType(p.product_type ?? '')
+    setEditPolFace(p.face_amount  != null ? String(p.face_amount)  : '')
+    setEditPolPremium(p.annual_premium != null ? String(p.annual_premium) : '')
+    setEditPolStatus(p.coverage_status ?? 'active')
+    setEditPolErr(null)
+  }
+
+  async function handleSaveEditPolicy(policyId: string) {
+    if (!editPolCarrier.trim() || !editPolNumber.trim()) {
+      setEditPolErr('Carrier and policy number are required')
+      return
+    }
+    setEditPolSaving(true); setEditPolErr(null)
+    try {
+      const res = await fetch(`/api/service-policies/${policyId}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          carrier:         editPolCarrier.trim(),
+          policy_number:   editPolNumber.trim(),
+          product_type:    editPolType    || null,
+          face_amount:     editPolFace    ? parseFloat(editPolFace)    : null,
+          annual_premium:  editPolPremium ? parseFloat(editPolPremium) : null,
+          coverage_status: editPolStatus  || 'active',
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setEditPolErr(json.error ?? 'Save failed'); return }
+      setPolicies(prev => prev.map(p => p.id === policyId ? {
+        ...p,
+        carrier:         json.data.carrier,
+        policy_number:   json.data.policy_number,
+        product_type:    json.data.product_type,
+        face_amount:     json.data.face_amount,
+        annual_premium:  json.data.annual_premium,
+        coverage_status: json.data.coverage_status,
+      } : p))
+      setEditingPolicyId(null)
+    } catch { setEditPolErr('Network error') }
+    finally { setEditPolSaving(false) }
   }
 
   async function handleSegmentChange(newSegment: string | null) {
@@ -996,35 +1053,115 @@ export function CustomerCardClient({
               </thead>
               <tbody className="divide-y divide-slate-800/60">
                 {policies.map(p => (
-                  <tr key={p.id} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="px-5 py-3">
-                      <p className="text-white font-medium text-sm truncate max-w-36">{p.client_name}</p>
-                      <p className="text-slate-500 text-xs">{p.carrier}</p>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-slate-300 text-xs">{p.policy_number}</td>
-                    <td className="px-4 py-3"><TypeBadge type={p.product_type} /></td>
-                    <td className="px-4 py-3 text-right text-slate-200 text-sm font-medium">{fmt(p.face_amount)}</td>
-                    <td className="px-4 py-3">
-                      <SaBadge saStatus={p.sa_status} formSentAt={p.sa_form_sent_at} />
-                    </td>
-                    <td className="px-4 py-3">
-                      {p.flag_count > 0 ? (
-                        <span className="inline-flex items-center gap-1 text-xs text-amber-400">
-                          <AlertTriangle className="w-3 h-3" /> {p.flag_count}
-                        </span>
-                      ) : (
-                        <span className="text-slate-600 text-xs">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      <Link
-                        href={`/policies/${p.id}`}
-                        className="flex items-center justify-end text-slate-600 hover:text-slate-300 transition-colors"
-                      >
-                        <ChevronRight className="w-4 h-4" />
-                      </Link>
-                    </td>
-                  </tr>
+                  <Fragment key={p.id}>
+                    <tr className={`transition-colors ${editingPolicyId === p.id ? 'bg-slate-800/60' : 'hover:bg-slate-800/40'}`}>
+                      <td className="px-5 py-3">
+                        <p className="text-white font-medium text-sm truncate max-w-36">{p.client_name}</p>
+                        <p className="text-slate-500 text-xs">{p.carrier}</p>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-slate-300 text-xs">{p.policy_number}</td>
+                      <td className="px-4 py-3"><TypeBadge type={p.product_type} /></td>
+                      <td className="px-4 py-3 text-right text-slate-200 text-sm font-medium">{fmt(p.face_amount)}</td>
+                      <td className="px-4 py-3">
+                        <SaBadge saStatus={p.sa_status} formSentAt={p.sa_form_sent_at} />
+                      </td>
+                      <td className="px-4 py-3">
+                        {p.flag_count > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-amber-400">
+                            <AlertTriangle className="w-3 h-3" /> {p.flag_count}
+                          </span>
+                        ) : (
+                          <span className="text-slate-600 text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => editingPolicyId === p.id ? setEditingPolicyId(null) : startEditPolicy(p)}
+                            className={`p-0.5 transition-colors ${editingPolicyId === p.id ? 'text-blue-400' : 'text-slate-600 hover:text-slate-300'}`}
+                            title="Edit policy"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <Link
+                            href={`/policies/${p.id}`}
+                            className="flex items-center text-slate-600 hover:text-slate-300 transition-colors"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                    {editingPolicyId === p.id && (
+                      <tr>
+                        <td colSpan={7} className="px-5 py-4 border-t border-slate-700/50 bg-slate-800/30">
+                          <p className="text-xs font-medium text-slate-400 mb-3">Edit policy</p>
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-xs text-slate-500 mb-1">Carrier <span className="text-red-500">*</span></label>
+                                <select value={editPolCarrier} onChange={e => setEditPolCarrier(e.target.value)} className={inputCls}>
+                                  <option value="">Select…</option>
+                                  {CARRIERS.map(c => <option key={c} value={c}>{c}</option>)}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs text-slate-500 mb-1">Policy number <span className="text-red-500">*</span></label>
+                                <input value={editPolNumber} onChange={e => setEditPolNumber(e.target.value)} className={inputCls} />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-4 gap-3">
+                              <div>
+                                <label className="block text-xs text-slate-500 mb-1">Product type</label>
+                                <select value={editPolType} onChange={e => setEditPolType(e.target.value)} className={inputCls}>
+                                  <option value="">—</option>
+                                  {POLICY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs text-slate-500 mb-1">Face amount</label>
+                                <input value={editPolFace} onChange={e => setEditPolFace(e.target.value)} type="number" min="0" step="1000" className={inputCls} />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-slate-500 mb-1">Annual premium</label>
+                                <input value={editPolPremium} onChange={e => setEditPolPremium(e.target.value)} type="number" min="0" step="1" className={inputCls} />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-slate-500 mb-1">Coverage status</label>
+                                <select value={editPolStatus} onChange={e => setEditPolStatus(e.target.value)} className={inputCls}>
+                                  <option value="active">Active</option>
+                                  <option value="lapsed">Lapsed</option>
+                                  <option value="surrendered">Surrendered</option>
+                                  <option value="terminated">Terminated</option>
+                                  <option value="matured">Matured</option>
+                                </select>
+                              </div>
+                            </div>
+                            {editPolErr && (
+                              <p className="text-xs text-red-400 flex items-center gap-1">
+                                <AlertTriangle className="w-3 h-3" /> {editPolErr}
+                              </p>
+                            )}
+                            <div className="flex items-center gap-2 pt-1">
+                              <button
+                                onClick={() => handleSaveEditPolicy(p.id)}
+                                disabled={editPolSaving}
+                                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg disabled:opacity-50 transition-colors"
+                              >
+                                {editPolSaving ? '…' : <><Check className="w-3.5 h-3.5" /> Save</>}
+                              </button>
+                              <button
+                                onClick={() => { setEditingPolicyId(null); setEditPolErr(null) }}
+                                className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
                 ))}
               </tbody>
             </table>
