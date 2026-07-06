@@ -1,7 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
-import { Upload, CheckCircle, AlertCircle, Loader2, Trash2, ArrowUpCircle } from 'lucide-react'
+import { Upload, CheckCircle, AlertCircle, Loader2, Trash2, ArrowUpCircle, Wrench } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 type ImportResult = {
@@ -17,6 +17,13 @@ type PromoteResult = {
   created: number
   skipped: number
   customers_created: number
+  errors: string[]
+}
+
+type RepairResult = {
+  pass1: { created: number; linked: number }
+  pass2: { fixed: number }
+  total: number
   errors: string[]
 }
 
@@ -38,6 +45,10 @@ export default function GdcImportPage() {
   const [promoteResult, setPromoteResult] = useState<PromoteResult | null>(null)
   const [promoteError, setPromoteError] = useState<string | null>(null)
 
+  const [repairing,     setRepairing]     = useState(false)
+  const [repairResult,  setRepairResult]  = useState<RepairResult | null>(null)
+  const [repairError,   setRepairError]   = useState<string | null>(null)
+
   async function handlePromote() {
     setPromoting(true)
     setPromoteError(null)
@@ -50,6 +61,20 @@ export default function GdcImportPage() {
       setPromoteResult(json as PromoteResult)
     }
     setPromoting(false)
+  }
+
+  async function handleRepair() {
+    setRepairing(true)
+    setRepairError(null)
+    setRepairResult(null)
+    const res  = await fetch('/api/admin/repair-policy-links', { method: 'POST' })
+    const json = await res.json()
+    if (!res.ok) {
+      setRepairError((json as { error?: string }).error ?? 'Repair failed')
+    } else {
+      setRepairResult(json as RepairResult)
+    }
+    setRepairing(false)
   }
 
   async function handleClear() {
@@ -194,6 +219,65 @@ export default function GdcImportPage() {
                   ))}
                   {promoteResult.errors.length > 5 && (
                     <p className="text-amber-500 text-xs">…and {promoteResult.errors.length - 5} more</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Repair policy links */}
+        <div className="border-t border-slate-800 pt-6 space-y-3">
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Data Integrity</p>
+          <p className="text-slate-500 text-xs">
+            Ensures every placed case with a policy number has a correctly-linked service policy
+            on the right customer. Run this whenever policies are missing from Customer Cards.
+            Safe to run multiple times — fully idempotent.
+          </p>
+
+          <button
+            onClick={handleRepair}
+            disabled={repairing}
+            className="flex items-center gap-2 text-sm font-medium text-blue-400 hover:text-blue-300 disabled:opacity-50 transition-colors"
+          >
+            {repairing
+              ? <Loader2 className="w-4 h-4 animate-spin" />
+              : <Wrench className="w-4 h-4" />}
+            {repairing ? 'Repairing…' : 'Repair policy links'}
+          </button>
+
+          {repairError && (
+            <p className="text-red-400 text-xs">{repairError}</p>
+          )}
+
+          {repairResult && (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm text-blue-400">
+                <CheckCircle className="w-4 h-4" />
+                {repairResult.total} record{repairResult.total !== 1 ? 's' : ''} fixed
+              </div>
+              <div className="text-xs text-slate-500 space-y-0.5">
+                {repairResult.pass1.created > 0 && (
+                  <p>{repairResult.pass1.created} service {repairResult.pass1.created === 1 ? 'policy' : 'policies'} created for placed cases</p>
+                )}
+                {repairResult.pass1.linked > 0 && (
+                  <p>{repairResult.pass1.linked} existing {repairResult.pass1.linked === 1 ? 'policy' : 'policies'} linked to correct case</p>
+                )}
+                {repairResult.pass2.fixed > 0 && (
+                  <p>{repairResult.pass2.fixed} {repairResult.pass2.fixed === 1 ? 'policy' : 'policies'} moved to correct customer</p>
+                )}
+                {repairResult.total === 0 && (
+                  <p className="text-slate-400">All policy links are already correct — nothing to repair.</p>
+                )}
+              </div>
+              {repairResult.errors.length > 0 && (
+                <div className="bg-amber-950 border border-amber-800 rounded-lg p-3 space-y-1">
+                  <p className="text-amber-300 text-xs font-semibold">{repairResult.errors.length} error{repairResult.errors.length !== 1 ? 's' : ''}</p>
+                  {repairResult.errors.slice(0, 5).map((e, i) => (
+                    <p key={i} className="text-amber-400/70 text-xs font-mono truncate">{e}</p>
+                  ))}
+                  {repairResult.errors.length > 5 && (
+                    <p className="text-amber-500 text-xs">…and {repairResult.errors.length - 5} more</p>
                   )}
                 </div>
               )}
