@@ -46,7 +46,7 @@ export async function POST() {
       id, customer_id, agency_id, agent_id,
       policy_number, face_amount, annual_premium, placed_at,
       quoted_carrier, quoted_product_type,
-      customers ( first_name, last_name ),
+      customers!customer_id ( first_name, last_name ),
       products ( carriers ( short_name ), product_types ( name ) )
     `)
     .eq('internal_status', 'placed')

@@ -77,7 +77,7 @@ async function promoteCaseToPolicy(
       internal_status, policy_number, face_amount, annual_premium,
       quoted_carrier, quoted_product_type,
       customer_id, agency_id, agent_id,
-      customers (first_name, last_name),
+      customers!customer_id (first_name, last_name),
       products (carriers (short_name), product_types (name))
     `)
     .eq('id', caseId)
