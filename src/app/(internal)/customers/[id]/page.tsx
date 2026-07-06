@@ -46,17 +46,18 @@ export type LinkedCase = {
 }
 
 export type LinkedPolicy = {
-  id:              string
-  policy_number:   string
-  client_name:     string
-  carrier:         string
-  product_type:    string | null
-  face_amount:     number | null
-  annual_premium:  number | null
-  coverage_status: string
-  sa_status:       string
-  sa_form_sent_at: string | null
-  flag_count:      number
+  id:                  string
+  policy_number:       string
+  client_name:         string
+  carrier:             string
+  product_type:        string | null
+  face_amount:         number | null
+  annual_premium:      number | null
+  coverage_status:     string
+  sa_status:           string
+  sa_form_sent_at:     string | null
+  primary_beneficiary: string | null
+  flag_count:          number
   agencies: { name: string; display_name: string | null } | null
 }
 
@@ -149,12 +150,13 @@ export default async function CustomerCardPage({
     client_name:     p.client_name,
     carrier:         p.carrier,
     product_type:    p.product_type,
-    face_amount:     p.face_amount,
-    annual_premium:  p.annual_premium,
-    coverage_status: p.coverage_status,
-    sa_status:       p.sa_status,
-    sa_form_sent_at: p.sa_form_sent_at,
-    flag_count:      generateFlags(p as unknown as Parameters<typeof generateFlags>[0]).length,
+    face_amount:         p.face_amount,
+    annual_premium:      p.annual_premium,
+    coverage_status:     p.coverage_status,
+    sa_status:           p.sa_status,
+    sa_form_sent_at:     p.sa_form_sent_at,
+    primary_beneficiary: (p as unknown as Record<string, unknown>).primary_beneficiary as string | null ?? null,
+    flag_count:          generateFlags(p as unknown as Parameters<typeof generateFlags>[0]).length,
     agencies:        (Array.isArray(p.agencies) ? p.agencies[0] : p.agencies) as { name: string; display_name: string | null } | null,
   }))
 

@@ -289,6 +289,7 @@ export function CustomerCardClient({
   const [editPolFace,      setEditPolFace]      = useState('')
   const [editPolPremium,   setEditPolPremium]   = useState('')
   const [editPolStatus,    setEditPolStatus]    = useState('')
+  const [editPolBene,      setEditPolBene]      = useState('')
   const [editPolSaving,    setEditPolSaving]    = useState(false)
   const [editPolErr,       setEditPolErr]       = useState<string | null>(null)
 
@@ -373,18 +374,19 @@ export function CustomerCardClient({
 
       // Optimistically add to local list
       const newPolicy: LinkedPolicy = {
-        id:              p.id,
-        policy_number:   p.policy_number,
-        client_name:     p.client_name,
-        carrier:         p.carrier,
-        product_type:    p.product_type,
-        face_amount:     p.face_amount,
-        annual_premium:  null,
-        coverage_status: 'active',
-        sa_status:       'unknown',
-        sa_form_sent_at: null,
-        flag_count:      0,
-        agencies:        null,
+        id:                  p.id,
+        policy_number:       p.policy_number,
+        client_name:         p.client_name,
+        carrier:             p.carrier,
+        product_type:        p.product_type,
+        face_amount:         p.face_amount,
+        annual_premium:      null,
+        coverage_status:     'active',
+        sa_status:           'unknown',
+        sa_form_sent_at:     null,
+        primary_beneficiary: null,
+        flag_count:          0,
+        agencies:            null,
       }
       setPolicies(prev => [newPolicy, ...prev])
       setPolicySearch('')
@@ -440,18 +442,19 @@ export function CustomerCardClient({
 
       const p = json.data
       setPolicies(prev => [{
-        id:              p.id,
-        policy_number:   p.policy_number,
-        client_name:     p.client_name,
-        carrier:         p.carrier,
-        product_type:    p.product_type,
-        face_amount:     p.face_amount,
-        annual_premium:  p.annual_premium,
-        coverage_status: p.coverage_status,
-        sa_status:       p.sa_status,
-        sa_form_sent_at: null,
-        flag_count:      0,
-        agencies:        null,
+        id:                  p.id,
+        policy_number:       p.policy_number,
+        client_name:         p.client_name,
+        carrier:             p.carrier,
+        product_type:        p.product_type,
+        face_amount:         p.face_amount,
+        annual_premium:      p.annual_premium,
+        coverage_status:     p.coverage_status,
+        sa_status:           p.sa_status,
+        sa_form_sent_at:     null,
+        primary_beneficiary: p.primary_beneficiary ?? null,
+        flag_count:          0,
+        agencies:            null,
       }, ...prev])
 
       // Reset form
@@ -470,6 +473,7 @@ export function CustomerCardClient({
     setEditPolFace(p.face_amount  != null ? String(p.face_amount)  : '')
     setEditPolPremium(p.annual_premium != null ? String(p.annual_premium) : '')
     setEditPolStatus(p.coverage_status ?? 'active')
+    setEditPolBene(p.primary_beneficiary ?? '')
     setEditPolErr(null)
   }
 
@@ -484,26 +488,29 @@ export function CustomerCardClient({
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
-          carrier:         editPolCarrier.trim(),
-          policy_number:   editPolNumber.trim(),
-          product_type:    editPolType    || null,
-          face_amount:     editPolFace    ? parseFloat(editPolFace)    : null,
-          annual_premium:  editPolPremium ? parseFloat(editPolPremium) : null,
-          coverage_status: editPolStatus  || 'active',
+          carrier:             editPolCarrier.trim(),
+          policy_number:       editPolNumber.trim(),
+          product_type:        editPolType    || null,
+          face_amount:         editPolFace    ? parseFloat(editPolFace)    : null,
+          annual_premium:      editPolPremium ? parseFloat(editPolPremium) : null,
+          coverage_status:     editPolStatus  || 'active',
+          primary_beneficiary: editPolBene.trim() || null,
         }),
       })
       const json = await res.json()
       if (!res.ok) { setEditPolErr(json.error ?? 'Save failed'); return }
       setPolicies(prev => prev.map(p => p.id === policyId ? {
         ...p,
-        carrier:         json.data.carrier,
-        policy_number:   json.data.policy_number,
-        product_type:    json.data.product_type,
-        face_amount:     json.data.face_amount,
-        annual_premium:  json.data.annual_premium,
-        coverage_status: json.data.coverage_status,
+        carrier:             json.data.carrier,
+        policy_number:       json.data.policy_number,
+        product_type:        json.data.product_type,
+        face_amount:         json.data.face_amount,
+        annual_premium:      json.data.annual_premium,
+        coverage_status:     json.data.coverage_status,
+        primary_beneficiary: json.data.primary_beneficiary ?? null,
       } : p))
       setEditingPolicyId(null)
+      router.refresh()
     } catch { setEditPolErr('Network error') }
     finally { setEditPolSaving(false) }
   }
@@ -1136,6 +1143,10 @@ export function CustomerCardClient({
                                   <option value="matured">Matured</option>
                                 </select>
                               </div>
+                            </div>
+                            <div>
+                              <label className="block text-xs text-slate-500 mb-1">Primary beneficiary</label>
+                              <input value={editPolBene} onChange={e => setEditPolBene(e.target.value)} className={inputCls} placeholder="Full name" />
                             </div>
                             {editPolErr && (
                               <p className="text-xs text-red-400 flex items-center gap-1">
