@@ -89,7 +89,7 @@ export async function POST() {
   const policyNumbers = unique.map(r => r.policy_number as string)
   const { data: existingCases } = await supabase
     .from('cases')
-    .select('id, policy_number')
+    .select('id, policy_number, customer_id, agency_id')
     .in('policy_number', policyNumbers)
 
   const existingPolicies = new Set(
@@ -97,6 +97,16 @@ export async function POST() {
   )
   const existingCaseIdByPolicy = new Map(
     (existingCases ?? []).map(c => [c.policy_number as string, c.id as string])
+  )
+  const existingCustomerIdByPolicy = new Map(
+    (existingCases ?? [])
+      .filter(c => c.customer_id)
+      .map(c => [c.policy_number as string, c.customer_id as string])
+  )
+  const existingAgencyIdByPolicy = new Map(
+    (existingCases ?? [])
+      .filter(c => c.agency_id)
+      .map(c => [c.policy_number as string, c.agency_id as string])
   )
 
   let created = 0
@@ -108,21 +118,23 @@ export async function POST() {
     const policyNumber = row.policy_number as string
 
     if (existingPolicies.has(policyNumber)) {
-      // Case exists — still correct the carrier/product_type on any linked service_policy
+      // Case exists — sync carrier/product_type/customer on any linked service_policy
       const { data: existingSp } = await supabase
         .from('service_policies')
         .select('id')
         .eq('policy_number', policyNumber)
         .maybeSingle()
       if (existingSp) {
-        await supabase
-          .from('service_policies')
-          .update({
-            carrier:      parseCarrier(row.product),
-            product_type: parseProductType(row.product),
-            source_case_id: existingCaseIdByPolicy.get(policyNumber) ?? null,
-          })
-          .eq('id', existingSp.id)
+        const patch: Record<string, unknown> = {
+          carrier:        parseCarrier(row.product),
+          product_type:   parseProductType(row.product),
+          source_case_id: existingCaseIdByPolicy.get(policyNumber) ?? null,
+        }
+        const cxId  = existingCustomerIdByPolicy.get(policyNumber)
+        const agcId = existingAgencyIdByPolicy.get(policyNumber)
+        if (cxId)  patch.customer_id = cxId
+        if (agcId) patch.agency_id   = agcId
+        await supabase.from('service_policies').update(patch).eq('id', existingSp.id)
       }
       skipped++
       continue
