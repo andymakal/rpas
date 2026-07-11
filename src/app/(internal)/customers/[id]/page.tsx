@@ -79,6 +79,14 @@ export type CaseStatusHistoryEntry = {
   changed_at:  string
 }
 
+export type CustomerNote = {
+  id:          string
+  section:     'triage' | 'producer' | 'underwriting'
+  author_name: string
+  body:        string
+  created_at:  string
+}
+
 export default async function CustomerCardPage({
   params,
 }: {
@@ -172,6 +180,15 @@ export default async function CustomerCardPage({
     caseHistory = (histRaw ?? []) as CaseStatusHistoryEntry[]
   }
 
+  // Fetch customer notes (running compliance log)
+  const { data: notesRaw } = await supabase
+    .from('customer_notes')
+    .select('id, section, author_name, body, created_at')
+    .eq('customer_id', id)
+    .order('created_at', { ascending: false })
+
+  const notes: CustomerNote[] = (notesRaw ?? []) as CustomerNote[]
+
   // Fetch service requests via linked policy IDs
   const policyIds = (policiesRaw ?? []).map(p => p.id)
   let serviceRequests: LinkedServiceRequest[] = []
@@ -210,6 +227,7 @@ export default async function CustomerCardPage({
       pendingCasePolicies={pendingCasePolicies}
       serviceRequests={serviceRequests}
       caseHistory={caseHistory}
+      initialNotes={notes}
     />
   )
 }

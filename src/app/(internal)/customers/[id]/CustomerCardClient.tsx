@@ -8,11 +8,11 @@ import {
   Shield, CheckCircle, ShieldOff, FileQuestion, Send,
   AlertTriangle, ChevronRight, Search, X, Trash2,
   FolderKanban, Wrench, Link2, History, Compass, ChevronDown,
-  Pencil, Check,
+  Pencil, Check, MessageSquare, Clipboard,
 } from 'lucide-react'
 import type {
   CustomerDetail, LinkedCase, LinkedPolicy, LinkedServiceRequest,
-  CaseStatusHistoryEntry,
+  CaseStatusHistoryEntry, CustomerNote,
 } from './page'
 import { fmtDate } from '@/lib/fmt'
 
@@ -251,6 +251,7 @@ export function CustomerCardClient({
   pendingCasePolicies,
   serviceRequests,
   caseHistory,
+  initialNotes,
 }: {
   customer:             CustomerDetail
   cases:                LinkedCase[]
@@ -258,6 +259,7 @@ export function CustomerCardClient({
   pendingCasePolicies:  LinkedCase[]
   serviceRequests:      LinkedServiceRequest[]
   caseHistory:          CaseStatusHistoryEntry[]
+  initialNotes:         CustomerNote[]
 }) {
   const router = useRouter()
   const [cases,       setCases]       = useState<LinkedCase[]>(initialCases)
@@ -296,6 +298,14 @@ export function CustomerCardClient({
   const [segment,        setSegment]        = useState<string | null>(customer.segment)
   const [editingSegment, setEditingSegment] = useState(false)
   const [segmentSaving,  setSegmentSaving]  = useState(false)
+
+  // Notes
+  const [notes,        setNotes]        = useState<CustomerNote[]>(initialNotes)
+  const [noteSection,  setNoteSection]  = useState<'triage' | 'producer' | 'underwriting'>('triage')
+  const [noteBody,     setNoteBody]     = useState('')
+  const [notePosting,  setNotePosting]  = useState(false)
+  const [noteErr,      setNoteErr]      = useState<string | null>(null)
+  const [noteCopied,   setNoteCopied]   = useState(false)
 
   const [displayFirst, setDisplayFirst] = useState(customer.first_name)
   const [displayLast,  setDisplayLast]  = useState(customer.last_name)
@@ -527,6 +537,42 @@ export function CustomerCardClient({
     } finally {
       setSegmentSaving(false)
     }
+  }
+
+  async function handlePostNote() {
+    if (!noteBody.trim()) { setNoteErr('Note cannot be empty'); return }
+    setNotePosting(true); setNoteErr(null)
+    try {
+      const res = await fetch(`/api/customers/${customer.id}/notes`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ section: noteSection, body: noteBody.trim() }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setNoteErr(json.error ?? 'Failed to post note'); return }
+      setNotes(prev => [json.data as CustomerNote, ...prev])
+      setNoteBody('')
+    } catch { setNoteErr('Network error') }
+    finally { setNotePosting(false) }
+  }
+
+  function handleCopyToEAgent() {
+    const customerName = `${customer.first_name} ${customer.last_name}`
+    const today = new Date().toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+    const sorted = [...notes].sort(
+      (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    )
+    const lines = sorted.map(n => {
+      const dt = new Date(n.created_at)
+      const dateStr = dt.toLocaleDateString('en-US', { month: '2-digit', day: '2-digit', year: 'numeric' })
+      const timeStr = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+      return `[${dateStr} ${timeStr}] ${n.section.toUpperCase()} — ${n.author_name}\n${n.body}`
+    })
+    const text = `NOTES — ${customerName}\nGenerated: ${today}\n\n${lines.join('\n\n')}`
+    navigator.clipboard.writeText(text).then(() => {
+      setNoteCopied(true)
+      setTimeout(() => setNoteCopied(false), 2000)
+    })
   }
 
   async function handleSaveContact() {
@@ -1375,6 +1421,94 @@ export function CustomerCardClient({
             <p className="text-slate-500 text-sm">No linked data yet — use the search above to link policies</p>
           </div>
         )}
+
+        {/* Notes */}
+        <Section
+          title="Notes"
+          icon={MessageSquare}
+          count={notes.length}
+          action={
+            notes.length > 0 ? (
+              <button
+                onClick={handleCopyToEAgent}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors"
+              >
+                <Clipboard className="w-3.5 h-3.5" />
+                {noteCopied ? 'Copied!' : 'Copy to eAgent'}
+              </button>
+            ) : undefined
+          }
+        >
+          {/* Compose */}
+          <div className="px-5 py-4 border-b border-slate-800/60 space-y-3">
+            <div className="flex gap-2">
+              {(['triage', 'producer', 'underwriting'] as const).map(s => (
+                <button
+                  key={s}
+                  onClick={() => setNoteSection(s)}
+                  className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors capitalize ${
+                    noteSection === s
+                      ? s === 'triage'       ? 'bg-blue-500/20 border-blue-500 text-blue-300'
+                      : s === 'producer'     ? 'bg-emerald-500/20 border-emerald-500 text-emerald-300'
+                      :                        'bg-amber-500/20 border-amber-500 text-amber-300'
+                      : 'bg-transparent border-slate-700 text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+            <textarea
+              value={noteBody}
+              onChange={e => setNoteBody(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handlePostNote() }}
+              rows={3}
+              placeholder="Add a note… (Cmd+Enter to post)"
+              className="w-full bg-slate-800 border border-slate-700 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 placeholder-slate-600 resize-none"
+            />
+            {noteErr && (
+              <p className="text-xs text-red-400 flex items-center gap-1">
+                <AlertTriangle className="w-3 h-3" /> {noteErr}
+              </p>
+            )}
+            <button
+              onClick={handlePostNote}
+              disabled={notePosting || !noteBody.trim()}
+              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg disabled:opacity-40 transition-colors"
+            >
+              {notePosting ? '…' : <><Send className="w-3.5 h-3.5" /> Post note</>}
+            </button>
+          </div>
+
+          {/* Feed */}
+          {notes.length === 0 ? (
+            <div className="px-5 py-6 text-center text-slate-600 text-sm">No notes yet</div>
+          ) : (
+            <div className="divide-y divide-slate-800/60">
+              {notes.map(n => {
+                const dt = new Date(n.created_at)
+                const dateStr = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                const timeStr = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+                const sectionStyle =
+                  n.section === 'triage'       ? { border: 'border-l-blue-500',    badge: 'bg-blue-500/10 text-blue-400 border-blue-500/30' }
+                  : n.section === 'producer'   ? { border: 'border-l-emerald-500', badge: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' }
+                  :                              { border: 'border-l-amber-500',   badge: 'bg-amber-500/10 text-amber-400 border-amber-500/30' }
+                return (
+                  <div key={n.id} className={`px-5 py-4 border-l-4 ${sectionStyle.border}`}>
+                    <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                      <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded border capitalize ${sectionStyle.badge}`}>
+                        {n.section}
+                      </span>
+                      <span className="text-xs font-medium text-slate-300">{n.author_name}</span>
+                      <span className="text-xs text-slate-600">{dateStr} · {timeStr}</span>
+                    </div>
+                    <p className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">{n.body}</p>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Section>
 
       </div>
     </div>
