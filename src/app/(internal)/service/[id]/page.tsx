@@ -40,6 +40,13 @@ export type ServiceRequestDetail = {
 
 export type AgencyOption = { id: string; name: string; display_name: string | null }
 export type AgentOption  = { id: string; first_name: string; last_name: string; agency_id: string | null }
+export type SRNote = {
+  id:          string
+  section:     'triage' | 'producer' | 'underwriting'
+  author_name: string
+  body:        string
+  created_at:  string
+}
 
 export async function generateMetadata(
   { params }: { params: Promise<{ id: string }> }
@@ -97,6 +104,14 @@ export default async function ServiceRequestPage(
 
   if (!sr) notFound()
 
+  // Fetch SR notes
+  const { data: notesRaw } = await supabase
+    .from('customer_notes')
+    .select('id, section, author_name, body, created_at')
+    .eq('service_request_id', id)
+    .order('created_at', { ascending: false })
+  const srNotes: SRNote[] = (notesRaw ?? []) as SRNote[]
+
   return (
     <div className="p-8">
       <div className="max-w-5xl mx-auto">
@@ -104,6 +119,7 @@ export default async function ServiceRequestPage(
           sr={(sr as unknown as ServiceRequestDetail)}
           agencies={(agencies as AgencyOption[]) ?? []}
           agents={(agents as AgentOption[]) ?? []}
+          initialNotes={srNotes}
         />
       </div>
     </div>

@@ -1500,7 +1500,22 @@ export function CustomerCardClient({
                         {n.section}
                       </span>
                       <span className="text-xs font-medium text-slate-300">{n.author_name}</span>
-                      <span className="text-xs text-slate-600">{dateStr} · {timeStr}</span>
+                      <span suppressHydrationWarning className="text-xs text-slate-600">{dateStr} · {timeStr}</span>
+                      {n.case_id && (
+                        <a href={`/cases/${n.case_id}`} className="inline-flex items-center px-1.5 py-0.5 text-xs rounded bg-slate-800 text-slate-500 hover:text-slate-300 border border-slate-700 transition-colors">
+                          via Case
+                        </a>
+                      )}
+                      {n.service_request_id && (
+                        <a href={`/service/${n.service_request_id}`} className="inline-flex items-center px-1.5 py-0.5 text-xs rounded bg-slate-800 text-slate-500 hover:text-slate-300 border border-slate-700 transition-colors">
+                          via Service Request
+                        </a>
+                      )}
+                      {n.policy_review_id && (
+                        <a href={`/reviews/${n.policy_review_id}`} className="inline-flex items-center px-1.5 py-0.5 text-xs rounded bg-slate-800 text-slate-500 hover:text-slate-300 border border-slate-700 transition-colors">
+                          via Review
+                        </a>
+                      )}
                     </div>
                     <p className="text-sm text-slate-300 whitespace-pre-wrap leading-relaxed">{n.body}</p>
                   </div>

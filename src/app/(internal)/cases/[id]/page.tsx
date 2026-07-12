@@ -127,6 +127,14 @@ export type SiblingCase = {
   stage_translations: { agency_label: string; is_won: boolean; is_lost: boolean } | null
 }
 
+export type CaseNote = {
+  id:          string
+  section:     'triage' | 'producer' | 'underwriting'
+  author_name: string
+  body:        string
+  created_at:  string
+}
+
 export default async function CaseDetailPage({
   params,
 }: {
@@ -273,6 +281,14 @@ export default async function CaseDetailPage({
     .select('id, first_name, last_name, email')
     .order('first_name')
 
+  // Fetch case notes
+  const { data: notesRaw } = await supabase
+    .from('customer_notes')
+    .select('id, section, author_name, body, created_at')
+    .eq('case_id', id)
+    .order('created_at', { ascending: false })
+  const caseNotes: CaseNote[] = (notesRaw ?? []) as CaseNote[]
+
   const sortedProducts = ((products ?? []) as unknown as ProductLookup[]).sort((a, b) => {
     const aKey = (a.carriers?.short_name ? `${a.carriers.short_name} ${a.name}` : `zzz ${a.name}`).toLowerCase()
     const bKey = (b.carriers?.short_name ? `${b.carriers.short_name} ${b.name}` : `zzz ${b.name}`).toLowerCase()
@@ -296,6 +312,7 @@ export default async function CaseDetailPage({
       siblingCases={(siblings as unknown as SiblingCase[]) ?? []}
       householdId={householdId}
       householdMembers={householdMembers}
+      initialNotes={caseNotes}
     />
   )
 }

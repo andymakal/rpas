@@ -14,7 +14,9 @@ import {
 } from '@/lib/reviews/prep'
 import type { PolicyForPrep, ReviewFlag } from '@/lib/reviews/prep'
 import type { ReviewDetail } from './page'
-import { fmtDate as fmt, fmtEagentNote } from '@/lib/fmt'
+import { fmtDate as fmt } from '@/lib/fmt'
+import { NotesLog, type NoteEntry } from '@/components/NotesLog'
+import type { ReviewNote } from './page'
 import { useNavList } from '@/lib/nav-list'
 import { addRecentItem } from '@/lib/recent-items'
 
@@ -94,17 +96,17 @@ type ProducerOption = { id: string; first_name: string; last_name: string }
 export function ReviewPrepClient({
   review: initialReview,
   producers = [],
+  initialNotes = [],
 }: {
-  review:    ReviewDetail
-  producers?: ProducerOption[]
+  review:       ReviewDetail
+  producers?:   ProducerOption[]
+  initialNotes?: ReviewNote[]
 }) {
   const router = useRouter()
   const [review, setReview] = useState(initialReview)
   const policy = review.service_policies
 
   const { prevId, nextId, position, total } = useNavList(review.id)
-  const [notesCopied, setNotesCopied] = useState(false)
-
   // ── Create linked SR from this review ──────────────────────────
   const [srRequestType, setSrRequestType] = useState('')
   const [srCreating,    setSrCreating]    = useState(false)
@@ -146,7 +148,6 @@ export function ReviewPrepClient({
   const [stillUsing,     setStillUsing]     = useState<boolean | null>(review.still_using_tobacco ?? null)
   const [tobaccoProduct, setTobaccoProduct] = useState(review.tobacco_product ?? '')
   const [beneConfirmed,  setBeneConfirmed]  = useState(review.primary_beneficiary_confirmed ?? '')
-  const [prepNotes,         setPrepNotes]         = useState(review.prep_notes ?? '')
   const [callCompletedAt,   setCallCompletedAt]   = useState(review.call_completed_at ? review.call_completed_at.slice(0, 10) : '')
   const [editingRecordDate, setEditingRecordDate] = useState(false)
   const [saving,            setSaving]            = useState(false)
@@ -293,7 +294,6 @@ export function ReviewPrepClient({
           still_using_tobacco:          stillUsing,
           tobacco_product:              tobaccoProduct.trim() || null,
           primary_beneficiary_confirmed: beneConfirmed.trim() || null,
-          prep_notes:                   prepNotes.trim() || null,
           call_completed_at:            callCompletedAt || null,
         }),
       })
@@ -326,7 +326,6 @@ export function ReviewPrepClient({
           still_using_tobacco: stillUsing,
           tobacco_product: tobaccoProduct.trim() || null,
           primary_beneficiary_confirmed: beneConfirmed.trim() || null,
-          prep_notes: prepNotes.trim() || null,
         }),
       })
       const json = await res.json()
@@ -744,27 +743,6 @@ export function ReviewPrepClient({
             />
           </div>
 
-          {/* Prep Notes */}
-          <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-sm font-semibold text-white">Prep Notes</h2>
-              <button
-                onClick={() => { navigator.clipboard.writeText(fmtEagentNote(prepNotes)); setNotesCopied(true); setTimeout(() => setNotesCopied(false), 2000) }}
-                disabled={!prepNotes.trim()}
-                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 disabled:opacity-30 disabled:cursor-default transition-colors"
-              >
-                {notesCopied ? <><Check className="w-3 h-3 text-emerald-400" /><span className="text-emerald-400">Copied!</span></> : <><Copy className="w-3 h-3" />Copy for eAgent</>}
-              </button>
-            </div>
-            <textarea
-              rows={4}
-              className={inputCls}
-              placeholder="Anything to note before or after the call — context, follow-up items, client tone…"
-              value={prepNotes}
-              onChange={e => setPrepNotes(e.target.value)}
-            />
-          </div>
-
           {/* Save */}
           {error  && <p className="text-xs text-red-400 px-1">{error}</p>}
           {saved  && <p className="text-xs text-emerald-400 px-1">Saved ✓</p>}
@@ -893,6 +871,14 @@ export function ReviewPrepClient({
           </div>
         </div>
       </div>
+
+      {/* ── Notes Log ──────────────────────────────────────────────────────── */}
+      <NotesLog
+        initialNotes={initialNotes as NoteEntry[]}
+        apiPath={`/api/policy-reviews/${review.id}/notes`}
+        defaultSection="producer"
+      />
+
     </div>
   )
 }

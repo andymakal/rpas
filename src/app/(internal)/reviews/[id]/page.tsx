@@ -49,6 +49,14 @@ export type ReviewDetail = {
   } | null
 }
 
+export type ReviewNote = {
+  id:          string
+  section:     'triage' | 'producer' | 'underwriting'
+  author_name: string
+  body:        string
+  created_at:  string
+}
+
 export async function generateMetadata(
   { params }: { params: Promise<{ id: string }> }
 ): Promise<Metadata> {
@@ -98,11 +106,20 @@ export default async function ReviewPrepPage(
 
   if (!review) notFound()
 
-  const { data: producers } = await supabase
-    .from('producers')
-    .select('id, first_name, last_name')
-    .eq('is_active', true)
-    .order('first_name')
+  const [{ data: producers }, { data: notesRaw }] = await Promise.all([
+    supabase
+      .from('producers')
+      .select('id, first_name, last_name')
+      .eq('is_active', true)
+      .order('first_name'),
+    supabase
+      .from('customer_notes')
+      .select('id, section, author_name, body, created_at')
+      .eq('policy_review_id', id)
+      .order('created_at', { ascending: false }),
+  ])
+
+  const reviewNotes: ReviewNote[] = (notesRaw ?? []) as ReviewNote[]
 
   return (
     <div className="p-8">
@@ -110,6 +127,7 @@ export default async function ReviewPrepPage(
         <ReviewPrepClient
           review={review as unknown as ReviewDetail}
           producers={(producers ?? []) as { id: string; first_name: string; last_name: string }[]}
+          initialNotes={reviewNotes}
         />
       </div>
     </div>

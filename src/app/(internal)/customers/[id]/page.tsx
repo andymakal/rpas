@@ -80,11 +80,14 @@ export type CaseStatusHistoryEntry = {
 }
 
 export type CustomerNote = {
-  id:          string
-  section:     'triage' | 'producer' | 'underwriting'
-  author_name: string
-  body:        string
-  created_at:  string
+  id:                  string
+  section:             'triage' | 'producer' | 'underwriting'
+  author_name:         string
+  body:                string
+  created_at:          string
+  case_id:             string | null
+  service_request_id:  string | null
+  policy_review_id:    string | null
 }
 
 export default async function CustomerCardPage({
@@ -183,7 +186,7 @@ export default async function CustomerCardPage({
   // Fetch customer notes (running compliance log)
   const { data: notesRaw } = await supabase
     .from('customer_notes')
-    .select('id, section, author_name, body, created_at')
+    .select('id, section, author_name, body, created_at, case_id, service_request_id, policy_review_id')
     .eq('customer_id', id)
     .order('created_at', { ascending: false })
 

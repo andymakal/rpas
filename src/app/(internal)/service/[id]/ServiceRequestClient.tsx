@@ -2,9 +2,11 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, AlertCircle, Save, Pencil, Copy, Check } from 'lucide-react'
-import type { ServiceRequestDetail, AgencyOption, AgentOption } from './page'
-import { fmtDate as fmt, fmtEagentNote } from '@/lib/fmt'
+import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, AlertCircle, Save, Pencil } from 'lucide-react'
+import type { ServiceRequestDetail, AgencyOption, AgentOption, SRNote } from './page'
+import { NotesLog } from '@/components/NotesLog'
+import type { NoteEntry } from '@/components/NotesLog'
+import { fmtDate as fmt } from '@/lib/fmt'
 import { useNavList } from '@/lib/nav-list'
 import { addRecentItem } from '@/lib/recent-items'
 
@@ -85,15 +87,16 @@ export function ServiceRequestClient({
   sr: initialSr,
   agencies,
   agents,
+  initialNotes,
 }: {
-  sr:       ServiceRequestDetail
-  agencies: AgencyOption[]
-  agents:   AgentOption[]
+  sr:           ServiceRequestDetail
+  agencies:     AgencyOption[]
+  agents:       AgentOption[]
+  initialNotes: SRNote[]
 }) {
   const router = useRouter()
 
   const { prevId, nextId, position, total } = useNavList(initialSr.id)
-  const [copied, setCopied] = useState(false)
 
   // ── Queue a linked Policy Review from this SR ────────────────────
   const [reviewCreating, setReviewCreating] = useState(false)
@@ -135,7 +138,6 @@ export function ServiceRequestClient({
   const [requestType,    setRequestType]    = useState(sr.request_type)
   const [dateReceived,   setDateReceived]   = useState(sr.date_received)
   const [dateResolved,   setDateResolved]   = useState(sr.date_resolved ?? '')
-  const [srNotes,        setSrNotes]        = useState(sr.notes ?? '')
   const [srSaving,       setSrSaving]       = useState(false)
   const [srError,        setSrError]        = useState<string | null>(null)
   const [srSaved,        setSrSaved]        = useState(false)
@@ -201,10 +203,9 @@ export function ServiceRequestClient({
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          request_type:  requestType,
-          date_received: dateReceived || null,
-          date_resolved: dateResolved || null,
-          notes:         srNotes.trim() || null,
+          request_type:    requestType,
+          date_received:   dateReceived || null,
+          date_resolved:   dateResolved || null,
           workflow_status: workflowStatus,
         }),
       })
@@ -626,26 +627,6 @@ export function ServiceRequestClient({
                   <option value="cannot_service">Cannot Service</option>
                 </select>
               </Field>
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-xs font-medium text-slate-400">Notes</label>
-                  <button
-                    onClick={() => { navigator.clipboard.writeText(fmtEagentNote(srNotes)); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
-                    disabled={!srNotes.trim()}
-                    className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 disabled:opacity-30 disabled:cursor-default transition-colors"
-                  >
-                    {copied ? <><Check className="w-3 h-3 text-emerald-400" /><span className="text-emerald-400">Copied!</span></> : <><Copy className="w-3 h-3" />Copy for eAgent</>}
-                  </button>
-                </div>
-                <textarea
-                  rows={4}
-                  className={inputCls}
-                  placeholder="What was requested? Steps taken, client contact, next steps…"
-                  value={srNotes}
-                  onChange={e => setSrNotes(e.target.value)}
-                />
-              </div>
-
               {srError  && <p className="text-xs text-red-400">{srError}</p>}
               {srSaved  && <p className="text-xs text-emerald-400">Saved ✓</p>}
 
@@ -660,6 +641,13 @@ export function ServiceRequestClient({
               </button>
             </div>
           </div>
+
+          {/* ── Notes Log ──────────────────────────────────────────── */}
+          <NotesLog
+            initialNotes={initialNotes as NoteEntry[]}
+            apiPath={`/api/service-requests/${sr.id}/notes`}
+            defaultSection="producer"
+          />
 
           {/* ── Record Info ──────────────────────────────────────────── */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">

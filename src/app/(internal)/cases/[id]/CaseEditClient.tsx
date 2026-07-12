@@ -5,18 +5,21 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Phone, Building2, User, Calendar, Clock,
-  MessageSquare, Mail, PhoneCall, PhoneOff, MessageCircle, Send,
+  Mail, PhoneCall, PhoneOff, MessageCircle,
   ChevronDown, ChevronUp, ChevronLeft, ChevronRight, DollarSign, Pencil, Check, X, MapPin,
   CalendarClock, History, Flame, Circle, AlertCircle, CheckCircle2,
-  Plus, GitMerge, ExternalLink, Copy,
+  Plus, GitMerge, ExternalLink,
 } from 'lucide-react'
 import type {
   CaseDetail, StageLookup, AgencyLookup, AgentOption, ProductLookup,
   RateClassLookup, PremiumModeLookup, LostReasonLookup, SnoozeReasonLookup,
   PendingRequirementLookup, TouchLog, StatusHistoryEntry, SiblingCase, HouseholdMember,
+  CaseNote,
 } from './page'
 import { HouseholdCard } from '@/components/HouseholdCard'
-import { fmtDate as fmt, fmtEagentNote } from '@/lib/fmt'
+import { NotesLog } from '@/components/NotesLog'
+import type { NoteEntry } from '@/components/NotesLog'
+import { fmtDate as fmt } from '@/lib/fmt'
 import { useNavList } from '@/lib/nav-list'
 import { TEMPLATES, UNDERWRITING_SCENARIOS, interpolate, buildMailto } from '@/lib/templates'
 import { addRecentItem } from '@/lib/recent-items'
@@ -139,6 +142,7 @@ type Props = {
   siblingCases:        SiblingCase[]
   householdId:         string | null
   householdMembers:    HouseholdMember[]
+  initialNotes:        CaseNote[]
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -148,6 +152,7 @@ export default function CaseEditClient({
   lostReasons, snoozeReasons, pendingRequirements,
   touchLog: initialTouchLog, statusHistory,
   siblingCases: initialSiblings, householdId, householdMembers,
+  initialNotes,
 }: Props) {
   const router = useRouter()
 
@@ -178,13 +183,9 @@ export default function CaseEditClient({
   const clientFirstName = caseData.customers?.first_name ?? ''
   const clientEmail = caseData.customers?.email ?? null
 
-  // ── Notes copy ─────────────────────────────────────────────────
-  const [copied, setCopied] = useState(false)
-
   // ── Case edit state ────────────────────────────────────────────
   const [status,       setStatus]       = useState(caseData.internal_status)
   const [followUpDate, setFollowUpDate] = useState(caseData.follow_up_date ?? '')
-  const [notes,        setNotes]        = useState(caseData.notes ?? '')
   const [isHotLead,    setIsHotLead]    = useState(caseData.is_hot_lead ?? false)
   const [isImported,   setIsImported]   = useState(caseData.is_imported ?? false)
   const [lostReasonId,   setLostReasonId]   = useState(caseData.lost_reasons?.id ?? '')
@@ -352,7 +353,6 @@ export default function CaseEditClient({
     const body: Record<string, unknown> = {
       internal_status: status,
       follow_up_date:  followUpDate || null,
-      notes:           notes        || null,
       is_hot_lead:     isHotLead,
       is_imported:     isImported,
       lead_source:     leadSource   || null,
@@ -1235,25 +1235,6 @@ export default function CaseEditClient({
               )}
             </div>
 
-            {/* Notes */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-xs font-medium text-slate-300 flex items-center gap-1.5">
-                  <MessageSquare className="w-3.5 h-3.5" /> Notes
-                </label>
-                <button
-                  onClick={() => { navigator.clipboard.writeText(fmtEagentNote(notes)); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
-                  disabled={!notes.trim()}
-                  className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 disabled:opacity-30 disabled:cursor-default transition-colors"
-                >
-                  {copied ? <><Check className="w-3 h-3 text-emerald-400" /><span className="text-emerald-400">Copied!</span></> : <><Copy className="w-3 h-3" />Copy for eAgent</>}
-                </button>
-              </div>
-              <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={5}
-                placeholder="Internal notes — underwriting updates, carrier communications, next steps…"
-                className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 placeholder-slate-600 resize-none" />
-            </div>
-
             <div className="flex items-center justify-between pt-1">
               {saveMsg
                 ? <p className={`text-sm ${saveMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{saveMsg.text}</p>
@@ -1277,6 +1258,13 @@ export default function CaseEditClient({
               </div>
             )}
           </div>
+
+          {/* ── Notes Log ──────────────────────────────────────────────────── */}
+          <NotesLog
+            initialNotes={initialNotes as NoteEntry[]}
+            apiPath={`/api/cases/${caseData.id}/notes`}
+            defaultSection="producer"
+          />
 
           {/* ── Email CTAs ──────────────────────────────────────────────────── */}
 

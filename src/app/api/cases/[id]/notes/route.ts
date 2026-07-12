@@ -8,13 +8,11 @@ export async function GET(
 ) {
   const { id } = await params
   const supabase = createAdminClient()
-
   const { data, error } = await supabase
     .from('customer_notes')
-    .select('id, section, author_name, body, created_at, case_id, service_request_id, policy_review_id')
-    .eq('customer_id', id)
+    .select('id, section, author_name, body, created_at')
+    .eq('case_id', id)
     .order('created_at', { ascending: false })
-
   if (error) return Response.json({ error: error.message }, { status: 500 })
   return Response.json({ data })
 }
@@ -25,56 +23,50 @@ export async function POST(
 ) {
   const { id } = await params
 
-  // Verify the caller is a logged-in internal staff member
   const sessionClient = await createClient()
   const { data: { user }, error: authError } = await sessionClient.auth.getUser()
-  if (authError || !user) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  if (authError || !user) return Response.json({ error: 'Unauthorized' }, { status: 401 })
 
-  let body: { section?: string; body?: string; case_id?: string; service_request_id?: string; policy_review_id?: string }
-  try {
-    body = await request.json()
-  } catch {
-    return Response.json({ error: 'Invalid JSON' }, { status: 400 })
-  }
+  let body: { section?: string; body?: string }
+  try { body = await request.json() }
+  catch { return Response.json({ error: 'Invalid JSON' }, { status: 400 }) }
 
   const section = body.section?.trim()
   const text    = body.body?.trim()
-
   if (!section || !['triage', 'producer', 'underwriting'].includes(section)) {
     return Response.json({ error: 'Invalid section' }, { status: 400 })
   }
-  if (!text) {
-    return Response.json({ error: 'Note body is required' }, { status: 400 })
-  }
+  if (!text) return Response.json({ error: 'Note body is required' }, { status: 400 })
 
   const supabase = createAdminClient()
 
-  // Resolve display name — fall back to email prefix if no profile row yet
+  const { data: caseRow } = await supabase
+    .from('cases')
+    .select('customer_id')
+    .eq('id', id)
+    .single()
+  if (!caseRow?.customer_id) {
+    return Response.json({ error: 'Case not found or has no linked customer' }, { status: 404 })
+  }
+
   const { data: profile } = await supabase
     .from('staff_profiles')
     .select('display_name')
     .eq('id', user.id)
     .maybeSingle()
-
-  const authorName = profile?.display_name
-    ?? user.email?.split('@')[0]
-    ?? 'Staff'
+  const authorName = profile?.display_name ?? user.email?.split('@')[0] ?? 'Staff'
 
   const { data, error } = await supabase
     .from('customer_notes')
     .insert({
-      customer_id:        id,
-      case_id:            body.case_id             ?? null,
-      service_request_id: body.service_request_id  ?? null,
-      policy_review_id:   body.policy_review_id    ?? null,
+      customer_id: caseRow.customer_id,
+      case_id:     id,
       section,
-      author_id:          user.id,
-      author_name:        authorName,
-      body:               text,
+      author_id:   user.id,
+      author_name: authorName,
+      body:        text,
     })
-    .select('id, section, author_name, body, created_at, case_id, service_request_id, policy_review_id')
+    .select('id, section, author_name, body, created_at')
     .single()
 
   if (error) return Response.json({ error: error.message }, { status: 500 })

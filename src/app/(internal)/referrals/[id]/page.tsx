@@ -116,6 +116,14 @@ export type SuspectedDuplicate = {
   case_count: number
 }
 
+export type ReferralNote = {
+  id:          string
+  section:     'triage' | 'producer' | 'underwriting'
+  author_name: string
+  body:        string
+  created_at:  string
+}
+
 export async function generateMetadata(
   { params }: { params: Promise<{ id: string }> }
 ): Promise<Metadata> {
@@ -223,6 +231,14 @@ export default async function ReferralDetailPage({
       .order('sort_order'),
   ])
 
+  // Fetch referral notes (stored as case_id in customer_notes)
+  const { data: notesRaw } = await supabase
+    .from('customer_notes')
+    .select('id, section, author_name, body, created_at')
+    .eq('case_id', id)
+    .order('created_at', { ascending: false })
+  const referralNotes: ReferralNote[] = (notesRaw ?? []) as ReferralNote[]
+
   // Shape suspected duplicate
   type RawDup = { id: string; first_name: string; last_name: string; phone: string | null; agencies: { name: string; display_name: string | null } | null }
   const rawDup = dupResult?.data as unknown as RawDup | null
@@ -277,6 +293,7 @@ export default async function ReferralDetailPage({
       householdMembers={shapedMembers}
       suspectedDuplicate={suspectedDuplicate}
       notInterestedReasons={(notInterestedReasons as unknown as NotInterestedReason[]) ?? []}
+      initialNotes={referralNotes}
     />
   )
 }

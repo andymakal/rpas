@@ -5,14 +5,16 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
   ArrowLeft, Phone, Building2, User, Calendar, Clock,
-  MessageSquare, Mail, AlertCircle, PhoneCall, PhoneOff,
+  Mail, AlertCircle, PhoneCall, PhoneOff,
   MessageCircle, ChevronDown, ChevronUp, DollarSign, Pencil, Check, X, MapPin,
-  CalendarClock, CalendarX, History, Flame, Send, Wrench,
-  ChevronLeft, ChevronRight, Copy, Users, UserPlus, Trash2, GitMerge,
+  CalendarClock, CalendarX, History, Flame, Wrench,
+  ChevronLeft, ChevronRight, Users, UserPlus, Trash2, GitMerge,
 } from 'lucide-react'
-import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember, SuspectedDuplicate, NotInterestedReason } from './page'
+import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember, SuspectedDuplicate, NotInterestedReason, ReferralNote } from './page'
 import { HouseholdCard } from '@/components/HouseholdCard'
-import { fmtDate as fmt, fmtEagentNote } from '@/lib/fmt'
+import { NotesLog } from '@/components/NotesLog'
+import type { NoteEntry } from '@/components/NotesLog'
+import { fmtDate as fmt } from '@/lib/fmt'
 import { useNavList } from '@/lib/nav-list'
 import { buildHouseholdName } from '@/lib/household'
 import { addRecentItem } from '@/lib/recent-items'
@@ -220,13 +222,14 @@ type Props = {
   householdMembers:       HouseholdMember[]
   suspectedDuplicate:     SuspectedDuplicate | null
   notInterestedReasons:   NotInterestedReason[]
+  initialNotes:           ReferralNote[]
 }
 
 export function ReferralEditClient({
   referral, stages: _stages, touchLog: initialTouchLog,
   agentsList, agenciesList, statusHistory, producersList,
   householdId, householdMembers, suspectedDuplicate: initialSuspectedDuplicate,
-  notInterestedReasons,
+  notInterestedReasons, initialNotes,
 }: Props) {
   const router = useRouter()
 
@@ -339,15 +342,12 @@ export function ReferralEditClient({
   )
   const [appointmentTime, setAppointmentTime] = useState(referral.appointment_time ?? '')
   const [followUpDate, setFollowUpDate] = useState(referral.follow_up_date ?? '')
-  const [notes,        setNotes]        = useState(referral.notes ?? '')
   const [alPolicy,     setAlPolicy]     = useState(referral.allstate_policy_number ?? '')
   const [lostReasonId, setLostReasonId] = useState(referral.lost_reason_id ?? '')
   const [leadSource,   setLeadSource]   = useState(referral.lead_source ?? '')
   const [isHotLead,    setIsHotLead]    = useState(referral.is_hot_lead)
   const [saving,       setSaving]       = useState(false)
   const [saveMsg,      setSaveMsg]      = useState<{ ok: boolean; text: string } | null>(null)
-  const [notesSaving,  setNotesSaving]  = useState(false)
-  const [notesMsg,     setNotesMsg]     = useState<{ ok: boolean; text: string } | null>(null)
 
   // ── Touch log ─────────────────────────────────────────────────
   const [touches,     setTouches]     = useState(referral.touches ?? 0)
@@ -451,8 +451,7 @@ export function ReferralEditClient({
   // ── List navigation ────────────────────────────────────────────
   const { prevId, nextId, position, total } = useNavList(referral.id)
 
-  // ── Notes copy ─────────────────────────────────────────────────
-  const [copied, setCopied] = useState(false)
+
 
   // ── Quote fields ───────────────────────────────────────────────
   // Pre-populated from existing values if the case was already quoted
@@ -615,10 +614,12 @@ export function ReferralEditClient({
     finally   { setSaving(false) }
   }
 
-  async function handleSaveNotes() {
-    setNotesSaving(true); setNotesMsg(null)
+  const [apptSaving, setApptSaving] = useState(false)
+  const [apptMsg,    setApptMsg]    = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function handleSaveApptInfo() {
+    setApptSaving(true); setApptMsg(null)
     const body: Record<string, unknown> = {
-      notes:                  notes || null,
       allstate_policy_number: alPolicy.trim() || null,
     }
     if (showApptDate) {
@@ -633,13 +634,13 @@ export function ReferralEditClient({
       })
       if (!res.ok) {
         const j = await res.json()
-        setNotesMsg({ ok: false, text: j.error ?? 'Save failed' })
+        setApptMsg({ ok: false, text: j.error ?? 'Save failed' })
       } else {
-        setNotesMsg({ ok: true, text: 'Saved' })
-        setTimeout(() => setNotesMsg(null), 2000)
+        setApptMsg({ ok: true, text: 'Saved' })
+        setTimeout(() => setApptMsg(null), 2000)
       }
-    } catch { setNotesMsg({ ok: false, text: 'Network error' }) }
-    finally   { setNotesSaving(false) }
+    } catch { setApptMsg({ ok: false, text: 'Network error' }) }
+    finally   { setApptSaving(false) }
   }
 
   async function handleSaveContact() {
@@ -2296,20 +2297,11 @@ export function ReferralEditClient({
             </div>
           )}
 
-          {/* 4 — Appointment & Notes */}
+          {/* 4 — Appointment & Allstate Policy */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
-                <MessageSquare className="w-3.5 h-3.5" /> Appointment & Notes
-              </h2>
-              <button
-                onClick={() => { navigator.clipboard.writeText(fmtEagentNote(notes)); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
-                disabled={!notes.trim()}
-                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 disabled:opacity-30 disabled:cursor-default transition-colors"
-              >
-                {copied ? <><Check className="w-3 h-3 text-emerald-400" /><span className="text-emerald-400">Copied!</span></> : <><Copy className="w-3 h-3" />Copy for eAgent</>}
-              </button>
-            </div>
+            <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
+              <CalendarClock className="w-3.5 h-3.5" /> Appointment & Allstate Policy
+            </h2>
 
             {/* Allstate Policy # — always editable */}
             <div>
@@ -2338,21 +2330,24 @@ export function ReferralEditClient({
               </div>
             )}
 
-            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={6}
-              placeholder="Notes about this referral — add context from each call…"
-              className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 placeholder-slate-600 resize-none" />
-
             <div className="flex items-center justify-between">
-              {notesMsg
-                ? <p className={`text-sm ${notesMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{notesMsg.text}</p>
+              {apptMsg
+                ? <p className={`text-sm ${apptMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{apptMsg.text}</p>
                 : <span />}
-              <button onClick={handleSaveNotes} disabled={notesSaving}
+              <button onClick={handleSaveApptInfo} disabled={apptSaving}
                 className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                 style={{ backgroundColor: '#1F3864' }}>
-                {notesSaving ? 'Saving…' : 'Save Notes'}
+                {apptSaving ? 'Saving…' : 'Save'}
               </button>
             </div>
           </div>
+
+          {/* 5 — Notes Log */}
+          <NotesLog
+            initialNotes={initialNotes as NoteEntry[]}
+            apiPath={`/api/cases/${referral.id}/notes`}
+            defaultSection="triage"
+          />
 
         </div>
       </div>
