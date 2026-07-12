@@ -53,6 +53,8 @@ export async function POST(
       .update({
         internal_status:   'triage',
         appointment_date:  null,
+        is_hot_lead:       true,
+        follow_up_date:    new Date().toISOString().slice(0, 10),
         touches:           (current.touches ?? 0) + 1,
         last_contact_at:   now,
         status_entered_at: now,

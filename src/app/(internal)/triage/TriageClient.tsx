@@ -2,7 +2,10 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Phone, Mail, Flame, Clock, ChevronDown, ChevronUp, CalendarX, Wrench } from 'lucide-react'
+import {
+  Search, Phone, Mail, Flame, Clock, ChevronDown, ChevronUp,
+  CalendarX, Wrench, AlertTriangle,
+} from 'lucide-react'
 import type { TriageCase } from './page'
 import { fmtDate } from '@/lib/fmt'
 import { setNavList } from '@/lib/nav-list'
@@ -24,7 +27,6 @@ function age(dob: string | null): number | null {
   return a
 }
 
-// Pull key:value lines out of the intake notes block
 function parseNotes(raw: string | null): Record<string, string> {
   if (!raw) return {}
   const result: Record<string, string> = {}
@@ -47,6 +49,33 @@ function fmtRelative(iso: string | null): string {
   return `${d}d ago`
 }
 
+function daysSinceTouched(c: TriageCase): number {
+  const ref = c.last_contact_at ?? c.created_at
+  return Math.floor((Date.now() - new Date(ref).getTime()) / 86_400_000)
+}
+
+function todayString(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+// A case is escalation-ready when 7+ touches have been logged OR it's been
+// 7+ days since the last contact (or since creation if never touched).
+function isEscalationReady(c: TriageCase): boolean {
+  if ((c.touches ?? 0) >= 7) return true
+  return daysSinceTouched(c) >= 7
+}
+
+// A case is Act Now when its follow-up date is today or overdue.
+// For cases with no follow_up_date (legacy or pre-first-touch), treat
+// 2+ days in queue as act-now so nothing slips.
+function isActNow(c: TriageCase, today: string): boolean {
+  if (c.follow_up_date) return c.follow_up_date <= today
+  return daysInQueue(c.created_at) >= 2
+}
+
+// ── Badges ────────────────────────────────────────────────────────────────────
+
 function QueueAgeBadge({ iso }: { iso: string }) {
   const d = daysInQueue(iso)
   let cls = 'bg-emerald-900/40 text-emerald-300 border-emerald-700'
@@ -60,23 +89,82 @@ function QueueAgeBadge({ iso }: { iso: string }) {
   )
 }
 
+// ── Section header row ────────────────────────────────────────────────────────
+
+type SectionVariant = 'escalation' | 'act_now' | 'upcoming'
+
+const SECTION_STYLES: Record<SectionVariant, { row: string; label: string; count: string }> = {
+  escalation: {
+    row:   'bg-red-950/60 border-b border-red-900/40',
+    label: 'text-red-300',
+    count: 'bg-red-900/50 text-red-300 border border-red-800',
+  },
+  act_now: {
+    row:   'bg-amber-950/40 border-b border-amber-900/30',
+    label: 'text-amber-300',
+    count: 'bg-amber-900/40 text-amber-300 border border-amber-800',
+  },
+  upcoming: {
+    row:   'bg-slate-800/20 border-b border-slate-800',
+    label: 'text-slate-400',
+    count: 'bg-slate-800 text-slate-400 border border-slate-700',
+  },
+}
+
+function SectionHeaderRow({
+  variant, label, count, desc,
+}: {
+  variant: SectionVariant
+  label:   string
+  count:   number
+  desc:    string
+}) {
+  const s = SECTION_STYLES[variant]
+  return (
+    <tr className={s.row}>
+      <td colSpan={7} className="px-4 py-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {variant === 'escalation' && <AlertTriangle className="w-3.5 h-3.5 text-red-400" />}
+            {variant === 'act_now'    && <Flame         className="w-3.5 h-3.5 text-amber-400" />}
+            {variant === 'upcoming'   && <Clock         className="w-3.5 h-3.5 text-slate-500" />}
+            <span className={`text-xs font-semibold uppercase tracking-wider ${s.label}`}>{label}</span>
+            <span className={`text-xs font-medium rounded-full px-1.5 py-0.5 ${s.count}`}>{count}</span>
+          </div>
+          <p className="text-xs text-slate-500">{desc}</p>
+        </div>
+      </td>
+    </tr>
+  )
+}
+
 // ── Row ───────────────────────────────────────────────────────────────────────
 
-function TriageRow({ c, allIds }: { c: TriageCase; allIds: string[] }) {
-  const router = useRouter()
+function TriageRow({
+  c, allIds, section, today,
+}: {
+  c:       TriageCase
+  allIds:  string[]
+  section: SectionVariant
+  today:   string
+}) {
+  const router   = useRouter()
   const [expanded, setExpanded] = useState(false)
 
   const agency    = c.agencies?.display_name ?? c.agencies?.name ?? '—'
-  const client    = buildHouseholdName(
-    c.customers ?? null,
-    c.household_members ?? [],
-  )
+  const client    = buildHouseholdName(c.customers ?? null, c.household_members ?? [])
   const lsp       = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
   const clientAge = age(c.customers?.date_of_birth ?? null)
   const parsed    = parseNotes(c.notes)
+  const staleDays = daysSinceTouched(c)
+
+  const touchBadgeCls = staleDays >= 7
+    ? 'bg-red-900/40 text-red-300 border-red-700'
+    : staleDays >= 3
+    ? 'bg-amber-900/40 text-amber-300 border-amber-700'
+    : 'bg-slate-800/60 text-slate-400 border-slate-700'
 
   function handleRowClick(e: React.MouseEvent) {
-    // Chevron toggles preview; anywhere else opens the full referral
     const target = e.target as HTMLElement
     if (target.closest('[data-expand]')) {
       setExpanded(o => !o)
@@ -84,6 +172,50 @@ function TriageRow({ c, allIds }: { c: TriageCase; allIds: string[] }) {
       setNavList(allIds)
       router.push(`/referrals/${c.id}`)
     }
+  }
+
+  // Right column content varies by section
+  function RightCol() {
+    if (section === 'escalation') {
+      return (
+        <div className="text-right space-y-1">
+          <p className="text-xs text-slate-500">{fmtDate(c.created_at)}</p>
+          <QueueAgeBadge iso={c.created_at} />
+        </div>
+      )
+    }
+    if (section === 'act_now') {
+      const daysOverdue = c.follow_up_date
+        ? Math.floor((new Date(today).getTime() - new Date(c.follow_up_date).getTime()) / 86_400_000)
+        : daysInQueue(c.created_at)
+      return (
+        <div className="text-right">
+          <span className={`text-xs font-medium ${daysOverdue > 0 ? 'text-red-400' : 'text-amber-300'}`}>
+            {daysOverdue > 0 ? `${daysOverdue}d overdue` : 'Due today'}
+          </span>
+        </div>
+      )
+    }
+    // upcoming
+    if (c.follow_up_date) {
+      const daysUntil = Math.ceil(
+        (new Date(c.follow_up_date).getTime() - new Date(today).getTime()) / 86_400_000
+      )
+      return (
+        <div className="text-right">
+          <p className="text-xs text-slate-400">{fmtDate(c.follow_up_date)}</p>
+          <p className="text-xs text-slate-600">
+            {daysUntil <= 1 ? 'tomorrow' : `in ${daysUntil}d`}
+          </p>
+        </div>
+      )
+    }
+    return (
+      <div className="text-right">
+        <p className="text-xs text-slate-500">{fmtDate(c.created_at)}</p>
+        <QueueAgeBadge iso={c.created_at} />
+      </div>
+    )
   }
 
   return (
@@ -112,9 +244,7 @@ function TriageRow({ c, allIds }: { c: TriageCase; allIds: string[] }) {
                 <Phone className="w-3 h-3" />{c.customers.phone}
               </a>
             )}
-            {clientAge && (
-              <span className="text-xs text-slate-500">Age {clientAge}</span>
-            )}
+            {clientAge && <span className="text-xs text-slate-500">Age {clientAge}</span>}
           </div>
           {c.customers?.email && (
             <div className="mt-0.5">
@@ -124,8 +254,15 @@ function TriageRow({ c, allIds }: { c: TriageCase; allIds: string[] }) {
               </a>
             </div>
           )}
+
           {/* Activity badges */}
           <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+            {section === 'escalation' && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium rounded border px-2 py-0.5 bg-red-900/30 text-red-300 border-red-700">
+                <AlertTriangle className="w-3 h-3" />
+                LSP Re-Warm needed
+              </span>
+            )}
             {c.missed_count > 0 && (
               <span className="inline-flex items-center gap-1 text-xs font-medium rounded border px-2 py-0.5 bg-amber-900/40 text-amber-300 border-amber-700">
                 <CalendarX className="w-3 h-3" />
@@ -133,7 +270,7 @@ function TriageRow({ c, allIds }: { c: TriageCase; allIds: string[] }) {
               </span>
             )}
             {(c.touches ?? 0) > 0 && (
-              <span className="inline-flex items-center gap-1 text-xs rounded border px-2 py-0.5 bg-slate-800/60 text-slate-400 border-slate-700">
+              <span className={`inline-flex items-center gap-1 text-xs rounded border px-2 py-0.5 ${touchBadgeCls}`}>
                 <Phone className="w-3 h-3" />
                 {c.touches} touch{c.touches !== 1 ? 'es' : ''} · {fmtRelative(c.last_contact_at)}
               </span>
@@ -147,24 +284,21 @@ function TriageRow({ c, allIds }: { c: TriageCase; allIds: string[] }) {
         {/* Referred by */}
         <td className="px-4 py-3 text-sm text-slate-400">{lsp ?? '—'}</td>
 
-        {/* Referral type */}
+        {/* Type */}
         <td className="px-4 py-3 text-sm text-slate-400">{parsed['Type'] ?? '—'}</td>
 
-        {/* Contact preference */}
+        {/* Contact pref */}
         <td className="px-4 py-3">
           <p className="text-xs text-slate-400">{parsed['Contact'] ?? '—'}</p>
-          {parsed['Best time'] && (
-            <p className="text-xs text-slate-500">{parsed['Best time']}</p>
-          )}
+          {parsed['Best time'] && <p className="text-xs text-slate-500">{parsed['Best time']}</p>}
         </td>
 
-        {/* Date in / queue age */}
+        {/* Right col — varies by section */}
         <td className="px-4 py-3 text-right">
-          <p className="text-xs text-slate-500 mb-1">{fmtDate(c.created_at)}</p>
-          <QueueAgeBadge iso={c.created_at} />
+          <RightCol />
         </td>
 
-        {/* Expand preview toggle */}
+        {/* Expand toggle */}
         <td className="px-3 py-3" data-expand="1">
           <div data-expand="1" className="flex justify-end">
             {expanded
@@ -174,7 +308,7 @@ function TriageRow({ c, allIds }: { c: TriageCase; allIds: string[] }) {
         </td>
       </tr>
 
-      {/* Inline preview — flags, notes, email */}
+      {/* Inline preview */}
       {expanded && (
         <tr className="bg-slate-800/30 border-b border-slate-700/50">
           <td colSpan={7} className="px-5 py-3">
@@ -206,9 +340,9 @@ function TriageRow({ c, allIds }: { c: TriageCase; allIds: string[] }) {
                 const p = new URLSearchParams()
                 p.set('from_case_id', c.id)
                 const name = `${c.customers?.first_name ?? ''} ${c.customers?.last_name ?? ''}`.trim()
-                if (name)            p.set('client_name', name)
-                if (c.agencies?.id)  p.set('agency_id',   c.agencies.id)
-                if (c.agents?.id)    p.set('agent_id',    c.agents.id)
+                if (name)           p.set('client_name', name)
+                if (c.agencies?.id) p.set('agency_id',   c.agencies.id)
+                if (c.agents?.id)   p.set('agent_id',    c.agents.id)
                 return (
                   <a
                     href={`/service/new?${p.toString()}`}
@@ -231,9 +365,10 @@ function TriageRow({ c, allIds }: { c: TriageCase; allIds: string[] }) {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export function TriageClient({ cases }: { cases: TriageCase[] }) {
-  const [search, setSearch]             = useState('')
+  const [search,       setSearch]       = useState('')
   const [agencyFilter, setAgencyFilter] = useState('')
 
+  const today = useMemo(() => todayString(), [])
 
   const agencyOptions = useMemo(() => {
     const seen = new Set<string>()
@@ -265,7 +400,39 @@ export function TriageClient({ cases }: { cases: TriageCase[] }) {
   }, [cases, agencyFilter, search])
 
   const filteredIds = useMemo(() => filtered.map(c => c.id), [filtered])
-  const hotCount = cases.filter(c => c.is_hot_lead).length
+
+  // ── Section splits ─────────────────────────────────────────────────────────
+  // Priority: escalation > act_now > upcoming
+  // Within escalation: most stale first
+  // Within act_now: hot leads first, then most overdue
+  // Within upcoming: soonest follow-up first
+
+  const { escalation, actNow, upcoming } = useMemo(() => {
+    const esc: TriageCase[] = []
+    const act: TriageCase[] = []
+    const upc: TriageCase[] = []
+    for (const c of filtered) {
+      if (isEscalationReady(c))        esc.push(c)
+      else if (isActNow(c, today))     act.push(c)
+      else                             upc.push(c)
+    }
+    esc.sort((a, b) => daysSinceTouched(b) - daysSinceTouched(a))
+    act.sort((a, b) => {
+      if (b.is_hot_lead !== a.is_hot_lead) return b.is_hot_lead ? 1 : -1
+      const aDate = a.follow_up_date ?? a.created_at
+      const bDate = b.follow_up_date ?? b.created_at
+      return aDate < bDate ? -1 : 1
+    })
+    upc.sort((a, b) => {
+      const aDate = a.follow_up_date ?? a.created_at
+      const bDate = b.follow_up_date ?? b.created_at
+      return aDate < bDate ? -1 : 1
+    })
+    return { escalation: esc, actNow: act, upcoming: upc }
+  }, [filtered, today])
+
+  const escalationCount = cases.filter(isEscalationReady).length
+  const actNowCount     = cases.filter(c => !isEscalationReady(c) && isActNow(c, today)).length
 
   if (cases.length === 0) {
     return (
@@ -280,13 +447,18 @@ export function TriageClient({ cases }: { cases: TriageCase[] }) {
     <div className="space-y-4">
       {/* Summary + filters */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 flex-wrap">
           <p className="text-slate-400 text-sm">
             <span className="text-white font-semibold">{cases.length}</span> in queue
           </p>
-          {hotCount > 0 && (
-            <span className="inline-flex items-center gap-1 text-orange-400 text-sm">
-              <Flame className="w-3.5 h-3.5" />{hotCount} hot
+          {escalationCount > 0 && (
+            <span className="inline-flex items-center gap-1 text-red-400 text-sm font-medium">
+              <AlertTriangle className="w-3.5 h-3.5" />{escalationCount} need re-warm
+            </span>
+          )}
+          {actNowCount > 0 && (
+            <span className="inline-flex items-center gap-1 text-amber-400 text-sm">
+              <Flame className="w-3.5 h-3.5" />{actNowCount} due today
             </span>
           )}
         </div>
@@ -329,12 +501,50 @@ export function TriageClient({ cases }: { cases: TriageCase[] }) {
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Referred by</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Type</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Contact pref.</th>
-                <th className="px-4 py-3 text-right text-xs font-medium text-slate-400">Date in</th>
+                <th className="px-4 py-3 text-right text-xs font-medium text-slate-400">Follow-up</th>
                 <th className="px-3 py-3" />
               </tr>
             </thead>
             <tbody>
-              {filtered.map(c => <TriageRow key={c.id} c={c} allIds={filteredIds} />)}
+              {escalation.length > 0 && (
+                <>
+                  <SectionHeaderRow
+                    variant="escalation"
+                    label="LSP Re-Warm Needed"
+                    count={escalation.length}
+                    desc="7+ touches or 7+ days without contact — open referral and send re-warm email"
+                  />
+                  {escalation.map(c => (
+                    <TriageRow key={c.id} c={c} allIds={filteredIds} section="escalation" today={today} />
+                  ))}
+                </>
+              )}
+              {actNow.length > 0 && (
+                <>
+                  <SectionHeaderRow
+                    variant="act_now"
+                    label="Act Now"
+                    count={actNow.length}
+                    desc="Follow-up due today or overdue"
+                  />
+                  {actNow.map(c => (
+                    <TriageRow key={c.id} c={c} allIds={filteredIds} section="act_now" today={today} />
+                  ))}
+                </>
+              )}
+              {upcoming.length > 0 && (
+                <>
+                  <SectionHeaderRow
+                    variant="upcoming"
+                    label="Upcoming"
+                    count={upcoming.length}
+                    desc="Next follow-up scheduled — check back then"
+                  />
+                  {upcoming.map(c => (
+                    <TriageRow key={c.id} c={c} allIds={filteredIds} section="upcoming" today={today} />
+                  ))}
+                </>
+              )}
             </tbody>
           </table>
         )}

@@ -14,6 +14,7 @@ export type TriageCase = {
   allstate_policy_number: string | null
   touches: number | null
   last_contact_at: string | null
+  follow_up_date: string | null
   missed_count: number          // injected in page — count of missed_appointment touches
   agencies: { id: string; name: string; display_name: string | null } | null
   customers: {
@@ -41,6 +42,7 @@ export default async function TriagePage() {
       allstate_policy_number,
       touches,
       last_contact_at,
+      follow_up_date,
       agencies ( id, name, display_name ),
       customers!customer_id ( first_name, last_name, phone, email, date_of_birth ),
       agents ( id, first_name, last_name, email ),

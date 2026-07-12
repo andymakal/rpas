@@ -29,6 +29,9 @@ export async function POST(
   }
 
   const now = new Date().toISOString()
+  const followUpDate = new Date()
+  followUpDate.setDate(followUpDate.getDate() + 2)
+  const follow_up_date = followUpDate.toISOString().slice(0, 10)
 
   // Touches only increment the counter and record last contact — they never
   // change internal_status. Status transitions are deliberate actions only
@@ -39,6 +42,7 @@ export async function POST(
       .update({
         touches:         (current.touches ?? 0) + 1,
         last_contact_at: now,
+        follow_up_date,
         updated_at:      now,
       })
       .eq('id', id)

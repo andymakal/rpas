@@ -850,7 +850,7 @@ export function ReferralEditClient({
       const res = await fetch(`/api/cases/${referral.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ internal_status: 'triage', is_hot_lead: true }),
+        body: JSON.stringify({ internal_status: 'triage', is_hot_lead: true, follow_up_date: new Date().toISOString().slice(0, 10) }),
       })
       if (!res.ok) {
         const j = await res.json()
