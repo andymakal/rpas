@@ -7,7 +7,7 @@ import {
   ArrowLeft, Phone, Building2, User, Calendar, Clock,
   Mail, AlertCircle, PhoneCall, PhoneOff,
   MessageCircle, ChevronDown, ChevronUp, DollarSign, Pencil, Check, X, MapPin,
-  CalendarClock, CalendarX, History, Flame, Wrench,
+  CalendarClock, CalendarX, History, Flame, Wrench, Send,
   ChevronLeft, ChevronRight, Users, UserPlus, Trash2, GitMerge,
 } from 'lucide-react'
 import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember, SuspectedDuplicate, NotInterestedReason, ReferralNote } from './page'
@@ -487,7 +487,7 @@ export function ReferralEditClient({
   const [cHeightIn,    setCHeightIn]    = useState(referral.customers?.height_in?.toString()  ?? '')
   const [cWeight,      setCWeight]      = useState(referral.customers?.weight_lbs?.toString() ?? '')
   const [cHealthNotes, setCHealthNotes] = useState(referral.customers?.health_notes    ?? '')
-  const [cSpanish,     setCSpanish]     = useState(referral.customers?.spanish_speaking ?? false)
+  const [cLanguage,    setCLanguage]    = useState(referral.customers?.preferred_language ?? 'en')
   const [contactSaving, setContactSaving] = useState(false)
   const [contactMsg,    setContactMsg]    = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -665,8 +665,8 @@ export function ReferralEditClient({
           height_ft:        cHeightFt  ? parseInt(cHeightFt)  : null,
           height_in:        cHeightIn  ? parseInt(cHeightIn)  : null,
           weight_lbs:       cWeight    ? parseInt(cWeight)    : null,
-          health_notes:     cHealthNotes.trim() || null,
-          spanish_speaking: cSpanish,
+          health_notes:      cHealthNotes.trim() || null,
+          preferred_language: cLanguage || 'en',
         }),
       })
       if (!res.ok) {
@@ -783,12 +783,12 @@ export function ReferralEditClient({
     } finally { setSpiffSaving(false) }
   }
 
-  async function handleSpanishToggle(checked: boolean) {
-    setCSpanish(checked)
+  async function handleLanguageChange(lang: string) {
+    setCLanguage(lang)
     await fetch(`/api/customers/${referral.customer_id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ spanish_speaking: checked }),
+      body: JSON.stringify({ preferred_language: lang }),
     })
   }
 
@@ -1130,11 +1130,17 @@ export function ReferralEditClient({
                   <EditField label="State" value={cState} onChange={setCState} placeholder="IL" />
                 </div>
                 <EditField label="ZIP Code" value={cZip} onChange={setCZip} placeholder="62701" />
-                <label className="flex items-center gap-3 cursor-pointer pt-1">
-                  <input type="checkbox" checked={cSpanish} onChange={e => setCSpanish(e.target.checked)}
-                    className="h-4 w-4 rounded accent-blue-500 cursor-pointer" />
-                  <span className="text-sm text-slate-200">Spanish Speaking</span>
-                </label>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Preferred language</label>
+                  <select value={cLanguage} onChange={e => setCLanguage(e.target.value)} className="w-full rounded border border-slate-600 bg-slate-800 px-2 py-1.5 text-sm text-slate-100">
+                    <option value="en">English</option>
+                    <option value="es">Spanish</option>
+                    <option value="zh">Chinese</option>
+                    <option value="ru">Russian</option>
+                    <option value="vi">Vietnamese</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
                 {contactMsg && (
                   <p className={`text-xs ${contactMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{contactMsg.text}</p>
                 )}
@@ -1198,14 +1204,18 @@ export function ReferralEditClient({
                     </span>
                   </div>
                 )}
-                <label className="flex items-center gap-2.5 cursor-pointer group">
-                  <input type="checkbox" checked={cSpanish}
-                    onChange={e => handleSpanishToggle(e.target.checked)}
-                    className="h-4 w-4 rounded accent-blue-500 cursor-pointer" />
-                  <span className={`text-sm transition-colors ${cSpanish ? 'text-blue-300' : 'text-slate-500 group-hover:text-slate-300'}`}>
-                    Spanish Speaking
-                  </span>
-                </label>
+                <div className="flex items-center gap-2.5">
+                  <span className="text-sm text-slate-500">Language:</span>
+                  <select value={cLanguage} onChange={e => handleLanguageChange(e.target.value)}
+                    className="rounded border border-slate-700 bg-slate-800/60 px-2 py-1 text-xs text-slate-200">
+                    <option value="en">English</option>
+                    <option value="es">Spanish</option>
+                    <option value="zh">Chinese</option>
+                    <option value="ru">Russian</option>
+                    <option value="vi">Vietnamese</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
                 <div className="flex items-center gap-2.5">
                   <Calendar className="w-4 h-4 text-slate-500 flex-shrink-0" />
                   <span className="text-slate-500 text-xs">{fmt(referral.created_at)}</span>

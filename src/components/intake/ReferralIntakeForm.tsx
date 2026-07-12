@@ -37,7 +37,7 @@ const EMPTY_FORM: ReferralFormData = {
   review_401k: false,
   retirement_prep: false,
   is_hot_lead: false,
-  spanish_speaking: false,
+  preferred_language: 'en',
   consent_confirmed: undefined as unknown as true,
   household_members: [],
 }
@@ -473,12 +473,21 @@ export function ReferralIntakeForm({
         </div>
       </div>
 
-      <Toggle
-        checked={form.spanish_speaking ?? false}
-        onChange={(v) => set('spanish_speaking', v)}
-        label="Spanish Speaking"
-        description="Client's primary language is Spanish"
-      />
+      <div>
+        <label className="block text-sm font-medium text-slate-700 mb-1">Preferred Language</label>
+        <select
+          value={form.preferred_language ?? 'en'}
+          onChange={e => set('preferred_language', e.target.value)}
+          className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="en">English</option>
+          <option value="es">Spanish</option>
+          <option value="zh">Chinese</option>
+          <option value="ru">Russian</option>
+          <option value="vi">Vietnamese</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
 
       {/* Spouse / Partner — optional */}
       <div className="border-t border-slate-100 pt-4">

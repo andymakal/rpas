@@ -19,7 +19,7 @@ export type CustomerDetail = {
   marital_status:   string | null
   gender:           string | null
   tobacco_use:      string | null
-  spanish_speaking: boolean
+  preferred_language: string | null
   health_notes:     string | null
   customer_group_id: string | null
   segment:          string | null
@@ -105,7 +105,7 @@ export default async function CustomerCardPage({
       id, first_name, last_name, phone, email,
       street, city, state, zip,
       date_of_birth, marital_status, gender,
-      tobacco_use, spanish_speaking, health_notes,
+      tobacco_use, preferred_language, health_notes,
       customer_group_id, segment
     `)
     .eq('id', id)

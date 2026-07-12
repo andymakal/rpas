@@ -118,7 +118,7 @@ export default function NewReferralPage() {
   const [retirementPrep,           setRetirementPrep]           = useState(false)
 
   // Other flags
-  const [spanishSpeaking, setSpanishSpeaking] = useState(false)
+  const [preferredLanguage, setPreferredLanguage] = useState('en')
 
   // Notes
   const [notes, setNotes] = useState('')
@@ -270,7 +270,7 @@ export default function NewReferralPage() {
       city:          city.trim() || undefined,
       state:         state || undefined,
       zip:           zip.trim() || undefined,
-      spanish_speaking: spanishSpeaking,
+      preferred_language: preferredLanguage,
       referral_type: referralType,
       is_hot_lead:   isHotLead,
       preferred_contact:         preferredContact || undefined,
@@ -669,21 +669,22 @@ export default function NewReferralPage() {
                 </div>
               </label>
 
-              {/* Spanish speaking */}
-              <label className="flex items-center gap-3 cursor-pointer group">
-                <input
-                  type="checkbox"
-                  checked={spanishSpeaking}
-                  onChange={e => setSpanishSpeaking(e.target.checked)}
-                  className="h-4 w-4 rounded accent-blue-500 cursor-pointer"
-                />
-                <div>
-                  <p className="text-sm font-medium text-slate-200 group-hover:text-white transition-colors">
-                    Spanish Speaking
-                  </p>
-                  <p className="text-xs text-slate-500">Client&apos;s primary language is Spanish</p>
-                </div>
-              </label>
+              {/* Preferred language */}
+              <div>
+                <label className="block text-sm font-medium text-slate-200 mb-1">Preferred Language</label>
+                <select
+                  value={preferredLanguage}
+                  onChange={e => setPreferredLanguage(e.target.value)}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="en">English</option>
+                  <option value="es">Spanish</option>
+                  <option value="zh">Chinese</option>
+                  <option value="ru">Russian</option>
+                  <option value="vi">Vietnamese</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
 
             </div>
           </div>

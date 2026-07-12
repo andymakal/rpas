@@ -4,7 +4,8 @@ import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   Search, Phone, Mail, Flame, Clock, ChevronDown, ChevronUp,
-  CalendarX, Wrench, AlertTriangle,
+  CalendarX, Wrench, AlertTriangle, ShieldAlert, FileText, BadgeCheck,
+  PhoneCall, PhoneOff, Voicemail, MessageSquare, Calendar, Check, Globe,
 } from 'lucide-react'
 import type { TriageCase } from './page'
 import { fmtDate } from '@/lib/fmt'
@@ -138,6 +139,26 @@ function SectionHeaderRow({
   )
 }
 
+// ── Appointment type config ───────────────────────────────────────────────────
+
+const APPT_TYPES = [
+  { value: 'call',      label: 'Follow-up Call',   duration: '30 min' },
+  { value: 'life',      label: 'Life Appointment',  duration: '60 min' },
+  { value: 'financial', label: 'Financial Appt',    duration: '90 min' },
+] as const
+type ApptType = typeof APPT_TYPES[number]['value']
+
+function followUpDateStr(): string {
+  const d = new Date()
+  d.setDate(d.getDate() + 2)
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
+function todayDateInput(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 // ── Row ───────────────────────────────────────────────────────────────────────
 
 function TriageRow({
@@ -148,15 +169,31 @@ function TriageRow({
   section: SectionVariant
   today:   string
 }) {
-  const router   = useRouter()
+  const router = useRouter()
   const [expanded, setExpanded] = useState(false)
 
-  const agency    = c.agencies?.display_name ?? c.agencies?.name ?? '—'
-  const client    = buildHouseholdName(c.customers ?? null, c.household_members ?? [])
-  const lsp       = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
-  const clientAge = age(c.customers?.date_of_birth ?? null)
-  const parsed    = parseNotes(c.notes)
-  const staleDays = daysSinceTouched(c)
+  // Touch action state
+  const [touchPhase,   setTouchPhase]   = useState<'idle' | 'busy' | 'reached' | 'logged'>('idle')
+  const [touchMsg,     setTouchMsg]     = useState('')
+  const [localTouches, setLocalTouches] = useState<number | null>(null)
+
+  // Appointment form state
+  const [apptPhase, setApptPhase] = useState<'hidden' | 'form' | 'done'>('hidden')
+  const [apptBusy,  setApptBusy]  = useState(false)
+  const [apptType,  setApptType]  = useState<ApptType>('life')
+  const [apptDate,  setApptDate]  = useState(todayDateInput)
+  const [apptTime,  setApptTime]  = useState('10:00')
+
+  // Live transfer state
+  const [ltPhase, setLtPhase] = useState<'hidden' | 'confirm' | 'busy' | 'done'>('hidden')
+
+  const agency         = c.agencies?.display_name ?? c.agencies?.name ?? '—'
+  const client         = buildHouseholdName(c.customers ?? null, c.household_members ?? [])
+  const lsp            = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
+  const clientAge      = age(c.customers?.date_of_birth ?? null)
+  const parsed         = parseNotes(c.notes)
+  const staleDays      = daysSinceTouched(c)
+  const displayTouches = localTouches ?? c.touches ?? 0
 
   const touchBadgeCls = staleDays >= 7
     ? 'bg-red-900/40 text-red-300 border-red-700'
@@ -166,12 +203,68 @@ function TriageRow({
 
   function handleRowClick(e: React.MouseEvent) {
     const target = e.target as HTMLElement
-    if (target.closest('[data-expand]')) {
-      setExpanded(o => !o)
-    } else {
-      setNavList(allIds)
-      router.push(`/referrals/${c.id}`)
-    }
+    if (target.closest('[data-expand]') || target.closest('[data-action]')) return
+    setNavList(allIds)
+    router.push(`/referrals/${c.id}`)
+  }
+
+  async function handleTouch(touchType: string, label: string, isReached = false) {
+    setTouchPhase('busy')
+    const res = await fetch(`/api/cases/${c.id}/touch`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        touch_type: touchType,
+        notes: touchType === 'call' && !isReached ? 'No answer — no voicemail left' : undefined,
+      }),
+    })
+    if (!res.ok) { setTouchPhase('idle'); return }
+    setLocalTouches((localTouches ?? c.touches ?? 0) + 1)
+    setTouchMsg(`${label} logged · Follow-up: ${followUpDateStr()}`)
+    setTouchPhase(isReached ? 'reached' : 'logged')
+  }
+
+  async function handleLiveTransfer() {
+    setLtPhase('busy')
+    const now = new Date().toISOString()
+    // Transition status + log the call touch in parallel
+    const [statusRes] = await Promise.all([
+      fetch(`/api/cases/${c.id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ internal_status: 'live_transfer' }),
+      }),
+      fetch(`/api/cases/${c.id}/touch`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ touch_type: 'call', notes: 'Live transfer — connected to producer' }),
+      }),
+    ])
+    if (!statusRes.ok) { setLtPhase('confirm'); return }
+    setLtPhase('done')
+    setTimeout(() => router.refresh(), 1500)
+  }
+
+  async function handleSetAppt(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (!apptDate || !apptTime) return
+    setApptBusy(true)
+    const appointmentDatetime = `${apptDate}T${apptTime}`
+    const res = await fetch(`/api/cases/${c.id}/appointment`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ appointment_date: appointmentDatetime }),
+    })
+    setApptBusy(false)
+    if (!res.ok) return
+    // Trigger .ics download without navigating away
+    const a = document.createElement('a')
+    a.href = `/api/cases/${c.id}/calendar-event?start=${encodeURIComponent(appointmentDatetime)}&type=${apptType}`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    setApptPhase('done')
+    setTimeout(() => router.refresh(), 1800)
   }
 
   // Right column content varies by section
@@ -263,16 +356,40 @@ function TriageRow({
                 LSP Re-Warm needed
               </span>
             )}
+            {c.suspected_duplicate_customer_id && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium rounded border px-2 py-0.5 bg-yellow-900/40 text-yellow-300 border-yellow-700">
+                <ShieldAlert className="w-3 h-3" />
+                Possible duplicate
+              </span>
+            )}
+            {c.policy_count > 0 && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium rounded border px-2 py-0.5 bg-emerald-900/30 text-emerald-300 border-emerald-700">
+                <BadgeCheck className="w-3 h-3" />
+                {c.policy_count} {c.policy_count === 1 ? 'policy' : 'policies'}
+              </span>
+            )}
+            {c.prior_case_count > 0 && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium rounded border px-2 py-0.5 bg-blue-900/30 text-blue-300 border-blue-700">
+                <FileText className="w-3 h-3" />
+                {c.prior_case_count} prior {c.prior_case_count === 1 ? 'case' : 'cases'}
+              </span>
+            )}
+            {c.customers?.preferred_language && c.customers.preferred_language !== 'en' && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium rounded border px-2 py-0.5 bg-violet-900/30 text-violet-300 border-violet-700">
+                <Globe className="w-3 h-3" />
+                {({es:'Spanish',zh:'Chinese',ru:'Russian',vi:'Vietnamese',other:'Other lang'} as Record<string,string>)[c.customers.preferred_language] ?? c.customers.preferred_language}
+              </span>
+            )}
             {c.missed_count > 0 && (
               <span className="inline-flex items-center gap-1 text-xs font-medium rounded border px-2 py-0.5 bg-amber-900/40 text-amber-300 border-amber-700">
                 <CalendarX className="w-3 h-3" />
                 {c.missed_count} missed
               </span>
             )}
-            {(c.touches ?? 0) > 0 && (
+            {displayTouches > 0 && (
               <span className={`inline-flex items-center gap-1 text-xs rounded border px-2 py-0.5 ${touchBadgeCls}`}>
                 <Phone className="w-3 h-3" />
-                {c.touches} touch{c.touches !== 1 ? 'es' : ''} · {fmtRelative(c.last_contact_at)}
+                {displayTouches} touch{displayTouches !== 1 ? 'es' : ''} · {fmtRelative(c.last_contact_at)}
               </span>
             )}
           </div>
@@ -299,20 +416,22 @@ function TriageRow({
         </td>
 
         {/* Expand toggle */}
-        <td className="px-3 py-3" data-expand="1">
-          <div data-expand="1" className="flex justify-end">
+        <td className="px-3 py-3" onClick={e => { e.stopPropagation(); setExpanded(o => !o) }}>
+          <div className="flex justify-end">
             {expanded
-              ? <ChevronUp   className="w-4 h-4 text-slate-500 pointer-events-none" />
-              : <ChevronDown className="w-4 h-4 text-slate-500 pointer-events-none" />}
+              ? <ChevronUp   className="w-4 h-4 text-slate-500" />
+              : <ChevronDown className="w-4 h-4 text-slate-500" />}
           </div>
         </td>
       </tr>
 
-      {/* Inline preview */}
+      {/* Expanded panel */}
       {expanded && (
         <tr className="bg-slate-800/30 border-b border-slate-700/50">
-          <td colSpan={7} className="px-5 py-3">
-            <div className="flex flex-wrap gap-x-8 gap-y-2 text-xs text-slate-400">
+          <td colSpan={7} className="px-5 py-3" data-action="1">
+
+            {/* Context details */}
+            <div className="flex flex-wrap gap-x-8 gap-y-2 text-xs text-slate-400 mb-3">
               {c.customers?.email && (
                 <span><span className="text-slate-500">Email </span>{c.customers.email}</span>
               )}
@@ -332,10 +451,169 @@ function TriageRow({
                 <span className="max-w-lg"><span className="text-slate-500">Notes </span>{parsed['Notes']}</span>
               )}
             </div>
-            <div className="flex items-center justify-between mt-2">
-              <p className="text-xs text-slate-600">
-                Click anywhere on the row to open the full referral record →
-              </p>
+
+            {/* ── Quick-action panel ── */}
+            <div className="border-t border-slate-700/50 pt-3 space-y-3" onClick={e => e.stopPropagation()}>
+
+              {/* Touch buttons */}
+              {(touchPhase === 'idle' || touchPhase === 'busy') && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-xs text-slate-500 mr-1">Log contact:</span>
+                  {([
+                    { label: 'Reached',   Icon: PhoneCall,     type: 'call',      reached: true  },
+                    { label: 'Voicemail', Icon: Voicemail,     type: 'voicemail', reached: false },
+                    { label: 'No Answer', Icon: PhoneOff,      type: 'call',      reached: false },
+                    { label: 'Texted',    Icon: MessageSquare, type: 'text',      reached: false },
+                  ] as const).map(({ label, Icon, type, reached }) => (
+                    <button
+                      key={label}
+                      disabled={touchPhase === 'busy'}
+                      onClick={() => handleTouch(type, label, reached)}
+                      className={`inline-flex items-center gap-1.5 text-xs font-medium rounded border px-3 py-1.5 transition-colors disabled:opacity-40 ${
+                        reached
+                          ? 'bg-emerald-900/30 text-emerald-300 border-emerald-700 hover:bg-emerald-900/50'
+                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                      }`}
+                    >
+                      <Icon className="w-3.5 h-3.5" />{label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Touch confirmation */}
+              {(touchPhase === 'reached' || touchPhase === 'logged') && touchMsg && (
+                <div className="flex items-center gap-2 text-xs text-emerald-400">
+                  <Check className="w-3.5 h-3.5" /><span>{touchMsg}</span>
+                </div>
+              )}
+
+              {/* After "Reached": live transfer, set appointment, or keep working */}
+              {touchPhase === 'reached' && apptPhase === 'hidden' && ltPhase === 'hidden' && (
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-xs text-slate-500">What happened?</span>
+                  <button
+                    onClick={() => setLtPhase('confirm')}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium rounded border px-3 py-1.5 bg-orange-900/30 text-orange-300 border-orange-700 hover:bg-orange-900/50 transition-colors"
+                  >
+                    <PhoneCall className="w-3.5 h-3.5" />Live Transfer
+                  </button>
+                  <button
+                    onClick={() => setApptPhase('form')}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium rounded border px-3 py-1.5 bg-blue-900/30 text-blue-300 border-blue-700 hover:bg-blue-900/50 transition-colors"
+                  >
+                    <Calendar className="w-3.5 h-3.5" />Set Appointment
+                  </button>
+                  <button
+                    onClick={() => setTouchPhase('logged')}
+                    className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                  >
+                    Keep in queue
+                  </button>
+                </div>
+              )}
+
+              {/* Live transfer confirmation */}
+              {ltPhase === 'confirm' && (
+                <div className="flex items-center gap-3 flex-wrap bg-orange-950/30 rounded-lg px-4 py-2.5 border border-orange-900/40">
+                  <span className="text-xs text-orange-200">
+                    Confirm live transfer for <span className="font-medium">{client}</span>? This moves the case out of triage.
+                  </span>
+                  <button
+                    onClick={handleLiveTransfer}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium rounded border px-3 py-1.5 bg-orange-600 text-white border-orange-500 hover:bg-orange-500 transition-colors"
+                  >
+                    <PhoneCall className="w-3.5 h-3.5" />Confirm Transfer
+                  </button>
+                  <button
+                    onClick={() => setLtPhase('hidden')}
+                    className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+
+              {/* Live transfer confirmed */}
+              {ltPhase === 'done' && (
+                <div className="flex items-center gap-2 text-xs text-emerald-400">
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Live transfer logged · Moving to referral pipeline…</span>
+                </div>
+              )}
+
+              {/* Appointment form */}
+              {apptPhase === 'form' && (
+                <div className="flex items-end gap-3 flex-wrap bg-slate-800/60 rounded-lg px-4 py-3 border border-slate-700/50">
+                  <div className="space-y-1">
+                    <p className="text-xs text-slate-500">Type</p>
+                    <div className="flex rounded-md overflow-hidden border border-slate-700">
+                      {APPT_TYPES.map(({ value, label, duration }) => (
+                        <button
+                          key={value}
+                          onClick={() => setApptType(value)}
+                          className={`px-3 py-1.5 text-xs font-medium transition-colors border-r border-slate-700 last:border-r-0 ${
+                            apptType === value
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                          }`}
+                        >
+                          {label}
+                          <span className={`ml-1.5 text-xs ${apptType === value ? 'text-blue-200' : 'text-slate-600'}`}>
+                            {duration}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs text-slate-500">Date</p>
+                    <input
+                      type="date"
+                      value={apptDate}
+                      min={todayDateInput()}
+                      onChange={e => setApptDate(e.target.value)}
+                      className="bg-slate-900 border border-slate-600 text-slate-200 text-xs rounded px-2 py-1.5 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <p className="text-xs text-slate-500">Time</p>
+                    <input
+                      type="time"
+                      value={apptTime}
+                      onChange={e => setApptTime(e.target.value)}
+                      className="bg-slate-900 border border-slate-600 text-slate-200 text-xs rounded px-2 py-1.5 focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <button
+                    disabled={!apptDate || !apptTime || apptBusy}
+                    onClick={handleSetAppt}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium rounded border px-3 py-1.5 bg-blue-600 text-white border-blue-500 hover:bg-blue-500 disabled:opacity-40 transition-colors"
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                    {apptBusy ? 'Saving…' : 'Confirm + Add to Calendar'}
+                  </button>
+                  <button
+                    onClick={() => setApptPhase('hidden')}
+                    className="text-xs text-slate-600 hover:text-slate-400 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+
+              {/* Appointment confirmed */}
+              {apptPhase === 'done' && (
+                <div className="flex items-center gap-2 text-xs text-emerald-400">
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Appointment set · Calendar event downloaded · Removing from queue…</span>
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-between mt-3 pt-2 border-t border-slate-700/30">
+              <p className="text-xs text-slate-600">Click the row to open the full referral record →</p>
               {(() => {
                 const p = new URLSearchParams()
                 p.set('from_case_id', c.id)
@@ -349,8 +627,7 @@ function TriageRow({
                     onClick={e => e.stopPropagation()}
                     className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-400 hover:text-blue-300 transition-colors"
                   >
-                    <Wrench className="w-3.5 h-3.5" />
-                    Route to Service Request
+                    <Wrench className="w-3.5 h-3.5" />Route to Service Request
                   </a>
                 )
               })()}

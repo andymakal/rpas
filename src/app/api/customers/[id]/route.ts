@@ -7,7 +7,7 @@ const ALLOWED = new Set([
   'street', 'city', 'state', 'zip',
   'date_of_birth', 'marital_status', 'gender',
   'tobacco_use', 'height_ft', 'height_in', 'weight_lbs', 'health_notes',
-  'spanish_speaking', 'customer_group_id',
+  'preferred_language', 'customer_group_id',
   'segment',
 ])
 

@@ -98,15 +98,32 @@ export async function POST(request: NextRequest) {
       .in('id', [existing_customer_id, newCustomer.id])
   }
 
-  // 3. Create a triage case for the new customer
+  // 3. Phone-based duplicate detection — same logic as the portal submission path.
+  //    Flag the case so triage staff can decide whether to merge or proceed.
+  let suspectedDuplicateId: string | null = null
+  const normalizedPhone = phone?.trim() ? (normalizePhone(phone) ?? null) : null
+  if (normalizedPhone) {
+    const { data: phoneMatch } = await supabase
+      .from('customers')
+      .select('id')
+      .eq('phone', normalizedPhone)
+      .eq('is_test', false)
+      .neq('id', newCustomer.id)
+      .limit(1)
+      .maybeSingle()
+    if (phoneMatch) suspectedDuplicateId = phoneMatch.id
+  }
+
+  // 4. Create a triage case for the new customer
   const { data: newCase, error: caseErr } = await supabase
     .from('cases')
     .insert({
-      customer_id:     newCustomer.id,
-      agency_id:       resolvedAgencyId,
-      internal_status: 'triage',
-      lead_source:     'agency_referral',
-      is_test:         false,
+      customer_id:                     newCustomer.id,
+      agency_id:                       resolvedAgencyId,
+      internal_status:                 'triage',
+      lead_source:                     'agency_referral',
+      suspected_duplicate_customer_id: suspectedDuplicateId,
+      is_test:                         false,
     })
     .select('id')
     .single()

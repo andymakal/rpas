@@ -323,7 +323,7 @@ export function CustomerCardClient({
   const [editGender,      setEditGender]      = useState(customer.gender ?? '')
   const [editMarital,     setEditMarital]     = useState(customer.marital_status ?? '')
   const [editTobacco,     setEditTobacco]     = useState(customer.tobacco_use ?? 'none')
-  const [editSpanish,     setEditSpanish]     = useState(customer.spanish_speaking)
+  const [editLanguage,    setEditLanguage]    = useState(customer.preferred_language ?? 'en')
   const [editHealthNotes, setEditHealthNotes] = useState(customer.health_notes ?? '')
   const [contactSaving,   setContactSaving]   = useState(false)
   const [contactMsg,      setContactMsg]      = useState<{ ok: boolean; text: string } | null>(null)
@@ -593,9 +593,9 @@ export function CustomerCardClient({
           date_of_birth:   editDob           || null,
           gender:          editGender        || null,
           marital_status:  editMarital       || null,
-          tobacco_use:     editTobacco       || 'none',
-          spanish_speaking: editSpanish,
-          health_notes:    editHealthNotes.trim() || null,
+          tobacco_use:       editTobacco || 'none',
+          preferred_language: editLanguage || 'en',
+          health_notes:      editHealthNotes.trim() || null,
         }),
       })
       if (!res.ok) {
@@ -741,8 +741,10 @@ export function CustomerCardClient({
                       {customer.tobacco_use && customer.tobacco_use !== 'none' && (
                         <span className="text-amber-400">Tobacco: {customer.tobacco_use}</span>
                       )}
-                      {customer.spanish_speaking && (
-                        <span className="text-sky-400">Spanish speaking</span>
+                      {customer.preferred_language && customer.preferred_language !== 'en' && (
+                        <span className="text-violet-400">
+                          {({es:'Spanish',zh:'Chinese',ru:'Russian',vi:'Vietnamese',other:'Other lang'} as Record<string,string>)[customer.preferred_language] ?? customer.preferred_language}
+                        </span>
                       )}
                       {customer.health_notes && (
                         <span>Health: <span className="text-slate-300">{customer.health_notes}</span></span>
@@ -835,10 +837,17 @@ export function CustomerCardClient({
                         <input value={editHealthNotes} onChange={e => setEditHealthNotes(e.target.value)} className={inputCls} placeholder="Conditions, medications…" />
                       </div>
                     </div>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={editSpanish} onChange={e => setEditSpanish(e.target.checked)} className="rounded border-slate-600 bg-slate-800 accent-blue-500" />
-                      <span className="text-xs text-slate-300">Spanish speaking</span>
-                    </label>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Preferred language</label>
+                      <select value={editLanguage} onChange={e => setEditLanguage(e.target.value)} className={inputCls}>
+                        <option value="en">English</option>
+                        <option value="es">Spanish</option>
+                        <option value="zh">Chinese</option>
+                        <option value="ru">Russian</option>
+                        <option value="vi">Vietnamese</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
 
                     {contactMsg && (
                       <p className={`text-xs ${contactMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{contactMsg.text}</p>

@@ -117,7 +117,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
           city:          normalizeCity(form.client_city)     ?? null,
           state:         normalizeState(form.client_state)   ?? null,
           zip:           form.client_zip?.trim()             || null,
-          spanish_speaking: form.spanish_speaking ?? false,
+          preferred_language: form.preferred_language ?? 'en',
           is_test:          false,
         })
         .select('id')

@@ -56,7 +56,7 @@ export type CaseDetail = {
     height_in: number | null
     weight_lbs: number | null
     health_notes: string | null
-    spanish_speaking: boolean
+    preferred_language: string | null
     customer_group_id: string | null
   } | null
   agencies: { id: string; name: string; display_name: string | null; slug: string } | null
@@ -163,7 +163,7 @@ export default async function CaseDetailPage({
         policy_number, face_amount, annual_premium, follow_up_date, lead_source, notes,
         appointment_date, appointment_time, touches, last_contact_at, placed_at, submitted_at, table_rating, is_hot_lead, is_imported,
         agency_id, customer_id, agent_id,
-        customers!customer_id ( first_name, last_name, email, phone, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, spanish_speaking, customer_group_id ),
+        customers!customer_id ( first_name, last_name, email, phone, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, preferred_language, customer_group_id ),
         agencies ( id, name, display_name, slug ),
         agents ( first_name, last_name, email ),
         stage_translations ( agency_label, tier, is_active_case, is_won, is_lost, is_snoozed ),

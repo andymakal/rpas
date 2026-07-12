@@ -26,7 +26,7 @@ export async function logCase(data: {
   city?: string
   state?: string
   zip?: string
-  spanish_speaking?: boolean
+  preferred_language?: string
   // Referral details
   referral_type: string
   is_hot_lead?: boolean
@@ -66,7 +66,7 @@ export async function logCase(data: {
           city:             normalizeCity(data.city)        ?? null,
           state:            normalizeState(data.state)      ?? null,
           zip:              data.zip?.trim()                || null,
-          spanish_speaking: data.spanish_speaking ?? false,
+          preferred_language: data.preferred_language ?? 'en',
         })
         .select('id')
         .single()
