@@ -835,18 +835,22 @@ export function ReferralEditClient({
   async function handleLspReengage() {
     setLspReengageWorking(true); setLspReengageError(null)
     try {
-      const body: Record<string, unknown> = { internal_status: 'triage', is_hot_lead: true }
-      // Append LSP re-engagement note if provided
       if (lspReengageNote.trim()) {
-        const dateStr = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-        const header  = `--- LSP re-engaged ${dateStr} (logged internally) ---`
-        const current = referral.notes?.trim() ?? ''
-        body.notes    = [current, header, lspReengageNote.trim()].filter(Boolean).join('\n\n')
+        const noteRes = await fetch(`/api/cases/${referral.id}/notes`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ section: 'triage', body: lspReengageNote.trim() }),
+        })
+        if (!noteRes.ok) {
+          const j = await noteRes.json()
+          setLspReengageError(j.error ?? 'Failed to save note')
+          return
+        }
       }
       const res = await fetch(`/api/cases/${referral.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ internal_status: 'triage', is_hot_lead: true }),
       })
       if (!res.ok) {
         const j = await res.json()
