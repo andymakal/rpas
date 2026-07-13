@@ -18,7 +18,8 @@ import { fmtDate as fmt } from '@/lib/fmt'
 import { useNavList } from '@/lib/nav-list'
 import { buildHouseholdName } from '@/lib/household'
 import { addRecentItem } from '@/lib/recent-items'
-import { TEMPLATES, APPT_TYPES, TOPIC_MAP, interpolate, buildMailto, fmtEmailDate, fmtTime12 } from '@/lib/templates'
+import { TEMPLATES, SCRIPTS, APPT_TYPES, TOPIC_MAP, interpolate, buildMailto, fmtEmailDate, fmtTime12 } from '@/lib/templates'
+import { ScriptCard } from '@/components/ScriptCard'
 import { LEAD_SOURCE_OPTIONS } from '@/lib/constants/referral-options'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -439,6 +440,8 @@ export function ReferralEditClient({
   )
   // Appointment type for confirmation / reminder email (not stored in DB — sender picks at send time)
   const [apptEmailType, setApptEmailType] = useState<typeof APPT_TYPES[number]['value']>('life')
+  // Phone number for voicemail / text scripts (team member's RingCentral number)
+  const [senderPhone, setSenderPhone] = useState('')
 
   // ── Recently viewed ────────────────────────────────────────────
   useEffect(() => {
@@ -1886,6 +1889,24 @@ export function ReferralEditClient({
               </div>
             )}
 
+            {/* Live transfer scripts */}
+            {status === 'live_transfer' && (() => {
+              const ltVars = {
+                first_name:     cFirstName,
+                last_name:      cLastName,
+                lsp_first_name: agentFirstName !== 'there' ? agentFirstName : '',
+                agency_name:    displayAgencyName,
+                topic:          TOPIC_MAP[referral.lead_source ?? ''] ?? 'life insurance',
+              }
+              return (
+                <div className="rounded-lg border border-orange-800/40 bg-orange-950/20 p-4 space-y-2">
+                  <p className="text-xs font-medium text-orange-300 uppercase tracking-wide">Live Transfer Scripts</p>
+                  <ScriptCard label={SCRIPTS.live_transfer_client.label}   text={interpolate(SCRIPTS.live_transfer_client.body,   ltVars)} />
+                  <ScriptCard label={SCRIPTS.live_transfer_briefing.label} text={interpolate(SCRIPTS.live_transfer_briefing.body, ltVars)} />
+                </div>
+              )
+            })()}
+
             {/* Producer dropdown */}
             {showProducerDropdown && (
               <div>
@@ -2018,6 +2039,43 @@ export function ReferralEditClient({
           {/* ── Email CTAs ─────────────────────────────────────────────────────
                Contextual email drafts keyed off server-confirmed status.
                Each opens a pre-composed draft in Outlook — human clicks Send. */}
+
+          {/* Contact Scripts — triage + active_referral */}
+          {(referral.internal_status === 'triage' || referral.internal_status === 'active_referral') && (() => {
+            const scriptVars = {
+              first_name:     cFirstName,
+              lsp_first_name: agentFirstName !== 'there' ? agentFirstName : '',
+              sender_name:    emailSenderName || '[your name]',
+              phone:          senderPhone     || '[your phone]',
+            }
+            return (
+              <div className="rounded-xl border border-slate-700/50 bg-slate-900/60 p-5 space-y-4">
+                <div className="flex items-center gap-2">
+                  <Phone className="w-4 h-4 text-slate-400" />
+                  <h2 className="text-sm font-semibold text-slate-300">Contact Scripts</h2>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Your name</label>
+                    <input value={emailSenderName} onChange={e => setEmailSenderName(e.target.value)}
+                      placeholder="Dulce"
+                      className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Your phone</label>
+                    <input value={senderPhone} onChange={e => setSenderPhone(e.target.value)}
+                      placeholder="(814) 555-0100"
+                      className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600" />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <ScriptCard label={SCRIPTS.voicemail.label}          text={interpolate(SCRIPTS.voicemail.body,          scriptVars)} />
+                  <ScriptCard label={SCRIPTS.post_voicemail_text.label} text={interpolate(SCRIPTS.post_voicemail_text.body, scriptVars)} />
+                  <ScriptCard label={SCRIPTS.first_attempt_text.label}  text={interpolate(SCRIPTS.first_attempt_text.body,  scriptVars)} />
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Welcome / First Outreach — active_referral */}
           {referral.internal_status === 'active_referral' && (

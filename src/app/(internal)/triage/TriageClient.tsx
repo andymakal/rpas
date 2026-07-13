@@ -11,6 +11,8 @@ import type { TriageCase } from './page'
 import { fmtDate } from '@/lib/fmt'
 import { setNavList } from '@/lib/nav-list'
 import { buildHouseholdName } from '@/lib/household'
+import { SCRIPTS, APPT_TYPES, TOPIC_MAP, interpolate } from '@/lib/templates'
+import { ScriptCard } from '@/components/ScriptCard'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -139,13 +141,6 @@ function SectionHeaderRow({
   )
 }
 
-// ── Appointment type config ───────────────────────────────────────────────────
-
-const APPT_TYPES = [
-  { value: 'call',      label: 'Follow-up Call',   duration: '30 min' },
-  { value: 'life',      label: 'Life Appointment',  duration: '60 min' },
-  { value: 'financial', label: 'Financial Appt',    duration: '90 min' },
-] as const
 type ApptType = typeof APPT_TYPES[number]['value']
 
 function followUpDateStr(): string {
@@ -176,6 +171,7 @@ function TriageRow({
   const [touchPhase,   setTouchPhase]   = useState<'idle' | 'busy' | 'reached' | 'logged'>('idle')
   const [touchMsg,     setTouchMsg]     = useState('')
   const [localTouches, setLocalTouches] = useState<number | null>(null)
+  const [scriptFor,    setScriptFor]    = useState<'voicemail' | 'noanswer' | null>(null)
 
   // Appointment form state
   const [apptPhase, setApptPhase] = useState<'hidden' | 'form' | 'done'>('hidden')
@@ -222,6 +218,9 @@ function TriageRow({
     setLocalTouches((localTouches ?? c.touches ?? 0) + 1)
     setTouchMsg(`${label} logged · Follow-up: ${followUpDateStr()}`)
     setTouchPhase(isReached ? 'reached' : 'logged')
+    if (!isReached) {
+      setScriptFor(touchType === 'voicemail' ? 'voicemail' : 'noanswer')
+    }
   }
 
   async function handleLiveTransfer() {
@@ -488,6 +487,38 @@ function TriageRow({
                 </div>
               )}
 
+              {/* Contact scripts — shown after voicemail or no-answer touch */}
+              {touchPhase === 'logged' && scriptFor && (() => {
+                const vars = {
+                  first_name:     c.customers?.first_name ?? '',
+                  lsp_first_name: c.agents?.first_name    ?? '',
+                  sender_name:    '[your name]',
+                  phone:          '[your phone]',
+                }
+                return (
+                  <div className="space-y-2 pt-1">
+                    {scriptFor === 'voicemail' && (
+                      <>
+                        <ScriptCard
+                          label={SCRIPTS.voicemail.label}
+                          text={interpolate(SCRIPTS.voicemail.body, vars)}
+                        />
+                        <ScriptCard
+                          label={SCRIPTS.post_voicemail_text.label}
+                          text={interpolate(SCRIPTS.post_voicemail_text.body, vars)}
+                        />
+                      </>
+                    )}
+                    {scriptFor === 'noanswer' && (
+                      <ScriptCard
+                        label={SCRIPTS.first_attempt_text.label}
+                        text={interpolate(SCRIPTS.first_attempt_text.body, vars)}
+                      />
+                    )}
+                  </div>
+                )
+              })()}
+
               {/* After "Reached": live transfer, set appointment, or keep working */}
               {touchPhase === 'reached' && apptPhase === 'hidden' && ltPhase === 'hidden' && (
                 <div className="flex items-center gap-3 flex-wrap">
@@ -514,25 +545,46 @@ function TriageRow({
               )}
 
               {/* Live transfer confirmation */}
-              {ltPhase === 'confirm' && (
-                <div className="flex items-center gap-3 flex-wrap bg-orange-950/30 rounded-lg px-4 py-2.5 border border-orange-900/40">
-                  <span className="text-xs text-orange-200">
-                    Confirm live transfer for <span className="font-medium">{client}</span>? This moves the case out of triage.
-                  </span>
-                  <button
-                    onClick={handleLiveTransfer}
-                    className="inline-flex items-center gap-1.5 text-xs font-medium rounded border px-3 py-1.5 bg-orange-600 text-white border-orange-500 hover:bg-orange-500 transition-colors"
-                  >
-                    <PhoneCall className="w-3.5 h-3.5" />Confirm Transfer
-                  </button>
-                  <button
-                    onClick={() => setLtPhase('hidden')}
-                    className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              )}
+              {ltPhase === 'confirm' && (() => {
+                const ltVars = {
+                  first_name:   c.customers?.first_name ?? '',
+                  last_name:    c.customers?.last_name  ?? '',
+                  lsp_first_name: c.agents?.first_name  ?? '',
+                  agency_name:  c.agencies?.display_name ?? c.agencies?.name ?? '',
+                  topic:        TOPIC_MAP[/* lead_source not in TriageCase type */ ''] ?? 'life insurance',
+                }
+                return (
+                  <div className="rounded-lg bg-orange-950/30 border border-orange-900/40 p-3 space-y-3">
+                    <div className="flex items-center gap-3 flex-wrap">
+                      <span className="text-xs text-orange-200">
+                        Confirm live transfer for <span className="font-medium">{client}</span>? This moves the case out of triage.
+                      </span>
+                      <button
+                        onClick={handleLiveTransfer}
+                        className="inline-flex items-center gap-1.5 text-xs font-medium rounded border px-3 py-1.5 bg-orange-600 text-white border-orange-500 hover:bg-orange-500 transition-colors"
+                      >
+                        <PhoneCall className="w-3.5 h-3.5" />Confirm Transfer
+                      </button>
+                      <button
+                        onClick={() => setLtPhase('hidden')}
+                        className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      <ScriptCard
+                        label={SCRIPTS.live_transfer_client.label}
+                        text={interpolate(SCRIPTS.live_transfer_client.body, ltVars)}
+                      />
+                      <ScriptCard
+                        label={SCRIPTS.live_transfer_briefing.label}
+                        text={interpolate(SCRIPTS.live_transfer_briefing.body, ltVars)}
+                      />
+                    </div>
+                  </div>
+                )
+              })()}
 
               {/* Live transfer confirmed */}
               {ltPhase === 'done' && (
