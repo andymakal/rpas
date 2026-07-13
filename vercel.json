@@ -7,6 +7,10 @@
     {
       "path": "/api/cron/annual-reviews",
       "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/lsp-no-response",
+      "schedule": "0 12 * * *"
     }
   ]
 }
