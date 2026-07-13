@@ -18,7 +18,7 @@ import { fmtDate as fmt } from '@/lib/fmt'
 import { useNavList } from '@/lib/nav-list'
 import { buildHouseholdName } from '@/lib/household'
 import { addRecentItem } from '@/lib/recent-items'
-import { TEMPLATES, TOPIC_MAP, interpolate, buildMailto, fmtEmailDate, fmtTime12 } from '@/lib/templates'
+import { TEMPLATES, APPT_TYPES, TOPIC_MAP, interpolate, buildMailto, fmtEmailDate, fmtTime12 } from '@/lib/templates'
 import { LEAD_SOURCE_OPTIONS } from '@/lib/constants/referral-options'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -173,21 +173,22 @@ function EditField({
 }
 
 function buildRewarmMailto(
-  clientName: string, clientFirstName: string,
+  clientName: string,
   agentFirstName: string, agentEmail: string | null, agencyEmail: string | null,
+  touchCount: number, daysElapsed: number,
+  senderName: string,
 ): string {
-  const subject = `Referral Follow-Up – ${clientName}`
+  const subject = `${clientName} — unable to make contact`
   const body = [
     `Hi ${agentFirstName},`,
     '',
-    `I wanted to reach out regarding the referral you sent over for ${clientName}. Unfortunately, we've been unable to make contact with ${clientFirstName} at this time.`,
+    `We've made ${touchCount} contact attempt${touchCount !== 1 ? 's' : ''} with ${clientName} over the past ${daysElapsed} day${daysElapsed !== 1 ? 's' : ''} — calls, texts, and emails — with no response.`,
     '',
-    `Would you be able to help re-engage them on your end? We'd love to connect when the timing is right.`,
+    `Returning this referral to you. If the timing shifts on their end, let us know and we'll pick it up.`,
     '',
-    'Thank you for thinking of us — we appreciate the partnership!',
-    '',
-    'Best,',
-    'Makal Financial Services',
+    'Regards,',
+    senderName,
+    'Allstate Financial Services',
   ].join('\n')
   // mailto: URIs require RFC 3986 percent-encoding (encodeURIComponent),
   // NOT URLSearchParams which uses form-encoding (+) — Outlook renders + literally.
@@ -436,6 +437,8 @@ export function ReferralEditClient({
   const [emailSenderName, setEmailSenderName] = useState(
     assignedProducer ? `${assignedProducer.first_name} ${assignedProducer.last_name}` : ''
   )
+  // Appointment type for confirmation / reminder email (not stored in DB — sender picks at send time)
+  const [apptEmailType, setApptEmailType] = useState<typeof APPT_TYPES[number]['value']>('life')
 
   // ── Recently viewed ────────────────────────────────────────────
   useEffect(() => {
@@ -547,8 +550,16 @@ export function ReferralEditClient({
   const agencyEmail    = referral.agencies?.contact_email ?? null
   const isOwner        = referral.is_owner_referral
 
+  const rewarmDaysElapsed = referral.created_at
+    ? Math.max(1, Math.floor((Date.now() - new Date(referral.created_at).getTime()) / 86_400_000))
+    : 0
+
   const rewarmMailto = showRewarmEmail
-    ? buildRewarmMailto(displayName, cFirstName, agentFirstName, agentEmail, agencyEmail)
+    ? buildRewarmMailto(
+        displayName, agentFirstName, agentEmail, agencyEmail,
+        touches, rewarmDaysElapsed,
+        emailSenderName || 'Makal Financial Services',
+      )
     : null
 
   const isFromTriage = referral.internal_status === 'triage' || referral.internal_status === 'active_referral'
@@ -2024,12 +2035,16 @@ export function ReferralEditClient({
               </div>
               <a href={buildMailto(
                   referral.customers?.email,
-                  interpolate(TEMPLATES.welcome.subject, { topic: TOPIC_MAP[referral.lead_source ?? ''] ?? 'life insurance' }),
+                  interpolate(TEMPLATES.welcome.subject, {
+                    lsp_first_name: referral.agents?.first_name ?? 'Your agent',
+                    topic:          TOPIC_MAP[referral.lead_source ?? ''] ?? 'life insurance',
+                  }),
                   interpolate(TEMPLATES.welcome.body, {
-                    first_name:   cFirstName,
-                    sender_name:  emailSenderName || '{sender_name}',
-                    lsp_name:     referral.agents ? `${referral.agents.first_name} ${referral.agents.last_name}` : 'your agent',
-                    topic:        TOPIC_MAP[referral.lead_source ?? ''] ?? 'life insurance',
+                    first_name:     cFirstName,
+                    sender_name:    emailSenderName || '{sender_name}',
+                    lsp_first_name: referral.agents?.first_name ?? 'Your agent',
+                    lsp_name:       referral.agents ? `${referral.agents.first_name} ${referral.agents.last_name}` : 'your agent',
+                    topic:          TOPIC_MAP[referral.lead_source ?? ''] ?? 'life insurance',
                   })
                 )}
                 className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${referral.customers?.email ? 'text-white bg-blue-700 hover:bg-blue-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}>
@@ -2039,36 +2054,82 @@ export function ReferralEditClient({
             </div>
           )}
 
-          {/* Appointment Confirmed — appointment_set */}
-          {referral.internal_status === 'appointment_set' && (
-            <div className="rounded-xl border border-blue-800/40 bg-blue-950/20 p-5 space-y-3">
-              <div className="flex items-center gap-2">
-                <Mail className="w-4 h-4 text-blue-400" />
-                <h2 className="text-sm font-semibold text-blue-300">Send Appointment Confirmation</h2>
+          {/* Appointment emails — appointment_set */}
+          {referral.internal_status === 'appointment_set' && (() => {
+            const apptTypeCfg = APPT_TYPES.find(t => t.value === apptEmailType) ?? APPT_TYPES[1]
+            const apptVars = {
+              first_name:           cFirstName,
+              sender_name:          emailSenderName || '{sender_name}',
+              appointment_type:     apptTypeCfg.label,
+              appointment_duration: apptTypeCfg.duration,
+              appointment_date:     fmtEmailDate(referral.appointment_date),
+              appointment_time:     fmtTime12(referral.appointment_time) || 'TBD',
+            }
+            return (
+              <div className="rounded-xl border border-blue-800/40 bg-blue-950/20 p-5 space-y-4">
+                <div className="flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-blue-400" />
+                  <h2 className="text-sm font-semibold text-blue-300">Appointment Emails</h2>
+                </div>
+
+                {/* Shared fields */}
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Your name</label>
+                    <input value={emailSenderName} onChange={e => setEmailSenderName(e.target.value)}
+                      placeholder="Dulce"
+                      className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Appointment type</label>
+                    <div className="flex rounded-md overflow-hidden border border-slate-700">
+                      {APPT_TYPES.map(({ value, label, duration }) => (
+                        <button key={value} type="button" onClick={() => setApptEmailType(value)}
+                          className={`flex-1 px-3 py-1.5 text-xs font-medium transition-colors border-r border-slate-700 last:border-r-0 ${
+                            apptEmailType === value
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                          }`}>
+                          {label}
+                          <span className={`ml-1.5 text-xs ${apptEmailType === value ? 'text-blue-200' : 'text-slate-600'}`}>
+                            {duration}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Confirmation */}
+                <div className="space-y-2">
+                  <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">Confirmation</p>
+                  <a href={buildMailto(
+                      referral.customers?.email,
+                      interpolate(TEMPLATES.appointment_confirmed.subject, apptVars),
+                      interpolate(TEMPLATES.appointment_confirmed.body, apptVars),
+                    )}
+                    className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${referral.customers?.email ? 'text-white bg-blue-700 hover:bg-blue-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}>
+                    <Mail className="w-3.5 h-3.5" />
+                    {referral.customers?.email ? 'Open in Outlook' : 'No client email on file'}
+                  </a>
+                </div>
+
+                {/* Reminder */}
+                <div className="space-y-2">
+                  <p className="text-xs text-slate-500 font-medium uppercase tracking-wide">Reminder (day before)</p>
+                  <a href={buildMailto(
+                      referral.customers?.email,
+                      interpolate(TEMPLATES.appointment_reminder.subject, apptVars),
+                      interpolate(TEMPLATES.appointment_reminder.body, apptVars),
+                    )}
+                    className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${referral.customers?.email ? 'text-white bg-blue-700 hover:bg-blue-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}>
+                    <Mail className="w-3.5 h-3.5" />
+                    {referral.customers?.email ? 'Open in Outlook' : 'No client email on file'}
+                  </a>
+                </div>
               </div>
-              <p className="text-xs text-slate-400">Let {cFirstName} know the appointment is confirmed.</p>
-              <div>
-                <label className="block text-xs text-slate-500 mb-1">Your name</label>
-                <input value={emailSenderName} onChange={e => setEmailSenderName(e.target.value)}
-                  placeholder="Dulce"
-                  className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600" />
-              </div>
-              <a href={buildMailto(
-                  referral.customers?.email,
-                  TEMPLATES.appointment_confirmed.subject,
-                  interpolate(TEMPLATES.appointment_confirmed.body, {
-                    first_name:       cFirstName,
-                    sender_name:      emailSenderName || '{sender_name}',
-                    appointment_date: fmtEmailDate(referral.appointment_date),
-                    appointment_time: fmtTime12(referral.appointment_time) || 'TBD',
-                  })
-                )}
-                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${referral.customers?.email ? 'text-white bg-blue-700 hover:bg-blue-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}>
-                <Mail className="w-3.5 h-3.5" />
-                {referral.customers?.email ? 'Open in Outlook' : 'No client email on file'}
-              </a>
-            </div>
-          )}
+            )
+          })()}
 
           {/* Quote Follow-Up — quoted */}
           {referral.internal_status === 'quoted' && (

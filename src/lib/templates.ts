@@ -6,9 +6,12 @@
  *
  * Delivery model: every template opens in the team member's own Outlook.
  * Nothing is sent automatically — a human always clicks Send.
+ *
+ * See SCRIPTS below for voicemail scripts, text messages, and live transfer
+ * verbal scripts (displayed as copy cards in the UI — not sent via email).
  */
 
-// ── Template strings ──────────────────────────────────────────────────────────
+// ── Email templates ───────────────────────────────────────────────────────────
 
 export const TEMPLATES = {
 
@@ -16,16 +19,18 @@ export const TEMPLATES = {
    * #1 — Welcome / First Outreach
    * Trigger: case moves to active_referral
    * Sender: team member working the case (Dulce / Gabe / etc.)
+   * Variables: first_name, lsp_first_name, lsp_name, topic, sender_name
    */
   welcome: {
-    subject: 'Reaching Out — {topic}',
+    subject: '{lsp_first_name} asked me to reach out — {topic}',
     body: [
       'Hi {first_name},',
       '',
-      'My name is {sender_name} and I work with Andy Makal at Allstate Financial Services. {lsp_name} asked me to reach out regarding your interest in {topic}. We\'d love to connect and answer any questions you have — when\'s a good time for a quick call?',
+      '{lsp_name} asked me to give you a call — I\'m {sender_name} with Allstate Financial Services. We work with {lsp_name}\'s clients on {topic}.',
       '',
-      'Looking forward to speaking with you!',
+      'When\'s a good time to reach you this week?',
       '',
+      'Regards,',
       '{sender_name}',
       'Allstate Financial Services',
     ].join('\n'),
@@ -35,16 +40,21 @@ export const TEMPLATES = {
    * #2 — Appointment Confirmed
    * Trigger: appointment is set (status = appointment_set)
    * Sender: team member
+   * Variables: first_name, appointment_type, appointment_duration,
+   *            appointment_date, appointment_time, sender_name
    */
   appointment_confirmed: {
-    subject: 'Appointment Confirmed — Makal Financial Services',
+    subject: '{appointment_type} confirmed — {appointment_date} at {appointment_time}',
     body: [
       'Hi {first_name},',
       '',
-      'Just confirming your appointment with us on {appointment_date} at {appointment_time}. We\'re looking forward to speaking with you!',
+      'You\'re confirmed for a {appointment_type} ({appointment_duration}) on {appointment_date} at {appointment_time}.',
       '',
-      'If anything comes up and you need to reschedule, just reply to this email or give us a call.',
+      'Here\'s what to expect: we\'ll spend the time understanding your situation and whether life insurance makes sense for where you are right now. No paperwork, no pressure.',
       '',
+      'If anything comes up, reply here or give us a call.',
+      '',
+      'Regards,',
       '{sender_name}',
       'Allstate Financial Services',
     ].join('\n'),
@@ -52,18 +62,21 @@ export const TEMPLATES = {
 
   /**
    * #3 — Appointment Reminder (day before)
-   * Trigger: daily cron finds cases where appointment_date = tomorrow
+   * Trigger: daily cron fires an in-app notification; team member sends manually
    * Sender: team member
+   * Variables: first_name, appointment_type, appointment_date,
+   *            appointment_time, sender_name
    */
   appointment_reminder: {
-    subject: 'Reminder — Your Appointment Tomorrow',
+    subject: 'Tomorrow — {appointment_type} at {appointment_time}',
     body: [
       'Hi {first_name},',
       '',
-      'Just a friendly reminder that your appointment with us is tomorrow, {appointment_date} at {appointment_time}. We\'re looking forward to it — see you then!',
+      'Quick reminder — {appointment_type} tomorrow, {appointment_date} at {appointment_time}.',
       '',
-      'If anything comes up, please don\'t hesitate to reach out.',
+      'If anything comes up, reply here or give us a call.',
       '',
+      'Regards,',
       '{sender_name}',
       'Allstate Financial Services',
     ].join('\n'),
@@ -229,6 +242,75 @@ export const TEMPLATES = {
   },
 
 } as const
+
+// ── Scripts (voicemail, text, live transfer) ──────────────────────────────────
+//
+// These are NOT email templates. They are displayed as copy cards in the UI.
+// Variables: first_name, lsp_first_name, sender_name, phone
+
+export const SCRIPTS = {
+
+  /**
+   * Voicemail — leave when no answer on any attempt
+   * Strategy: name the LSP, name the topic, be vague enough to leave a hook.
+   */
+  voicemail: {
+    label: 'Voicemail Script',
+    body: [
+      'Hi {first_name}, this is {sender_name} calling from Allstate Financial Services.',
+      '{lsp_first_name} asked me to give you a call — it\'s about your life insurance.',
+      'Give me a call back when you have a minute: {phone}.',
+      'Again, {sender_name} at {phone}.',
+    ].join(' '),
+  },
+
+  /**
+   * Post-voicemail text — send immediately after leaving a voicemail
+   * Strategy: confirm contact was made, give them a quick path back.
+   * Pollard: text after contact, not before.
+   */
+  post_voicemail_text: {
+    label: 'Text (after voicemail)',
+    body: 'Hi {first_name}, this is {sender_name} with Allstate — just left you a voicemail. Call me back when you get a chance: {phone}',
+  },
+
+  /**
+   * First-attempt text — send when no answer and no voicemail was left
+   * Strategy: name the LSP connection, short ask.
+   */
+  first_attempt_text: {
+    label: 'Text (no voicemail left)',
+    body: 'Hi {first_name}, this is {sender_name} with Allstate Financial Services. {lsp_first_name} asked me to reach out about your life insurance. Good time for a call this week?',
+  },
+
+  /**
+   * Live transfer — verbal script for handing off to the producer
+   * Two parts: what to say to the client, then the briefing for Andy.
+   */
+  live_transfer_client: {
+    label: 'Live Transfer — To Client',
+    body: 'Before I let you go — I want to put you in touch with Andy directly. He handles our life insurance conversations and I think it\'s worth two minutes. He\'s available right now. Can I connect you?',
+  },
+
+  live_transfer_briefing: {
+    label: 'Live Transfer — Producer Briefing',
+    body: '{first_name} {last_name}, referred by {lsp_first_name} at {agency_name}. Interested in {topic}. All yours.',
+  },
+
+} as const
+
+// ── Appointment type config ───────────────────────────────────────────────────
+//
+// Used in the confirmation / reminder email UI to fill {appointment_type}
+// and {appointment_duration} template variables.
+
+export const APPT_TYPES = [
+  { value: 'call',      label: 'Follow-up Call',  duration: '30 min' },
+  { value: 'life',      label: 'Life Appointment', duration: '60 min' },
+  { value: 'financial', label: 'Financial Appt',   duration: '90 min' },
+] as const
+
+export type ApptTypeValue = typeof APPT_TYPES[number]['value']
 
 // ── Underwriting scenarios ─────────────────────────────────────────────────────
 
