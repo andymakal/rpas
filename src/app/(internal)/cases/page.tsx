@@ -46,10 +46,11 @@ export default async function CasesPage() {
       policy_number, face_amount, annual_premium, lead_source, notes,
       customers!customer_id ( first_name, last_name ),
       agencies ( name, display_name, slug ),
-      stage_translations ( agency_label, tier, is_active_case, is_won, is_lost, is_snoozed ),
+      stage_translations!inner ( agency_label, tier, is_active_case, is_won, is_lost, is_snoozed ),
       products ( name, carriers ( short_name ) )
     `)
     .eq('is_test', false)
+    .gte('stage_translations.tier', 2)
     .order('created_at', { ascending: false })
 
   if (error) {
