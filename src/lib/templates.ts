@@ -22,11 +22,11 @@ export const TEMPLATES = {
    * Variables: first_name, lsp_first_name, lsp_name, topic, sender_name
    */
   welcome: {
-    subject: '{lsp_first_name} asked me to reach out — {topic}',
+    subject: '{lsp_first_name} asked me to reach out: {topic}',
     body: [
       'Hi {first_name},',
       '',
-      '{lsp_name} asked me to give you a call — I\'m {sender_name} with Allstate Financial Services. We work with {lsp_name}\'s clients on {topic}.',
+      '{lsp_name} asked me to give you a call. I\'m {sender_name} with Allstate Financial Services. We work with {lsp_name}\'s clients on {topic}.',
       '',
       'When\'s a good time to reach you this week?',
       '',
@@ -44,7 +44,7 @@ export const TEMPLATES = {
    *            appointment_date, appointment_time, sender_name
    */
   appointment_confirmed: {
-    subject: '{appointment_type} confirmed — {appointment_date} at {appointment_time}',
+    subject: '{appointment_type} confirmed: {appointment_date} at {appointment_time}',
     body: [
       'Hi {first_name},',
       '',
@@ -68,11 +68,11 @@ export const TEMPLATES = {
    *            appointment_time, sender_name
    */
   appointment_reminder: {
-    subject: 'Tomorrow — {appointment_type} at {appointment_time}',
+    subject: 'Tomorrow: {appointment_type} at {appointment_time}',
     body: [
       'Hi {first_name},',
       '',
-      'Quick reminder — {appointment_type} tomorrow, {appointment_date} at {appointment_time}.',
+      'Quick reminder: {appointment_type} tomorrow, {appointment_date} at {appointment_time}.',
       '',
       'If anything comes up, reply here or give us a call.',
       '',
@@ -108,7 +108,7 @@ export const TEMPLATES = {
    * Note: {underwriting_note} is filled in from the scenario picker
    */
   underwriting_update: {
-    subject: 'Application Update — Makal Financial Services',
+    subject: 'Application Update | Makal Financial Services',
     body: [
       'Hi {first_name},',
       '',
@@ -127,11 +127,11 @@ export const TEMPLATES = {
    * Sender: team member / producer
    */
   approved: {
-    subject: 'Great News — Your Application Has Been Approved!',
+    subject: 'Great News: Your Application Has Been Approved!',
     body: [
       'Hi {first_name},',
       '',
-      'We have great news — your application with {carrier} has been approved! We\'ll be in touch shortly with the final steps to get your policy officially placed.',
+      'We have great news: your application with {carrier} has been approved! We\'ll be in touch shortly with the final steps to get your policy officially placed.',
       '',
       'You\'re almost there!',
       '',
@@ -169,11 +169,11 @@ export const TEMPLATES = {
    * Sender: Nikki
    */
   ephi_needed: {
-    subject: 'Action Needed — Health Info Request from {carrier}',
+    subject: 'Action Needed: Health Info Request from {carrier}',
     body: [
       'Hi {first_name},',
       '',
-      'As part of your application with {carrier}, they will be reaching out electronically to collect some health information. Please watch for an email or text from them and complete it as soon as possible — a quick response helps keep your application on track.',
+      'As part of your application with {carrier}, they will be reaching out electronically to collect some health information. Please watch for an email or text from them and complete it as soon as possible. A quick response helps keep your application on track.',
       '',
       'If you have any questions in the meantime, don\'t hesitate to reach out.',
       '',
@@ -188,7 +188,7 @@ export const TEMPLATES = {
    * Sender: Nikki
    */
   einterview: {
-    subject: 'Your {carrier} Application — Electronic Interview',
+    subject: 'Your {carrier} Application: Electronic Interview',
     body: [
       'Hi {first_name},',
       '',
@@ -207,11 +207,11 @@ export const TEMPLATES = {
    * Sender: Nikki
    */
   tele_interview: {
-    subject: 'Your {carrier} Application — Telephone Interview',
+    subject: 'Your {carrier} Application: Telephone Interview',
     body: [
       'Hi {first_name},',
       '',
-      '{carrier} will be calling you for a brief telephone interview as part of your application. The call typically takes about 15–20 minutes and covers basic health history. Please be on the lookout for their call and pick up when they reach out — it\'s an important step in getting your application completed.',
+      '{carrier} will be calling you for a brief telephone interview as part of your application. The call typically takes about 15-20 minutes and covers basic health history. Please be on the lookout for their call and pick up when they reach out. It\'s an important step in getting your application completed.',
       '',
       'Let us know if you have any questions!',
       '',
@@ -230,7 +230,7 @@ export const TEMPLATES = {
     body: [
       'Hi {first_name},',
       '',
-      'It\'s been a year or so since we got your life insurance in place and I wanted to check in. Life has a way of evolving — new family members, a job change, a home purchase — and it\'s worth making sure your coverage keeps up.',
+      'It\'s been a year or so since we got your life insurance in place and I wanted to check in. Life has a way of evolving - new family members, a job change, a home purchase - and it\'s worth making sure your coverage keeps up.',
       '',
       'We\'d love to schedule a quick review. Give us a call or reply here and we\'ll get something on the calendar.',
       '',
@@ -315,9 +315,9 @@ export type ApptTypeValue = typeof APPT_TYPES[number]['value']
 // ── Underwriting scenarios ─────────────────────────────────────────────────────
 
 export const UNDERWRITING_SCENARIOS = [
-  'The carrier has ordered labs — you should expect a call to schedule a brief appointment at your convenience.',
+  'The carrier has ordered labs. You should expect a call to schedule a brief appointment at your convenience.',
   'The carrier has requested additional medical records from your doctor\'s office.',
-  'The carrier needs a signed authorization form — we\'ll be in touch shortly with the details.',
+  'The carrier needs a signed authorization form - we\'ll be in touch shortly with the details.',
   'Everything is moving along and no additional requirements are needed at this time.',
 ] as const
 
