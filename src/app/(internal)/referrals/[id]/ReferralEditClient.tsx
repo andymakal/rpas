@@ -179,6 +179,8 @@ function buildRewarmMailto(
   touchCount: number, daysElapsed: number,
   senderName: string,
 ): string {
+  const toEmail = agentEmail ?? agencyEmail
+  if (!toEmail) return '#'
   const subject = `${clientName}: unable to make contact`
   const body = [
     `Hi ${agentFirstName},`,
@@ -193,11 +195,12 @@ function buildRewarmMailto(
   ].join('\n')
   // mailto: URIs require RFC 3986 percent-encoding (encodeURIComponent),
   // NOT URLSearchParams which uses form-encoding (+) — Outlook renders + literally.
+  // If no agent email, fall back to agency contact as the To: (no CC needed).
   const parts: string[] = []
-  if (agencyEmail) parts.push(`cc=${encodeURIComponent(agencyEmail)}`)
+  if (agentEmail && agencyEmail) parts.push(`cc=${encodeURIComponent(agencyEmail)}`)
   parts.push(`subject=${encodeURIComponent(subject)}`)
   parts.push(`body=${encodeURIComponent(body)}`)
-  return `mailto:${agentEmail ?? ''}?${parts.join('&')}`
+  return `mailto:${toEmail}?${parts.join('&')}`
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
@@ -1931,21 +1934,22 @@ export function ReferralEditClient({
                   <p className="text-sm font-medium text-amber-300">Send rewarm email to the LSP</p>
                 </div>
                 <p className="text-xs text-slate-400 leading-relaxed">
-                  Let the LSP know you couldn&apos;t reach {cFirstName} and ask them to help re-engage.
-                  {agencyEmail && <> The agency contact will be copied.</>}
+                  {agentEmail
+                    ? <>Let the LSP know you couldn&apos;t reach {cFirstName} and ask them to help re-engage.{agencyEmail && <> The agency contact will be copied.</>}</>
+                    : agencyEmail
+                      ? <>No agent email on file — this will go to the agency contact instead.</>
+                      : <>No agent or agency email on file.</>
+                  }
                 </p>
-                {(!agentEmail || !agencyEmail) && (
+                {!agentEmail && !agencyEmail && (
                   <div className="flex items-start gap-2 text-xs text-amber-500/80">
                     <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                    <span>
-                      {!agentEmail && 'No email on file for this LSP. '}
-                      {!agencyEmail && 'No contact email on file for this agency. '}
-                    </span>
+                    <span>Add an agent or agency contact email to enable this button.</span>
                   </div>
                 )}
                 <a href={rewarmMailto ?? '#'}
                   className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
-                    agentEmail ? 'bg-amber-700 hover:bg-amber-600 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed pointer-events-none'
+                    (agentEmail || agencyEmail) ? 'bg-amber-700 hover:bg-amber-600 text-white' : 'bg-slate-700 text-slate-500 cursor-not-allowed pointer-events-none'
                   }`}>
                   <Mail className="w-4 h-4" /> Open in Outlook
                 </a>
