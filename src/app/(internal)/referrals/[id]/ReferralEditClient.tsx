@@ -179,13 +179,13 @@ function buildRewarmMailto(
   touchCount: number, daysElapsed: number,
   senderName: string,
 ): string {
-  const subject = `${clientName} — unable to make contact`
+  const subject = `${clientName}: unable to make contact`
   const body = [
     `Hi ${agentFirstName},`,
     '',
-    `We've made ${touchCount} contact attempt${touchCount !== 1 ? 's' : ''} with ${clientName} over the past ${daysElapsed} day${daysElapsed !== 1 ? 's' : ''} — calls, texts, and emails — with no response.`,
+    `We've made ${touchCount} contact attempt${touchCount !== 1 ? 's' : ''} with ${clientName} over the past ${daysElapsed} day${daysElapsed !== 1 ? 's' : ''} - calls, texts, and emails - with no response.`,
     '',
-    `Returning this referral to you. If the timing shifts on their end, let us know and we'll pick it up.`,
+    `Can you see if they're still interested? We're happy to take care of them if they are.`,
     '',
     'Regards,',
     senderName,
