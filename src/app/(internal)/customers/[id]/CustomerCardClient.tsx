@@ -1315,11 +1315,19 @@ export function CustomerCardClient({
                     <td className="px-4 py-3 text-right text-slate-200 text-sm">{fmt(c.face_amount)}</td>
                     <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
                       <p>{dateLabel}</p>
-                      {c.last_contact_at && (
-                        <p className="text-slate-600 mt-0.5">
-                          Contact {fmtDate(c.last_contact_at)}
-                          {touchCount > 0 && <span className="ml-1">· {touchCount}×</span>}
-                        </p>
+                      {touchCount > 0 && (
+                        <button
+                          onClick={() => toggleTouchLog(c.id)}
+                          className="flex items-center gap-1 text-slate-600 hover:text-slate-400 transition-colors mt-0.5"
+                        >
+                          {c.last_contact_at
+                            ? <span>Contact {fmtDate(c.last_contact_at)} · {touchCount}×</span>
+                            : <span>{touchCount} touch{touchCount !== 1 ? 'es' : ''}</span>
+                          }
+                          {touchExpanded
+                            ? <ChevronUp className="w-3 h-3" />
+                            : <ChevronDown className="w-3 h-3" />}
+                        </button>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -1342,17 +1350,6 @@ export function CustomerCardClient({
                         </div>
                       ) : (
                         <div className="flex items-center justify-end gap-0.5">
-                          {touchCount > 0 && (
-                            <button
-                              onClick={() => toggleTouchLog(c.id)}
-                              className="p-0.5 text-slate-600 hover:text-slate-300 transition-colors"
-                              title="Touch log"
-                            >
-                              {touchExpanded
-                                ? <ChevronUp className="w-3.5 h-3.5" />
-                                : <ChevronDown className="w-3.5 h-3.5" />}
-                            </button>
-                          )}
                           <Link
                             href={`/referrals/${c.id}`}
                             className="p-0.5 text-slate-600 hover:text-slate-300 transition-colors"

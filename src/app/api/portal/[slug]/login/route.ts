@@ -63,7 +63,7 @@ export async function POST(
       secure:   process.env.NODE_ENV === 'production',
       sameSite: 'lax',
       maxAge:   60 * 60 * 24 * 30, // 30 days
-      path:     `/portal/${slug}`,
+      path:     '/',
     })
     return response
   } catch (err) {
