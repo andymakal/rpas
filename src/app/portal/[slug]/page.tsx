@@ -10,6 +10,7 @@ import {
   type SpiffRecord,
   type GdcRecord,
   type PortalContent,
+  type ActivityEntry,
 } from '@/components/portal/AgencyPortal'
 
 export async function generateMetadata(
@@ -154,6 +155,19 @@ export default async function PortalPage({
     (appResult.data ?? []).map(r => r.policy_number).filter(Boolean)
   ).size
 
+  // Recent activity feed — last 20 touches across this agency's cases
+  const caseIds = (casesResult.data ?? []).map(c => c.id)
+  let recentActivity: ActivityEntry[] = []
+  if (caseIds.length > 0) {
+    const { data: activityData } = await supabase
+      .from('case_touches')
+      .select('id, case_id, touch_type, touched_at, touched_by')
+      .in('case_id', caseIds)
+      .order('touched_at', { ascending: false })
+      .limit(20)
+    recentActivity = (activityData ?? []) as ActivityEntry[]
+  }
+
   // Owner-only: full GDC transaction detail (including chargebacks)
   let gdcRecords: GdcRecord[] = []
   if (isOwner) {
@@ -195,6 +209,7 @@ export default async function PortalPage({
       isOwner={isOwner}
       gdcRecords={gdcRecords}
       portalContent={portalContent}
+      recentActivity={recentActivity}
     />
   )
 }

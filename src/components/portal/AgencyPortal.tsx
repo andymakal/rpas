@@ -96,6 +96,14 @@ export type PortalContent = {
   sort_order: number
 }
 
+export type ActivityEntry = {
+  id:         string
+  case_id:    string
+  touch_type: string
+  touched_at: string
+  touched_by: string | null
+}
+
 type AgencyProps = {
   name:   string
   slug:   string
@@ -779,6 +787,55 @@ function SpiffKeptCard({
   )
 }
 
+// ── Right column: Recent Activity feed ───────────────────────────────────────
+
+const TOUCH_TYPE_BADGE: Record<string, string> = {
+  call:               'bg-blue-100 text-blue-700',
+  voicemail:          'bg-amber-100 text-amber-700',
+  text:               'bg-emerald-100 text-emerald-700',
+  email:              'bg-violet-100 text-violet-700',
+  missed_appointment: 'bg-red-100 text-red-600',
+}
+
+function RecentActivityCard({
+  activity,
+  caseNameMap,
+}: {
+  activity:    ActivityEntry[]
+  caseNameMap: Map<string, string>
+}) {
+  if (activity.length === 0) return null
+  return (
+    <div className="bg-white rounded-2xl border border-slate-100 px-4 py-4">
+      <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-3">
+        Recent Activity
+      </p>
+      <div className="space-y-3">
+        {activity.map(t => {
+          const clientName = caseNameMap.get(t.case_id) ?? '—'
+          const when = new Date(t.touched_at).toLocaleString('en-US', {
+            month: 'short', day: 'numeric',
+            hour: 'numeric', minute: '2-digit',
+          })
+          return (
+            <div key={t.id} className="flex items-start gap-2.5">
+              <span className={`inline-flex items-center shrink-0 mt-0.5 rounded-full px-2 py-0.5 text-xs font-semibold ${TOUCH_TYPE_BADGE[t.touch_type] ?? TOUCH_TYPE_BADGE.call}`}>
+                {TOUCH_LABELS[t.touch_type] ?? t.touch_type}
+              </span>
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-slate-800 truncate">{clientName}</p>
+                <p suppressHydrationWarning className="text-xs text-slate-400 mt-0.5">
+                  {t.touched_by ? `${t.touched_by} · ` : ''}{when}
+                </p>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ── Right column: Training + Bulletins ───────────────────────────────────────
 
 function ContentCard({
@@ -982,6 +1039,7 @@ export function AgencyPortal({
   isOwner,
   gdcRecords,
   portalContent,
+  recentActivity,
 }: {
   agency:          AgencyProps
   cases:           Case[]
@@ -993,6 +1051,7 @@ export function AgencyPortal({
   isOwner:         boolean
   gdcRecords:      GdcRecord[]
   portalContent:   PortalContent[]
+  recentActivity:  ActivityEntry[]
 }) {
   const router = useRouter()
   const [agentFilter, setAgentFilter] = useState('')
@@ -1071,6 +1130,11 @@ export function AgencyPortal({
   // ── Portal content by type ──────────────────────────────────────────────────
   const trainingItems  = portalContent.filter(i => i.content_type === 'training')
   const bulletinItems  = portalContent.filter(i => i.content_type === 'bulletin')
+
+  // ── Activity feed: case ID → display name ───────────────────────────────────
+  const caseNameMap = new Map(
+    cases.map(c => [c.id, buildHouseholdName(c.customers ?? null, c.case_household_members ?? [])])
+  )
 
   // ── Address string ──────────────────────────────────────────────────────────
   const addressLine = [
@@ -1382,6 +1446,9 @@ export function AgencyPortal({
               items={bulletinItems}
               emptyText="No active bulletins."
             />
+
+            {/* Recent Activity */}
+            <RecentActivityCard activity={recentActivity} caseNameMap={caseNameMap} />
 
           </div>
 
