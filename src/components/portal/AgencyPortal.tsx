@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
 import { GaugeChart, GDC_BANDS, APP_BANDS } from './GaugeChart'
 import { buildHouseholdName } from '@/lib/household'
@@ -192,6 +192,85 @@ function fmtDate(dateStr: string, opts?: Intl.DateTimeFormatOptions) {
   })
 }
 
+// ── Touch log ─────────────────────────────────────────────────────────────────
+
+const TOUCH_LABELS: Record<string, string> = {
+  call:               'Call',
+  voicemail:          'Voicemail',
+  text:               'Text',
+  email:              'Email',
+  missed_appointment: 'Missed Appt.',
+}
+
+type TouchEntry = { touch_type: string; touched_at: string }
+
+function TouchLog({ caseId }: { caseId: string }) {
+  const params                      = useParams<{ slug: string }>()
+  const [open, setOpen]             = useState(false)
+  const [loading, setLoading]       = useState(false)
+  const [touches, setTouches]       = useState<TouchEntry[] | null>(null)
+
+  async function toggle() {
+    if (open) { setOpen(false); return }
+    if (touches !== null) { setOpen(true); return }
+    setLoading(true)
+    try {
+      const res  = await fetch(`/api/portal/${params.slug}/cases/${caseId}/touches`)
+      const json = await res.json() as { data?: TouchEntry[] }
+      setTouches(json.data ?? [])
+    } catch {
+      setTouches([])
+    } finally {
+      setLoading(false)
+      setOpen(true)
+    }
+  }
+
+  const count = touches?.length ?? 0
+
+  return (
+    <div className="mt-2.5 pt-2.5 border-t border-slate-100">
+      <button
+        onClick={toggle}
+        className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors"
+      >
+        <span
+          className="inline-block transition-transform duration-150"
+          style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
+        >
+          ▸
+        </span>
+        {loading
+          ? 'Loading…'
+          : open
+            ? `Touch Log (${count})`
+            : 'Touch Log'}
+      </button>
+      {open && touches !== null && (
+        <div className="mt-2 space-y-1.5">
+          {touches.length === 0 ? (
+            <p className="text-xs text-slate-300 italic pl-3">No touches logged yet.</p>
+          ) : (
+            touches.map((t, i) => (
+              <div key={i} className="flex items-center gap-3 pl-3 text-xs">
+                <span className="font-medium text-slate-600 w-24 shrink-0">
+                  {TOUCH_LABELS[t.touch_type] ?? t.touch_type}
+                </span>
+                <span className="text-slate-400">
+                  {new Date(t.touched_at).toLocaleString('en-US', {
+                    month: 'short', day: 'numeric',
+                    hour: 'numeric', minute: '2-digit',
+                  })}
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SectionHeader({ label, count, green }: { label: string; count: number; green?: boolean }) {
   return (
     <p className={`text-xs font-semibold uppercase tracking-wide mb-3 ${green ? 'text-emerald-600' : 'text-slate-500'}`}>
@@ -229,6 +308,7 @@ function ReferralCard({ c }: { c: Case }) {
           {lsp && <p className="text-xs text-slate-400">{lsp}</p>}
         </div>
       </div>
+      <TouchLog caseId={c.id} />
     </div>
   )
 }
@@ -263,6 +343,7 @@ function PendingCard({ c }: { c: Case }) {
           {lsp && <p className="text-xs text-slate-400">{lsp}</p>}
         </div>
       </div>
+      <TouchLog caseId={c.id} />
     </div>
   )
 }
@@ -356,6 +437,11 @@ function ClosedCard({ c, agentFilter, onRewarm }: {
         </div>
       </div>
 
+      {!expanded && (
+        <div className="px-4 pb-3">
+          <TouchLog caseId={c.id} />
+        </div>
+      )}
       {expanded && (
         <div className="border-t border-orange-200 bg-orange-50/60 px-4 py-4 space-y-3">
           <p className="text-xs font-medium text-slate-600">
@@ -471,6 +557,11 @@ function LspReEngageCard({ c, agentFilter, onReengage }: {
               {submitting ? 'Submitting…' : 'Back in queue 🔥'}
             </button>
           </div>
+        </div>
+      )}
+      {!expanded && (
+        <div className="px-4 pb-3">
+          <TouchLog caseId={c.id} />
         </div>
       )}
     </div>
