@@ -1262,15 +1262,18 @@ export function AgencyPortal({
             {/* Agent / LSP filter */}
             {agentNames.length > 1 && (
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Filter by LSP</p>
-                  {agentFilter && (
-                    <button onClick={() => setAgentFilter('')} className="text-xs text-slate-400 hover:text-slate-600">
-                      Show all
-                    </button>
-                  )}
-                </div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Filter by LSP</p>
                 <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setAgentFilter('')}
+                    className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
+                      !agentFilter
+                        ? 'bg-slate-800 text-white'
+                        : 'bg-white border border-slate-200 text-slate-600 hover:border-slate-400'
+                    }`}
+                  >
+                    All
+                  </button>
                   {agentNames.map(name => (
                     <button key={name} onClick={() => setAgentFilter(agentFilter === name ? '' : name)}
                       className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
