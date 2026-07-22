@@ -7,12 +7,12 @@ import {
   ArrowLeft, Phone, Mail, MapPin, User,
   Shield, CheckCircle, ShieldOff, FileQuestion, Send,
   AlertTriangle, ChevronRight, Search, X, Trash2,
-  FolderKanban, Wrench, Link2, History, Compass, ChevronDown, ChevronUp,
+  FolderKanban, Wrench, Link2, History, Compass, ChevronDown,
   Pencil, Check, MessageSquare, Clipboard,
 } from 'lucide-react'
 import type {
   CustomerDetail, LinkedCase, LinkedPolicy, LinkedServiceRequest,
-  CaseStatusHistoryEntry, CustomerNote,
+  CaseStatusHistoryEntry, CustomerNote, TouchHistoryEntry,
 } from './page'
 import { fmtDate } from '@/lib/fmt'
 
@@ -131,6 +131,14 @@ const TOUCH_TYPE_LABELS: Record<string, string> = {
   text:               'Text',
   email:              'Email',
   missed_appointment: 'Missed Appt.',
+}
+
+const TOUCH_COLORS: Record<string, string> = {
+  call:               'bg-blue-900/50 border-blue-700 text-blue-300',
+  voicemail:          'bg-amber-900/50 border-amber-700 text-amber-300',
+  text:               'bg-emerald-900/50 border-emerald-700 text-emerald-300',
+  email:              'bg-violet-900/50 border-violet-700 text-violet-300',
+  missed_appointment: 'bg-red-900/50 border-red-700 text-red-300',
 }
 
 function SrStatusBadge({ status }: { status: string }) {
@@ -260,6 +268,7 @@ export function CustomerCardClient({
   serviceRequests,
   caseHistory,
   initialNotes,
+  touchHistory,
 }: {
   customer:             CustomerDetail
   cases:                LinkedCase[]
@@ -268,6 +277,7 @@ export function CustomerCardClient({
   serviceRequests:      LinkedServiceRequest[]
   caseHistory:          CaseStatusHistoryEntry[]
   initialNotes:         CustomerNote[]
+  touchHistory:         TouchHistoryEntry[]
 }) {
   const router = useRouter()
   const [cases,       setCases]       = useState<LinkedCase[]>(initialCases)
@@ -281,10 +291,6 @@ export function CustomerCardClient({
   const [confirmDeleteCase, setConfirmDeleteCase] = useState<string | null>(null)
   const [deletingCase,      setDeletingCase]      = useState(false)
   const [caseDeleteErr,     setCaseDeleteErr]     = useState<string | null>(null)
-
-  const [expandedTouches, setExpandedTouches] = useState<Set<string>>(new Set())
-  const [touchLogCache,   setTouchLogCache]   = useState<Map<string, { touch_type: string; touched_at: string; touched_by: string | null }[]>>(new Map())
-  const [touchLogLoading, setTouchLogLoading] = useState<Set<string>>(new Set())
 
   const [addingPolicy,    setAddingPolicy]    = useState(false)
   const [newCarrier,      setNewCarrier]      = useState('')
@@ -339,6 +345,8 @@ export function CustomerCardClient({
   const [editHealthNotes, setEditHealthNotes] = useState(customer.health_notes ?? '')
   const [contactSaving,   setContactSaving]   = useState(false)
   const [contactMsg,      setContactMsg]      = useState<{ ok: boolean; text: string } | null>(null)
+
+  const caseAgencyMap = new Map(cases.map(c => [c.id, c.agencies?.display_name ?? c.agencies?.name ?? null]))
 
   const segmentRef = useRef<HTMLDivElement>(null)
   const searchRef  = useRef<HTMLInputElement>(null)
@@ -417,25 +425,6 @@ export function CustomerCardClient({
       setLinkErr(e instanceof Error ? e.message : 'Link failed')
     } finally {
       setLinking(false)
-    }
-  }
-
-  async function toggleTouchLog(caseId: string) {
-    if (expandedTouches.has(caseId)) {
-      setExpandedTouches(prev => { const n = new Set(prev); n.delete(caseId); return n })
-      return
-    }
-    setExpandedTouches(prev => new Set([...prev, caseId]))
-    if (touchLogCache.has(caseId)) return
-    setTouchLogLoading(prev => new Set([...prev, caseId]))
-    try {
-      const res  = await fetch(`/api/cases/${caseId}/touch`)
-      const json = await res.json() as { data?: { touch_type: string; touched_at: string; touched_by: string | null }[] }
-      setTouchLogCache(prev => new Map([...prev, [caseId, json.data ?? []]]))
-    } catch {
-      setTouchLogCache(prev => new Map([...prev, [caseId, []]]))
-    } finally {
-      setTouchLogLoading(prev => { const n = new Set(prev); n.delete(caseId); return n })
     }
   }
 
@@ -1291,17 +1280,13 @@ export function CustomerCardClient({
               </thead>
               <tbody className="divide-y divide-slate-800/60">
                 {cases.map(c => {
-                  const carrier      = c.products?.carriers?.short_name ?? c.products?.name ?? null
-                  const dateLabel    = c.placed_at
+                  const carrier    = c.products?.carriers?.short_name ?? c.products?.name ?? null
+                  const dateLabel  = c.placed_at
                     ? `Placed ${fmtDate(c.placed_at)}`
                     : `Created ${fmtDate(c.created_at)}`
-                  const touchExpanded = expandedTouches.has(c.id)
-                  const touchLoading  = touchLogLoading.has(c.id)
-                  const touchLog      = touchLogCache.get(c.id) ?? []
-                  const touchCount    = c.touches ?? 0
+                  const touchCount = c.touches ?? 0
                   return (
-                  <Fragment key={c.id}>
-                  <tr className="hover:bg-slate-800/40 transition-colors">
+                  <tr key={c.id} className="hover:bg-slate-800/40 transition-colors">
                     <td className="px-5 py-3">
                       <p className="text-slate-300 text-sm">{c.agencies?.display_name ?? c.agencies?.name ?? '—'}</p>
                       {carrier && <p className="text-slate-500 text-xs mt-0.5">{carrier}</p>}
@@ -1316,18 +1301,11 @@ export function CustomerCardClient({
                     <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
                       <p>{dateLabel}</p>
                       {touchCount > 0 && (
-                        <button
-                          onClick={() => toggleTouchLog(c.id)}
-                          className="flex items-center gap-1 text-slate-600 hover:text-slate-400 transition-colors mt-0.5"
-                        >
+                        <p className="text-slate-600 mt-0.5">
                           {c.last_contact_at
-                            ? <span>Contact {fmtDate(c.last_contact_at)} · {touchCount}×</span>
-                            : <span>{touchCount} touch{touchCount !== 1 ? 'es' : ''}</span>
-                          }
-                          {touchExpanded
-                            ? <ChevronUp className="w-3 h-3" />
-                            : <ChevronDown className="w-3 h-3" />}
-                        </button>
+                            ? `Contact ${fmtDate(c.last_contact_at)} · ${touchCount}×`
+                            : `${touchCount} touch${touchCount !== 1 ? 'es' : ''}`}
+                        </p>
                       )}
                     </td>
                     <td className="px-4 py-3">
@@ -1369,43 +1347,55 @@ export function CustomerCardClient({
                       )}
                     </td>
                   </tr>
-                  {touchExpanded && (
-                    <tr className="bg-slate-800/30">
-                      <td colSpan={6} className="px-5 py-3">
-                        {touchLoading ? (
-                          <p className="text-xs text-slate-500">Loading…</p>
-                        ) : touchLog.length === 0 ? (
-                          <p className="text-xs text-slate-600 italic">No touches logged.</p>
-                        ) : (
-                          <div className="space-y-1.5">
-                            {touchLog.map((t, i) => (
-                              <div key={i} className="flex items-center gap-4 text-xs">
-                                <span className="font-medium text-slate-400 w-24 shrink-0">
-                                  {TOUCH_TYPE_LABELS[t.touch_type] ?? t.touch_type}
-                                </span>
-                                {t.touched_by && (
-                                  <span className="text-slate-500 shrink-0">{t.touched_by}</span>
-                                )}
-                                <span className="text-slate-500">
-                                  {new Date(t.touched_at).toLocaleString('en-US', {
-                                    month: 'short', day: 'numeric',
-                                    hour: 'numeric', minute: '2-digit',
-                                  })}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  )}
-                  </Fragment>
                   )
                 })}
               </tbody>
             </table>
           )}
         </Section>
+
+        {/* Touch History */}
+        {cases.length > 0 && (
+          <Section title="Touch History" icon={Phone} count={touchHistory.length}>
+            {touchHistory.length === 0 ? (
+              <div className="px-5 py-6 text-center text-slate-500 text-sm">
+                No touches logged yet
+              </div>
+            ) : (
+              <div className="divide-y divide-slate-800/60">
+                {touchHistory.map(t => {
+                  const agencyLabel = caseAgencyMap.get(t.case_id) ?? null
+                  return (
+                    <div key={t.id} className="px-5 py-3 flex items-start gap-3">
+                      <span className={`inline-flex items-center shrink-0 rounded px-2 py-0.5 text-xs font-medium border ${TOUCH_COLORS[t.touch_type] ?? TOUCH_COLORS.call}`}>
+                        {TOUCH_TYPE_LABELS[t.touch_type] ?? t.touch_type}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {t.touched_by && (
+                            <span className="text-xs text-slate-300 font-medium">{t.touched_by}</span>
+                          )}
+                          <span suppressHydrationWarning className="text-xs text-slate-500">
+                            {new Date(t.touched_at).toLocaleString('en-US', {
+                              month: 'short', day: 'numeric',
+                              hour: 'numeric', minute: '2-digit',
+                            })}
+                          </span>
+                          {agencyLabel && cases.length > 1 && (
+                            <span className="text-xs text-slate-700">{agencyLabel}</span>
+                          )}
+                        </div>
+                        {t.notes && (
+                          <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{t.notes}</p>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </Section>
+        )}
 
         {/* Case History */}
         {(caseHistory.length > 0 || cases.length > 0) && (

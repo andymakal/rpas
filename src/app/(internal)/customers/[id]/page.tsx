@@ -81,6 +81,15 @@ export type CaseStatusHistoryEntry = {
   changed_at:  string
 }
 
+export type TouchHistoryEntry = {
+  id:         string
+  case_id:    string
+  touch_type: string
+  notes:      string | null
+  touched_at: string
+  touched_by: string | null
+}
+
 export type CustomerNote = {
   id:                  string
   section:             'triage' | 'producer' | 'underwriting'
@@ -177,13 +186,22 @@ export default async function CustomerCardPage({
   // Fetch case status history for all linked cases
   const caseIds = (cases ?? []).map(c => c.id)
   let caseHistory: CaseStatusHistoryEntry[] = []
+  let touchHistory: TouchHistoryEntry[] = []
   if (caseIds.length > 0) {
-    const { data: histRaw } = await supabase
-      .from('case_status_history')
-      .select('id, case_id, from_status, to_status, changed_at')
-      .in('case_id', caseIds)
-      .order('changed_at', { ascending: false })
-    caseHistory = (histRaw ?? []) as CaseStatusHistoryEntry[]
+    const [histResult, touchResult] = await Promise.all([
+      supabase
+        .from('case_status_history')
+        .select('id, case_id, from_status, to_status, changed_at')
+        .in('case_id', caseIds)
+        .order('changed_at', { ascending: false }),
+      supabase
+        .from('case_touches')
+        .select('id, case_id, touch_type, notes, touched_at, touched_by')
+        .in('case_id', caseIds)
+        .order('touched_at', { ascending: false }),
+    ])
+    caseHistory   = (histResult.data   ?? []) as CaseStatusHistoryEntry[]
+    touchHistory  = (touchResult.data  ?? []) as TouchHistoryEntry[]
   }
 
   // Fetch customer notes (running compliance log)
@@ -233,6 +251,7 @@ export default async function CustomerCardPage({
       pendingCasePolicies={pendingCasePolicies}
       serviceRequests={serviceRequests}
       caseHistory={caseHistory}
+      touchHistory={touchHistory}
       initialNotes={notes}
     />
   )
