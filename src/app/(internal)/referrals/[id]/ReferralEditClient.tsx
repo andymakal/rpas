@@ -1654,9 +1654,14 @@ export function ReferralEditClient({
                     return (
                       <div key={t.id} className="px-5 py-3 space-y-1">
                         <div className="flex items-center justify-between gap-2">
-                          <span className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium border ${TOUCH_COLORS[t.touch_type] ?? TOUCH_COLORS.call}`}>
-                            {typeInfo?.icon}{typeInfo?.short ?? t.touch_type}
-                          </span>
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium border shrink-0 ${TOUCH_COLORS[t.touch_type] ?? TOUCH_COLORS.call}`}>
+                              {typeInfo?.icon}{typeInfo?.short ?? t.touch_type}
+                            </span>
+                            {t.touched_by && (
+                              <span className="text-xs text-slate-500 truncate">{t.touched_by}</span>
+                            )}
+                          </div>
                           <span suppressHydrationWarning className="text-xs text-slate-500 flex-shrink-0">{fmtTime(t.touched_at)}</span>
                         </div>
                         {t.notes && <p className="text-xs text-slate-400 pl-0.5">{t.notes}</p>}

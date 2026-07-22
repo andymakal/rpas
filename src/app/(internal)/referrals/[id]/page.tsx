@@ -88,7 +88,7 @@ export type ReferralDetail = {
 
 export type NotInterestedReason = { id: string; internal_code: string; agency_label: string; sort_order: number; context: string }
 export type Tier1Stage          = { id: string; internal_status: string; agency_label: string }
-export type TouchLog      = { id: string; touch_type: string; notes: string | null; touched_at: string }
+export type TouchLog      = { id: string; touch_type: string; notes: string | null; touched_at: string; touched_by: string | null }
 export type HouseholdMember = {
   id: string
   first_name: string
@@ -187,7 +187,7 @@ export default async function ReferralDetailPage({
       .order('stage_order'),
     supabase
       .from('case_touches')
-      .select('id, touch_type, notes, touched_at')
+      .select('id, touch_type, notes, touched_at, touched_by')
       .eq('case_id', id)
       .order('touched_at', { ascending: false }),
     supabase

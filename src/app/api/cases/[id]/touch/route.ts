@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
 import { NextRequest } from 'next/server'
 
 const TOUCH_TYPES = new Set(['call', 'voicemail', 'text', 'email'])
@@ -17,6 +18,21 @@ export async function POST(
   if (!TOUCH_TYPES.has(touch_type)) {
     return Response.json({ error: 'Invalid touch_type' }, { status: 400 })
   }
+
+  // Resolve the current user's display name for the touch log
+  let touched_by: string | null = null
+  try {
+    const sessionClient = await createClient()
+    const { data: { user } } = await sessionClient.auth.getUser()
+    if (user) {
+      const { data: profile } = await supabase
+        .from('staff_profiles')
+        .select('display_name')
+        .eq('id', user.id)
+        .maybeSingle()
+      touched_by = profile?.display_name ?? user.email?.split('@')[0] ?? null
+    }
+  } catch { /* non-fatal — touch still logs without attribution */ }
 
   const { data: current, error: fetchErr } = await supabase
     .from('cases')
@@ -55,6 +71,7 @@ export async function POST(
         touch_type,
         notes:      body.notes?.trim() || null,
         touched_at: now,
+        touched_by,
       })
       .select()
       .single(),
@@ -83,7 +100,7 @@ export async function GET(
 
   const { data, error } = await supabase
     .from('case_touches')
-    .select('id, touch_type, notes, touched_at')
+    .select('id, touch_type, notes, touched_at, touched_by')
     .eq('case_id', id)
     .order('touched_at', { ascending: false })
 

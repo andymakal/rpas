@@ -40,7 +40,7 @@ export async function GET(
 
     const { data: touches, error } = await supabase
       .from('case_touches')
-      .select('touch_type, touched_at')
+      .select('touch_type, touched_at, touched_by')
       .eq('case_id', id)
       .order('touched_at', { ascending: false })
 

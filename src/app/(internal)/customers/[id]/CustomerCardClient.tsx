@@ -283,7 +283,7 @@ export function CustomerCardClient({
   const [caseDeleteErr,     setCaseDeleteErr]     = useState<string | null>(null)
 
   const [expandedTouches, setExpandedTouches] = useState<Set<string>>(new Set())
-  const [touchLogCache,   setTouchLogCache]   = useState<Map<string, { touch_type: string; touched_at: string }[]>>(new Map())
+  const [touchLogCache,   setTouchLogCache]   = useState<Map<string, { touch_type: string; touched_at: string; touched_by: string | null }[]>>(new Map())
   const [touchLogLoading, setTouchLogLoading] = useState<Set<string>>(new Set())
 
   const [addingPolicy,    setAddingPolicy]    = useState(false)
@@ -430,7 +430,7 @@ export function CustomerCardClient({
     setTouchLogLoading(prev => new Set([...prev, caseId]))
     try {
       const res  = await fetch(`/api/cases/${caseId}/touch`)
-      const json = await res.json() as { data?: { touch_type: string; touched_at: string }[] }
+      const json = await res.json() as { data?: { touch_type: string; touched_at: string; touched_by: string | null }[] }
       setTouchLogCache(prev => new Map([...prev, [caseId, json.data ?? []]]))
     } catch {
       setTouchLogCache(prev => new Map([...prev, [caseId, []]]))
@@ -1386,6 +1386,9 @@ export function CustomerCardClient({
                                 <span className="font-medium text-slate-400 w-24 shrink-0">
                                   {TOUCH_TYPE_LABELS[t.touch_type] ?? t.touch_type}
                                 </span>
+                                {t.touched_by && (
+                                  <span className="text-slate-500 shrink-0">{t.touched_by}</span>
+                                )}
                                 <span className="text-slate-500">
                                   {new Date(t.touched_at).toLocaleString('en-US', {
                                     month: 'short', day: 'numeric',

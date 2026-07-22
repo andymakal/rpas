@@ -205,7 +205,7 @@ const TOUCH_LABELS: Record<string, string> = {
   missed_appointment: 'Missed Appt.',
 }
 
-type TouchEntry = { touch_type: string; touched_at: string }
+type TouchEntry = { touch_type: string; touched_at: string; touched_by: string | null }
 
 function TouchLog({ caseId }: { caseId: string }) {
   const params                      = useParams<{ slug: string }>()
@@ -258,6 +258,9 @@ function TouchLog({ caseId }: { caseId: string }) {
                 <span className="font-medium text-slate-600 w-24 shrink-0">
                   {TOUCH_LABELS[t.touch_type] ?? t.touch_type}
                 </span>
+                {t.touched_by && (
+                  <span className="text-slate-500 shrink-0">{t.touched_by}</span>
+                )}
                 <span className="text-slate-400">
                   {new Date(t.touched_at).toLocaleString('en-US', {
                     month: 'short', day: 'numeric',
