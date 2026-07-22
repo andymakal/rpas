@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter, useParams } from 'next/navigation'
 import Link from 'next/link'
+import { ChevronDown, ChevronUp } from 'lucide-react'
 import { GaugeChart, GDC_BANDS, APP_BANDS } from './GaugeChart'
 import { buildHouseholdName } from '@/lib/household'
 
@@ -26,6 +27,8 @@ export type Case = {
   annual_premium: number | null
   is_hot_lead: boolean
   lead_source: string | null
+  touches: number | null
+  last_contact_at: string | null
   customers: { first_name: string; last_name: string } | null
   agents: { first_name: string; last_name: string } | null
   stage_translations: StageTranslation | null
@@ -234,12 +237,11 @@ function TouchLog({ caseId }: { caseId: string }) {
         onClick={toggle}
         className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-600 transition-colors"
       >
-        <span
-          className="inline-block transition-transform duration-150"
-          style={{ transform: open ? 'rotate(90deg)' : 'rotate(0deg)' }}
-        >
-          ▸
-        </span>
+        {loading
+          ? <span className="w-3.5 h-3.5" />
+          : open
+            ? <ChevronUp className="w-3.5 h-3.5" />
+            : <ChevronDown className="w-3.5 h-3.5" />}
         {loading
           ? 'Loading…'
           : open
@@ -282,9 +284,13 @@ function SectionHeader({ label, count, green }: { label: string; count: number; 
 // ── Case cards ────────────────────────────────────────────────────────────────
 
 function ReferralCard({ c }: { c: Case }) {
-  const label = c.stage_translations?.agency_label ?? c.internal_status
-  const date  = fmtDate(c.created_at)
-  const lsp   = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
+  const label       = c.stage_translations?.agency_label ?? c.internal_status
+  const date        = fmtDate(c.created_at)
+  const lsp         = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
+  const lastContact = c.last_contact_at
+    ? `Last contact ${fmtDate(c.last_contact_at, { month: 'short', day: 'numeric' })}`
+    : null
+  const touchCount  = c.touches ?? 0
   return (
     <div className={`rounded-xl border px-4 py-3 ${c.is_hot_lead ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-100'}`}>
       <div className="flex items-start justify-between gap-3">
@@ -294,6 +300,12 @@ function ReferralCard({ c }: { c: Case }) {
             {buildHouseholdName(c.customers ?? null, c.case_household_members ?? [])}
           </p>
           <p className="text-xs text-slate-400 mt-0.5">{date}</p>
+          {lastContact && (
+            <p className="text-xs text-slate-400 mt-0.5">
+              {lastContact}
+              {touchCount > 0 && <span className="ml-1 text-slate-300">· {touchCount} touch{touchCount !== 1 ? 'es' : ''}</span>}
+            </p>
+          )}
         </div>
         <div className="flex flex-col items-end gap-1 flex-shrink-0">
           <div className="flex items-center gap-2">
@@ -314,12 +326,16 @@ function ReferralCard({ c }: { c: Case }) {
 }
 
 function PendingCard({ c }: { c: Case }) {
-  const label   = c.stage_translations?.agency_label ?? c.internal_status
-  const carrier = c.products?.carriers?.short_name
-  const product = c.products?.name
-  const face    = formatCurrency(c.face_amount)
-  const lsp     = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
-  const subtitle = [carrier, product, face].filter(Boolean).join(' · ')
+  const label       = c.stage_translations?.agency_label ?? c.internal_status
+  const carrier     = c.products?.carriers?.short_name
+  const product     = c.products?.name
+  const face        = formatCurrency(c.face_amount)
+  const lsp         = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
+  const subtitle    = [carrier, product, face].filter(Boolean).join(' · ')
+  const lastContact = c.last_contact_at
+    ? `Last contact ${fmtDate(c.last_contact_at, { month: 'short', day: 'numeric' })}`
+    : null
+  const touchCount  = c.touches ?? 0
   return (
     <div className={`rounded-xl border px-4 py-3 ${c.is_hot_lead ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-100'}`}>
       <div className="flex items-start justify-between gap-3">
@@ -329,6 +345,12 @@ function PendingCard({ c }: { c: Case }) {
             {buildHouseholdName(c.customers ?? null, c.case_household_members ?? [])}
           </p>
           {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
+          {lastContact && (
+            <p className="text-xs text-slate-400 mt-0.5">
+              {lastContact}
+              {touchCount > 0 && <span className="ml-1 text-slate-300">· {touchCount} touch{touchCount !== 1 ? 'es' : ''}</span>}
+            </p>
+          )}
         </div>
         <div className="flex flex-col items-end gap-1 flex-shrink-0">
           <div className="flex items-center gap-2">

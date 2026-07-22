@@ -26,13 +26,15 @@ export type CustomerDetail = {
 }
 
 export type LinkedCase = {
-  id:              string
-  internal_status: string
-  created_at:      string
-  placed_at:       string | null
-  face_amount:     number | null
-  annual_premium:  number | null
-  policy_number:   string | null
+  id:               string
+  internal_status:  string
+  created_at:       string
+  placed_at:        string | null
+  face_amount:      number | null
+  annual_premium:   number | null
+  policy_number:    string | null
+  touches:          number | null
+  last_contact_at:  string | null
   agencies: { name: string; display_name: string | null } | null
   stage_translations: {
     agency_label: string
@@ -118,6 +120,7 @@ export default async function CustomerCardPage({
     .from('cases')
     .select(`
       id, internal_status, created_at, placed_at, face_amount, annual_premium, policy_number,
+      touches, last_contact_at,
       agencies ( name, display_name ),
       stage_translations ( agency_label, is_won, is_lost ),
       products ( name, carriers ( short_name ) )

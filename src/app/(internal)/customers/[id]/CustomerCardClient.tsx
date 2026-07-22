@@ -7,7 +7,7 @@ import {
   ArrowLeft, Phone, Mail, MapPin, User,
   Shield, CheckCircle, ShieldOff, FileQuestion, Send,
   AlertTriangle, ChevronRight, Search, X, Trash2,
-  FolderKanban, Wrench, Link2, History, Compass, ChevronDown,
+  FolderKanban, Wrench, Link2, History, Compass, ChevronDown, ChevronUp,
   Pencil, Check, MessageSquare, Clipboard,
 } from 'lucide-react'
 import type {
@@ -123,6 +123,14 @@ function abbrevProduct(name: string | null | undefined): string | null {
   if (name.includes('Universal'))  return 'UL'
   if (name.includes('Whole'))      return 'WL'
   return null
+}
+
+const TOUCH_TYPE_LABELS: Record<string, string> = {
+  call:               'Call',
+  voicemail:          'Voicemail',
+  text:               'Text',
+  email:              'Email',
+  missed_appointment: 'Missed Appt.',
 }
 
 function SrStatusBadge({ status }: { status: string }) {
@@ -274,6 +282,10 @@ export function CustomerCardClient({
   const [deletingCase,      setDeletingCase]      = useState(false)
   const [caseDeleteErr,     setCaseDeleteErr]     = useState<string | null>(null)
 
+  const [expandedTouches, setExpandedTouches] = useState<Set<string>>(new Set())
+  const [touchLogCache,   setTouchLogCache]   = useState<Map<string, { touch_type: string; touched_at: string }[]>>(new Map())
+  const [touchLogLoading, setTouchLogLoading] = useState<Set<string>>(new Set())
+
   const [addingPolicy,    setAddingPolicy]    = useState(false)
   const [newCarrier,      setNewCarrier]      = useState('')
   const [newPolicyNum,    setNewPolicyNum]    = useState('')
@@ -405,6 +417,25 @@ export function CustomerCardClient({
       setLinkErr(e instanceof Error ? e.message : 'Link failed')
     } finally {
       setLinking(false)
+    }
+  }
+
+  async function toggleTouchLog(caseId: string) {
+    if (expandedTouches.has(caseId)) {
+      setExpandedTouches(prev => { const n = new Set(prev); n.delete(caseId); return n })
+      return
+    }
+    setExpandedTouches(prev => new Set([...prev, caseId]))
+    if (touchLogCache.has(caseId)) return
+    setTouchLogLoading(prev => new Set([...prev, caseId]))
+    try {
+      const res  = await fetch(`/api/cases/${caseId}/touch`)
+      const json = await res.json() as { data?: { touch_type: string; touched_at: string }[] }
+      setTouchLogCache(prev => new Map([...prev, [caseId, json.data ?? []]]))
+    } catch {
+      setTouchLogCache(prev => new Map([...prev, [caseId, []]]))
+    } finally {
+      setTouchLogLoading(prev => { const n = new Set(prev); n.delete(caseId); return n })
     }
   }
 
@@ -1260,12 +1291,17 @@ export function CustomerCardClient({
               </thead>
               <tbody className="divide-y divide-slate-800/60">
                 {cases.map(c => {
-                  const carrier = c.products?.carriers?.short_name ?? c.products?.name ?? null
-                  const dateLabel = c.placed_at
+                  const carrier      = c.products?.carriers?.short_name ?? c.products?.name ?? null
+                  const dateLabel    = c.placed_at
                     ? `Placed ${fmtDate(c.placed_at)}`
                     : `Created ${fmtDate(c.created_at)}`
+                  const touchExpanded = expandedTouches.has(c.id)
+                  const touchLoading  = touchLogLoading.has(c.id)
+                  const touchLog      = touchLogCache.get(c.id) ?? []
+                  const touchCount    = c.touches ?? 0
                   return (
-                  <tr key={c.id} className="hover:bg-slate-800/40 transition-colors">
+                  <Fragment key={c.id}>
+                  <tr className="hover:bg-slate-800/40 transition-colors">
                     <td className="px-5 py-3">
                       <p className="text-slate-300 text-sm">{c.agencies?.display_name ?? c.agencies?.name ?? '—'}</p>
                       {carrier && <p className="text-slate-500 text-xs mt-0.5">{carrier}</p>}
@@ -1277,7 +1313,15 @@ export function CustomerCardClient({
                       {c.policy_number ?? <span className="text-slate-700">—</span>}
                     </td>
                     <td className="px-4 py-3 text-right text-slate-200 text-sm">{fmt(c.face_amount)}</td>
-                    <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">{dateLabel}</td>
+                    <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
+                      <p>{dateLabel}</p>
+                      {c.last_contact_at && (
+                        <p className="text-slate-600 mt-0.5">
+                          Contact {fmtDate(c.last_contact_at)}
+                          {touchCount > 0 && <span className="ml-1">· {touchCount}×</span>}
+                        </p>
+                      )}
+                    </td>
                     <td className="px-4 py-3">
                       {confirmDeleteCase === c.id ? (
                         <div className="flex items-center justify-end gap-2">
@@ -1298,6 +1342,17 @@ export function CustomerCardClient({
                         </div>
                       ) : (
                         <div className="flex items-center justify-end gap-0.5">
+                          {touchCount > 0 && (
+                            <button
+                              onClick={() => toggleTouchLog(c.id)}
+                              className="p-0.5 text-slate-600 hover:text-slate-300 transition-colors"
+                              title="Touch log"
+                            >
+                              {touchExpanded
+                                ? <ChevronUp className="w-3.5 h-3.5" />
+                                : <ChevronDown className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
                           <Link
                             href={`/referrals/${c.id}`}
                             className="p-0.5 text-slate-600 hover:text-slate-300 transition-colors"
@@ -1317,6 +1372,34 @@ export function CustomerCardClient({
                       )}
                     </td>
                   </tr>
+                  {touchExpanded && (
+                    <tr className="bg-slate-800/30">
+                      <td colSpan={6} className="px-5 py-3">
+                        {touchLoading ? (
+                          <p className="text-xs text-slate-500">Loading…</p>
+                        ) : touchLog.length === 0 ? (
+                          <p className="text-xs text-slate-600 italic">No touches logged.</p>
+                        ) : (
+                          <div className="space-y-1.5">
+                            {touchLog.map((t, i) => (
+                              <div key={i} className="flex items-center gap-4 text-xs">
+                                <span className="font-medium text-slate-400 w-24 shrink-0">
+                                  {TOUCH_TYPE_LABELS[t.touch_type] ?? t.touch_type}
+                                </span>
+                                <span className="text-slate-500">
+                                  {new Date(t.touched_at).toLocaleString('en-US', {
+                                    month: 'short', day: 'numeric',
+                                    hour: 'numeric', minute: '2-digit',
+                                  })}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                  </Fragment>
                   )
                 })}
               </tbody>

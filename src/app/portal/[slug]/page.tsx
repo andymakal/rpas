@@ -71,6 +71,8 @@ export default async function PortalPage({
           annual_premium,
           is_hot_lead,
           lead_source,
+          touches,
+          last_contact_at,
           customers!customer_id ( first_name, last_name ),
           agents ( first_name, last_name ),
           stage_translations ( agency_label, tier, is_active_case, is_won, is_lost, is_prospect ),
