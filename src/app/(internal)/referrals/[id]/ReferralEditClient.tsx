@@ -2194,33 +2194,50 @@ export function ReferralEditClient({
           })()}
 
           {/* Quote Follow-Up — quoted */}
-          {referral.internal_status === 'quoted' && (
-            <div className="rounded-xl border border-blue-800/40 bg-blue-950/20 p-5 space-y-3">
-              <div className="flex items-center gap-2">
-                <Mail className="w-4 h-4 text-blue-400" />
-                <h2 className="text-sm font-semibold text-blue-300">Send Quote Follow-Up</h2>
+          {referral.internal_status === 'quoted' && (() => {
+            const todayStr = new Date().toISOString().slice(0, 10)
+            const followUpDue = !!(referral.follow_up_date && referral.follow_up_date <= todayStr)
+            const daysOverdue = referral.follow_up_date
+              ? Math.floor((new Date(todayStr).getTime() - new Date(referral.follow_up_date).getTime()) / 86_400_000)
+              : 0
+            return (
+              <div className={`rounded-xl border p-5 space-y-3 ${followUpDue ? 'border-amber-700/60 bg-amber-950/30' : 'border-blue-800/40 bg-blue-950/20'}`}>
+                <div className="flex items-center gap-2">
+                  <Mail className={`w-4 h-4 ${followUpDue ? 'text-amber-400' : 'text-blue-400'}`} />
+                  <h2 className={`text-sm font-semibold ${followUpDue ? 'text-amber-300' : 'text-blue-300'}`}>Send Quote Follow-Up</h2>
+                  {followUpDue && (
+                    <span className="ml-auto text-xs font-medium text-amber-400">
+                      {daysOverdue === 0 ? 'Due today' : `${daysOverdue}d overdue`}
+                    </span>
+                  )}
+                </div>
+                <p className={`text-xs leading-relaxed ${followUpDue ? 'text-amber-300/80' : 'text-slate-400'}`}>
+                  {followUpDue
+                    ? `Time to check back in with ${cFirstName}${daysOverdue > 0 ? ` — it's been ${daysOverdue} day${daysOverdue !== 1 ? 's' : ''} since the quote` : ''}.`
+                    : `Check in with ${cFirstName} after the quote.`
+                  }
+                </p>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Your name</label>
+                  <input value={emailSenderName} onChange={e => setEmailSenderName(e.target.value)}
+                    placeholder="Dulce"
+                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600" />
+                </div>
+                <a href={buildMailto(
+                    referral.customers?.email,
+                    TEMPLATES.quote_followup.subject,
+                    interpolate(TEMPLATES.quote_followup.body, {
+                      first_name:  cFirstName,
+                      sender_name: emailSenderName || '{sender_name}',
+                    })
+                  )}
+                  className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${referral.customers?.email ? followUpDue ? 'text-white bg-amber-700 hover:bg-amber-600' : 'text-white bg-blue-700 hover:bg-blue-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}>
+                  <Mail className="w-3.5 h-3.5" />
+                  {referral.customers?.email ? 'Open in Outlook' : 'No client email on file'}
+                </a>
               </div>
-              <p className="text-xs text-slate-400">Check in with {cFirstName} after the quote.</p>
-              <div>
-                <label className="block text-xs text-slate-500 mb-1">Your name</label>
-                <input value={emailSenderName} onChange={e => setEmailSenderName(e.target.value)}
-                  placeholder="Dulce"
-                  className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600" />
-              </div>
-              <a href={buildMailto(
-                  referral.customers?.email,
-                  TEMPLATES.quote_followup.subject,
-                  interpolate(TEMPLATES.quote_followup.body, {
-                    first_name:  cFirstName,
-                    sender_name: emailSenderName || '{sender_name}',
-                  })
-                )}
-                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${referral.customers?.email ? 'text-white bg-blue-700 hover:bg-blue-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}>
-                <Mail className="w-3.5 h-3.5" />
-                {referral.customers?.email ? 'Open in Outlook' : 'No client email on file'}
-              </a>
-            </div>
-          )}
+            )
+          })()}
 
           {/* 3 — Quote Info */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">

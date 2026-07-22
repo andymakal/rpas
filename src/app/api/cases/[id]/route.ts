@@ -197,6 +197,18 @@ export async function PATCH(
       updates.submitted_at = new Date().toISOString()
     }
 
+    // Auto-set follow-up 3 days out when a quote is first provided,
+    // unless the producer already picked a specific date.
+    if (
+      updates.internal_status === 'quoted' &&
+      current?.internal_status !== 'quoted' &&
+      !updates.follow_up_date
+    ) {
+      const d = new Date()
+      d.setDate(d.getDate() + 3)
+      updates.follow_up_date = d.toISOString().slice(0, 10)
+    }
+
     if (updates.internal_status === 'placed' && !updates.placed_at) {
       updates.placed_at = new Date().toISOString()
       let clientName = 'Unknown'
