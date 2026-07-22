@@ -20,6 +20,7 @@ type StageTranslation = {
 
 export type Case = {
   id: string
+  agency_id: string
   internal_status: string
   created_at: string
   placed_at: string | null
@@ -294,7 +295,14 @@ function SectionHeader({ label, count, green }: { label: string; count: number; 
 
 // ── Case cards ────────────────────────────────────────────────────────────────
 
-function ReferralCard({ c }: { c: Case }) {
+function BookTag({ label }: { label?: string }) {
+  if (!label) return null
+  return (
+    <span className="text-xs font-medium text-indigo-400 tracking-wide">{label}</span>
+  )
+}
+
+function ReferralCard({ c, bookLabel }: { c: Case; bookLabel?: string }) {
   const label       = c.stage_translations?.agency_label ?? c.internal_status
   const date        = fmtDate(c.created_at)
   const lsp         = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
@@ -329,6 +337,7 @@ function ReferralCard({ c }: { c: Case }) {
             <p className="text-xs font-medium text-indigo-500">EFS Generated</p>
           )}
           {lsp && <p className="text-xs text-slate-400">{lsp}</p>}
+          <BookTag label={bookLabel} />
         </div>
       </div>
       <TouchLog caseId={c.id} />
@@ -336,7 +345,7 @@ function ReferralCard({ c }: { c: Case }) {
   )
 }
 
-function PendingCard({ c }: { c: Case }) {
+function PendingCard({ c, bookLabel }: { c: Case; bookLabel?: string }) {
   const label       = c.stage_translations?.agency_label ?? c.internal_status
   const carrier     = c.products?.carriers?.short_name
   const product     = c.products?.name
@@ -374,6 +383,7 @@ function PendingCard({ c }: { c: Case }) {
             <p className="text-xs font-medium text-indigo-500">EFS Generated</p>
           )}
           {lsp && <p className="text-xs text-slate-400">{lsp}</p>}
+          <BookTag label={bookLabel} />
         </div>
       </div>
       <TouchLog caseId={c.id} />
@@ -381,7 +391,7 @@ function PendingCard({ c }: { c: Case }) {
   )
 }
 
-function PlacedCard({ c }: { c: Case }) {
+function PlacedCard({ c, bookLabel }: { c: Case; bookLabel?: string }) {
   const carrier = c.products?.carriers?.short_name
   const product = c.products?.name
   const face    = formatCurrency(c.face_amount)
@@ -407,16 +417,18 @@ function PlacedCard({ c }: { c: Case }) {
             <p className="text-xs font-medium text-indigo-500">EFS Generated</p>
           )}
           {lsp && <p className="text-xs text-slate-400">{lsp}</p>}
+          <BookTag label={bookLabel} />
         </div>
       </div>
     </div>
   )
 }
 
-function ClosedCard({ c, agentFilter, onRewarm }: {
+function ClosedCard({ c, agentFilter, onRewarm, bookLabel }: {
   c: Case
   agentFilter: string
   onRewarm: (caseId: string, note: string, lspName: string) => Promise<void>
+  bookLabel?: string
 }) {
   const [expanded, setExpanded]       = useState(false)
   const [note, setNote]               = useState('')
@@ -466,6 +478,7 @@ function ClosedCard({ c, agentFilter, onRewarm }: {
             <p className="text-xs font-medium text-indigo-500">EFS Generated</p>
           )}
           {lsp && <p className="text-xs text-slate-400">{lsp}</p>}
+          <BookTag label={bookLabel} />
           </div>
         </div>
       </div>
@@ -512,10 +525,11 @@ function ClosedCard({ c, agentFilter, onRewarm }: {
 // Lets the LSP signal that the client is still interested, which moves the
 // case back to triage so the RP team can pick it up again.
 
-function LspReEngageCard({ c, agentFilter, onReengage }: {
+function LspReEngageCard({ c, agentFilter, onReengage, bookLabel }: {
   c: Case
   agentFilter: string
   onReengage: (caseId: string, note: string, lspName: string) => Promise<void>
+  bookLabel?: string
 }) {
   const [expanded, setExpanded]       = useState(false)
   const [note, setNote]               = useState('')
@@ -560,6 +574,7 @@ function LspReEngageCard({ c, agentFilter, onReengage }: {
             <p className="text-xs font-medium text-indigo-500">EFS Generated</p>
           )}
           {lsp && <p className="text-xs text-slate-400">{lsp}</p>}
+          <BookTag label={bookLabel} />
           </div>
         </div>
       </div>
@@ -1040,6 +1055,7 @@ export function AgencyPortal({
   gdcRecords,
   portalContent,
   recentActivity,
+  bookLabels,
 }: {
   agency:          AgencyProps
   cases:           Case[]
@@ -1052,6 +1068,7 @@ export function AgencyPortal({
   gdcRecords:      GdcRecord[]
   portalContent:   PortalContent[]
   recentActivity:  ActivityEntry[]
+  bookLabels:      Map<string, string>
 }) {
   const router = useRouter()
   const [agentFilter, setAgentFilter] = useState('')
@@ -1295,8 +1312,8 @@ export function AgencyPortal({
                 <div className="space-y-2">
                   {referrals.map(c =>
                     c.internal_status === 'lsp_contact_needed'
-                      ? <LspReEngageCard key={c.id} c={c} agentFilter={agentFilter} onReengage={handleLspReengage} />
-                      : <ReferralCard    key={c.id} c={c} />
+                      ? <LspReEngageCard key={c.id} c={c} agentFilter={agentFilter} onReengage={handleLspReengage} bookLabel={bookLabels.get(c.agency_id)} />
+                      : <ReferralCard    key={c.id} c={c} bookLabel={bookLabels.get(c.agency_id)} />
                   )}
                 </div>
               </div>
@@ -1307,7 +1324,7 @@ export function AgencyPortal({
               <div>
                 <SectionHeader label="Pending Business" count={pendingCases.length} />
                 <div className="space-y-2">
-                  {pendingCases.map(c => <PendingCard key={c.id} c={c} />)}
+                  {pendingCases.map(c => <PendingCard key={c.id} c={c} bookLabel={bookLabels.get(c.agency_id)} />)}
                 </div>
               </div>
             )}
@@ -1317,7 +1334,7 @@ export function AgencyPortal({
               <div>
                 <SectionHeader label="Placed Policies" count={placedCases.length} green />
                 <div className="space-y-2">
-                  {placedCases.map(c => <PlacedCard key={c.id} c={c} />)}
+                  {placedCases.map(c => <PlacedCard key={c.id} c={c} bookLabel={bookLabels.get(c.agency_id)} />)}
                 </div>
               </div>
             )}
@@ -1328,7 +1345,7 @@ export function AgencyPortal({
                 <SectionHeader label="Parked Prospects" count={prospectCases.length} />
                 <div className="space-y-2">
                   {prospectCases.map(c => (
-                    <ClosedCard key={c.id} c={c} agentFilter={agentFilter} onRewarm={handleRewarm} />
+                    <ClosedCard key={c.id} c={c} agentFilter={agentFilter} onRewarm={handleRewarm} bookLabel={bookLabels.get(c.agency_id)} />
                   ))}
                 </div>
               </div>
@@ -1340,7 +1357,7 @@ export function AgencyPortal({
                 <SectionHeader label="Closed / Paused" count={closedCases.length} />
                 <div className="space-y-2">
                   {closedCases.map(c => (
-                    <ClosedCard key={c.id} c={c} agentFilter={agentFilter} onRewarm={handleRewarm} />
+                    <ClosedCard key={c.id} c={c} agentFilter={agentFilter} onRewarm={handleRewarm} bookLabel={bookLabels.get(c.agency_id)} />
                   ))}
                 </div>
               </div>

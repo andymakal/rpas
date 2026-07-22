@@ -55,6 +55,28 @@ export default async function PortalPage({
   const ownerToken = cookieStore.get(`rpas_portal_${slug}_owner`)?.value
   const isOwner    = !!(ownerToken && ownerToken === agency.dashboard_token)
 
+  // Acquired books — child agencies whose data rolls up into this portal
+  type ChildAgency = { id: string; name: string; display_name: string | null }
+  const { data: childAgenciesRaw } = await supabase
+    .from('agencies')
+    .select('id, name, display_name')
+    .eq('parent_agency_id', agency.id)
+    .eq('is_active', true)
+  const childAgencies = (childAgenciesRaw ?? []) as ChildAgency[]
+
+  // All agency IDs whose data should appear on this portal
+  const agencyIds = [agency.id, ...childAgencies.map(c => c.id)]
+
+  // Book labels — shown on case cards when multiple books are rolled up
+  const bookLabels = new Map<string, string>()
+  if (agencyIds.length > 1) {
+    const agencyTyped = agency as { display_name: string | null; name: string }
+    bookLabels.set(agency.id, agencyTyped.display_name ?? agencyTyped.name)
+    for (const c of childAgencies) {
+      bookLabels.set(c.id, c.display_name ?? c.name)
+    }
+  }
+
   const year      = new Date().getFullYear()
   const yearStart = `${year}-01-01`
   const yearEnd   = `${year}-12-31`
@@ -65,6 +87,7 @@ export default async function PortalPage({
         .from('cases')
         .select(`
           id,
+          agency_id,
           internal_status,
           created_at,
           placed_at,
@@ -80,21 +103,21 @@ export default async function PortalPage({
           products ( name, carriers ( short_name ) ),
           case_household_members!case_id ( first_name, last_name )
         `)
-        .eq('agency_id', agency.id)
+        .in('agency_id', agencyIds)
         .eq('is_test', false)
         .order('created_at', { ascending: false }),
 
       supabase
         .from('gdc_records')
         .select('production_credit')
-        .eq('agency_id', agency.id)
+        .in('agency_id', agencyIds)
         .gte('process_date', yearStart)
         .lte('process_date', yearEnd),
 
       supabase
         .from('gdc_records')
         .select('policy_number')
-        .eq('agency_id', agency.id)
+        .in('agency_id', agencyIds)
         .gte('process_date', yearStart)
         .lte('process_date', yearEnd)
         .eq('policy_count', 1),
@@ -107,7 +130,7 @@ export default async function PortalPage({
           date_received, date_resolved, created_at,
           service_policies!inner ( client_name, policy_number, agents ( first_name, last_name ) )
         `)
-        .eq('service_policies.agency_id', agency.id)
+        .in('service_policies.agency_id', agencyIds)
         .eq('is_test', false)
         .order('created_at', { ascending: false })
         .limit(20),
@@ -120,7 +143,7 @@ export default async function PortalPage({
           assigned_to, outcome, call_completed_at, created_at,
           service_policies!inner ( client_name, policy_number, agents ( first_name, last_name ) )
         `)
-        .eq('service_policies.agency_id', agency.id)
+        .in('service_policies.agency_id', agencyIds)
         .eq('is_test', false)
         .order('created_at', { ascending: false })
         .limit(20),
@@ -128,12 +151,12 @@ export default async function PortalPage({
       supabase
         .from('spiff_records')
         .select('id, earned_at, paid_at, amount, agents ( first_name, last_name )')
-        .eq('agency_id', agency.id)
+        .in('agency_id', agencyIds)
         .gte('earned_at', yearStart)
         .lte('earned_at', yearEnd)
         .order('earned_at', { ascending: false }),
 
-      // Portal content: global (agency_id null) + agency-specific
+      // Portal content: global (agency_id null) + primary agency-specific
       supabase
         .from('portal_content')
         .select('id, agency_id, content_type, title, body, link, link_label, sort_order, expires_at')
@@ -155,7 +178,7 @@ export default async function PortalPage({
     (appResult.data ?? []).map(r => r.policy_number).filter(Boolean)
   ).size
 
-  // Recent activity feed — last 20 touches across this agency's cases
+  // Recent activity feed — last 20 touches across all agencies on this portal
   const caseIds = (casesResult.data ?? []).map(c => c.id)
   let recentActivity: ActivityEntry[] = []
   if (caseIds.length > 0) {
@@ -168,13 +191,13 @@ export default async function PortalPage({
     recentActivity = (activityData ?? []) as ActivityEntry[]
   }
 
-  // Owner-only: full GDC transaction detail (including chargebacks)
+  // Owner-only: full GDC transaction detail (including chargebacks), all books
   let gdcRecords: GdcRecord[] = []
   if (isOwner) {
     const { data } = await supabase
       .from('gdc_records')
       .select('id, policy_number, insured_name, product, production_credit, app_date, process_date, allstate_partner_number')
-      .eq('agency_id', agency.id)
+      .in('agency_id', agencyIds)
       .gte('process_date', yearStart)
       .lte('process_date', yearEnd)
       .order('process_date', { ascending: false })
@@ -210,6 +233,7 @@ export default async function PortalPage({
       gdcRecords={gdcRecords}
       portalContent={portalContent}
       recentActivity={recentActivity}
+      bookLabels={bookLabels}
     />
   )
 }

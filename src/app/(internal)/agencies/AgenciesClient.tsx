@@ -11,8 +11,8 @@ type Props = {
 }
 
 type EditState = {
-  name:           string
-  display_name:   string
+  name:             string
+  display_name:     string
   sml_team_id:    string
   is_active:      boolean
   agent_number:   string
@@ -22,8 +22,9 @@ type EditState = {
   contact_city:   string
   contact_state:  string
   contact_zip:    string
-  portal_pin:     string
-  slug:           string
+  portal_pin:       string
+  slug:             string
+  parent_agency_id: string
 }
 
 type RowStatus = 'idle' | 'saving' | 'saved' | 'error'
@@ -41,8 +42,9 @@ function toEdit(a: AgencyRow): EditState {
     contact_city:   a.contact_city ?? '',
     contact_state:  a.contact_state ?? '',
     contact_zip:    a.contact_zip ?? '',
-    portal_pin:     a.portal_pin ?? '',
-    slug:           a.slug,
+    portal_pin:       a.portal_pin ?? '',
+    slug:             a.slug,
+    parent_agency_id: a.parent_agency_id ?? '',
   }
 }
 
@@ -73,7 +75,8 @@ function isDirty(a: AgencyRow, e: EditState) {
     (e.contact_state  || null) !== (a.contact_state  ?? null) ||
     (e.contact_zip    || null) !== (a.contact_zip    ?? null) ||
     (e.portal_pin     || null) !== (a.portal_pin     ?? null) ||
-    e.slug                     !== a.slug
+    e.slug                     !== a.slug                     ||
+    (e.parent_agency_id || null) !== (a.parent_agency_id ?? null)
   )
 }
 
@@ -129,8 +132,9 @@ export function AgenciesClient({ agencies, teams }: Props) {
         contact_city:   edit.contact_city   || null,
         contact_state:  edit.contact_state  || null,
         contact_zip:    edit.contact_zip    || null,
-        portal_pin:     edit.portal_pin     || null,
-        slug:           edit.slug,
+        portal_pin:       edit.portal_pin       || null,
+        slug:             edit.slug,
+        parent_agency_id: edit.parent_agency_id || null,
       }),
     })
 
@@ -364,13 +368,18 @@ export function AgenciesClient({ agencies, teams }: Props) {
                   <tr key={agency.id} className="border-b border-slate-800 last:border-0 hover:bg-slate-800/30">
                     {/* Display name */}
                     <td className="py-2.5 px-4">
-                      <input
-                        type="text"
-                        value={edit?.display_name ?? ''}
-                        onChange={e => update(agency.id, 'display_name', e.target.value)}
-                        placeholder="Agent name…"
-                        className={INPUT}
-                      />
+                      <div className="flex items-center gap-1.5">
+                        {agency.parent_agency_id && (
+                          <span className="shrink-0 text-xs text-slate-600 font-medium border border-slate-700 rounded px-1.5 py-0.5 leading-none">sub</span>
+                        )}
+                        <input
+                          type="text"
+                          value={edit?.display_name ?? ''}
+                          onChange={e => update(agency.id, 'display_name', e.target.value)}
+                          placeholder="Agent name…"
+                          className={INPUT}
+                        />
+                      </div>
                     </td>
 
                     {/* Allstate business name */}
@@ -538,7 +547,7 @@ export function AgenciesClient({ agencies, teams }: Props) {
                               />
                             </div>
                           </div>
-                          <div className="col-span-7 border-t border-slate-700/50 pt-3 flex items-end gap-3">
+                          <div className="col-span-7 border-t border-slate-700/50 pt-3 flex items-end gap-3 flex-wrap">
                             <div className="w-40">
                               <label className="text-xs text-slate-500 mb-1 block">Portal PIN</label>
                               <input
@@ -549,9 +558,28 @@ export function AgenciesClient({ agencies, teams }: Props) {
                                 className={INPUT}
                               />
                             </div>
-                            <p className="text-xs text-slate-600 pb-2">
+                            <p className="text-xs text-slate-600 pb-2 flex-1">
                               If set, agencies must enter this PIN to view their portal. Leave blank to keep the portal publicly accessible by URL.
                             </p>
+                            <div className="w-56">
+                              <label className="text-xs text-slate-500 mb-1 block">Rolls up into (parent agency)</label>
+                              <select
+                                value={edit?.parent_agency_id ?? ''}
+                                onChange={e => update(agency.id, 'parent_agency_id', e.target.value)}
+                                className={INPUT}
+                              >
+                                <option value="">— standalone agency</option>
+                                {agencies
+                                  .filter(a => a.id !== agency.id && !a.parent_agency_id)
+                                  .sort((a, b) => (a.display_name ?? a.name).localeCompare(b.display_name ?? b.name))
+                                  .map(a => (
+                                    <option key={a.id} value={a.id}>
+                                      {a.display_name ?? a.name}
+                                    </option>
+                                  ))}
+                              </select>
+                              <p className="text-xs text-slate-600 mt-1">Data from this agency rolls up into the parent&apos;s portal.</p>
+                            </div>
                           </div>
                         </div>
                       </td>
