@@ -11,6 +11,7 @@ type Props = {
 }
 
 type EditState = {
+  name:           string
   display_name:   string
   sml_team_id:    string
   is_active:      boolean
@@ -29,6 +30,7 @@ type RowStatus = 'idle' | 'saving' | 'saved' | 'error'
 
 function toEdit(a: AgencyRow): EditState {
   return {
+    name:           a.name,
     display_name:   a.display_name ?? '',
     sml_team_id:    a.sml_team_id ?? '',
     is_active:      a.is_active,
@@ -59,6 +61,7 @@ const BLANK: NewAgencyForm = { name: '', display_name: '', slug: '', sml_team_id
 
 function isDirty(a: AgencyRow, e: EditState) {
   return (
+    e.name                     !== a.name                     ||
     (e.display_name   || null) !== (a.display_name   ?? null) ||
     (e.sml_team_id    || null) !== (a.sml_team_id    ?? null) ||
     e.is_active                !== a.is_active                ||
@@ -115,6 +118,7 @@ export function AgenciesClient({ agencies, teams }: Props) {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        name:           edit.name           || null,
         display_name:   edit.display_name   || null,
         sml_team_id:    edit.sml_team_id    || null,
         is_active:      edit.is_active,
@@ -369,9 +373,15 @@ export function AgenciesClient({ agencies, teams }: Props) {
                       />
                     </td>
 
-                    {/* Allstate business name — read only */}
-                    <td className="py-2.5 px-4 text-xs text-slate-500 max-w-[200px] truncate">
-                      {agency.name}
+                    {/* Allstate business name */}
+                    <td className="py-2.5 px-4">
+                      <input
+                        type="text"
+                        value={edit?.name ?? ''}
+                        onChange={e => update(agency.id, 'name', e.target.value)}
+                        placeholder="e.g. BOB SMITH AGENCY INC"
+                        className={INPUT}
+                      />
                     </td>
 
                     {/* SML team */}
