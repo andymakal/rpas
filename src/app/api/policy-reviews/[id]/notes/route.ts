@@ -55,9 +55,6 @@ export async function POST(
     .select('customer_id')
     .eq('id', reviewRow.policy_id)
     .single()
-  if (!policyRow?.customer_id) {
-    return Response.json({ error: 'Policy review has no linked customer — link this policy to a customer first' }, { status: 422 })
-  }
 
   const { data: profile } = await supabase
     .from('staff_profiles')
@@ -69,7 +66,7 @@ export async function POST(
   const { data, error } = await supabase
     .from('customer_notes')
     .insert({
-      customer_id:     policyRow.customer_id,
+      customer_id:     policyRow?.customer_id ?? null,
       policy_review_id: id,
       section,
       author_id:       user.id,
