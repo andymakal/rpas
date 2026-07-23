@@ -87,6 +87,7 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
   const [tab, setTab]                   = useState<'active' | 'all' | 'closed'>('active')
   const [statusFilter, setStatusFilter] = useState('')
   const [agencyFilter, setAgencyFilter] = useState('')
+  const [sourceFilter, setSourceFilter] = useState('')
   const [sortKey, setSortKey]           = useState<SortKey>('date')
   const [sortDir, setSortDir]           = useState<'desc' | 'asc'>('desc')
 
@@ -140,6 +141,8 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
         (r.agencies?.display_name ?? r.agencies?.name ?? '') === agencyFilter
       )
     }
+
+    if (sourceFilter) list = list.filter(r => r.lead_source === sourceFilter)
 
     if (search.trim()) {
       const q = search.trim().toLowerCase()
@@ -201,7 +204,7 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
           {tabs.map(t => (
             <button
               key={t.key}
-              onClick={() => { setTab(t.key); setStatusFilter(''); setAgencyFilter('') }}
+              onClick={() => { setTab(t.key); setStatusFilter(''); setAgencyFilter(''); setSourceFilter('') }}
               className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                 tab === t.key
                   ? 'bg-slate-700 text-white'
@@ -215,6 +218,17 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
 
         {/* Filters */}
         <div className="flex items-center gap-2 flex-wrap">
+          <select
+            value={sourceFilter}
+            onChange={e => setSourceFilter(e.target.value)}
+            className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-slate-500"
+          >
+            <option value="">All sources</option>
+            <option value="agency_referral">Agency Referral</option>
+            <option value="allstate_web">Allstate.com</option>
+            <option value="self_generated">Self Generated</option>
+          </select>
+
           <select
             value={agencyFilter}
             onChange={e => setAgencyFilter(e.target.value)}
@@ -315,6 +329,11 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
                       {r.is_owner_referral && (
                         <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-violet-900/50 text-violet-300 border border-violet-800 flex-shrink-0">
                           Owner
+                        </span>
+                      )}
+                      {r.lead_source === 'allstate_web' && (
+                        <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-sky-900/50 text-sky-300 border border-sky-800 flex-shrink-0">
+                          Allstate.com
                         </span>
                       )}
                     </div>

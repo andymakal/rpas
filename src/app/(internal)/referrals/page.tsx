@@ -23,6 +23,7 @@ export type CaseRow = {
   touches: number | null
   is_hot_lead: boolean
   is_owner_referral: boolean
+  lead_source: string | null
   agencies: { name: string; display_name: string | null } | null
   customers: { first_name: string; last_name: string; phone: string } | null
   agents: { first_name: string; last_name: string } | null
@@ -48,6 +49,7 @@ export default async function ReferralsPage() {
       touches,
       is_hot_lead,
       is_owner_referral,
+      lead_source,
       agencies ( name, display_name ),
       customers!customer_id ( first_name, last_name, phone ),
       agents ( first_name, last_name ),
