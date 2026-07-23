@@ -178,7 +178,7 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
     })
 
     return list
-  }, [rows, tab, statusFilter, agencyFilter, search, sortKey, sortDir])
+  }, [rows, tab, statusFilter, agencyFilter, sourceFilter, search, sortKey, sortDir])
 
   const activeCount = rows.filter(r => r.stage_translations?.is_active_case === true).length
 
