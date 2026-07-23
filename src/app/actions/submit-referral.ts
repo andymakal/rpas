@@ -212,7 +212,21 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       return { success: false, error: 'Failed to save referral. Please try again.' }
     }
 
-    // 5. Insert household members if provided
+    // 5. Write LSP's free-text intake notes into customer_notes so they appear
+    //    on the referral detail page's notes log (cases.notes stores structured
+    //    metadata for Triage; customer_notes is where the detail view reads from)
+    if (form.notes?.trim()) {
+      await supabase.from('customer_notes').insert({
+        customer_id:  customerId,
+        case_id:      newCase.id,
+        section:      'triage',
+        author_id:    '1a153da7-a0f8-4742-82c1-8a0ed5969268', // system — same as migration attribution
+        author_name:  `${form.lsp_name} (intake)`,
+        body:         form.notes.trim(),
+      })
+    }
+
+    // 6. Insert household members if provided
     if (form.household_members && form.household_members.length > 0) {
       await supabase.from('case_household_members').insert(
         form.household_members
@@ -226,7 +240,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       )
     }
 
-    // 7. Create in-app notification — routing label baked in so anyone who answers knows where it goes
+    // 8. Create in-app notification — routing label baked in so anyone who answers knows where it goes — routing label baked in so anyone who answers knows where it goes
     const notifTitle = form.referral_type === 'existing_service'
       ? `Service request: ${form.client_first_name} ${form.client_last_name}`
       : `New referral: ${form.client_first_name} ${form.client_last_name}`
