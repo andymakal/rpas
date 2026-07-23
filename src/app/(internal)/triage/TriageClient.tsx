@@ -328,6 +328,11 @@ function TriageRow({
                 Owner
               </span>
             )}
+            {c.lead_source === 'allstate_web' && (
+              <span className="text-xs font-medium text-sky-300 bg-sky-900/40 border border-sky-800 rounded px-1.5 py-0.5">
+                Allstate.com
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-3 mt-0.5">
             {c.customers?.phone && (
@@ -551,7 +556,7 @@ function TriageRow({
                   last_name:    c.customers?.last_name  ?? '',
                   lsp_first_name: c.agents?.first_name  ?? '',
                   agency_name:  c.agencies?.display_name ?? c.agencies?.name ?? '',
-                  topic:        TOPIC_MAP[/* lead_source not in TriageCase type */ ''] ?? 'life insurance',
+                  topic:        TOPIC_MAP[c.lead_source ?? ''] ?? 'life insurance',
                 }
                 return (
                   <div className="rounded-lg bg-orange-950/30 border border-orange-900/40 p-3 space-y-3">
@@ -696,6 +701,7 @@ function TriageRow({
 export function TriageClient({ cases }: { cases: TriageCase[] }) {
   const [search,       setSearch]       = useState('')
   const [agencyFilter, setAgencyFilter] = useState('')
+  const [sourceFilter, setSourceFilter] = useState('')
 
   const today = useMemo(() => todayString(), [])
 
@@ -715,6 +721,7 @@ export function TriageClient({ cases }: { cases: TriageCase[] }) {
         (c.agencies?.display_name ?? c.agencies?.name ?? '') === agencyFilter
       )
     }
+    if (sourceFilter) list = list.filter(c => c.lead_source === sourceFilter)
     if (search.trim()) {
       const q = search.toLowerCase()
       list = list.filter(c => {
@@ -726,7 +733,7 @@ export function TriageClient({ cases }: { cases: TriageCase[] }) {
       })
     }
     return list
-  }, [cases, agencyFilter, search])
+  }, [cases, agencyFilter, sourceFilter, search])
 
   const filteredIds = useMemo(() => filtered.map(c => c.id), [filtered])
 
@@ -793,6 +800,17 @@ export function TriageClient({ cases }: { cases: TriageCase[] }) {
         </div>
 
         <div className="flex items-center gap-2 flex-wrap">
+          <select
+            value={sourceFilter}
+            onChange={e => setSourceFilter(e.target.value)}
+            className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-slate-500"
+          >
+            <option value="">All sources</option>
+            <option value="agency_referral">Agency Referral</option>
+            <option value="allstate_web">Allstate.com</option>
+            <option value="self_generated">Self Generated</option>
+          </select>
+
           <select
             value={agencyFilter}
             onChange={e => setAgencyFilter(e.target.value)}

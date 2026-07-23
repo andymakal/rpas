@@ -11,6 +11,7 @@ export type TriageCase = {
   created_at: string
   is_hot_lead: boolean
   is_owner_referral: boolean
+  lead_source: string | null
   notes: string | null
   allstate_policy_number: string | null
   touches: number | null
@@ -44,6 +45,7 @@ export default async function TriagePage() {
       created_at,
       is_hot_lead,
       is_owner_referral,
+      lead_source,
       notes,
       allstate_policy_number,
       touches,
