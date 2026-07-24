@@ -59,9 +59,10 @@ function fmtCurrency(val: number | null | undefined): string {
 }
 
 function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleString('en-US', {
-    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
-  })
+  const dt = new Date(iso)
+  const d = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const t = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+  return `${d} · ${t}`
 }
 
 function fmtRelative(iso: string | null): string {
@@ -1083,14 +1084,17 @@ export default function CaseEditClient({
                   {touchLog.map(t => {
                     const typeInfo = TOUCH_TYPES.find(x => x.value === t.touch_type)
                     return (
-                      <div key={t.id} className="px-5 py-3 space-y-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium border ${TOUCH_COLORS[t.touch_type] ?? TOUCH_COLORS.call}`}>
+                      <div key={t.id} className="px-5 py-3">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium border shrink-0 ${TOUCH_COLORS[t.touch_type] ?? TOUCH_COLORS.call}`}>
                             {typeInfo?.icon}{typeInfo?.short ?? t.touch_type}
                           </span>
-                          <span suppressHydrationWarning className="text-xs text-slate-500 flex-shrink-0">{fmtTime(t.touched_at)}</span>
+                          {t.touched_by && (
+                            <span className="text-xs font-medium text-slate-300">{t.touched_by}</span>
+                          )}
+                          <span suppressHydrationWarning className="text-xs text-slate-600">{fmtTime(t.touched_at)}</span>
                         </div>
-                        {t.notes && <p className="text-xs text-slate-400 pl-0.5">{t.notes}</p>}
+                        {t.notes && <p className="text-xs text-slate-400">{t.notes}</p>}
                       </div>
                     )
                   })}

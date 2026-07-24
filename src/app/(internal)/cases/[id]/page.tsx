@@ -115,7 +115,7 @@ export type PremiumModeLookup = { id: string; name: string }
 export type LostReasonLookup = { id: string; agency_label: string }
 export type SnoozeReasonLookup = { id: string; agency_label: string }
 export type PendingRequirementLookup = { id: string; name: string; sort_order: number; has_date_fields: boolean }
-export type TouchLog = { id: string; touch_type: string; notes: string | null; touched_at: string }
+export type TouchLog = { id: string; touch_type: string; notes: string | null; touched_at: string; touched_by: string | null }
 export type StatusHistoryEntry = { id: string; from_status: string | null; to_status: string; changed_at: string }
 export type SiblingCase = {
   id: string
@@ -213,7 +213,7 @@ export default async function CaseDetailPage({
       .order('sort_order'),
     supabase
       .from('case_touches')
-      .select('id, touch_type, notes, touched_at')
+      .select('id, touch_type, notes, touched_at, touched_by')
       .eq('case_id', id)
       .order('touched_at', { ascending: false }),
     supabase
