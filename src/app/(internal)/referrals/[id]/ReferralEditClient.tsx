@@ -935,13 +935,13 @@ export function ReferralEditClient({
       const res = await fetch(`/api/cases/${referral.id}/touch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ touch_types: keys }),
+        body: JSON.stringify({ touch_types: keys, notes: touchNote.trim() || undefined }),
       })
       if (res.ok) {
         const { data } = await res.json()
         setTouches(data.touches)
         setLastContact(data.last_contact_at)
-        setSelectedTouches(new Set()); setLogOpen(false); setHistoryOpen(true)
+        setTouchNote(''); setSelectedTouches(new Set()); setLogOpen(false); setHistoryOpen(true)
         if (data.advanced_to_active) router.refresh()
       }
     } finally { setLogging(false) }
@@ -1031,11 +1031,9 @@ export function ReferralEditClient({
                 )
               })}
             </div>
-            {selectedTouches.size <= 1 && (
-              <textarea value={touchNote} onChange={e => setTouchNote(e.target.value)} rows={2}
-                placeholder="Optional note — left VM, will try again Thursday, etc."
-                className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600 resize-none" />
-            )}
+            <textarea value={touchNote} onChange={e => setTouchNote(e.target.value)} rows={2}
+              placeholder="Optional note — left VM, will try again Thursday, etc."
+              className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600 resize-none" />
             <div className="flex items-center justify-end gap-3">
               <button onClick={() => { setLogOpen(false); setSelectedTouches(new Set()) }}
                 className="text-sm text-slate-400 hover:text-slate-200">Cancel</button>
