@@ -108,9 +108,10 @@ function daysAgo(iso: string | null): number {
 }
 
 function fmtTime(iso: string): string {
-  return new Date(iso).toLocaleString('en-US', {
-    month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true,
-  })
+  const dt = new Date(iso)
+  const d = dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const t = dt.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+  return `${d} · ${t}`
 }
 
 function fmtRelative(iso: string | null): string {
@@ -362,7 +363,8 @@ export function ReferralEditClient({
   const [touchType,   setTouchType]   = useState('call')
   const [touchNote,   setTouchNote]   = useState('')
   const [logging,     setLogging]     = useState(false)
-  const [historyOpen, setHistoryOpen] = useState(touchLog.length > 0)
+  const [historyOpen,      setHistoryOpen]      = useState(touchLog.length > 0)
+  const [selectedTouches, setSelectedTouches]  = useState<Set<string>>(new Set())
 
   // ── SPIFF ──────────────────────────────────────────────────────
   const [spiffEarned, setSpiffEarned] = useState(referral.spiff_earned)
@@ -897,19 +899,49 @@ export function ReferralEditClient({
     finally   { setSubmitting(false) }
   }
 
+  function toggleTouch(key: string) {
+    setSelectedTouches(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
   async function handleLogTouch() {
+    if (selectedTouches.size === 0) return
+    const singleType = [...selectedTouches][0]
     setLogging(true)
     try {
       const res = await fetch(`/api/cases/${referral.id}/touch`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ touch_type: touchType, notes: touchNote.trim() || undefined }),
+        body: JSON.stringify({ touch_type: singleType, notes: touchNote.trim() || undefined }),
       })
       if (res.ok) {
         const { data } = await res.json()
         setTouches(data.touches)
         setLastContact(data.last_contact_at)
         if (data.touch) { setTouchLog(prev => [data.touch, ...prev]); setHistoryOpen(true) }
-        setTouchNote(''); setLogOpen(false)
+        setTouchNote(''); setSelectedTouches(new Set()); setLogOpen(false)
+        if (data.advanced_to_active) router.refresh()
+      }
+    } finally { setLogging(false) }
+  }
+
+  async function handleMultiTouch() {
+    const keys = [...selectedTouches]
+    setLogging(true)
+    try {
+      const res = await fetch(`/api/cases/${referral.id}/touch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ touch_types: keys }),
+      })
+      if (res.ok) {
+        const { data } = await res.json()
+        setTouches(data.touches)
+        setLastContact(data.last_contact_at)
+        setSelectedTouches(new Set()); setLogOpen(false); setHistoryOpen(true)
         if (data.advanced_to_active) router.refresh()
       }
     } finally { setLogging(false) }
@@ -984,27 +1016,42 @@ export function ReferralEditClient({
           <div className="mt-4 bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-4">
             <p className="text-xs font-medium text-slate-400 uppercase tracking-wide">Log a Touch</p>
             <div className="flex gap-2 flex-wrap">
-              {TOUCH_TYPES.map(t => (
-                <button key={t.value} type="button" onClick={() => setTouchType(t.value)}
-                  className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium border transition-all ${
-                    touchType === t.value
-                      ? 'border-white/20 bg-slate-700 text-white'
-                      : 'border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'
-                  }`}>
-                  {t.icon} {t.label}
-                </button>
-              ))}
+              {TOUCH_TYPES.filter(t => t.value !== 'missed_appointment').map(t => {
+                const on = selectedTouches.has(t.value)
+                return (
+                  <button key={t.value} type="button" onClick={() => toggleTouch(t.value)}
+                    disabled={logging}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium border transition-all disabled:opacity-40 ${
+                      on
+                        ? 'bg-blue-900/50 text-blue-200 border-blue-600'
+                        : 'border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                    }`}>
+                    {t.icon} {t.label}
+                  </button>
+                )
+              })}
             </div>
-            <textarea value={touchNote} onChange={e => setTouchNote(e.target.value)} rows={2}
-              placeholder="Optional note — left VM, will try again Thursday, etc."
-              className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600 resize-none" />
+            {selectedTouches.size <= 1 && (
+              <textarea value={touchNote} onChange={e => setTouchNote(e.target.value)} rows={2}
+                placeholder="Optional note — left VM, will try again Thursday, etc."
+                className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600 resize-none" />
+            )}
             <div className="flex items-center justify-end gap-3">
-              <button onClick={() => setLogOpen(false)} className="text-sm text-slate-400 hover:text-slate-200">Cancel</button>
-              <button onClick={handleLogTouch} disabled={logging}
-                className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 transition-opacity hover:opacity-90"
-                style={{ backgroundColor: '#1F3864' }}>
-                {logging ? 'Logging…' : 'Log it'}
-              </button>
+              <button onClick={() => { setLogOpen(false); setSelectedTouches(new Set()) }}
+                className="text-sm text-slate-400 hover:text-slate-200">Cancel</button>
+              {selectedTouches.size > 1 ? (
+                <button onClick={handleMultiTouch} disabled={logging}
+                  className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 disabled:opacity-50 transition-colors">
+                  <Check className="w-3.5 h-3.5" />
+                  {logging ? 'Logging…' : `Log ${selectedTouches.size} touches`}
+                </button>
+              ) : (
+                <button onClick={handleLogTouch} disabled={logging || selectedTouches.size === 0}
+                  className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 transition-opacity hover:opacity-90"
+                  style={{ backgroundColor: '#1F3864' }}>
+                  {logging ? 'Logging…' : 'Log it'}
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -1652,19 +1699,17 @@ export function ReferralEditClient({
                   {touchLog.map(t => {
                     const typeInfo = TOUCH_TYPES.find(x => x.value === t.touch_type)
                     return (
-                      <div key={t.id} className="px-5 py-3 space-y-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium border shrink-0 ${TOUCH_COLORS[t.touch_type] ?? TOUCH_COLORS.call}`}>
-                              {typeInfo?.icon}{typeInfo?.short ?? t.touch_type}
-                            </span>
-                            {t.touched_by && (
-                              <span className="text-xs text-slate-500 truncate">{t.touched_by}</span>
-                            )}
-                          </div>
-                          <span suppressHydrationWarning className="text-xs text-slate-500 flex-shrink-0">{fmtTime(t.touched_at)}</span>
+                      <div key={t.id} className="px-5 py-3">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className={`inline-flex items-center gap-1.5 rounded px-2 py-0.5 text-xs font-medium border shrink-0 ${TOUCH_COLORS[t.touch_type] ?? TOUCH_COLORS.call}`}>
+                            {typeInfo?.icon}{typeInfo?.short ?? t.touch_type}
+                          </span>
+                          {t.touched_by && (
+                            <span className="text-xs font-medium text-slate-300">{t.touched_by}</span>
+                          )}
+                          <span suppressHydrationWarning className="text-xs text-slate-600">{fmtTime(t.touched_at)}</span>
                         </div>
-                        {t.notes && <p className="text-xs text-slate-400 pl-0.5">{t.notes}</p>}
+                        {t.notes && <p className="text-xs text-slate-400">{t.notes}</p>}
                       </div>
                     )
                   })}
