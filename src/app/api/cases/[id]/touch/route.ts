@@ -74,7 +74,7 @@ export async function POST(
         touchTypes.map(touch_type => ({
           case_id:    id,
           touch_type,
-          notes:      touchTypes.length === 1 ? (body.notes?.trim() || null) : null,
+          notes:      body.notes?.trim() || null,
           touched_at: now,
           touched_by,
         }))
