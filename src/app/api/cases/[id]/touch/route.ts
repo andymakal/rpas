@@ -11,11 +11,15 @@ export async function POST(
   const { id } = await params
   const supabase = createAdminClient()
 
-  let body: { touch_type?: string; notes?: string } = {}
+  let body: { touch_type?: string; touch_types?: string[]; notes?: string } = {}
   try { body = await request.json() } catch { /* no body is fine */ }
 
-  const touch_type = body.touch_type ?? 'call'
-  if (!TOUCH_TYPES.has(touch_type)) {
+  // Accept either a single touch_type or a batch touch_types array
+  const rawTypes = Array.isArray(body.touch_types)
+    ? body.touch_types
+    : [body.touch_type ?? 'call']
+  const touchTypes = rawTypes.filter(t => TOUCH_TYPES.has(t))
+  if (touchTypes.length === 0) {
     return Response.json({ error: 'Invalid touch_type' }, { status: 400 })
   }
 
@@ -52,11 +56,11 @@ export async function POST(
   // Touches only increment the counter and record last contact — they never
   // change internal_status. Status transitions are deliberate actions only
   // (Live Transfer, Appointment Set, Not Interested, etc.).
-  const [caseResult, touchResult] = await Promise.all([
+  const [caseResult] = await Promise.all([
     supabase
       .from('cases')
       .update({
-        touches:         (current.touches ?? 0) + 1,
+        touches:         (current.touches ?? 0) + touchTypes.length,
         last_contact_at: now,
         follow_up_date,
         updated_at:      now,
@@ -66,15 +70,15 @@ export async function POST(
       .single(),
     supabase
       .from('case_touches')
-      .insert({
-        case_id:    id,
-        touch_type,
-        notes:      body.notes?.trim() || null,
-        touched_at: now,
-        touched_by,
-      })
-      .select()
-      .single(),
+      .insert(
+        touchTypes.map(touch_type => ({
+          case_id:    id,
+          touch_type,
+          notes:      touchTypes.length === 1 ? (body.notes?.trim() || null) : null,
+          touched_at: now,
+          touched_by,
+        }))
+      ),
   ])
 
   if (caseResult.error) {
@@ -85,7 +89,6 @@ export async function POST(
     data: {
       touches:            caseResult.data.touches,
       last_contact_at:    caseResult.data.last_contact_at,
-      touch:              touchResult.data,
       advanced_to_active: false,
     },
   })

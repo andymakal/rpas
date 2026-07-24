@@ -168,10 +168,11 @@ function TriageRow({
   const [expanded, setExpanded] = useState(false)
 
   // Touch action state
-  const [touchPhase,   setTouchPhase]   = useState<'idle' | 'busy' | 'reached' | 'logged'>('idle')
-  const [touchMsg,     setTouchMsg]     = useState('')
-  const [localTouches, setLocalTouches] = useState<number | null>(null)
-  const [scriptFor,    setScriptFor]    = useState<'voicemail' | 'noanswer' | null>(null)
+  const [touchPhase,      setTouchPhase]      = useState<'idle' | 'busy' | 'reached' | 'logged'>('idle')
+  const [touchMsg,        setTouchMsg]        = useState('')
+  const [localTouches,    setLocalTouches]    = useState<number | null>(null)
+  const [scriptFor,       setScriptFor]       = useState<'voicemail' | 'noanswer' | null>(null)
+  const [selectedTouches, setSelectedTouches] = useState<Set<string>>(new Set())
 
   // Appointment form state
   const [apptPhase, setApptPhase] = useState<'hidden' | 'form' | 'done'>('hidden')
@@ -221,6 +222,34 @@ function TriageRow({
     if (!isReached) {
       setScriptFor(touchType === 'voicemail' ? 'voicemail' : 'noanswer')
     }
+  }
+
+  function toggleTouch(key: string) {
+    setSelectedTouches(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  async function handleMultiTouch() {
+    const keys = [...selectedTouches]
+    const touchTypes = keys.map(k => k === 'noanswer' ? 'call' : k)
+    setTouchPhase('busy')
+    const res = await fetch(`/api/cases/${c.id}/touch`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ touch_types: touchTypes }),
+    })
+    if (!res.ok) { setTouchPhase('idle'); return }
+    setLocalTouches((localTouches ?? c.touches ?? 0) + keys.length)
+    const LABELS: Record<string, string> = { voicemail: 'Voicemail', noanswer: 'No Answer', text: 'Texted', email: 'Emailed' }
+    setTouchMsg(`${keys.map(k => LABELS[k] ?? k).join(', ')} logged · Follow-up: ${followUpDateStr()}`)
+    setTouchPhase('logged')
+    if (keys.includes('voicemail'))     setScriptFor('voicemail')
+    else if (keys.includes('noanswer')) setScriptFor('noanswer')
+    setSelectedTouches(new Set())
   }
 
   async function handleLiveTransfer() {
@@ -463,25 +492,52 @@ function TriageRow({
               {(touchPhase === 'idle' || touchPhase === 'busy') && (
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-xs text-slate-500 mr-1">Log contact:</span>
+
+                  {/* Reached — single-click, triggers appointment/transfer flow */}
+                  <button
+                    disabled={touchPhase === 'busy'}
+                    onClick={() => handleTouch('call', 'Reached', true)}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium rounded border px-3 py-1.5 transition-colors disabled:opacity-40 bg-emerald-900/30 text-emerald-300 border-emerald-700 hover:bg-emerald-900/50"
+                  >
+                    <PhoneCall className="w-3.5 h-3.5" />Reached
+                  </button>
+
+                  <span className="text-slate-700">|</span>
+
+                  {/* Toggleable — select one or more, then Log */}
                   {([
-                    { label: 'Reached',   Icon: PhoneCall,     type: 'call',      reached: true  },
-                    { label: 'Voicemail', Icon: Voicemail,     type: 'voicemail', reached: false },
-                    { label: 'No Answer', Icon: PhoneOff,      type: 'call',      reached: false },
-                    { label: 'Texted',    Icon: MessageSquare, type: 'text',      reached: false },
-                  ] as const).map(({ label, Icon, type, reached }) => (
+                    { key: 'voicemail', label: 'Voicemail', Icon: Voicemail     },
+                    { key: 'noanswer',  label: 'No Answer', Icon: PhoneOff      },
+                    { key: 'text',      label: 'Texted',    Icon: MessageSquare },
+                    { key: 'email',     label: 'Email',     Icon: Mail          },
+                  ] as const).map(({ key, label, Icon }) => {
+                    const on = selectedTouches.has(key)
+                    return (
+                      <button
+                        key={key}
+                        disabled={touchPhase === 'busy'}
+                        onClick={() => toggleTouch(key)}
+                        className={`inline-flex items-center gap-1.5 text-xs font-medium rounded border px-3 py-1.5 transition-colors disabled:opacity-40 ${
+                          on
+                            ? 'bg-blue-900/50 text-blue-200 border-blue-600'
+                            : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
+                        }`}
+                      >
+                        <Icon className="w-3.5 h-3.5" />{label}
+                      </button>
+                    )
+                  })}
+
+                  {selectedTouches.size > 0 && (
                     <button
-                      key={label}
                       disabled={touchPhase === 'busy'}
-                      onClick={() => handleTouch(type, label, reached)}
-                      className={`inline-flex items-center gap-1.5 text-xs font-medium rounded border px-3 py-1.5 transition-colors disabled:opacity-40 ${
-                        reached
-                          ? 'bg-emerald-900/30 text-emerald-300 border-emerald-700 hover:bg-emerald-900/50'
-                          : 'bg-slate-800 text-slate-300 border-slate-700 hover:bg-slate-700'
-                      }`}
+                      onClick={handleMultiTouch}
+                      className="inline-flex items-center gap-1.5 text-xs font-medium rounded border px-3 py-1.5 transition-colors disabled:opacity-40 bg-blue-600 text-white border-blue-500 hover:bg-blue-500"
                     >
-                      <Icon className="w-3.5 h-3.5" />{label}
+                      <Check className="w-3.5 h-3.5" />
+                      Log {selectedTouches.size} touch{selectedTouches.size !== 1 ? 'es' : ''}
                     </button>
-                  ))}
+                  )}
                 </div>
               )}
 
