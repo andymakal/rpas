@@ -551,7 +551,7 @@ export default function CaseEditClient({
         const { data } = await res.json()
         setTouches(data.touches)
         setLastContact(data.last_contact_at)
-        if (data.touch) { setTouchLog(prev => [data.touch, ...prev]); setHistoryOpen(true) }
+        if (data.touches_logged?.length) { setTouchLog(prev => [...(data.touches_logged as TouchLog[]), ...prev]); setHistoryOpen(true) }
         setTouchNote(''); setLogOpen(false)
       }
     } finally { setLogging(false) }

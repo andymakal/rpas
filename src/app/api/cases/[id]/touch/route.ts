@@ -56,7 +56,7 @@ export async function POST(
   // Touches only increment the counter and record last contact — they never
   // change internal_status. Status transitions are deliberate actions only
   // (Live Transfer, Appointment Set, Not Interested, etc.).
-  const [caseResult] = await Promise.all([
+  const [caseResult, touchResult] = await Promise.all([
     supabase
       .from('cases')
       .update({
@@ -78,7 +78,8 @@ export async function POST(
           touched_at: now,
           touched_by,
         }))
-      ),
+      )
+      .select('id, touch_type, notes, touched_at, touched_by'),
   ])
 
   if (caseResult.error) {
@@ -87,9 +88,10 @@ export async function POST(
 
   return Response.json({
     data: {
-      touches:            caseResult.data.touches,
-      last_contact_at:    caseResult.data.last_contact_at,
+      touches:         caseResult.data.touches,
+      last_contact_at: caseResult.data.last_contact_at,
       advanced_to_active: false,
+      touches_logged:  touchResult.data ?? [],
     },
   })
 }

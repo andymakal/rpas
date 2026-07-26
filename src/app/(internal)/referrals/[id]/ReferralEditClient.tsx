@@ -921,7 +921,7 @@ export function ReferralEditClient({
         const { data } = await res.json()
         setTouches(data.touches)
         setLastContact(data.last_contact_at)
-        if (data.touch) { setTouchLog(prev => [data.touch, ...prev]); setHistoryOpen(true) }
+        if (data.touches_logged?.length) { setTouchLog(prev => [...(data.touches_logged as TouchLog[]), ...prev]); setHistoryOpen(true) }
         setTouchNote(''); setSelectedTouches(new Set()); setLogOpen(false)
         if (data.advanced_to_active) router.refresh()
       }
@@ -941,6 +941,7 @@ export function ReferralEditClient({
         const { data } = await res.json()
         setTouches(data.touches)
         setLastContact(data.last_contact_at)
+        if (data.touches_logged?.length) { setTouchLog(prev => [...(data.touches_logged as TouchLog[]), ...prev]) }
         setTouchNote(''); setSelectedTouches(new Set()); setLogOpen(false); setHistoryOpen(true)
         if (data.advanced_to_active) router.refresh()
       }
