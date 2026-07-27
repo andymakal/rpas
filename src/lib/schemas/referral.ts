@@ -21,7 +21,7 @@ export const referralSchema = z.object({
   life_policy_number: z.string().optional(),
   preferred_contact: z.enum(['phone', 'text', 'email']).optional(),
   best_contact_time: z.enum(['morning', 'afternoon', 'evening']).optional(),
-  notes: z.string().max(500, 'Keep notes under 500 characters').optional(),
+  notes: z.string().min(5, 'Add at least a few words — helps us start the right conversation').max(500, 'Keep notes under 500 characters'),
   life_insurance_outside_work: z.boolean().default(false),
   job_change_last_5_years: z.boolean().default(false),
   review_401k: z.boolean().default(false),

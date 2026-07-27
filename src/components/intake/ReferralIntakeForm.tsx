@@ -640,16 +640,6 @@ export function ReferralIntakeForm({
         <OptionGrid options={CONTACT_TIME_OPTIONS} value={form.best_contact_time}
           onChange={(v) => set('best_contact_time', v as ReferralFormData['best_contact_time'])} />
       </Field>
-      <Field label="Notes" hint="Context that helps us make a great first impression" error={errors.notes}>
-        <textarea value={form.notes ?? ''} onChange={(e) => set('notes', e.target.value)}
-          placeholder="Just bought a $400K home, has 2 kids, mentioned they've been meaning to look at life insurance..."
-          rows={4} maxLength={500}
-          className="w-full rounded-lg border border-slate-300 px-4 py-3 text-base text-slate-900
-            placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-800
-            focus:border-transparent hover:border-slate-400 transition-colors resize-none" />
-        <p className="text-xs text-slate-400 text-right mt-1">{(form.notes ?? '').length}/500</p>
-      </Field>
-
       <div className="space-y-2">
         <p className="text-sm font-medium text-slate-700">Quick Check-In</p>
         <p className="text-xs text-slate-500">Check any that apply — helps us start the right conversation</p>
@@ -683,6 +673,17 @@ export function ReferralIntakeForm({
           <div className={`w-5 h-5 bg-white rounded-full shadow mt-0.5 transition-all ${form.is_hot_lead ? 'translate-x-6' : 'translate-x-0.5'}`} />
         </div>
       </button>
+
+      <Field label="Notes" required hint="What sparked this conversation? A few words help us make a great first impression." error={errors.notes}>
+        <textarea value={form.notes ?? ''} onChange={(e) => set('notes', e.target.value)}
+          placeholder="Just bought a $400K home, has 2 kids, mentioned they've been meaning to look at life insurance..."
+          rows={4} maxLength={500}
+          className={`w-full rounded-lg border px-4 py-3 text-base text-slate-900
+            placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-800
+            focus:border-transparent transition-colors resize-none
+            ${errors.notes ? 'border-red-400 bg-red-50' : 'border-slate-300 hover:border-slate-400'}`} />
+        <p className="text-xs text-slate-400 text-right mt-1">{(form.notes ?? '').length}/500</p>
+      </Field>
 
       {result && !result.success && (
         <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-700">
