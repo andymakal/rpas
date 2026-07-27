@@ -5,8 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { submitReferral, type SubmitReferralResult } from '@/app/actions/submit-referral'
 import { step1Schema, step2Schema, step3Schema, type ReferralFormData } from '@/lib/schemas/referral'
 import {
-  REFERRAL_TYPES, MARITAL_STATUS_OPTIONS, CONTACT_METHOD_OPTIONS,
-  CONTACT_TIME_OPTIONS, US_STATES,
+  REFERRAL_TYPES, MARITAL_STATUS_OPTIONS, CONTACT_TIME_OPTIONS, US_STATES,
 } from '@/lib/constants/referral-options'
 
 type Agency = { id: string; name: string }
@@ -646,10 +645,11 @@ export function ReferralIntakeForm({
           />
         </Field>
       )}
-      <Field label="Best Way to Reach Them">
-        <OptionGrid options={CONTACT_METHOD_OPTIONS} value={form.preferred_contact}
-          onChange={(v) => set('preferred_contact', v as ReferralFormData['preferred_contact'])} />
-      </Field>
+      <Toggle
+        checked={form.preferred_contact === 'email'}
+        onChange={(v) => set('preferred_contact', v ? 'email' : undefined)}
+        label="Email quotes only"
+        description="Client prefers to receive quotes by email — no calls or texts" />
       <Field label="Best Time to Reach Them">
         <OptionGrid options={CONTACT_TIME_OPTIONS} value={form.best_contact_time}
           onChange={(v) => set('best_contact_time', v as ReferralFormData['best_contact_time'])} />
