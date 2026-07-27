@@ -30,7 +30,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
 
     const { data: existing } = await supabase
       .from('customers')
-      .select('id, phone, email, date_of_birth, street')
+      .select('id, phone, email, date_of_birth, street, gender')
       .eq('agency_id', form.agency_id)
       .ilike('first_name', form.client_first_name.trim())
       .ilike('last_name',  form.client_last_name.trim())
@@ -45,6 +45,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       if (!existing.phone         && form.client_phone)   contactUpdate.phone         = normalizePhone(form.client_phone) ?? form.client_phone
       if (!existing.email         && form.client_email)   contactUpdate.email         = normalizeEmail(form.client_email) ?? form.client_email
       if (!existing.date_of_birth && form.client_dob)     contactUpdate.date_of_birth = form.client_dob
+      if (!existing.gender        && form.client_gender)  contactUpdate.gender        = form.client_gender
       if (!existing.street        && form.client_address) {
         contactUpdate.street = normalizeStreet(form.client_address)
         if (form.client_city)  contactUpdate.city  = normalizeCity(form.client_city)
@@ -113,6 +114,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
           phone:         normalizePhone(form.client_phone) ?? null,
           email:         normalizeEmail(form.client_email) ?? null,
           date_of_birth: form.client_dob      || null,
+          gender:        form.client_gender   || null,
           street:        normalizeStreet(form.client_address) ?? null,
           city:          normalizeCity(form.client_city)     ?? null,
           state:         normalizeState(form.client_state)   ?? null,

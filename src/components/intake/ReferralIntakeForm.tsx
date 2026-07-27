@@ -27,7 +27,7 @@ interface ReferralIntakeFormProps {
 
 const EMPTY_FORM: ReferralFormData = {
   agency_id: '', lsp_name: '', lsp_email: '', client_first_name: '', client_last_name: '',
-  client_phone: '', client_email: '', client_dob: '', client_marital_status: '',
+  client_phone: '', client_email: '', client_dob: '', client_gender: '', client_marital_status: '',
   client_address: '', client_city: '', client_state: '', client_zip: '',
   referral_type: '', is_existing_client: false, allstate_policy_number: '',
   life_policy_number: '',
@@ -448,10 +448,15 @@ export function ReferralIntakeForm({
         <Input value={form.client_email ?? ''} onChange={(v) => set('client_email', v)}
           type="email" placeholder="jane.smith@email.com" inputMode="email" error={errors.client_email} />
       </Field>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <Field label="Date of Birth" error={errors.client_dob}>
           <Input value={form.client_dob ?? ''} onChange={(v) => set('client_dob', v)}
             type="date" error={errors.client_dob} />
+        </Field>
+        <Field label="Gender" error={errors.client_gender}>
+          <Select value={form.client_gender ?? ''} onChange={(v) => set('client_gender', v as ReferralFormData['client_gender'])}
+            options={[{ value: 'male', label: 'Male' }, { value: 'female', label: 'Female' }]}
+            placeholder="Select" error={errors.client_gender} />
         </Field>
         <Field label="Marital Status" error={errors.client_marital_status}>
           <Select value={form.client_marital_status ?? ''} onChange={(v) => set('client_marital_status', v)}
