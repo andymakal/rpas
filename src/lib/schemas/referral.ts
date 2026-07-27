@@ -7,7 +7,7 @@ export const referralSchema = z.object({
   client_first_name: z.string().min(1, 'First name is required'),
   client_last_name: z.string().min(1, 'Last name is required'),
   client_phone: z.string().regex(/^\+?[\d\s\-(). ]{10,}$/, 'Enter a valid phone number'),
-  client_email: z.string().email('Enter a valid email address').optional().or(z.literal('')),
+  client_email: z.string().email('Enter a valid email address').min(1, 'Email is required'),
   client_dob: z.string().optional(),
   client_marital_status: z.string().optional(),
   client_address: z.string().min(1, 'Address is required'),

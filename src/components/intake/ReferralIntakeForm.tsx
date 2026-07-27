@@ -86,6 +86,17 @@ function getTalkPath(flags: QualifyingFlags) {
   return null
 }
 
+function toTitleCase(v: string): string {
+  return v.replace(/\b\w/g, c => c.toUpperCase())
+}
+
+function formatPhone(v: string): string {
+  const digits = v.replace(/\D/g, '').slice(0, 10)
+  if (digits.length < 4) return digits
+  if (digits.length < 7) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+}
+
 function StepBar({ current, total }: { current: number; total: number }) {
   return (
     <div className="flex items-center gap-2 mb-6">
@@ -403,7 +414,7 @@ export function ReferralIntakeForm({
       </Field>
 
       <Field label="Your Name" required hint="First Last — exactly as you want it recorded" error={errors.lsp_name}>
-        <Input value={form.lsp_name} onChange={(v) => set('lsp_name', v)}
+        <Input value={form.lsp_name} onChange={(v) => set('lsp_name', toTitleCase(v))}
           placeholder="e.g. Kris Aley" autoComplete="name" error={errors.lsp_name} />
       </Field>
 
@@ -421,19 +432,19 @@ export function ReferralIntakeForm({
       </div>
       <div className="grid grid-cols-2 gap-3">
         <Field label="First Name" required error={errors.client_first_name}>
-          <Input value={form.client_first_name} onChange={(v) => set('client_first_name', v)}
+          <Input value={form.client_first_name} onChange={(v) => set('client_first_name', toTitleCase(v))}
             placeholder="Jane" error={errors.client_first_name} />
         </Field>
         <Field label="Last Name" required error={errors.client_last_name}>
-          <Input value={form.client_last_name} onChange={(v) => set('client_last_name', v)}
+          <Input value={form.client_last_name} onChange={(v) => set('client_last_name', toTitleCase(v))}
             placeholder="Smith" error={errors.client_last_name} />
         </Field>
       </div>
       <Field label="Phone Number" required error={errors.client_phone}>
-        <Input value={form.client_phone} onChange={(v) => set('client_phone', v)}
+        <Input value={form.client_phone} onChange={(v) => set('client_phone', formatPhone(v))}
           type="tel" placeholder="(570) 555-0100" inputMode="tel" error={errors.client_phone} />
       </Field>
-      <Field label="Email Address" hint="Optional — but helps us reach them faster" error={errors.client_email}>
+      <Field label="Email Address" required error={errors.client_email}>
         <Input value={form.client_email ?? ''} onChange={(v) => set('client_email', v)}
           type="email" placeholder="jane.smith@email.com" inputMode="email" error={errors.client_email} />
       </Field>
@@ -511,11 +522,11 @@ export function ReferralIntakeForm({
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label="First Name" required>
-                <Input value={spouse.first_name} onChange={v => setSpouseField('first_name', v)}
+                <Input value={spouse.first_name} onChange={v => setSpouseField('first_name', toTitleCase(v))}
                   placeholder="John" />
               </Field>
               <Field label="Last Name" required>
-                <Input value={spouse.last_name} onChange={v => setSpouseField('last_name', v)}
+                <Input value={spouse.last_name} onChange={v => setSpouseField('last_name', toTitleCase(v))}
                   placeholder="Smith" />
               </Field>
             </div>
