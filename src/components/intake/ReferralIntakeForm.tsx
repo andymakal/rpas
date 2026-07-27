@@ -32,6 +32,7 @@ const EMPTY_FORM: ReferralFormData = {
   referral_type: '', is_existing_client: false, allstate_policy_number: '',
   life_policy_number: '',
   preferred_contact: undefined, best_contact_time: undefined, notes: '',
+  is_existing_life_client: false,
   life_insurance_outside_work: false,
   job_change_last_5_years: false,
   review_401k: false,
@@ -629,6 +630,19 @@ export function ReferralIntakeForm({
             onChange={(v) => set('allstate_policy_number', v)}
             placeholder="e.g. 123 456 789"
             error={errors.allstate_policy_number}
+          />
+        </Field>
+      )}
+      <Toggle checked={form.is_existing_life_client} onChange={(v) => set('is_existing_life_client', v)}
+        label="Existing Life Insurance Client"
+        description="They currently have an LBL / Everlake life policy" />
+      {form.is_existing_life_client && form.referral_type !== 'existing_service' && (
+        <Field label="Life Policy Number" hint="From the client's LBL / Everlake policy statement" error={errors.life_policy_number}>
+          <Input
+            value={form.life_policy_number ?? ''}
+            onChange={(v) => set('life_policy_number', v)}
+            placeholder="e.g. 06T2E62080"
+            error={errors.life_policy_number}
           />
         </Field>
       )}

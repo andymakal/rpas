@@ -155,6 +155,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
 
     // 2. Compose notes from form context
     const flags = [
+      form.is_existing_life_client     && 'Existing life insurance client',
       form.life_insurance_outside_work && 'Life insurance outside work',
       form.job_change_last_5_years     && 'Job change in last 5 years',
       form.review_401k                 && '401(k) review',
