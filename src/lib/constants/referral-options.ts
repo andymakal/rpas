@@ -24,11 +24,8 @@ export const REFERRAL_TYPES = [
   { value: 'mortgage_protection', label: 'Mortgage Protection' },
   { value: 'term_life', label: 'Term Life Insurance' },
   { value: 'life_review', label: 'Life Insurance Review' },
-  { value: 'financial_planning', label: 'Financial Planning' },
-  { value: 'retirement_planning', label: 'Retirement Planning' },
-  { value: 'medicare_planning', label: 'Medicare Planning' },
+  { value: 'financial_planning', label: 'Financial / Retirement Planning' },
   { value: 'business_owner', label: 'Business Owner' },
-  { value: '1035_exchange', label: '1035 Exchange' },
   { value: 'existing_service', label: 'Existing Client — Service' },
   { value: 'existing_sales', label: 'Existing Client — Additional Coverage' },
 ] as const
@@ -40,10 +37,7 @@ export const PRODUCER_ROUTING: Record<ReferralTypeValue, string> = {
   term_life: 'intern',
   life_review: 'ashley',
   financial_planning: 'dulce',
-  retirement_planning: 'dulce',
-  medicare_planning: 'dulce',
   business_owner: 'senior',
-  '1035_exchange': 'senior_escalate',
   existing_service: 'abigail',
   existing_sales: 'producer',
 }
