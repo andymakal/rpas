@@ -8,7 +8,7 @@ const ALLOWED = new Set([
   'date_of_birth', 'marital_status', 'gender',
   'tobacco_use', 'height_ft', 'height_in', 'weight_lbs', 'health_notes',
   'preferred_language', 'customer_group_id',
-  'segment',
+  'segment', 'sms_opt_out',
 ])
 
 const NAME_FIELDS   = new Set(['first_name', 'last_name'])

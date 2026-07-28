@@ -501,6 +501,8 @@ export function ReferralEditClient({
   const [cLanguage,    setCLanguage]    = useState(referral.customers?.preferred_language ?? 'en')
   const [contactSaving, setContactSaving] = useState(false)
   const [contactMsg,    setContactMsg]    = useState<{ ok: boolean; text: string } | null>(null)
+  const [smsOptOut,       setSmsOptOut]       = useState(referral.customers?.sms_opt_out ?? false)
+  const [smsOptOutSaving, setSmsOptOutSaving] = useState(false)
 
   // ── LSP editing ────────────────────────────────────────────────
   const [editingLsp,      setEditingLsp]      = useState(false)
@@ -811,6 +813,18 @@ export function ReferralEditClient({
     })
   }
 
+  async function handleSmsOptOut(checked: boolean) {
+    setSmsOptOutSaving(true)
+    try {
+      const res = await fetch(`/api/customers/${referral.customer_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sms_opt_out: checked }),
+      })
+      if (res.ok) setSmsOptOut(checked)
+    } finally { setSmsOptOutSaving(false) }
+  }
+
   async function handleMissedAppointment() {
     setMissedWorking(true); setMissedError(null)
     try {
@@ -1019,13 +1033,18 @@ export function ReferralEditClient({
             <div className="flex gap-2 flex-wrap">
               {TOUCH_TYPES.filter(t => t.value !== 'missed_appointment').map(t => {
                 const on = selectedTouches.has(t.value)
+                const blocked = t.value === 'text' && smsOptOut
                 return (
-                  <button key={t.value} type="button" onClick={() => toggleTouch(t.value)}
-                    disabled={logging}
-                    className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium border transition-all disabled:opacity-40 ${
-                      on
+                  <button key={t.value} type="button"
+                    onClick={() => !blocked && toggleTouch(t.value)}
+                    disabled={logging || blocked}
+                    title={blocked ? 'Client has opted out of text messages (STOP)' : undefined}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium border transition-all ${
+                      blocked
+                        ? 'border-slate-800 text-slate-700 line-through cursor-not-allowed opacity-40'
+                        : on
                         ? 'bg-blue-900/50 text-blue-200 border-blue-600'
-                        : 'border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                        : 'border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600 disabled:opacity-40'
                     }`}>
                     {t.icon} {t.label}
                   </button>
@@ -1155,6 +1174,13 @@ export function ReferralEditClient({
         </div>
       )}
 
+      {smsOptOut && (
+        <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-5 py-3 flex items-center gap-3">
+          <MessageCircle className="w-4 h-4 text-red-400 shrink-0" />
+          <p className="text-sm text-red-300 font-medium">SMS opt-out — do not text this client</p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
 
         {/* ═══════════════ LEFT COLUMN ═══════════════ */}
@@ -1228,6 +1254,21 @@ export function ReferralEditClient({
                   ) : (
                     <button onClick={() => setEditingContact(true)} className="text-sm text-slate-600 hover:text-slate-400 italic transition-colors">No phone — add one</button>
                   )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <MessageCircle className="w-4 h-4 text-slate-600 flex-shrink-0" />
+                  <label className="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={smsOptOut}
+                      disabled={smsOptOutSaving}
+                      onChange={e => handleSmsOptOut(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-slate-600 accent-red-500"
+                    />
+                    <span className={`text-xs ${smsOptOut ? 'text-red-400 font-medium' : 'text-slate-600'}`}>
+                      {smsOptOut ? 'SMS opt-out (STOP received)' : 'SMS opt-out'}
+                    </span>
+                  </label>
                 </div>
                 <div className="flex items-center gap-2.5">
                   <Mail className="w-4 h-4 text-slate-500 flex-shrink-0" />
