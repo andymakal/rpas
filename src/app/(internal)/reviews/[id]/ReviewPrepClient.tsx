@@ -262,10 +262,50 @@ export function ReviewPrepClient({
     primary_beneficiary:   policy.primary_beneficiary,
   } : null
 
-  const script    = policyForPrep ? generateCallScript(policyForPrep) : null
-  const flags     = policyForPrep ? generateFlags(policyForPrep) : []
-  const revType   = getReviewType(policy?.product_type ?? null)
-  const typeLabel = reviewTypeLabel(revType)
+  const script       = policyForPrep ? generateCallScript(policyForPrep) : null
+  const runtimeFlags = policyForPrep ? generateFlags(policyForPrep) : []
+  const revType      = getReviewType(policy?.product_type ?? null)
+  const typeLabel    = reviewTypeLabel(revType)
+
+  // ── Supplement runtime flags with pre-computed ones for data gaps ────────────
+  // Runtime generateFlags needs live numeric data (cash_value, cost_basis, premium).
+  // When that data is missing, the cron's pre-computed flags fill in the blanks.
+  const runtimeHas1035  = runtimeFlags.some(f => f.label.includes('1035'))
+  const runtimeHasLapse = runtimeFlags.some(f => f.label.includes('Lapse') || f.label.includes('Health'))
+
+  const preComputedFlags: ReviewFlag[] = []
+
+  // 1035 potential: pre-computed fired but runtime didn't (no cost_basis on file)
+  if (review.is_1035_eligible && !runtimeHas1035) {
+    preComputedFlags.push({
+      severity:    'opportunity',
+      label:       '1035 Exchange — Verify Cost Basis',
+      description: `This permanent policy has ${fmtCurrency(policy?.cash_value_amount)} in cash value. A 1035 exchange may be possible — get the cost basis from the carrier and run an illustration before the call.`,
+    })
+  }
+
+  // Stale cash value: on-file data is over a year old (or missing entirely)
+  if (review.cash_value_stale) {
+    preComputedFlags.push({
+      severity:    'warning',
+      label:       'Cash Value Data Stale',
+      description: policy?.cash_value_as_of_date
+        ? `Cash value on file is from ${fmt(policy.cash_value_as_of_date)} — request a current in-force illustration before the call.`
+        : 'No cash value date on file — request a current policy statement or illustration from the carrier.',
+    })
+  }
+
+  // UL health: pre-computed flag fires for all UL types.
+  // Only show when the runtime lapse-risk calc didn't fire (usually means no CV data).
+  if (review.is_declining_ul && !runtimeHasLapse) {
+    preComputedFlags.push({
+      severity:    'info',
+      label:       'Universal Life — Verify Policy Health',
+      description: 'UL policies depend on premium funding and credited interest. If premiums haven\'t been adjusted in years, verify current performance with the carrier — especially lapse projections.',
+    })
+  }
+
+  const flags = [...runtimeFlags, ...preComputedFlags]
 
   const isTobaccoFlag = flags.some(f => f.label.includes('Tobacco'))
 
@@ -850,8 +890,11 @@ export function ReviewPrepClient({
               )}
             </div>
             <div className="space-y-1.5">
-              <Row label="Review #" value={review.review_number ?? '—'} mono />
-              <Row label="Queued"   value={fmt(review.created_at)} />
+              <Row label="Review #"   value={review.review_number ?? '—'} mono />
+              {review.scheduled_date && (
+                <Row label="Scheduled" value={fmt(review.scheduled_date)} />
+              )}
+              <Row label="Queued"     value={fmt(review.created_at)} />
               {editingRecordDate ? (
                 <div className="flex items-center justify-between gap-3 text-sm py-0.5">
                   <span className="text-slate-500 shrink-0">Completed</span>

@@ -23,6 +23,14 @@ export type ReviewDetail = {
   resulting_case_id: string | null
   created_at: string
   updated_at: string
+  // Pre-computed flags (set at scheduling time by annual-reviews cron)
+  scheduled_date:       string | null
+  term_expiry_date:     string | null
+  is_declining_ul:      boolean
+  tobacco_reclass_flag: boolean
+  beneficiary_missing:  boolean
+  is_1035_eligible:     boolean
+  cash_value_stale:     boolean
   service_policies: {
     id: string
     client_name: string
@@ -91,6 +99,9 @@ export default async function ReviewPrepPage(
       primary_beneficiary_confirmed, call_completed_at,
       prep_notes, pdf_url, resulting_case_id,
       created_at, updated_at,
+      scheduled_date, term_expiry_date,
+      is_declining_ul, tobacco_reclass_flag, beneficiary_missing,
+      is_1035_eligible, cash_value_stale,
       service_policies (
         id, client_name, policy_number, carrier, product_type,
         issue_date, term_length, face_amount, death_benefit_amount,
