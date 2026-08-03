@@ -139,6 +139,21 @@ async function promoteCaseToPolicy(
       is_test:            false,
     })
   }
+
+  // Wanderer → Explorer: once we've written and placed a policy for this customer,
+  // they've graduated from legacy-policy holder to someone we wrote business for.
+  const { data: seg } = await supabase
+    .from('customers')
+    .select('segment')
+    .eq('id', c.customer_id)
+    .single()
+
+  if (seg?.segment === 'wanderer') {
+    await supabase
+      .from('customers')
+      .update({ segment: 'explorer' })
+      .eq('id', c.customer_id)
+  }
 }
 
 export async function PATCH(
