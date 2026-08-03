@@ -4,10 +4,13 @@
  * of an existing referral (e.g. imported Lead Manager cases that need
  * to be marked as Allstate.com or self-generated).
  */
+export const EFS_LEAD_SOURCES = new Set(['allstate_web', 'review_generated', 'self_generated'])
+
 export const LEAD_SOURCE_OPTIONS = [
   { value: 'agency_referral',    label: 'Agency Referral (LSP)' },
-  { value: 'allstate_web',       label: 'Allstate.com Web Lead' },
-  { value: 'self_generated',     label: 'Self Generated' },
+  { value: 'allstate_web',       label: 'EFS — Allstate.com Web Lead' },
+  { value: 'review_generated',   label: 'EFS — From Annual Review' },
+  { value: 'self_generated',     label: 'EFS — Self Generated' },
   { value: 'mortgage_protection',label: 'Mortgage Protection' },
   { value: 'term_life',          label: 'Term Life Insurance' },
   { value: 'life_review',        label: 'Life Insurance Review' },

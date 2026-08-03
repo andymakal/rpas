@@ -142,7 +142,11 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
       )
     }
 
-    if (sourceFilter) list = list.filter(r => r.lead_source === sourceFilter)
+    if (sourceFilter === 'efs_generated') {
+      list = list.filter(r => ['allstate_web', 'review_generated', 'self_generated'].includes(r.lead_source ?? ''))
+    } else if (sourceFilter) {
+      list = list.filter(r => r.lead_source === sourceFilter)
+    }
 
     if (search.trim()) {
       const q = search.trim().toLowerCase()
@@ -225,8 +229,12 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
           >
             <option value="">All sources</option>
             <option value="agency_referral">Agency Referral</option>
-            <option value="allstate_web">Allstate.com</option>
-            <option value="self_generated">Self Generated</option>
+            <optgroup label="EFS Generated">
+              <option value="efs_generated">All EFS Generated</option>
+              <option value="allstate_web">↳ Allstate.com</option>
+              <option value="review_generated">↳ From Review</option>
+              <option value="self_generated">↳ Self Generated</option>
+            </optgroup>
           </select>
 
           <select
@@ -334,6 +342,11 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
                       {r.lead_source === 'allstate_web' && (
                         <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-sky-900/50 text-sky-300 border border-sky-800 flex-shrink-0">
                           Allstate.com
+                        </span>
+                      )}
+                      {r.lead_source === 'review_generated' && (
+                        <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-amber-900/50 text-amber-300 border border-amber-800 flex-shrink-0">
+                          Review
                         </span>
                       )}
                     </div>

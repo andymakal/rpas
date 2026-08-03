@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ChevronLeft, ChevronRight, Copy, Check, CheckCircle2, Phone, AlertTriangle,
-  Info, TrendingUp, AlertCircle, Save, ClipboardCheck, User, Pencil,
+  Info, TrendingUp, AlertCircle, Save, ClipboardCheck, User, Pencil, ExternalLink,
 } from 'lucide-react'
 import {
   generateCallScript,
@@ -111,6 +111,34 @@ export function ReviewPrepClient({
   const [srRequestType, setSrRequestType] = useState('')
   const [srCreating,    setSrCreating]    = useState(false)
   const [srError,       setSrError]       = useState<string | null>(null)
+
+  // ── Open a case from this review ────────────────────────────────
+  const [caseReferralType, setCaseReferralType] = useState('')
+  const [caseNotes,        setCaseNotes]        = useState('')
+  const [caseCreating,     setCaseCreating]     = useState(false)
+  const [caseError,        setCaseError]        = useState<string | null>(null)
+  const [resultingCaseId,  setResultingCaseId]  = useState(review.resulting_case_id ?? null)
+
+  async function handleOpenCase() {
+    if (!caseReferralType) { setCaseError('Select a product type first'); return }
+    setCaseCreating(true); setCaseError(null)
+    try {
+      const res = await fetch(`/api/policy-reviews/${review.id}/open-case`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          referral_type: caseReferralType,
+          notes:         caseNotes.trim() || undefined,
+          assigned_to:   assignedTo || undefined,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setCaseError(json.error ?? 'Failed to create case'); return }
+      setResultingCaseId(json.data.case_id)
+      router.push(`/referrals/${json.data.case_id}`)
+    } catch { setCaseError('Network error') }
+    finally { setCaseCreating(false) }
+  }
 
   async function handleCreateSr() {
     if (!policy?.id) return
@@ -834,6 +862,65 @@ export function ReviewPrepClient({
             >
               Delete this review
             </button>
+          )}
+
+          {/* Open a case from this review */}
+          {policy?.customer_id && (
+            <div className={`bg-slate-900 border rounded-xl p-4 space-y-3 ${
+              resultingCaseId ? 'border-amber-500/30' : 'border-slate-800'
+            }`}>
+              <h2 className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                Open a Case
+              </h2>
+
+              {resultingCaseId ? (
+                <a
+                  href={`/referrals/${resultingCaseId}`}
+                  className="flex items-center gap-1.5 text-sm text-amber-400 hover:text-amber-300 transition-colors"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" />
+                  Case opened — view referral
+                </a>
+              ) : (
+                <>
+                  <p className="text-xs text-slate-500">
+                    Client agreed to explore coverage? Open an EFS Generated case in one click.
+                  </p>
+                  <select
+                    value={caseReferralType}
+                    onChange={e => setCaseReferralType(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-slate-500"
+                  >
+                    <option value="">Product type…</option>
+                    {[
+                      { value: 'term_life',          label: 'Term Life Insurance' },
+                      { value: 'life_review',        label: 'Life Insurance Review' },
+                      { value: 'financial_planning', label: 'Financial / Retirement Planning' },
+                      { value: 'mortgage_protection',label: 'Mortgage Protection' },
+                      { value: 'business_owner',     label: 'Business Owner' },
+                      { value: 'existing_sales',     label: 'Additional Coverage' },
+                      { value: '1035_exchange',      label: '1035 Exchange' },
+                    ].map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  <textarea
+                    value={caseNotes}
+                    onChange={e => setCaseNotes(e.target.value)}
+                    placeholder="Quick note for the file… (optional)"
+                    rows={2}
+                    className="w-full bg-slate-800 border border-slate-700 text-slate-100 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-slate-500 placeholder-slate-500 resize-none"
+                  />
+                  {caseError && <p className="text-xs text-red-400">{caseError}</p>}
+                  <button
+                    onClick={handleOpenCase}
+                    disabled={caseCreating || !caseReferralType}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-50 transition-colors"
+                    style={{ backgroundColor: '#1F3864' }}
+                  >
+                    {caseCreating ? 'Opening…' : 'Open Case →'}
+                  </button>
+                </>
+              )}
+            </div>
           )}
 
           {/* Create linked Service Request */}
