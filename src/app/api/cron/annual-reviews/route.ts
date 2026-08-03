@@ -229,24 +229,41 @@ export async function GET(request: NextRequest) {
   }
 
   // ── PATH B: Wanderer — legacy policies by issue_date anniversary ───────────
+  // Paginate in 1000-row chunks — PostgREST silently caps a bare select at
+  // its max_rows setting (usually 1000), which would silently miss most of
+  // a large imported book.
 
-  const { data: wandererPolicies, error: wandErr } = await supabase
-    .from('service_policies')
-    .select(`
-      id, client_name, product_type, rate_class, primary_beneficiary,
-      cash_value_amount, cash_value_as_of_date, term_length, issue_date
-    `)
-    .is('source_case_id', null)
-    .not('issue_date', 'is', null)
-    .eq('is_test', false)
+  const WANDERER_PAGE = 1000
+  const wandererRows: (PolicySnapshot & { id: string; client_name: string | null })[] = []
+  let   wandPage = 0
+  let   wandErr: { message: string } | null = null
+
+  while (true) {
+    const from = wandPage * WANDERER_PAGE
+    const { data, error } = await supabase
+      .from('service_policies')
+      .select(`
+        id, client_name, product_type, rate_class, primary_beneficiary,
+        cash_value_amount, cash_value_as_of_date, term_length, issue_date
+      `)
+      .is('source_case_id', null)
+      .not('issue_date', 'is', null)
+      .eq('is_test', false)
+      .range(from, from + WANDERER_PAGE - 1)
+      .order('id')
+
+    if (error) { wandErr = error; break }
+    if (!data?.length) break
+
+    wandererRows.push(...(data as unknown as (PolicySnapshot & { id: string; client_name: string | null })[]))
+    if (data.length < WANDERER_PAGE) break
+    wandPage++
+  }
 
   if (wandErr) {
     console.error('annual-reviews: wanderer query failed', wandErr)
     errors.push(`Wanderer query: ${wandErr.message}`)
   }
-
-  const wandererRows = (wandererPolicies ?? []) as unknown as
-    (PolicySnapshot & { id: string; client_name: string | null })[]
 
   // Filter to anniversary window (±15 days) in JS — avoids raw SQL date math
   const anniversaryDue = wandererRows.filter(p => {
