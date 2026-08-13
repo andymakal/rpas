@@ -157,20 +157,25 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: srErr?.message ?? 'Failed to create service request' }, { status: 500 })
   }
 
-  // ── Remove originating triage case from the queue ─────────────────────────
-  // Only fires when a SR is created from the Triage page or a referral record.
-  // We use the admin client directly (bypasses stage_translations validation).
+  // ── Remove originating case from the queue ───────────────────────────────
+  // Fires when a SR is created from Triage or any referral-stage record.
+  // Guard against accidentally closing a production-stage case by only
+  // updating if the case is still in a pre-production stage.
   if (body.from_case_id) {
+    const PRE_PRODUCTION = [
+      'triage',
+      'active_referral', 'live_transfer', 'lsp_contact_needed',
+      'appointment_set', 'appointment_missed', 'quoted',
+      'not_interested', 'carrier_declined', 'client_withdrew', 'snoozed',
+    ]
     const { error: caseErr } = await supabase
       .from('cases')
       .update({ internal_status: 'existing_service', updated_at: new Date().toISOString() })
       .eq('id', body.from_case_id)
-      .eq('internal_status', 'triage')   // safety: only update if still in triage
+      .in('internal_status', PRE_PRODUCTION)
 
     if (caseErr) {
-      // SR was created — don't fail the whole request over the case update.
-      // Log and continue so the client still receives the new SR id.
-      console.error('triage case status update error:', caseErr)
+      console.error('case status update error:', caseErr)
     }
   }
 
