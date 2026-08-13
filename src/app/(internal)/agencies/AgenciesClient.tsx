@@ -211,11 +211,16 @@ export function AgenciesClient({ agencies, teams }: Props) {
       }),
     })
 
+    const json = await res.json().catch(() => ({}))
+
     if (!res.ok) {
-      const json = await res.json().catch(() => ({}))
       setAddError(json.error ?? 'Failed to add agency')
       setAddLoading(false)
       return
+    }
+
+    if (json.data?.id) {
+      setEdits(prev => ({ ...prev, [json.data.id]: toEdit(json.data as AgencyRow) }))
     }
 
     setNewForm(BLANK)
