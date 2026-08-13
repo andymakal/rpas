@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Check, Loader2, AlertCircle, Search, Plus, X, ChevronDown, ChevronUp } from 'lucide-react'
 import type { AgencyRow, SmlTeamOption } from './page'
@@ -111,6 +111,19 @@ export function AgenciesClient({ agencies, teams }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
   const [teamFilter, setTeamFilter] = useState('')
+
+  // When router.refresh() delivers new agencies (e.g. after Add Agency),
+  // populate edits for any agency not yet tracked.
+  useEffect(() => {
+    setEdits(prev => {
+      const next = { ...prev }
+      let changed = false
+      for (const a of agencies) {
+        if (!next[a.id]) { next[a.id] = toEdit(a); changed = true }
+      }
+      return changed ? next : prev
+    })
+  }, [agencies])
 
   const [showAdd, setShowAdd]   = useState(false)
   const [newForm, setNewForm]   = useState<NewAgencyForm>(BLANK)
