@@ -20,11 +20,22 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
   }
 
-  const { name, display_name, slug, sml_team_id } = body as {
-    name:         string
-    display_name: string
-    slug:         string
-    sml_team_id:  string | null
+  const {
+    name, display_name, slug, sml_team_id,
+    agent_number, contact_phone, contact_email,
+    contact_street, contact_city, contact_state, contact_zip,
+  } = body as {
+    name:           string
+    display_name:   string
+    slug:           string
+    sml_team_id:    string | null
+    agent_number:   string | null
+    contact_phone:  string | null
+    contact_email:  string | null
+    contact_street: string | null
+    contact_city:   string | null
+    contact_state:  string | null
+    contact_zip:    string | null
   }
 
   if (!name?.trim())         return Response.json({ error: 'Allstate name is required' }, { status: 400 })
@@ -40,7 +51,14 @@ export async function POST(request: NextRequest) {
       display_name:    display_name.trim(),
       slug:            slug.trim(),
       dashboard_token,
-      sml_team_id:     sml_team_id || null,
+      sml_team_id:     sml_team_id     || null,
+      agent_number:    agent_number    || null,
+      contact_phone:   contact_phone   || null,
+      contact_email:   contact_email   || null,
+      contact_street:  contact_street  || null,
+      contact_city:    contact_city    || null,
+      contact_state:   contact_state   || null,
+      contact_zip:     contact_zip     || null,
       is_active:       true,
       is_test:         false,
     })

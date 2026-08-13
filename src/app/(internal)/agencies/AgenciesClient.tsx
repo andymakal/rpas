@@ -36,7 +36,7 @@ function toEdit(a: AgencyRow): EditState {
     sml_team_id:    a.sml_team_id ?? '',
     is_active:      a.is_active,
     agent_number:   a.agent_number ?? '',
-    contact_phone:  a.contact_phone ?? '',
+    contact_phone:  formatPhone(a.contact_phone ?? ''),
     contact_email:  a.contact_email ?? '',
     contact_street: a.contact_street ?? '',
     contact_city:   a.contact_city ?? '',
@@ -52,20 +52,31 @@ function toSlug(s: string): string {
   return s.toLowerCase().replace(/['']/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 }
 
-type NewAgencyForm = {
-  name:         string
-  display_name: string
-  slug:         string
-  sml_team_id:  string
-}
-
-const BLANK: NewAgencyForm = { name: '', display_name: '', slug: '', sml_team_id: '' }
-
 function formatPhone(v: string): string {
   const d = v.replace(/\D/g, '').slice(0, 10)
   if (d.length < 4) return d
   if (d.length < 7) return `(${d.slice(0, 3)}) ${d.slice(3)}`
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`
+}
+
+type NewAgencyForm = {
+  name:           string
+  display_name:   string
+  slug:           string
+  sml_team_id:    string
+  agent_number:   string
+  contact_phone:  string
+  contact_email:  string
+  contact_street: string
+  contact_city:   string
+  contact_state:  string
+  contact_zip:    string
+}
+
+const BLANK: NewAgencyForm = {
+  name: '', display_name: '', slug: '', sml_team_id: '',
+  agent_number: '', contact_phone: '', contact_email: '',
+  contact_street: '', contact_city: '', contact_state: '', contact_zip: '',
 }
 
 function isDirty(a: AgencyRow, e: EditState) {
@@ -170,10 +181,17 @@ export function AgenciesClient({ agencies, teams }: Props) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        name:         newForm.name.trim() || newForm.display_name.trim(),
-        display_name: newForm.display_name.trim(),
-        slug:         newForm.slug.trim(),
-        sml_team_id:  newForm.sml_team_id || null,
+        name:           newForm.name.trim() || newForm.display_name.trim(),
+        display_name:   newForm.display_name.trim(),
+        slug:           newForm.slug.trim(),
+        sml_team_id:    newForm.sml_team_id    || null,
+        agent_number:   newForm.agent_number   || null,
+        contact_phone:  newForm.contact_phone  || null,
+        contact_email:  newForm.contact_email  || null,
+        contact_street: newForm.contact_street || null,
+        contact_city:   newForm.contact_city   || null,
+        contact_state:  newForm.contact_state  || null,
+        contact_zip:    newForm.contact_zip    || null,
       }),
     })
 
@@ -277,6 +295,84 @@ export function AgenciesClient({ agencies, teams }: Props) {
                   <option key={t.id} value={t.id}>{t.display_name}</option>
                 ))}
               </select>
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Agent #</label>
+              <input
+                type="text"
+                value={newForm.agent_number}
+                onChange={e => setNewForm(f => ({ ...f, agent_number: e.target.value }))}
+                placeholder="A0X0000"
+                className={INPUT}
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Phone</label>
+              <input
+                type="text"
+                value={newForm.contact_phone}
+                onChange={e => setNewForm(f => ({ ...f, contact_phone: formatPhone(e.target.value) }))}
+                placeholder="(555) 555-5555"
+                className={INPUT}
+              />
+            </div>
+
+            <div className="col-span-2">
+              <label className="text-xs text-slate-400 mb-1 block">Email</label>
+              <input
+                type="text"
+                value={newForm.contact_email}
+                onChange={e => setNewForm(f => ({ ...f, contact_email: e.target.value }))}
+                placeholder="agent@allstate.com"
+                className={INPUT}
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-slate-400 mb-1 block">Street</label>
+              <input
+                type="text"
+                value={newForm.contact_street}
+                onChange={e => setNewForm(f => ({ ...f, contact_street: e.target.value }))}
+                placeholder="123 Main St"
+                className={INPUT}
+              />
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              <div className="col-span-1">
+                <label className="text-xs text-slate-400 mb-1 block">City</label>
+                <input
+                  type="text"
+                  value={newForm.contact_city}
+                  onChange={e => setNewForm(f => ({ ...f, contact_city: e.target.value }))}
+                  placeholder="Pittsburgh"
+                  className={INPUT}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">State</label>
+                <input
+                  type="text"
+                  value={newForm.contact_state}
+                  onChange={e => setNewForm(f => ({ ...f, contact_state: e.target.value }))}
+                  placeholder="PA"
+                  className={INPUT}
+                  maxLength={2}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 mb-1 block">ZIP</label>
+                <input
+                  type="text"
+                  value={newForm.contact_zip}
+                  onChange={e => setNewForm(f => ({ ...f, contact_zip: e.target.value }))}
+                  placeholder="15222"
+                  className={INPUT}
+                />
+              </div>
             </div>
           </div>
 
