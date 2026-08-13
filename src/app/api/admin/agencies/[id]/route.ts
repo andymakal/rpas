@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest } from 'next/server'
 import crypto from 'crypto'
+import { normalizePhone } from '@/lib/fmt'
 
 const ALLOWED_FIELDS = new Set([
   'name', 'display_name', 'sml_team_id', 'is_active', 'parent_agency_id',
@@ -30,6 +31,10 @@ export async function PATCH(
 
   if (Object.keys(updates).length === 0) {
     return Response.json({ error: 'No valid fields to update' }, { status: 400 })
+  }
+
+  if ('contact_phone' in updates) {
+    updates.contact_phone = normalizePhone(updates.contact_phone as string)
   }
 
   // Slug drives the portal URL — normalize to the same shape used at creation

@@ -61,6 +61,13 @@ type NewAgencyForm = {
 
 const BLANK: NewAgencyForm = { name: '', display_name: '', slug: '', sml_team_id: '' }
 
+function formatPhone(v: string): string {
+  const d = v.replace(/\D/g, '').slice(0, 10)
+  if (d.length < 4) return d
+  if (d.length < 7) return `(${d.slice(0, 3)}) ${d.slice(3)}`
+  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`
+}
+
 function isDirty(a: AgencyRow, e: EditState) {
   return (
     e.name                     !== a.name                     ||
@@ -489,7 +496,7 @@ export function AgenciesClient({ agencies, teams }: Props) {
                             <input
                               type="text"
                               value={edit?.contact_phone ?? ''}
-                              onChange={e => update(agency.id, 'contact_phone', e.target.value)}
+                              onChange={e => update(agency.id, 'contact_phone', formatPhone(e.target.value))}
                               placeholder="555-555-5555"
                               className={INPUT}
                             />

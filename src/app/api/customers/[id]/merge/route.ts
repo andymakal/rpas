@@ -69,7 +69,22 @@ export async function POST(
     .update({ customer_id: winnerId, updated_at: now })
     .eq('customer_id', loserId)
 
-  // 4. If either customer is in a group, merge them (customer_groups link)
+  // 4. Reassign service_requests, policy_reviews, customer_notes
+  await supabase
+    .from('service_requests')
+    .update({ customer_id: winnerId })
+    .eq('customer_id', loserId)
+
+  await supabase
+    .from('policy_reviews')
+    .update({ customer_id: winnerId })
+    .eq('customer_id', loserId)
+
+  await supabase
+    .from('customer_notes')
+    .update({ customer_id: winnerId })
+    .eq('customer_id', loserId)
+
   const loser  = customers.find(c => c.id === loserId)!
   const winner = customers.find(c => c.id === winnerId)!
 
