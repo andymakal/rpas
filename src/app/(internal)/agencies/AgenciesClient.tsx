@@ -480,10 +480,10 @@ export function AgenciesClient({ agencies, teams }: Props) {
           </thead>
           <tbody>
             {filtered.map(agency => {
-              const edit      = edits[agency.id]
+              const edit      = edits[agency.id] ?? toEdit(agency)
               const status    = statuses[agency.id] ?? 'idle'
               const error     = errors[agency.id]
-              const dirty     = edit ? isDirty(agency, edit) : false
+              const dirty     = isDirty(agency, edit)
               const isOpen    = expanded.has(agency.id)
               const hasContact = agency.contact_phone || agency.contact_email || agency.contact_street
 
