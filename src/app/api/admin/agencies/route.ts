@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
     name, display_name, slug, sml_team_id,
     agent_number, contact_phone, contact_email,
     contact_street, contact_city, contact_state, contact_zip,
+    portal_pin,
   } = body as {
     name:           string
     display_name:   string
@@ -36,6 +37,7 @@ export async function POST(request: NextRequest) {
     contact_city:   string | null
     contact_state:  string | null
     contact_zip:    string | null
+    portal_pin:     string | null
   }
 
   if (!name?.trim())         return Response.json({ error: 'Allstate name is required' }, { status: 400 })
@@ -59,6 +61,7 @@ export async function POST(request: NextRequest) {
       contact_city:    contact_city    || null,
       contact_state:   contact_state   || null,
       contact_zip:     contact_zip     || null,
+      portal_pin:      portal_pin      || '0000',
       is_active:       true,
       is_test:         false,
     })

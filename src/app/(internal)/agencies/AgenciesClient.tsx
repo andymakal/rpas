@@ -71,12 +71,14 @@ type NewAgencyForm = {
   contact_city:   string
   contact_state:  string
   contact_zip:    string
+  portal_pin:     string
 }
 
 const BLANK: NewAgencyForm = {
   name: '', display_name: '', slug: '', sml_team_id: '',
   agent_number: '', contact_phone: '', contact_email: '',
   contact_street: '', contact_city: '', contact_state: '', contact_zip: '',
+  portal_pin: '0000',
 }
 
 function isDirty(a: AgencyRow, e: EditState) {
@@ -205,6 +207,7 @@ export function AgenciesClient({ agencies, teams }: Props) {
         contact_city:   newForm.contact_city   || null,
         contact_state:  newForm.contact_state  || null,
         contact_zip:    newForm.contact_zip    || null,
+        portal_pin:     newForm.portal_pin     || '0000',
       }),
     })
 
