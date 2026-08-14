@@ -453,6 +453,15 @@ export function ReviewPrepClient({
             {policy?.policy_number && <span className="text-slate-600"> · {policy.policy_number}</span>}
             {policy?.carrier && <span className="text-slate-600"> · {policy.carrier}</span>}
           </p>
+          {policy?.customer_id && (
+            <a
+              href={`/customers/${policy.customer_id}`}
+              className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors mt-1"
+            >
+              <User className="w-3 h-3" />
+              View customer card
+            </a>
+          )}
         </div>
       </div>
 

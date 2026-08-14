@@ -38,10 +38,11 @@ export async function POST(request: NextRequest) {
       customer_id?:          string | null
       notes?:                string | null
     }
-    request_type:   string
-    notes?:         string | null
-    date_received?: string | null
-    from_case_id?:  string | null
+    request_type:      string
+    notes?:            string | null
+    date_received?:    string | null
+    from_case_id?:     string | null
+    force_duplicate?:  boolean
   }
 
   try {
@@ -115,6 +116,25 @@ export async function POST(request: NextRequest) {
         return Response.json({ error: pErr?.message ?? 'Failed to create policy' }, { status: 500 })
       }
       policyId = policy.id
+    }
+  }
+
+  // ── Duplicate check: warn if an open SR already exists for this policy + type ─
+  if (!body.force_duplicate) {
+    const { data: existing } = await supabase
+      .from('service_requests')
+      .select('id, sr_number')
+      .eq('policy_id', policyId)
+      .eq('request_type', body.request_type.trim())
+      .not('workflow_status', 'in', '("resolved","cannot_service")')
+      .maybeSingle()
+
+    if (existing) {
+      return Response.json({
+        error:       `An open ${body.request_type} request already exists for this policy (${existing.sr_number}). Pass force_duplicate: true to create anyway.`,
+        existing_id: existing.id,
+        sr_number:   existing.sr_number,
+      }, { status: 409 })
     }
   }
 

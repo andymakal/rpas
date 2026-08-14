@@ -173,8 +173,11 @@ export function NewServiceRequestClient({
   prefill?: Prefill
 }) {
   const router = useRouter()
-  const [saving, setSaving] = useState(false)
-  const [error,  setError]  = useState<string | null>(null)
+  const [saving,          setSaving]         = useState(false)
+  const [error,           setError]          = useState<string | null>(null)
+  const [duplicateSrId,   setDuplicateSrId]  = useState<string | null>(null)
+  const [duplicateSrNum,  setDuplicateSrNum] = useState<string | null>(null)
+  const [lastPayload,     setLastPayload]    = useState<Record<string, unknown> | null>(null)
 
   // Selected existing policy (skips the new-policy form)
   const [selectedPolicy, setSelectedPolicy] = useState<PolicyResult | null>(null)
@@ -260,13 +263,20 @@ export function NewServiceRequestClient({
       // Attach originating triage case so the API can remove it from the queue
       if (prefill.fromCaseId) bodyPayload.from_case_id = prefill.fromCaseId
 
+      setLastPayload(bodyPayload)
       const res  = await fetch('/api/service-requests', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(bodyPayload),
       })
-      const json = await res.json()
-      if (!res.ok) { setError((json as { error?: string }).error ?? 'Failed to create'); return }
+      const json = await res.json() as { error?: string; existing_id?: string; sr_number?: string; data?: { id: string } }
+      if (res.status === 409) {
+        setDuplicateSrId(json.existing_id ?? null)
+        setDuplicateSrNum(json.sr_number ?? null)
+        setSaving(false)
+        return
+      }
+      if (!res.ok) { setError(json.error ?? 'Failed to create'); return }
 
       router.push(`/service/${(json as { data: { id: string } }).data.id}`)
       router.refresh()
@@ -513,6 +523,38 @@ export function NewServiceRequestClient({
       {error && (
         <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-4 py-3">
           <p className="text-sm text-red-400">{error}</p>
+        </div>
+      )}
+
+      {duplicateSrId && (
+        <div className="rounded-lg bg-amber-500/10 border border-amber-500/30 px-4 py-3 space-y-2">
+          <p className="text-sm text-amber-300 font-medium">An open service request already exists for this policy and request type.</p>
+          <div className="flex items-center gap-3 flex-wrap">
+            <a
+              href={`/service/${duplicateSrId}`}
+              className="text-sm text-amber-400 hover:text-amber-300 underline underline-offset-2"
+            >
+              Open {duplicateSrNum ?? 'existing SR'} →
+            </a>
+            <button
+              type="button"
+              onClick={async () => {
+                if (!lastPayload) return
+                setSaving(true)
+                const res = await fetch('/api/service-requests', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ ...lastPayload, force_duplicate: true }),
+                })
+                const json = await res.json() as { data?: { id: string }; error?: string }
+                if (!res.ok) { setError(json.error ?? 'Failed to create'); setSaving(false); return }
+                router.push(`/service/${json.data!.id}`)
+              }}
+              className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              Create anyway
+            </button>
+          </div>
         </div>
       )}
 

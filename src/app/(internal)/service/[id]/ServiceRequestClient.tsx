@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, AlertCircle, Save, Pencil } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, AlertCircle, Save, Pencil, User } from 'lucide-react'
 import type { ServiceRequestDetail, AgencyOption, AgentOption, SRNote } from './page'
 import { NotesLog } from '@/components/NotesLog'
 import type { NoteEntry } from '@/components/NotesLog'
@@ -322,6 +322,15 @@ export function ServiceRequestClient({
           <p className="text-slate-400 text-sm mt-0.5">
             {policy?.client_name ?? '—'} · {policy?.policy_number ?? '—'} · {policy?.carrier ?? '—'}
           </p>
+          {policy?.customer_id && (
+            <a
+              href={`/customers/${policy.customer_id}`}
+              className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors mt-1"
+            >
+              <User className="w-3 h-3" />
+              View customer card
+            </a>
+          )}
         </div>
       </div>
 
