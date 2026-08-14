@@ -25,6 +25,7 @@ export type ServiceRow = {
     carrier: string
     sa_status: string
     face_amount: number | null
+    customer_id: string | null
     agencies: { name: string; display_name: string | null } | null
     agents: { first_name: string; last_name: string } | null
   } | null
@@ -55,6 +56,7 @@ export default async function ServicePage() {
         carrier,
         sa_status,
         face_amount,
+        customer_id,
         agencies ( name, display_name ),
         agents ( first_name, last_name )
       )

@@ -456,10 +456,10 @@ export function ReviewPrepClient({
           {policy?.customer_id && (
             <a
               href={`/customers/${policy.customer_id}`}
-              className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors mt-1"
+              className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors mt-1"
             >
               <User className="w-3 h-3" />
-              View customer card
+              Customer card →
             </a>
           )}
         </div>

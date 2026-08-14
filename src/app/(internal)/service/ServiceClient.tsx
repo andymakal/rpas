@@ -188,6 +188,15 @@ export function ServiceClient({ rows }: { rows: ServiceRow[] }) {
                       <p className="font-medium text-white group-hover:text-blue-300 transition-colors">
                         {policy?.client_name ?? '—'}
                       </p>
+                      {policy?.customer_id && (
+                        <a
+                          href={`/customers/${policy.customer_id}`}
+                          onClick={e => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors mt-0.5"
+                        >
+                          Customer card →
+                        </a>
+                      )}
                       {(policy?.agents) && (
                         <p className="text-xs text-slate-500 mt-0.5">
                           {policy.agents.first_name} {policy.agents.last_name}

@@ -25,6 +25,7 @@ export type CaseRow = {
   is_owner_referral: boolean
   lead_source: string | null
   agencies: { name: string; display_name: string | null } | null
+  customer_id: string | null
   customers: { first_name: string; last_name: string; phone: string } | null
   agents: { first_name: string; last_name: string } | null
   stage_translations: StageTranslation | null
@@ -41,6 +42,7 @@ export default async function ReferralsPage() {
     .from('cases')
     .select(`
       id,
+      customer_id,
       internal_status,
       created_at,
       status_entered_at,

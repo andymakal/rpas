@@ -334,6 +334,15 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
                       <p className="font-medium text-white">
                         {r.customers?.first_name ?? '—'} {r.customers?.last_name ?? ''}
                       </p>
+                      {r.customer_id && (
+                        <a
+                          href={`/customers/${r.customer_id}`}
+                          onClick={e => e.stopPropagation()}
+                          className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                        >
+                          Customer card →
+                        </a>
+                      )}
                       {r.is_owner_referral && (
                         <span className="inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium bg-violet-900/50 text-violet-300 border border-violet-800 flex-shrink-0">
                           Owner
