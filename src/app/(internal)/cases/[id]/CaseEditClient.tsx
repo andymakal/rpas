@@ -21,6 +21,7 @@ import { NotesLog } from '@/components/NotesLog'
 import type { NoteEntry } from '@/components/NotesLog'
 import { fmtDate as fmt } from '@/lib/fmt'
 import { useNavList } from '@/lib/nav-list'
+import { logEmailTouch } from '@/lib/log-email-touch'
 import { TEMPLATES, UNDERWRITING_SCENARIOS, interpolate, buildMailto } from '@/lib/templates'
 import { addRecentItem } from '@/lib/recent-items'
 
@@ -1307,7 +1308,8 @@ export default function CaseEditClient({
                     sender_name: emailSenderName || '{sender_name}',
                   })
                 )}
-                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${clientEmail ? 'text-white bg-amber-700 hover:bg-amber-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}>
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${clientEmail ? 'text-white bg-amber-700 hover:bg-amber-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}
+                onClick={() => logEmailTouch(caseData.id)}>
                 <Mail className="w-3.5 h-3.5" />
                 {clientEmail ? 'Open in Outlook' : 'No client email on file'}
               </a>
@@ -1358,7 +1360,8 @@ export default function CaseEditClient({
                     }
                   )
                 )}
-                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${clientEmail ? 'text-white bg-violet-700 hover:bg-violet-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}>
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${clientEmail ? 'text-white bg-violet-700 hover:bg-violet-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}
+                onClick={() => logEmailTouch(caseData.id)}>
                 <Mail className="w-3.5 h-3.5" />
                 {clientEmail ? 'Open in Outlook' : 'No client email on file'}
               </a>
@@ -1414,7 +1417,8 @@ export default function CaseEditClient({
                   uwNote.trim() && clientEmail
                     ? 'text-white bg-blue-700 hover:bg-blue-600'
                     : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'
-                }`}>
+                }`}
+                onClick={() => logEmailTouch(caseData.id)}>
                 <Mail className="w-3.5 h-3.5" />
                 {!clientEmail ? 'No client email on file' : !uwNote.trim() ? 'Select a scenario first' : 'Open in Outlook'}
               </a>
@@ -1444,7 +1448,8 @@ export default function CaseEditClient({
                     sender_name: emailSenderName || '{sender_name}',
                   })
                 )}
-                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${clientEmail ? 'text-white bg-emerald-700 hover:bg-emerald-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}>
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${clientEmail ? 'text-white bg-emerald-700 hover:bg-emerald-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}
+                onClick={() => logEmailTouch(caseData.id)}>
                 <Mail className="w-3.5 h-3.5" />
                 {clientEmail ? 'Open in Outlook' : 'No client email on file'}
               </a>
@@ -1470,7 +1475,8 @@ export default function CaseEditClient({
                     carrier:    carrierName || 'your carrier',
                   })
                 )}
-                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${clientEmail ? 'text-white bg-emerald-700 hover:bg-emerald-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}>
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${clientEmail ? 'text-white bg-emerald-700 hover:bg-emerald-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}
+                onClick={() => logEmailTouch(caseData.id)}>
                 <Mail className="w-3.5 h-3.5" />
                 {clientEmail ? 'Open in Outlook' : 'No client email on file'}
               </a>

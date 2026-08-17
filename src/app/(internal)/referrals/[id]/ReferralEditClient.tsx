@@ -16,6 +16,7 @@ import { NotesLog } from '@/components/NotesLog'
 import type { NoteEntry } from '@/components/NotesLog'
 import { fmtDate as fmt } from '@/lib/fmt'
 import { useNavList } from '@/lib/nav-list'
+import { logEmailTouch } from '@/lib/log-email-touch'
 import { buildHouseholdName } from '@/lib/household'
 import { addRecentItem } from '@/lib/recent-items'
 import { TEMPLATES, SCRIPTS, APPT_TYPES, TOPIC_MAP, interpolate, buildMailto, fmtEmailDate, fmtTime12 } from '@/lib/templates'
@@ -2199,7 +2200,8 @@ export function ReferralEditClient({
                     topic:          TOPIC_MAP[referral.lead_source ?? ''] ?? 'life insurance',
                   })
                 )}
-                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${referral.customers?.email ? 'text-white bg-blue-700 hover:bg-blue-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}>
+                className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${referral.customers?.email ? 'text-white bg-blue-700 hover:bg-blue-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}
+                onClick={() => logEmailTouch(referral.id)}>
                 <Mail className="w-3.5 h-3.5" />
                 {referral.customers?.email ? 'Open in Outlook' : 'No client email on file'}
               </a>
@@ -2260,7 +2262,8 @@ export function ReferralEditClient({
                       interpolate(TEMPLATES.appointment_confirmed.subject, apptVars),
                       interpolate(TEMPLATES.appointment_confirmed.body, apptVars),
                     )}
-                    className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${referral.customers?.email ? 'text-white bg-blue-700 hover:bg-blue-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}>
+                    className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${referral.customers?.email ? 'text-white bg-blue-700 hover:bg-blue-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}
+                    onClick={() => logEmailTouch(referral.id)}>
                     <Mail className="w-3.5 h-3.5" />
                     {referral.customers?.email ? 'Open in Outlook' : 'No client email on file'}
                   </a>
@@ -2274,7 +2277,8 @@ export function ReferralEditClient({
                       interpolate(TEMPLATES.appointment_reminder.subject, apptVars),
                       interpolate(TEMPLATES.appointment_reminder.body, apptVars),
                     )}
-                    className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${referral.customers?.email ? 'text-white bg-blue-700 hover:bg-blue-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}>
+                    className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${referral.customers?.email ? 'text-white bg-blue-700 hover:bg-blue-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}
+                    onClick={() => logEmailTouch(referral.id)}>
                     <Mail className="w-3.5 h-3.5" />
                     {referral.customers?.email ? 'Open in Outlook' : 'No client email on file'}
                   </a>
@@ -2321,7 +2325,8 @@ export function ReferralEditClient({
                       sender_name: emailSenderName || '{sender_name}',
                     })
                   )}
-                  className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${referral.customers?.email ? followUpDue ? 'text-white bg-amber-700 hover:bg-amber-600' : 'text-white bg-blue-700 hover:bg-blue-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}>
+                  className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${referral.customers?.email ? followUpDue ? 'text-white bg-amber-700 hover:bg-amber-600' : 'text-white bg-blue-700 hover:bg-blue-600' : 'text-slate-500 bg-slate-800 cursor-not-allowed pointer-events-none'}`}
+                onClick={() => logEmailTouch(referral.id)}>
                   <Mail className="w-3.5 h-3.5" />
                   {referral.customers?.email ? 'Open in Outlook' : 'No client email on file'}
                 </a>

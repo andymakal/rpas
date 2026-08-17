@@ -13,6 +13,7 @@ import { setNavList } from '@/lib/nav-list'
 import { buildHouseholdName } from '@/lib/household'
 import { SCRIPTS, APPT_TYPES, TOPIC_MAP, interpolate } from '@/lib/templates'
 import { ScriptCard } from '@/components/ScriptCard'
+import { logEmailTouch } from '@/lib/log-email-touch'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -374,7 +375,7 @@ function TriageRow({
           </div>
           {c.customers?.email && (
             <div className="mt-0.5">
-              <a href={`mailto:${c.customers.email}`} onClick={e => e.stopPropagation()}
+              <a href={`mailto:${c.customers.email}`} onClick={e => { e.stopPropagation(); logEmailTouch(c.id) }}
                 className="text-xs text-slate-500 hover:text-blue-400 flex items-center gap-1 transition-colors">
                 <Mail className="w-3 h-3" />{c.customers.email}
               </a>
