@@ -16,6 +16,7 @@ import type {
   CaseStatusHistoryEntry, CustomerNote, TouchHistoryEntry,
 } from './page'
 import { fmtDate } from '@/lib/fmt'
+import { formatPhone } from '@/lib/format-phone'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -360,7 +361,7 @@ export function CustomerCardClient({
   const [editingContact,  setEditingContact]  = useState(false)
   const [editFirst,       setEditFirst]       = useState(customer.first_name)
   const [editLast,        setEditLast]        = useState(customer.last_name)
-  const [editPhone,       setEditPhone]       = useState(customer.phone ?? '')
+  const [editPhone,       setEditPhone]       = useState(formatPhone(customer.phone ?? ''))
   const [editEmail,       setEditEmail]       = useState(customer.email ?? '')
   const [editStreet,      setEditStreet]      = useState(customer.street ?? '')
   const [editCity,        setEditCity]        = useState(customer.city ?? '')
@@ -803,7 +804,7 @@ export function CustomerCardClient({
                     <div className="flex flex-wrap gap-x-6 gap-y-1.5">
                       {customer.phone && (
                         <a href={`tel:${customer.phone}`} className="flex items-center gap-1.5 text-sm text-slate-300 hover:text-white transition-colors">
-                          <Phone className="w-3.5 h-3.5 text-slate-500 shrink-0" /> {customer.phone}
+                          <Phone className="w-3.5 h-3.5 text-slate-500 shrink-0" /> {formatPhone(customer.phone!)}
                         </a>
                       )}
                       {customer.email && (
@@ -862,7 +863,7 @@ export function CustomerCardClient({
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs text-slate-500 mb-1">Phone</label>
-                        <input value={editPhone} onChange={e => setEditPhone(e.target.value)} type="tel" className={inputCls} />
+                        <input value={editPhone} onChange={e => setEditPhone(formatPhone(e.target.value))} type="tel" placeholder="(555) 555-5555" className={inputCls} />
                       </div>
                       <div>
                         <label className="block text-xs text-slate-500 mb-1">Email</label>
