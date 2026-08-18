@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, AlertCircle, Save, Pencil, User } from 'lucide-react'
+import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, AlertCircle, Save, Pencil, User, Phone, Mail } from 'lucide-react'
 import type { ServiceRequestDetail, AgencyOption, AgentOption, SRNote } from './page'
 import { NotesLog } from '@/components/NotesLog'
 import type { NoteEntry } from '@/components/NotesLog'
@@ -322,14 +322,30 @@ export function ServiceRequestClient({
           <p className="text-slate-400 text-sm mt-0.5">
             {policy?.client_name ?? '—'} · {policy?.policy_number ?? '—'} · {policy?.carrier ?? '—'}
           </p>
-          {policy?.customer_id && (
-            <a
-              href={`/customers/${policy.customer_id}`}
-              className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors mt-1"
-            >
-              <User className="w-3 h-3" />
-              Customer card →
-            </a>
+          {policy?.customers ? (
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+              <a href={`/customers/${policy.customers.id}`}
+                className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                <User className="w-3 h-3" />
+                {policy.customers.first_name} {policy.customers.last_name} — Customer card →
+              </a>
+              {policy.customers.phone && (
+                <a href={`tel:${policy.customers.phone}`}
+                  className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors">
+                  <Phone className="w-3 h-3" />
+                  {policy.customers.phone}
+                </a>
+              )}
+              {policy.customers.email && (
+                <a href={`mailto:${policy.customers.email}`}
+                  className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors">
+                  <Mail className="w-3 h-3" />
+                  {policy.customers.email}
+                </a>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-600 mt-1">No customer card linked</p>
           )}
         </div>
       </div>

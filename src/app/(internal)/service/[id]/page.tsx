@@ -35,6 +35,7 @@ export type ServiceRequestDetail = {
     customer_id: string | null
     agencies: { id: string; name: string; display_name: string | null } | null
     agents: { id: string; first_name: string; last_name: string } | null
+    customers: { id: string; first_name: string; last_name: string; phone: string | null; email: string | null } | null
   } | null
 }
 
@@ -86,7 +87,8 @@ export default async function ServiceRequestPage(
           premium_mode, rate_class, sa_status, notes,
           agency_id, agent_id, customer_id,
           agencies ( id, name, display_name ),
-          agents ( id, first_name, last_name )
+          agents ( id, first_name, last_name ),
+          customers!customer_id ( id, first_name, last_name, phone, email )
         )
       `)
       .eq('id', id)
