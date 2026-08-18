@@ -8,10 +8,11 @@ import {
   Shield, CheckCircle, ShieldOff, FileQuestion, Send,
   AlertTriangle, ChevronRight, Search, X, Trash2,
   FolderKanban, Wrench, Link2, History, Compass, ChevronDown,
-  Pencil, Check, MessageSquare, Clipboard,
+  Pencil, Check, MessageSquare, Clipboard, Plus, ClipboardCheck,
 } from 'lucide-react'
 import type {
   CustomerDetail, LinkedCase, LinkedPolicy, LinkedServiceRequest,
+  LinkedReview, ProducerOption,
   CaseStatusHistoryEntry, CustomerNote, TouchHistoryEntry,
 } from './page'
 import { fmtDate } from '@/lib/fmt'
@@ -248,6 +249,13 @@ const CARRIERS = [
 
 const POLICY_TYPES = ['Term', 'UL', 'VUL', 'WL', 'IUL', 'GUL', 'LTC', 'Annuity', 'FA', 'MVA', 'Other']
 
+const REQUEST_TYPES = [
+  'Billing Issue', 'Change Payment Info', 'Beneficiary Change',
+  'Statement of Insurance', 'Address Update', 'Lapse / Reinstatement',
+  'Claims Assistance', 'General Coverage Question',
+  'Policy Review', 'Policy Surrender', 'Other',
+]
+
 type PolicySearchResult = {
   id:           string
   policy_number: string
@@ -266,6 +274,8 @@ export function CustomerCardClient({
   policies: initialPolicies,
   pendingCasePolicies,
   serviceRequests,
+  policyReviews,
+  producers,
   caseHistory,
   initialNotes,
   touchHistory,
@@ -275,6 +285,8 @@ export function CustomerCardClient({
   policies:             LinkedPolicy[]
   pendingCasePolicies:  LinkedCase[]
   serviceRequests:      LinkedServiceRequest[]
+  policyReviews:        LinkedReview[]
+  producers:            ProducerOption[]
   caseHistory:          CaseStatusHistoryEntry[]
   initialNotes:         CustomerNote[]
   touchHistory:         TouchHistoryEntry[]
@@ -291,6 +303,23 @@ export function CustomerCardClient({
   const [confirmDeleteCase, setConfirmDeleteCase] = useState<string | null>(null)
   const [deletingCase,      setDeletingCase]      = useState(false)
   const [caseDeleteErr,     setCaseDeleteErr]     = useState<string | null>(null)
+
+  // ── New Service Request form ─────────────────────────────────────────────────
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const [showNewSR,          setShowNewSR]          = useState(false)
+  const [newSRPolicyId,      setNewSRPolicyId]      = useState('')
+  const [newSRType,          setNewSRType]          = useState('')
+  const [newSRDate,          setNewSRDate]          = useState(todayStr)
+  const [newSRNotes,         setNewSRNotes]         = useState('')
+  const [newSRSaving,        setNewSRSaving]        = useState(false)
+  const [newSRError,         setNewSRError]         = useState<string | null>(null)
+
+  // ── New Policy Review form ───────────────────────────────────────────────────
+  const [showNewReview,       setShowNewReview]       = useState(false)
+  const [newReviewPolicyId,   setNewReviewPolicyId]   = useState('')
+  const [newReviewAssignedTo, setNewReviewAssignedTo] = useState('')
+  const [newReviewSaving,     setNewReviewSaving]     = useState(false)
+  const [newReviewError,      setNewReviewError]      = useState<string | null>(null)
 
   const [addingPolicy,    setAddingPolicy]    = useState(false)
   const [newCarrier,      setNewCarrier]      = useState('')
@@ -631,6 +660,50 @@ export function CustomerCardClient({
       }
     } catch { setContactMsg({ ok: false, text: 'Network error' }) }
     finally   { setContactSaving(false) }
+  }
+
+  async function handleNewSR() {
+    if (!newSRPolicyId || !newSRType) return
+    setNewSRSaving(true); setNewSRError(null)
+    try {
+      const res = await fetch('/api/service-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          policy_id:     newSRPolicyId,
+          request_type:  newSRType,
+          date_received: newSRDate || todayStr,
+          notes:         newSRNotes.trim() || undefined,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to create service request')
+      router.push(`/service/${json.data.id}`)
+    } catch (e) {
+      setNewSRError((e as Error).message)
+      setNewSRSaving(false)
+    }
+  }
+
+  async function handleNewReview() {
+    if (!newReviewPolicyId) return
+    setNewReviewSaving(true); setNewReviewError(null)
+    try {
+      const res = await fetch('/api/policy-reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          policy_id:   newReviewPolicyId,
+          assigned_to: newReviewAssignedTo || null,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to schedule review')
+      router.push(`/reviews/${json.data.id}`)
+    } catch (e) {
+      setNewReviewError((e as Error).message)
+      setNewReviewSaving(false)
+    }
   }
 
   const inputCls = 'w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 placeholder-slate-600'
@@ -1469,9 +1542,74 @@ export function CustomerCardClient({
           </Section>
         )}
 
-        {/* Service requests */}
-        {serviceRequests.length > 0 && (
-          <Section title="Service Requests" icon={Wrench} count={serviceRequests.length}>
+        {/* Service Requests */}
+        <Section
+          title="Service Requests"
+          icon={Wrench}
+          count={serviceRequests.length}
+          action={
+            policies.length > 0 ? (
+              <button
+                onClick={() => { setShowNewSR(v => !v); setNewSRError(null) }}
+                className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" /> New SR
+              </button>
+            ) : null
+          }
+        >
+          {showNewSR && (
+            <div className="px-5 py-4 border-b border-slate-800 space-y-3 bg-slate-800/30">
+              <p className="text-xs font-medium text-slate-300">New Service Request</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Policy</label>
+                  <select value={newSRPolicyId} onChange={e => setNewSRPolicyId(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+                    <option value="">— select —</option>
+                    {policies.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.policy_number} · {p.carrier}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Request Type</label>
+                  <select value={newSRType} onChange={e => setNewSRType(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+                    <option value="">— select —</option>
+                    {REQUEST_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Date Received</label>
+                <input type="date" value={newSRDate} onChange={e => setNewSRDate(e.target.value)}
+                  className="bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Notes (optional)</label>
+                <textarea value={newSRNotes} onChange={e => setNewSRNotes(e.target.value)}
+                  rows={2} placeholder="Brief description of the request…"
+                  className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 resize-none placeholder-slate-600" />
+              </div>
+              {newSRError && <p className="text-xs text-red-400">{newSRError}</p>}
+              <div className="flex items-center gap-2">
+                <button onClick={handleNewSR} disabled={!newSRPolicyId || !newSRType || newSRSaving}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium bg-blue-700 hover:bg-blue-600 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                  {newSRSaving ? 'Creating…' : 'Create Service Request'}
+                </button>
+                <button onClick={() => setShowNewSR(false)}
+                  className="text-xs text-slate-500 hover:text-slate-300 transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {serviceRequests.length === 0 && !showNewSR ? (
+            <div className="px-5 py-6 text-center text-slate-500 text-sm">No service requests</div>
+          ) : serviceRequests.length > 0 ? (
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-slate-500 text-xs border-b border-slate-800/60">
@@ -1486,24 +1624,14 @@ export function CustomerCardClient({
               <tbody className="divide-y divide-slate-800/60">
                 {serviceRequests.map(sr => (
                   <tr key={sr.id} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="px-5 py-3 font-mono text-slate-300 text-xs">
-                      {sr.sr_number ?? '—'}
-                    </td>
-                    <td className="px-4 py-3 text-slate-300 text-sm capitalize">
-                      {sr.request_type.replace(/_/g, ' ')}
-                    </td>
-                    <td className="px-4 py-3 text-slate-500 text-xs font-mono">
-                      {sr.policy_number ?? '—'}
-                    </td>
-                    <td className="px-4 py-3">
-                      <SrStatusBadge status={sr.workflow_status} />
-                    </td>
+                    <td className="px-5 py-3 font-mono text-slate-300 text-xs">{sr.sr_number ?? '—'}</td>
+                    <td className="px-4 py-3 text-slate-300 text-sm capitalize">{sr.request_type.replace(/_/g, ' ')}</td>
+                    <td className="px-4 py-3 text-slate-500 text-xs font-mono">{sr.policy_number ?? '—'}</td>
+                    <td className="px-4 py-3"><SrStatusBadge status={sr.workflow_status} /></td>
                     <td className="px-4 py-3 text-slate-500 text-xs">{fmtDate(sr.date_received)}</td>
                     <td className="px-4 py-3">
-                      <Link
-                        href={`/service/${sr.id}`}
-                        className="flex items-center justify-end text-slate-600 hover:text-slate-300 transition-colors"
-                      >
+                      <Link href={`/service/${sr.id}`}
+                        className="flex items-center justify-end text-slate-600 hover:text-slate-300 transition-colors">
                         <ChevronRight className="w-4 h-4" />
                       </Link>
                     </td>
@@ -1511,11 +1639,113 @@ export function CustomerCardClient({
                 ))}
               </tbody>
             </table>
-          </Section>
-        )}
+          ) : null}
+        </Section>
+
+        {/* Policy Reviews */}
+        <Section
+          title="Policy Reviews"
+          icon={ClipboardCheck}
+          count={policyReviews.length}
+          action={
+            policies.length > 0 ? (
+              <button
+                onClick={() => { setShowNewReview(v => !v); setNewReviewError(null) }}
+                className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" /> Schedule Review
+              </button>
+            ) : null
+          }
+        >
+          {showNewReview && (
+            <div className="px-5 py-4 border-b border-slate-800 space-y-3 bg-slate-800/30">
+              <p className="text-xs font-medium text-slate-300">Schedule Policy Review</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Policy</label>
+                  <select value={newReviewPolicyId} onChange={e => setNewReviewPolicyId(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+                    <option value="">— select —</option>
+                    {policies.map(p => (
+                      <option key={p.id} value={p.id}>
+                        {p.policy_number} · {p.carrier}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Assign to</label>
+                  <select value={newReviewAssignedTo} onChange={e => setNewReviewAssignedTo(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
+                    <option value="">— unassigned —</option>
+                    {producers.map(p => (
+                      <option key={p.id} value={`${p.first_name} ${p.last_name}`}>
+                        {p.first_name} {p.last_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              {newReviewError && <p className="text-xs text-red-400">{newReviewError}</p>}
+              <div className="flex items-center gap-2">
+                <button onClick={handleNewReview} disabled={!newReviewPolicyId || newReviewSaving}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium bg-blue-700 hover:bg-blue-600 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                  {newReviewSaving ? 'Scheduling…' : 'Schedule Review'}
+                </button>
+                <button onClick={() => setShowNewReview(false)}
+                  className="text-xs text-slate-500 hover:text-slate-300 transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {policyReviews.length === 0 && !showNewReview ? (
+            <div className="px-5 py-6 text-center text-slate-500 text-sm">No policy reviews</div>
+          ) : policyReviews.length > 0 ? (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-slate-500 text-xs border-b border-slate-800/60">
+                  <th className="text-left px-5 py-2.5 font-medium">Review #</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Policy</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Status</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Assigned To</th>
+                  <th className="px-4 py-2.5" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {policyReviews.map(r => (
+                  <tr key={r.id} className="hover:bg-slate-800/40 transition-colors">
+                    <td className="px-5 py-3 font-mono text-slate-300 text-xs">{r.review_number ?? '—'}</td>
+                    <td className="px-4 py-3 text-slate-500 text-xs font-mono">
+                      {r.service_policies?.policy_number ?? '—'}
+                      {r.service_policies?.carrier && <span className="text-slate-600"> · {r.service_policies.carrier}</span>}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${
+                        r.status === 'completed' ? 'bg-emerald-900/40 text-emerald-400' :
+                        r.status === 'prep'      ? 'bg-blue-900/40 text-blue-400' :
+                                                   'bg-slate-800 text-slate-400'
+                      }`}>
+                        {r.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-400 text-xs">{r.assigned_to ?? <span className="text-slate-600">—</span>}</td>
+                    <td className="px-4 py-3">
+                      <Link href={`/reviews/${r.id}`}
+                        className="flex items-center justify-end text-slate-600 hover:text-slate-300 transition-colors">
+                        <ChevronRight className="w-4 h-4" />
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : null}
+        </Section>
 
         {/* No linked data fallback */}
-        {policies.length === 0 && cases.length === 0 && serviceRequests.length === 0 && (
+        {policies.length === 0 && cases.length === 0 && serviceRequests.length === 0 && policyReviews.length === 0 && (
           <div className="bg-slate-900 border border-slate-800 rounded-xl px-5 py-10 text-center">
             <User className="w-8 h-8 text-slate-700 mx-auto mb-2" />
             <p className="text-slate-500 text-sm">No linked data yet — use the search above to link policies</p>

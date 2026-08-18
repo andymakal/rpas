@@ -5,6 +5,19 @@ import { CustomerCardClient } from './CustomerCardClient'
 
 export const dynamic = 'force-dynamic'
 
+export type LinkedReview = {
+  id:             string
+  review_number:  string | null
+  review_type:    string | null
+  status:         string
+  outcome:        string | null
+  scheduled_date: string | null
+  assigned_to:    string | null
+  service_policies: { policy_number: string; carrier: string } | null
+}
+
+export type ProducerOption = { id: string; first_name: string; last_name: string }
+
 export type CustomerDetail = {
   id:               string
   first_name:       string
@@ -37,9 +50,11 @@ export type LinkedCase = {
   last_contact_at:  string | null
   agencies: { name: string; display_name: string | null } | null
   stage_translations: {
-    agency_label: string
-    is_won:       boolean
-    is_lost:      boolean
+    agency_label:   string
+    is_won:         boolean
+    is_lost:        boolean
+    tier:           number | null
+    is_active_case: boolean | null
   } | null
   products: {
     name: string
@@ -131,7 +146,7 @@ export default async function CustomerCardPage({
       id, internal_status, created_at, placed_at, face_amount, annual_premium, policy_number,
       touches, last_contact_at,
       agencies ( name, display_name ),
-      stage_translations ( agency_label, is_won, is_lost ),
+      stage_translations ( agency_label, is_won, is_lost, tier, is_active_case ),
       products ( name, carriers ( short_name ) )
     `)
     .eq('customer_id', id)
@@ -213,35 +228,63 @@ export default async function CustomerCardPage({
 
   const notes: CustomerNote[] = (notesRaw ?? []) as CustomerNote[]
 
-  // Fetch service requests via linked policy IDs
+  // Fetch service requests, policy reviews, and producers via linked policy IDs
   const policyIds = (policiesRaw ?? []).map(p => p.id)
   let serviceRequests: LinkedServiceRequest[] = []
+  let policyReviews:   LinkedReview[]         = []
 
-  if (policyIds.length > 0) {
-    const { data: srRaw } = await supabase
-      .from('service_requests')
-      .select(`
-        id, sr_number, request_type, workflow_status, date_received,
-        service_policies ( policy_number, client_name )
-      `)
-      .in('policy_id', policyIds)
-      .order('date_received', { ascending: false })
-      .limit(20)
+  const [srResult, reviewResult, producerResult] = await Promise.all([
+    policyIds.length > 0
+      ? supabase
+          .from('service_requests')
+          .select('id, sr_number, request_type, workflow_status, date_received, service_policies ( policy_number, client_name )')
+          .in('policy_id', policyIds)
+          .order('date_received', { ascending: false })
+          .limit(20)
+      : Promise.resolve({ data: [] }),
+    policyIds.length > 0
+      ? supabase
+          .from('policy_reviews')
+          .select('id, review_number, review_type, status, outcome, scheduled_date, assigned_to, service_policies ( policy_number, carrier )')
+          .in('policy_id', policyIds)
+          .order('created_at', { ascending: false })
+          .limit(20)
+      : Promise.resolve({ data: [] }),
+    supabase
+      .from('producers')
+      .select('id, first_name, last_name')
+      .eq('is_active', true)
+      .order('first_name'),
+  ])
 
-    serviceRequests = (srRaw ?? []).map(sr => {
-      const spRaw = sr.service_policies
-      const sp = (Array.isArray(spRaw) ? spRaw[0] : spRaw) as { policy_number: string; client_name: string } | null
-      return {
-        id:              sr.id,
-        sr_number:       sr.sr_number,
-        request_type:    sr.request_type,
-        workflow_status: sr.workflow_status,
-        date_received:   sr.date_received,
-        policy_number:   sp?.policy_number ?? null,
-        client_name:     sp?.client_name ?? null,
-      }
-    })
-  }
+  serviceRequests = (srResult.data ?? []).map((sr: Record<string, unknown>) => {
+    const spRaw = sr.service_policies
+    const sp = (Array.isArray(spRaw) ? spRaw[0] : spRaw) as { policy_number: string; client_name: string } | null
+    return {
+      id:              sr.id as string,
+      sr_number:       sr.sr_number as string | null,
+      request_type:    sr.request_type as string,
+      workflow_status: sr.workflow_status as string,
+      date_received:   sr.date_received as string,
+      policy_number:   sp?.policy_number ?? null,
+      client_name:     sp?.client_name ?? null,
+    }
+  })
+
+  policyReviews = (reviewResult.data ?? []).map((r: Record<string, unknown>) => {
+    const spRaw = r.service_policies
+    const sp = (Array.isArray(spRaw) ? spRaw[0] : spRaw) as { policy_number: string; carrier: string } | null
+    return {
+      id:             r.id as string,
+      review_number:  r.review_number as string | null,
+      review_type:    r.review_type as string | null,
+      status:         r.status as string,
+      outcome:        r.outcome as string | null,
+      scheduled_date: r.scheduled_date as string | null,
+      assigned_to:    r.assigned_to as string | null,
+      service_policies: sp,
+    }
+  })
 
   return (
     <CustomerCardClient
@@ -250,6 +293,8 @@ export default async function CustomerCardPage({
       policies={policies}
       pendingCasePolicies={pendingCasePolicies}
       serviceRequests={serviceRequests}
+      policyReviews={policyReviews}
+      producers={(producerResult.data ?? []) as ProducerOption[]}
       caseHistory={caseHistory}
       touchHistory={touchHistory}
       initialNotes={notes}
