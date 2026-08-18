@@ -1266,92 +1266,110 @@ export function CustomerCardClient({
           )}
           {cases.length === 0 ? (
             <div className="px-5 py-6 text-center text-slate-500 text-sm">No cases</div>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-slate-500 text-xs border-b border-slate-800/60">
-                  <th className="text-left px-5 py-2.5 font-medium">Agency · Carrier</th>
-                  <th className="text-left px-4 py-2.5 font-medium">Status</th>
-                  <th className="text-left px-4 py-2.5 font-medium">Policy #</th>
-                  <th className="text-right px-4 py-2.5 font-medium">Face Amt</th>
-                  <th className="text-left px-4 py-2.5 font-medium">Date</th>
-                  <th className="px-4 py-2.5" />
+          ) : (() => {
+            const activeCases = cases.filter(c => c.stage_translations?.is_active_case)
+            const closedCases = cases.filter(c => !c.stage_translations?.is_active_case)
+            const renderRows  = (subset: typeof cases) => subset.map(c => {
+              const tier       = c.stage_translations?.tier ?? 1
+              const href       = tier === 1 ? `/referrals/${c.id}` : `/cases/${c.id}`
+              const carrier    = c.products?.carriers?.short_name ?? c.products?.name ?? null
+              const dateLabel  = c.placed_at
+                ? `Placed ${fmtDate(c.placed_at)}`
+                : `Created ${fmtDate(c.created_at)}`
+              const touchCount = c.touches ?? 0
+              return (
+                <tr key={c.id} className="hover:bg-slate-800/40 transition-colors">
+                  <td className="px-5 py-3">
+                    <p className="text-slate-300 text-sm">{c.agencies?.display_name ?? c.agencies?.name ?? '—'}</p>
+                    {carrier && <p className="text-slate-500 text-xs mt-0.5">{carrier}</p>}
+                  </td>
+                  <td className="px-4 py-3">
+                    <CaseStatusBadge st={c.stage_translations} />
+                  </td>
+                  <td className="px-4 py-3 text-slate-400 text-xs font-mono">
+                    {c.policy_number ?? <span className="text-slate-700">—</span>}
+                  </td>
+                  <td className="px-4 py-3 text-right text-slate-200 text-sm">{fmt(c.face_amount)}</td>
+                  <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
+                    <p>{dateLabel}</p>
+                    {touchCount > 0 && (
+                      <p className="text-slate-600 mt-0.5">
+                        {c.last_contact_at
+                          ? `Contact ${fmtDate(c.last_contact_at)} · ${touchCount}×`
+                          : `${touchCount} touch${touchCount !== 1 ? 'es' : ''}`}
+                      </p>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {confirmDeleteCase === c.id ? (
+                      <div className="flex items-center justify-end gap-2">
+                        <span className="text-xs text-red-400">Delete?</span>
+                        <button
+                          onClick={() => handleDeleteCase(c.id)}
+                          disabled={deletingCase}
+                          className="text-xs font-medium text-red-400 hover:text-red-300 disabled:opacity-50"
+                        >
+                          {deletingCase ? '…' : 'Yes'}
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteCase(null)}
+                          className="text-xs text-slate-500 hover:text-slate-300"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-end gap-0.5">
+                        <Link href={href} className="p-0.5 text-slate-600 hover:text-slate-300 transition-colors">
+                          <ChevronRight className="w-4 h-4" />
+                        </Link>
+                        {cases.length >= 2 && (
+                          <button
+                            onClick={() => setConfirmDeleteCase(c.id)}
+                            className="p-0.5 text-slate-700 hover:text-red-400 transition-colors"
+                            title="Delete duplicate case"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {cases.map(c => {
-                  const carrier    = c.products?.carriers?.short_name ?? c.products?.name ?? null
-                  const dateLabel  = c.placed_at
-                    ? `Placed ${fmtDate(c.placed_at)}`
-                    : `Created ${fmtDate(c.created_at)}`
-                  const touchCount = c.touches ?? 0
-                  return (
-                  <tr key={c.id} className="hover:bg-slate-800/40 transition-colors">
-                    <td className="px-5 py-3">
-                      <p className="text-slate-300 text-sm">{c.agencies?.display_name ?? c.agencies?.name ?? '—'}</p>
-                      {carrier && <p className="text-slate-500 text-xs mt-0.5">{carrier}</p>}
-                    </td>
-                    <td className="px-4 py-3">
-                      <CaseStatusBadge st={c.stage_translations} />
-                    </td>
-                    <td className="px-4 py-3 text-slate-400 text-xs font-mono">
-                      {c.policy_number ?? <span className="text-slate-700">—</span>}
-                    </td>
-                    <td className="px-4 py-3 text-right text-slate-200 text-sm">{fmt(c.face_amount)}</td>
-                    <td className="px-4 py-3 text-slate-500 text-xs whitespace-nowrap">
-                      <p>{dateLabel}</p>
-                      {touchCount > 0 && (
-                        <p className="text-slate-600 mt-0.5">
-                          {c.last_contact_at
-                            ? `Contact ${fmtDate(c.last_contact_at)} · ${touchCount}×`
-                            : `${touchCount} touch${touchCount !== 1 ? 'es' : ''}`}
-                        </p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {confirmDeleteCase === c.id ? (
-                        <div className="flex items-center justify-end gap-2">
-                          <span className="text-xs text-red-400">Delete?</span>
-                          <button
-                            onClick={() => handleDeleteCase(c.id)}
-                            disabled={deletingCase}
-                            className="text-xs font-medium text-red-400 hover:text-red-300 disabled:opacity-50"
-                          >
-                            {deletingCase ? '…' : 'Yes'}
-                          </button>
-                          <button
-                            onClick={() => setConfirmDeleteCase(null)}
-                            className="text-xs text-slate-500 hover:text-slate-300"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-end gap-0.5">
-                          <Link
-                            href={`/referrals/${c.id}`}
-                            className="p-0.5 text-slate-600 hover:text-slate-300 transition-colors"
-                          >
-                            <ChevronRight className="w-4 h-4" />
-                          </Link>
-                          {cases.length >= 2 && (
-                            <button
-                              onClick={() => setConfirmDeleteCase(c.id)}
-                              className="p-0.5 text-slate-700 hover:text-red-400 transition-colors"
-                              title="Delete duplicate case"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      )}
-                    </td>
-                  </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          )}
+              )
+            })
+            const thead = (
+              <tr className="text-slate-500 text-xs border-b border-slate-800/60">
+                <th className="text-left px-5 py-2.5 font-medium">Agency · Carrier</th>
+                <th className="text-left px-4 py-2.5 font-medium">Status</th>
+                <th className="text-left px-4 py-2.5 font-medium">Policy #</th>
+                <th className="text-right px-4 py-2.5 font-medium">Face Amt</th>
+                <th className="text-left px-4 py-2.5 font-medium">Date</th>
+                <th className="px-4 py-2.5" />
+              </tr>
+            )
+            return (
+              <>
+                {activeCases.length > 0 && (
+                  <table className="w-full text-sm">
+                    <thead>{thead}</thead>
+                    <tbody className="divide-y divide-slate-800/60">{renderRows(activeCases)}</tbody>
+                  </table>
+                )}
+                {activeCases.length > 0 && closedCases.length > 0 && (
+                  <div className="px-5 py-2 border-t border-slate-800/60 bg-slate-900/40">
+                    <p className="text-xs text-slate-600 font-medium uppercase tracking-wide">Closed / Placed</p>
+                  </div>
+                )}
+                {closedCases.length > 0 && (
+                  <table className="w-full text-sm opacity-60">
+                    <thead>{activeCases.length === 0 ? thead : <tr />}</thead>
+                    <tbody className="divide-y divide-slate-800/40">{renderRows(closedCases)}</tbody>
+                  </table>
+                )}
+              </>
+            )
+          })()}
         </Section>
 
         {/* Touch History */}

@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   ChevronLeft, ChevronRight, Copy, Check, CheckCircle2, Phone, AlertTriangle,
-  Info, TrendingUp, AlertCircle, Save, ClipboardCheck, User, Pencil, ExternalLink,
+  Info, TrendingUp, AlertCircle, Save, ClipboardCheck, User, Pencil, ExternalLink, Mail,
 } from 'lucide-react'
 import {
   generateCallScript,
@@ -453,14 +453,30 @@ export function ReviewPrepClient({
             {policy?.policy_number && <span className="text-slate-600"> · {policy.policy_number}</span>}
             {policy?.carrier && <span className="text-slate-600"> · {policy.carrier}</span>}
           </p>
-          {policy?.customer_id && (
-            <a
-              href={`/customers/${policy.customer_id}`}
-              className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors mt-1"
-            >
-              <User className="w-3 h-3" />
-              Customer card →
-            </a>
+          {policy?.customers ? (
+            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+              <a href={`/customers/${policy.customers.id}`}
+                className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors">
+                <User className="w-3 h-3" />
+                {policy.customers.first_name} {policy.customers.last_name} — Customer card →
+              </a>
+              {policy.customers.phone && (
+                <a href={`tel:${policy.customers.phone}`}
+                  className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors">
+                  <Phone className="w-3 h-3" />
+                  {policy.customers.phone}
+                </a>
+              )}
+              {policy.customers.email && (
+                <a href={`mailto:${policy.customers.email}`}
+                  className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors">
+                  <Mail className="w-3 h-3" />
+                  {policy.customers.email}
+                </a>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-600 mt-1">No customer card linked</p>
           )}
         </div>
       </div>
