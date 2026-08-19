@@ -78,7 +78,6 @@ export async function POST(
       is_hot_lead:      false,
       is_test:          false,
       notes:            body.notes?.trim() || null,
-      producer_id:      body.assigned_to?.trim() || null,
       quoted_product_type: policy.product_type,
       quoted_carrier:   policy.carrier,
     })
