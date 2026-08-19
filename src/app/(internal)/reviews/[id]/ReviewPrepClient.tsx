@@ -918,13 +918,13 @@ export function ReviewPrepClient({
                   >
                     <option value="">Product type…</option>
                     {[
-                      { value: 'term_life',          label: 'Term Life Insurance' },
-                      { value: 'life_review',        label: 'Life Insurance Review' },
-                      { value: 'financial_planning', label: 'Financial / Retirement Planning' },
-                      { value: 'mortgage_protection',label: 'Mortgage Protection' },
-                      { value: 'business_owner',     label: 'Business Owner' },
-                      { value: 'existing_sales',     label: 'Additional Coverage' },
-                      { value: '1035_exchange',      label: '1035 Exchange' },
+                      { value: 'term_life',          label: 'Term Life' },
+                      { value: 'iul',                label: 'Indexed Universal Life (IUL)' },
+                      { value: 'ul',                 label: 'Universal Life (UL)' },
+                      { value: 'vul',                label: 'Variable Universal Life (VUL)' },
+                      { value: 'whole_life',         label: 'Whole Life' },
+                      { value: 'disability',         label: 'Disability' },
+                      { value: 'ltc',                label: 'Long-Term Care' },
                     ].map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
                   <textarea
