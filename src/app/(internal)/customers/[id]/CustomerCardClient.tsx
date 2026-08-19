@@ -8,7 +8,7 @@ import {
   Shield, CheckCircle, ShieldOff, FileQuestion, Send,
   AlertTriangle, ChevronRight, Search, X, Trash2,
   FolderKanban, Wrench, Link2, History, Compass, ChevronDown,
-  Pencil, Check, MessageSquare, Clipboard, Plus, ClipboardCheck,
+  Pencil, Check, MessageSquare, Clipboard, Plus, ClipboardCheck, FolderOpen,
 } from 'lucide-react'
 import type {
   CustomerDetail, LinkedCase, LinkedPolicy, LinkedServiceRequest,
@@ -373,6 +373,7 @@ export function CustomerCardClient({
   const [editTobacco,     setEditTobacco]     = useState(customer.tobacco_use ?? 'none')
   const [editLanguage,    setEditLanguage]    = useState(customer.preferred_language ?? 'en')
   const [editHealthNotes, setEditHealthNotes] = useState(customer.health_notes ?? '')
+  const [editDriveUrl,    setEditDriveUrl]    = useState(customer.drive_folder_url ?? '')
   const [contactSaving,   setContactSaving]   = useState(false)
   const [contactMsg,      setContactMsg]      = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -646,6 +647,7 @@ export function CustomerCardClient({
           tobacco_use:       editTobacco || 'none',
           preferred_language: editLanguage || 'en',
           health_notes:      editHealthNotes.trim() || null,
+          drive_folder_url:  editDriveUrl.trim()    || null,
         }),
       })
       if (!res.ok) {
@@ -812,6 +814,12 @@ export function CustomerCardClient({
                           <Mail className="w-3.5 h-3.5 text-slate-500 shrink-0" /> {customer.email}
                         </a>
                       )}
+                      {customer.drive_folder_url && (
+                        <a href={customer.drive_folder_url} target="_blank" rel="noopener noreferrer"
+                          className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 transition-colors">
+                          <FolderOpen className="w-3.5 h-3.5 shrink-0" /> Drive folder
+                        </a>
+                      )}
                     </div>
                     {(customer.street || customer.city || customer.state) && (
                       <div className="flex items-start gap-1.5 text-sm text-slate-400">
@@ -941,6 +949,12 @@ export function CustomerCardClient({
                         <option value="vi">Vietnamese</option>
                         <option value="other">Other</option>
                       </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Google Drive folder URL</label>
+                      <input value={editDriveUrl} onChange={e => setEditDriveUrl(e.target.value)}
+                        type="url" placeholder="https://drive.google.com/drive/folders/…"
+                        className={inputCls} />
                     </div>
 
                     {contactMsg && (

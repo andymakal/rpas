@@ -36,6 +36,7 @@ export type CustomerDetail = {
   health_notes:     string | null
   customer_group_id: string | null
   segment:          string | null
+  drive_folder_url: string | null
 }
 
 export type LinkedCase = {
@@ -132,7 +133,7 @@ export default async function CustomerCardPage({
       street, city, state, zip,
       date_of_birth, marital_status, gender,
       tobacco_use, preferred_language, health_notes,
-      customer_group_id, segment
+      customer_group_id, segment, drive_folder_url
     `)
     .eq('id', id)
     .single()
