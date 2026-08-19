@@ -73,7 +73,7 @@ export async function POST(
       agency_id:        policy.agency_id,
       agent_id:         policy.agent_id,
       internal_status:  'appointment_set',
-      lead_source:      'review_generated',
+      lead_source:      'self_generated',
       is_owner_referral: false,
       is_hot_lead:      false,
       is_test:          false,
