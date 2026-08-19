@@ -324,15 +324,19 @@ export const UNDERWRITING_SCENARIOS = [
 // ── Topic mapping from lead_source ─────────────────────────────────────────────
 
 export const TOPIC_MAP: Record<string, string> = {
+  life_quote:           'life insurance',
   mortgage_protection:  'mortgage protection',
+  financial_planning:   'financial planning',
+  policy_review:        'a review of your life insurance',
+  existing_service:     'your existing policy',
+  general:              'life insurance',
+  // legacy values kept for existing cases in the pipeline
   term_life:            'life insurance',
   life_review:          'a life insurance review',
-  financial_planning:   'financial planning',
   retirement_planning:  'retirement planning',
   medicare_planning:    'Medicare planning',
   business_owner:       'business planning and insurance',
   '1035_exchange':      'your existing life insurance policy',
-  existing_service:     'your existing policy',
   existing_sales:       'life insurance',
   agency_referral:      'life insurance',
   allstate_web:         'life insurance',

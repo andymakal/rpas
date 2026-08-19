@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import Link from 'next/link'
 import { ArrowLeft, Loader2, Flame, AlertTriangle, CheckCircle, X, UserCheck } from 'lucide-react'
-import { US_STATES } from '@/lib/constants/referral-options'
+import { US_STATES, REFERRAL_TYPES } from '@/lib/constants/referral-options'
 
 type Agency = { id: string; name: string; display_name: string | null }
 type Agent  = { id: string; agency_id: string; first_name: string; last_name: string }
@@ -37,22 +37,6 @@ const LEAD_SOURCES: { value: LeadSource; label: string; description: string }[] 
   { value: 'agency_referral', label: 'Agency Referral',   description: 'Submitted by an LSP at a partner P&C agency' },
   { value: 'allstate_web',    label: 'Allstate.com Lead', description: 'Assigned from Allstate.com inquiry' },
   { value: 'self_generated',  label: 'Self Generated',    description: 'Makal-sourced, no partner agency' },
-]
-
-const REFERRAL_TYPES: { value: string; label: string }[] = [
-  { value: 'mortgage_protection', label: 'Mortgage Protection' },
-  { value: 'life_review',         label: 'Life Review' },
-  { value: 'financial_planning',  label: 'Financial Planning' },
-  { value: 'annuity_review',      label: 'Annuity Review' },
-  { value: 'uit_rollover',        label: 'UIT Rollover' },
-  { value: '1035_exchange',       label: '1035 Exchange' },
-  { value: 'wanderer_review',     label: 'Wanderer Review' },
-  { value: 'term_expiry',         label: 'Term Expiry' },
-  { value: 'tobacco_rerate',      label: 'Tobacco Rerate' },
-  { value: 'business_owner',      label: 'Business Owner' },
-  { value: 'umbrella_flagged',    label: 'Umbrella Flagged' },
-  { value: 'existing_service',    label: 'Existing Policy Service' },
-  { value: 'general',             label: 'General' },
 ]
 
 function formatPhone(v: string): string {

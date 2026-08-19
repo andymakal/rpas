@@ -24,25 +24,23 @@ export const LEAD_SOURCE_OPTIONS = [
 ] as const
 
 export const REFERRAL_TYPES = [
+  { value: 'life_quote',          label: 'Life Quote' },
   { value: 'mortgage_protection', label: 'Mortgage Protection' },
-  { value: 'term_life', label: 'Term Life Insurance' },
-  { value: 'life_review', label: 'Life Insurance Review' },
-  { value: 'financial_planning', label: 'Financial / Retirement Planning' },
-  { value: 'business_owner', label: 'Business Owner' },
-  { value: 'existing_service', label: 'Existing Client — Service' },
-  { value: 'existing_sales', label: 'Existing Client — Additional Coverage' },
+  { value: 'financial_planning',  label: 'Financial Planning' },
+  { value: 'policy_review',       label: 'Policy Review' },
+  { value: 'existing_service',    label: 'Existing Policy Service' },
+  { value: 'general',             label: 'General' },
 ] as const
 
 export type ReferralTypeValue = typeof REFERRAL_TYPES[number]['value']
 
 export const PRODUCER_ROUTING: Record<ReferralTypeValue, string> = {
+  life_quote:          'intern',
   mortgage_protection: 'intern',
-  term_life: 'intern',
-  life_review: 'ashley',
-  financial_planning: 'dulce',
-  business_owner: 'senior',
-  existing_service: 'abigail',
-  existing_sales: 'producer',
+  financial_planning:  'dulce',
+  policy_review:       'ashley',
+  existing_service:    'abigail',
+  general:             'producer',
 }
 
 export const PRODUCER_LABELS: Record<string, string> = {
