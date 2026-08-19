@@ -219,6 +219,41 @@ export default function CaseEditClient({
   const [policySaving,   setPolicySaving]   = useState(false)
   const [policyMsg,      setPolicyMsg]      = useState<{ ok: boolean; text: string } | null>(null)
 
+  // ── 1035 Exchange state ────────────────────────────────────────
+  const [is1035,              setIs1035]              = useState(caseData.is_1035 ?? false)
+  const [exchangeCarrier,     setExchangeCarrier]     = useState(caseData.exchange_carrier ?? '')
+  const [exchangePolicyNum,   setExchangePolicyNum]   = useState(caseData.exchange_policy_number ?? '')
+  const [exchangeProductType, setExchangeProductType] = useState(caseData.exchange_product_type ?? '')
+  const [exchangeCashValue,   setExchangeCashValue]   = useState(caseData.exchange_cash_value?.toString() ?? '')
+  const [exchangeCostBasis,   setExchangeCostBasis]   = useState(caseData.exchange_cost_basis?.toString() ?? '')
+  const [exchangeSurrender,   setExchangeSurrender]   = useState(caseData.exchange_surrender_charges?.toString() ?? '')
+  const [exchangeNet,         setExchangeNet]         = useState(caseData.exchange_net_transfer?.toString() ?? '')
+  const [exchangeSaving,      setExchangeSaving]      = useState(false)
+  const [exchangeMsg,         setExchangeMsg]         = useState<{ ok: boolean; text: string } | null>(null)
+
+  async function handleSaveExchange() {
+    setExchangeSaving(true); setExchangeMsg(null)
+    try {
+      const res = await fetch(`/api/cases/${caseData.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          is_1035:                    is1035,
+          exchange_carrier:           exchangeCarrier.trim()   || null,
+          exchange_policy_number:     exchangePolicyNum.trim() || null,
+          exchange_product_type:      exchangeProductType      || null,
+          exchange_cash_value:        exchangeCashValue   ? parseFloat(exchangeCashValue)   : null,
+          exchange_cost_basis:        exchangeCostBasis   ? parseFloat(exchangeCostBasis)   : null,
+          exchange_surrender_charges: exchangeSurrender   ? parseFloat(exchangeSurrender)   : null,
+          exchange_net_transfer:      exchangeNet         ? parseFloat(exchangeNet)         : null,
+        }),
+      })
+      const j = await res.json()
+      setExchangeMsg(res.ok ? { ok: true, text: 'Saved' } : { ok: false, text: j.error ?? 'Save failed' })
+    } catch { setExchangeMsg({ ok: false, text: 'Network error' }) }
+    finally   { setExchangeSaving(false) }
+  }
+
   // ── Contact edit state ─────────────────────────────────────────
   const [editingContact,   setEditingContact]   = useState(false)
   const [editingQuoteInfo, setEditingQuoteInfo] = useState(false)
@@ -1727,7 +1762,91 @@ export default function CaseEditClient({
             )}
           </div>
 
-          {/* 4 — Requirements */}
+          {/* 4 — 1035 Exchange */}
+          <div className={`bg-slate-900 border rounded-xl p-5 space-y-3 ${is1035 ? 'border-amber-500/40' : 'border-slate-800'}`}>
+            <div className="flex items-center justify-between">
+              <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide">1035 Exchange</h2>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <span className="text-xs text-slate-500">This is a 1035</span>
+                <button
+                  type="button"
+                  onClick={() => setIs1035(v => !v)}
+                  className={`relative inline-flex h-5 w-9 shrink-0 rounded-full border-2 border-transparent transition-colors focus:outline-none ${is1035 ? 'bg-amber-600' : 'bg-slate-700'}`}
+                >
+                  <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transform transition-transform ${is1035 ? 'translate-x-4' : 'translate-x-0'}`} />
+                </button>
+              </label>
+            </div>
+
+            {is1035 && (
+              <div className="space-y-3 pt-1">
+                <p className="text-xs text-amber-400/80">Surrendering policy details</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Surrendering Carrier</label>
+                    <input value={exchangeCarrier} onChange={e => setExchangeCarrier(e.target.value)}
+                      placeholder="e.g. Nationwide" className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Policy Number</label>
+                    <input value={exchangePolicyNum} onChange={e => setExchangePolicyNum(e.target.value)}
+                      placeholder="Policy #" className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Product Type Being Surrendered</label>
+                  <select value={exchangeProductType} onChange={e => setExchangeProductType(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500">
+                    <option value="">— select —</option>
+                    <option value="term_life">Term Life</option>
+                    <option value="iul">Indexed Universal Life (IUL)</option>
+                    <option value="ul">Universal Life (UL)</option>
+                    <option value="vul">Variable Universal Life (VUL)</option>
+                    <option value="whole_life">Whole Life</option>
+                    <option value="annuity">Annuity</option>
+                  </select>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Cash Value</label>
+                    <input value={exchangeCashValue} onChange={e => setExchangeCashValue(e.target.value)}
+                      type="number" min="0" placeholder="0.00" className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Cost Basis</label>
+                    <input value={exchangeCostBasis} onChange={e => setExchangeCostBasis(e.target.value)}
+                      type="number" min="0" placeholder="0.00" className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Surrender Charges</label>
+                    <input value={exchangeSurrender} onChange={e => setExchangeSurrender(e.target.value)}
+                      type="number" min="0" placeholder="0.00" className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500" />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Net Transfer Amount</label>
+                    <input value={exchangeNet} onChange={e => setExchangeNet(e.target.value)}
+                      type="number" min="0" placeholder="0.00" className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-amber-500" />
+                  </div>
+                </div>
+                {exchangeMsg && (
+                  <p className={`text-xs ${exchangeMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{exchangeMsg.text}</p>
+                )}
+                <button onClick={handleSaveExchange} disabled={exchangeSaving}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-white disabled:opacity-50 transition-colors"
+                  style={{ backgroundColor: '#1F3864' }}>
+                  {exchangeSaving ? 'Saving…' : 'Save 1035 Details'}
+                </button>
+              </div>
+            )}
+
+            {!is1035 && (
+              <p className="text-xs text-slate-600">Toggle on if an existing policy is being surrendered to fund this application.</p>
+            )}
+          </div>
+
+          {/* 5 — Requirements */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide">Requirements</h2>

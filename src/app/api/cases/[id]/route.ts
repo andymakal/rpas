@@ -31,6 +31,14 @@ const ALLOWED_FIELDS = new Set([
   'is_imported',
   'lead_source',
   'suspected_duplicate_customer_id',  // null to dismiss the duplicate flag
+  'is_1035',
+  'exchange_carrier',
+  'exchange_policy_number',
+  'exchange_product_type',
+  'exchange_cash_value',
+  'exchange_cost_basis',
+  'exchange_surrender_charges',
+  'exchange_net_transfer',
 ])
 
 // Maps product_types.name (long form) → service_policies.product_type (short form)

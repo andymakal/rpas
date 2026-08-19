@@ -75,6 +75,14 @@ export type CaseDetail = {
     carriers: { id: string; short_name: string } | null
   } | null
   table_rating: number | null
+  is_1035:                    boolean | null
+  exchange_carrier:           string | null
+  exchange_policy_number:     string | null
+  exchange_product_type:      string | null
+  exchange_cash_value:        number | null
+  exchange_cost_basis:        number | null
+  exchange_surrender_charges: number | null
+  exchange_net_transfer:      number | null
   rate_classes: { id: string; name: string } | null
   premium_modes: { id: string; name: string } | null
   lost_reasons: { id: string; agency_label: string } | null
@@ -162,6 +170,8 @@ export default async function CaseDetailPage({
         id, internal_status, created_at, status_entered_at, updated_at,
         policy_number, face_amount, annual_premium, follow_up_date, lead_source, notes,
         appointment_date, appointment_time, touches, last_contact_at, placed_at, submitted_at, table_rating, is_hot_lead, is_imported,
+        is_1035, exchange_carrier, exchange_policy_number, exchange_product_type,
+        exchange_cash_value, exchange_cost_basis, exchange_surrender_charges, exchange_net_transfer,
         agency_id, customer_id, agent_id,
         customers!customer_id ( first_name, last_name, email, phone, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, preferred_language, customer_group_id ),
         agencies ( id, name, display_name, slug ),
