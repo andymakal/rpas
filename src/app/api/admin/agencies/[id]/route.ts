@@ -5,7 +5,7 @@ import { normalizePhone } from '@/lib/fmt'
 
 const ALLOWED_FIELDS = new Set([
   'name', 'display_name', 'sml_team_id', 'is_active', 'parent_agency_id',
-  'agent_number', 'contact_phone', 'contact_email',
+  'agent_number', 'allstate_partner_number', 'contact_phone', 'contact_email',
   'contact_street', 'contact_city', 'contact_state', 'contact_zip',
   'portal_pin', 'slug',
 ])

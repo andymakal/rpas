@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
     const fullPartner = isHouseAccount ? 'A0C4775' : 'A' + rawPartner
     const agencyId = isHouseAccount
       ? (houseAccountAgencyId ?? partnerMap.get('A0C4775') ?? null)
-      : (partnerMap.get(fullPartner) ?? null)
+      : (partnerMap.get(fullPartner) ?? partnerMap.get(rawPartner) ?? null)
     if (!agencyId) unrecognized.add(rawPartner)
 
     function parseDate(raw: unknown): string | null {
@@ -164,5 +164,6 @@ export async function POST(req: NextRequest) {
     matched_count:        matchedCount,
     unmatched_count:      unmatchedCount,
     unrecognized_partners: Array.from(unrecognized).sort(),
+    debug_map_keys:        Array.from(partnerMap.keys()).sort(),
   })
 }

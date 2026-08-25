@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
 
     let query = supabase
       .from('customers')
-      .select('id, first_name, last_name, phone, date_of_birth, city, state, cases(id)')
+      .select('id, first_name, last_name, phone, date_of_birth, city, state')
       .eq('is_test', false)
       .limit(6)
 
@@ -48,6 +48,20 @@ export async function GET(request: NextRequest) {
     const { data, error } = await query
     if (error) return Response.json({ error: error.message }, { status: 500 })
 
+    // Fetch case counts separately to avoid ambiguous FK on cases table
+    const ids = (data ?? []).map(c => c.id)
+    const { data: caseCounts } = ids.length
+      ? await supabase
+          .from('cases')
+          .select('customer_id')
+          .in('customer_id', ids)
+          .eq('is_test', false)
+      : { data: [] }
+    const countMap = new Map<string, number>()
+    for (const row of (caseCounts ?? [])) {
+      countMap.set(row.customer_id, (countMap.get(row.customer_id) ?? 0) + 1)
+    }
+
     const results = (data ?? []).map(c => ({
       id:            c.id,
       first_name:    c.first_name,
@@ -56,7 +70,7 @@ export async function GET(request: NextRequest) {
       date_of_birth: c.date_of_birth,
       city:          c.city,
       state:         c.state,
-      case_count:    Array.isArray(c.cases) ? c.cases.length : 0,
+      case_count:    countMap.get(c.id) ?? 0,
     }))
 
     return Response.json({ data: results })

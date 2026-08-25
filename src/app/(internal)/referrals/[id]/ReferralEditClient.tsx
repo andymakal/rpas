@@ -10,7 +10,7 @@ import {
   CalendarClock, CalendarX, History, Flame, Wrench, Send,
   ChevronLeft, ChevronRight, Users, UserPlus, Trash2, GitMerge,
 } from 'lucide-react'
-import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember, SuspectedDuplicate, NotInterestedReason, ReferralNote } from './page'
+import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember, SuspectedDuplicate, NameDuplicate, NotInterestedReason, ReferralNote } from './page'
 import { HouseholdCard } from '@/components/HouseholdCard'
 import { NotesLog } from '@/components/NotesLog'
 import type { NoteEntry } from '@/components/NotesLog'
@@ -228,6 +228,7 @@ type Props = {
   householdId:            string | null
   householdMembers:       HouseholdMember[]
   suspectedDuplicate:     SuspectedDuplicate | null
+  nameDuplicates:         NameDuplicate[]
   notInterestedReasons:   NotInterestedReason[]
   initialNotes:           ReferralNote[]
 }
@@ -236,6 +237,7 @@ export function ReferralEditClient({
   referral, stages: _stages, touchLog: initialTouchLog,
   agentsList, agenciesList, statusHistory, producersList,
   householdId, householdMembers, suspectedDuplicate: initialSuspectedDuplicate,
+  nameDuplicates,
   notInterestedReasons, initialNotes,
 }: Props) {
   const router = useRouter()
@@ -245,6 +247,38 @@ export function ReferralEditClient({
   const [dupWorking,         setDupWorking]         = useState(false)
   const [dupError,           setDupError]           = useState<string | null>(null)
 
+  // ── Name-based duplicate state ────────────────────────────────
+  const [nameMatches,     setNameMatches]     = useState<NameDuplicate[]>(nameDuplicates)
+  const [nameMergeId,     setNameMergeId]     = useState<string | null>(null)
+  const [nameWorking,     setNameWorking]     = useState(false)
+  const [nameError,       setNameError]       = useState<string | null>(null)
+
+  async function handleNameMerge(winnerId: string, winnerName: string) {
+    if (!confirm(
+      `Merge this record into ${winnerName}?\n\n` +
+      `All cases and history from this record will move to that customer card, and this entry will be deleted. This cannot be undone.`
+    )) return
+    setNameMergeId(winnerId); setNameWorking(true); setNameError(null)
+    try {
+      const res = await fetch(`/api/customers/${referral.customer_id}/merge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ merge_into_id: winnerId }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setNameError(json.error ?? 'Merge failed'); setNameWorking(false); setNameMergeId(null); return }
+      router.push(`/customers/${winnerId}`)
+    } catch {
+      setNameError('Network error')
+      setNameWorking(false)
+      setNameMergeId(null)
+    }
+  }
+
+  function dismissNameMatch(id: string) {
+    setNameMatches(prev => prev.filter(d => d.id !== id))
+  }
+
   // ── Manual merge state ────────────────────────────────────────
   const [mergeOpen,      setMergeOpen]      = useState(false)
   const [mergeQuery,     setMergeQuery]     = useState('')
@@ -253,6 +287,12 @@ export function ReferralEditClient({
   const [mergeTarget,    setMergeTarget]    = useState<MergeCandidate | null>(null)
   const [mergeWorking,   setMergeWorking]   = useState(false)
   const [mergeError,     setMergeError]     = useState<string | null>(null)
+
+  type SameCaseEntry = { id: string; agency_name: string; created_at: string; internal_status: string; touch_count: number }
+  const [sameCases,        setSameCases]        = useState<SameCaseEntry[]>([])
+  const [sameCasesLoading, setSameCasesLoading] = useState(false)
+  const [caseMergeWorking, setCaseMergeWorking] = useState(false)
+  const [caseMergeError,   setCaseMergeError]   = useState<string | null>(null)
   const [deleteConfirm,  setDeleteConfirm]  = useState(false)
   const [deleting,       setDeleting]       = useState(false)
   const [deleteError,    setDeleteError]    = useState<string | null>(null)
@@ -295,16 +335,47 @@ export function ReferralEditClient({
   async function handleMergeSearch(q: string) {
     setMergeQuery(q)
     setMergeTarget(null)
+    setMergeError(null)
     if (q.trim().length < 2) { setMergeResults([]); return }
     setMergeSearching(true)
     try {
       const res = await fetch(`/api/customers/search?q=${encodeURIComponent(q.trim())}&dedup=true`)
       const json = await res.json()
-      setMergeResults(
-        (json.data ?? []).filter((c: MergeCandidate) => c.id !== referral.customer_id)
-      )
-    } catch { setMergeResults([]) }
+      if (!res.ok) { setMergeError(json.error ?? `Search error (${res.status})`); setMergeResults([]); return }
+      const results = (json.data ?? []).filter((c: MergeCandidate) => c.id !== referral.customer_id)
+      setMergeResults(results)
+      if (results.length === 0) setMergeError('No matching customers found.')
+    } catch (e) { setMergeError(`Network error: ${e instanceof Error ? e.message : String(e)}`); setMergeResults([]) }
     finally { setMergeSearching(false) }
+  }
+
+  async function loadSameCases() {
+    setSameCasesLoading(true)
+    try {
+      const res = await fetch(`/api/customers/${referral.customer_id}/cases`)
+      const json = await res.json()
+      setSameCases((json.data ?? []).filter((c: SameCaseEntry) => c.id !== referral.id))
+    } catch { setSameCases([]) }
+    finally { setSameCasesLoading(false) }
+  }
+
+  async function handleCaseMerge(winnerCaseId: string, winnerAgency: string) {
+    if (!confirm(
+      `Merge this referral into the ${winnerAgency} one?\n\n` +
+      `All touch history, notes, and household members from this referral will move to that one. This referral will then be deleted. This cannot be undone.`
+    )) return
+    setCaseMergeWorking(true); setCaseMergeError(null)
+    try {
+      const res = await fetch(`/api/cases/${referral.id}/merge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ merge_into_id: winnerCaseId }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setCaseMergeError(json.error ?? 'Merge failed'); return }
+      router.push(`/referrals/${winnerCaseId}`)
+    } catch { setCaseMergeError('Network error') }
+    finally { setCaseMergeWorking(false) }
   }
 
   async function handleManualMerge() {
@@ -1120,6 +1191,65 @@ export function ReferralEditClient({
         </div>
       )}
 
+      {/* ── Name-based duplicate matches ─────────────────────────────
+          Shown when other customers share the same first + last name.
+          Separate from the phone-based flag above — catches cases where
+          the same person was entered twice with different contact details. */}
+      {nameMatches.length > 0 && (
+        <div className="mb-5 rounded-xl border border-amber-500/30 bg-amber-500/8 px-5 py-4 space-y-3">
+          <div className="flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-amber-300">Same Name Already on File</p>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {nameMatches.length === 1
+                  ? 'Another customer record exists with this exact name.'
+                  : `${nameMatches.length} other customer records exist with this exact name.`}
+                {' '}Confirm these are different people before actioning.
+              </p>
+              {nameError && <p className="text-xs text-red-400 mt-1">{nameError}</p>}
+            </div>
+          </div>
+          <div className="space-y-2 pl-8">
+            {nameMatches.map(d => (
+              <div key={d.id} className="flex items-center justify-between gap-3 bg-slate-800/60 rounded-lg px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-slate-200">{d.first_name} {d.last_name}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {d.phone ?? 'No phone'}
+                    {d.agency_name && <> · {d.agency_name}</>}
+                    {' '}· {d.case_count} case{d.case_count !== 1 ? 's' : ''}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <Link
+                    href={d.referral_id ? `/referrals/${d.referral_id}` : `/customers/${d.id}`}
+                    className="text-xs font-medium text-blue-400 hover:text-blue-300 transition-colors"
+                  >
+                    View referral
+                  </Link>
+                  <button
+                    onClick={() => handleNameMerge(d.id, `${d.first_name} ${d.last_name}`)}
+                    disabled={nameWorking}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium text-white disabled:opacity-50 transition-opacity hover:opacity-90"
+                    style={{ backgroundColor: '#1F3864' }}
+                  >
+                    {nameWorking && nameMergeId === d.id ? 'Working…' : 'Merge →'}
+                  </button>
+                  <button
+                    onClick={() => dismissNameMatch(d.id)}
+                    disabled={nameWorking}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-400 bg-slate-800 border border-slate-700 hover:text-slate-200 transition-colors disabled:opacity-50"
+                  >
+                    Different person
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Service referral banner ─────────────────────────────────
           Prominent banner when logged as existing_service; subtle link for all others.
           Either way, anyone who picks this up can route it to Abigail in one click. */}
@@ -1763,7 +1893,14 @@ export function ReferralEditClient({
           <div className="pt-1 border-t border-slate-800/50 space-y-3">
             <div className="flex items-center gap-4">
               <button
-                onClick={() => { setMergeOpen(o => !o); setMergeQuery(''); setMergeResults([]); setMergeTarget(null); setMergeError(null); setDeleteConfirm(false) }}
+                onClick={() => {
+                const opening = !mergeOpen
+                setMergeOpen(opening)
+                setMergeQuery(''); setMergeResults([]); setMergeTarget(null); setMergeError(null)
+                setCaseMergeError(null); setSameCases([])
+                setDeleteConfirm(false)
+                if (opening) loadSameCases()
+              }}
                 className="inline-flex items-center gap-1.5 text-xs text-slate-600 hover:text-slate-400 transition-colors"
               >
                 <GitMerge className="w-3.5 h-3.5" />
@@ -1805,13 +1942,50 @@ export function ReferralEditClient({
             )}
 
             {mergeOpen && (
-              <div className="mt-3 rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-3">
-                <p className="text-xs font-medium text-slate-300">Find the record to keep</p>
-                <p className="text-xs text-slate-500 leading-relaxed">
-                  All cases from{' '}
-                  <span className="text-slate-300">{cFirstName} {cLastName}</span>{' '}
-                  will move to the selected record, then this record will be deleted.
-                </p>
+              <div className="mt-3 rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-4">
+
+                {/* ── Same-customer duplicate referrals ── */}
+                <div className="space-y-2">
+                  <p className="text-xs font-medium text-slate-300">Duplicate referrals for this customer</p>
+                  {sameCasesLoading && <p className="text-xs text-slate-500">Loading…</p>}
+                  {!sameCasesLoading && sameCases.length === 0 && (
+                    <p className="text-xs text-slate-600">No other referrals found for this customer.</p>
+                  )}
+                  {!sameCasesLoading && sameCases.length > 0 && (
+                    <div className="space-y-2">
+                      {caseMergeError && <p className="text-xs text-red-400">{caseMergeError}</p>}
+                      {sameCases.map(c => (
+                        <div key={c.id} className="flex items-center justify-between gap-3 bg-slate-800/60 rounded-lg px-3 py-2.5">
+                          <div>
+                            <p className="text-xs font-medium text-slate-200">{c.agency_name}</p>
+                            <p className="text-xs text-slate-500 mt-0.5">
+                              {new Date(c.created_at).toLocaleDateString()} · {c.internal_status.replace(/_/g, ' ')} · {c.touch_count} touch{c.touch_count !== 1 ? 'es' : ''}
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => handleCaseMerge(c.id, c.agency_name)}
+                            disabled={caseMergeWorking}
+                            className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-semibold text-white disabled:opacity-50 transition-opacity hover:opacity-90"
+                            style={{ backgroundColor: '#1F3864' }}
+                          >
+                            {caseMergeWorking ? 'Working…' : 'Merge into this →'}
+                          </button>
+                        </div>
+                      ))}
+                      <p className="text-xs text-slate-600 pt-1">
+                        This referral's touches, notes, and household members move to the selected one. This referral is then deleted.
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                <div className="border-t border-slate-800 pt-3 space-y-3">
+                  <p className="text-xs font-medium text-slate-300">Merge customer records</p>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    All cases from{' '}
+                    <span className="text-slate-300">{cFirstName} {cLastName}</span>{' '}
+                    will move to the selected record, then this record will be deleted.
+                  </p>
                 <input
                   type="text"
                   value={mergeQuery}
@@ -1820,6 +1994,9 @@ export function ReferralEditClient({
                   className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
                 />
                 {mergeSearching && <p className="text-xs text-slate-500">Searching…</p>}
+                {!mergeSearching && mergeError && !mergeTarget && (
+                  <p className="text-xs text-amber-400">{mergeError}</p>
+                )}
                 {mergeResults.length > 0 && !mergeTarget && (
                   <div className="divide-y divide-slate-800 rounded-lg border border-slate-700 overflow-hidden">
                     {mergeResults.map(c => (
@@ -1874,6 +2051,7 @@ export function ReferralEditClient({
                     </div>
                   </div>
                 )}
+                </div>{/* end customer merge section */}
               </div>
             )}
           </div>

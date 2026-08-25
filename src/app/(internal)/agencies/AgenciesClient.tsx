@@ -15,7 +15,8 @@ type EditState = {
   display_name:     string
   sml_team_id:    string
   is_active:      boolean
-  agent_number:   string
+  agent_number:            string
+  allstate_partner_number: string
   contact_phone:  string
   contact_email:  string
   contact_street: string
@@ -35,7 +36,8 @@ function toEdit(a: AgencyRow): EditState {
     display_name:   a.display_name ?? '',
     sml_team_id:    a.sml_team_id ?? '',
     is_active:      a.is_active,
-    agent_number:   a.agent_number ?? '',
+    agent_number:            a.agent_number ?? '',
+    allstate_partner_number: a.allstate_partner_number ?? '',
     contact_phone:  formatPhone(a.contact_phone ?? ''),
     contact_email:  a.contact_email ?? '',
     contact_street: a.contact_street ?? '',
@@ -87,7 +89,8 @@ function isDirty(a: AgencyRow, e: EditState) {
     (e.display_name   || null) !== (a.display_name   ?? null) ||
     (e.sml_team_id    || null) !== (a.sml_team_id    ?? null) ||
     e.is_active                !== a.is_active                ||
-    (e.agent_number   || null) !== (a.agent_number   ?? null) ||
+    (e.agent_number            || null) !== (a.agent_number            ?? null) ||
+    (e.allstate_partner_number || null) !== (a.allstate_partner_number ?? null) ||
     (e.contact_phone  || null) !== (a.contact_phone  ?? null) ||
     (e.contact_email  || null) !== (a.contact_email  ?? null) ||
     (e.contact_street || null) !== (a.contact_street ?? null) ||
@@ -158,7 +161,8 @@ export function AgenciesClient({ agencies, teams }: Props) {
         display_name:   edit.display_name   || null,
         sml_team_id:    edit.sml_team_id    || null,
         is_active:      edit.is_active,
-        agent_number:   edit.agent_number   || null,
+        agent_number:            edit.agent_number            || null,
+        allstate_partner_number: edit.allstate_partner_number || null,
         contact_phone:  edit.contact_phone  || null,
         contact_email:  edit.contact_email  || null,
         contact_street: edit.contact_street || null,
@@ -597,7 +601,7 @@ export function AgenciesClient({ agencies, teams }: Props) {
                   {isOpen && (
                     <tr key={`${agency.id}-contact`} className="border-b border-slate-800 bg-slate-800/20">
                       <td colSpan={6} className="px-4 py-4">
-                        <div className="grid grid-cols-7 gap-3">
+                        <div className="grid grid-cols-8 gap-3">
                           <div>
                             <label className="text-xs text-slate-500 mb-1 block">Agent #</label>
                             <input
@@ -606,6 +610,16 @@ export function AgenciesClient({ agencies, teams }: Props) {
                               onChange={e => update(agency.id, 'agent_number', e.target.value)}
                               placeholder="A0X0000"
                               className={INPUT}
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-slate-500 mb-1 block">GDC Partner #</label>
+                            <input
+                              type="text"
+                              value={edit?.allstate_partner_number ?? ''}
+                              onChange={e => update(agency.id, 'allstate_partner_number', e.target.value.trim().toUpperCase())}
+                              placeholder="A0X0000"
+                              className={`${INPUT} font-mono`}
                             />
                           </div>
                           <div>
@@ -671,7 +685,7 @@ export function AgenciesClient({ agencies, teams }: Props) {
                               />
                             </div>
                           </div>
-                          <div className="col-span-7 border-t border-slate-700/50 pt-3 flex items-end gap-3 flex-wrap">
+                          <div className="col-span-8 border-t border-slate-700/50 pt-3 flex items-end gap-3 flex-wrap">
                             <div className="w-40">
                               <label className="text-xs text-slate-500 mb-1 block">Portal PIN</label>
                               <input

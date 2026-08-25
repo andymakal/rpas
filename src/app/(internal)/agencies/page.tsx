@@ -14,7 +14,8 @@ export type AgencyRow = {
   is_active:      boolean
   sml_team_id:    string | null
   sml_team:       string | null
-  agent_number:   string | null
+  agent_number:            string | null
+  allstate_partner_number: string | null
   contact_phone:  string | null
   contact_email:  string | null
   contact_street: string | null
@@ -33,7 +34,7 @@ export default async function AgenciesPage() {
   const [{ data: agencies }, { data: teams }] = await Promise.all([
     supabase
       .from('agencies')
-      .select('id, name, display_name, slug, is_active, sml_team_id, sml_teams(display_name), agent_number, contact_phone, contact_email, contact_street, contact_city, contact_state, contact_zip, portal_pin, parent_agency_id')
+      .select('id, name, display_name, slug, is_active, sml_team_id, sml_teams(display_name), agent_number, allstate_partner_number, contact_phone, contact_email, contact_street, contact_city, contact_state, contact_zip, portal_pin, parent_agency_id')
       .eq('is_test', false)
       .order('name'),
     supabase
@@ -51,7 +52,8 @@ export default async function AgenciesPage() {
     is_active:      a.is_active as boolean,
     sml_team_id:    a.sml_team_id as string | null,
     sml_team:       (a.sml_teams as { display_name: string } | null)?.display_name ?? null,
-    agent_number:   a.agent_number as string | null,
+    agent_number:            a.agent_number as string | null,
+    allstate_partner_number: a.allstate_partner_number as string | null,
     contact_phone:  a.contact_phone as string | null,
     contact_email:  a.contact_email as string | null,
     contact_street: a.contact_street as string | null,

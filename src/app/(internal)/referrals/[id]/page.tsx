@@ -117,6 +117,16 @@ export type SuspectedDuplicate = {
   case_count: number
 }
 
+export type NameDuplicate = {
+  id: string
+  first_name: string
+  last_name: string
+  phone: string | null
+  agency_name: string | null
+  case_count: number
+  referral_id: string | null
+}
+
 export type ReferralNote = {
   id:          string
   section:     'triage' | 'producer' | 'underwriting'
@@ -240,7 +250,7 @@ export default async function ReferralDetailPage({
     .order('created_at', { ascending: false })
   const referralNotes: ReferralNote[] = (notesRaw ?? []) as ReferralNote[]
 
-  // Shape suspected duplicate
+  // Shape suspected duplicate (phone-based, flagged at intake)
   type RawDup = { id: string; first_name: string; last_name: string; phone: string | null; agencies: { name: string; display_name: string | null } | null }
   const rawDup = dupResult?.data as unknown as RawDup | null
   let suspectedDuplicate: SuspectedDuplicate | null = null
@@ -257,6 +267,34 @@ export default async function ReferralDetailPage({
       phone:       rawDup.phone,
       agency_name: rawDup.agencies?.display_name ?? rawDup.agencies?.name ?? null,
       case_count:  dupCaseCount ?? 0,
+    }
+  }
+
+  // Name-based duplicate search — find other customers with same first+last name
+  const nameDuplicates: NameDuplicate[] = []
+  if (cd.customers) {
+    const firstName3 = cd.customers.first_name.trim().slice(0, 3)
+    const { data: nameMatches } = await supabase
+      .from('customers')
+      .select('id, first_name, last_name, phone, agencies ( name, display_name ), cases ( id )')
+      .ilike('first_name', `${firstName3}%`)
+      .ilike('last_name',  cd.customers.last_name.trim())
+      .neq('id', cd.customer_id)
+      .eq('is_test', false)
+      .limit(5)
+
+    for (const m of (nameMatches ?? []) as unknown as (RawDup & { cases: { id: string }[] })[]) {
+      // Skip if already flagged as the phone-based suspected duplicate
+      if (suspectedDuplicate && m.id === suspectedDuplicate.id) continue
+      nameDuplicates.push({
+        id:          m.id,
+        first_name:  m.first_name,
+        last_name:   m.last_name,
+        phone:       m.phone,
+        agency_name: m.agencies?.display_name ?? m.agencies?.name ?? null,
+        case_count:  Array.isArray(m.cases) ? m.cases.length : 0,
+        referral_id: Array.isArray(m.cases) && m.cases.length > 0 ? m.cases[0].id : null,
+      })
     }
   }
 
@@ -293,6 +331,7 @@ export default async function ReferralDetailPage({
       householdId={householdId}
       householdMembers={shapedMembers}
       suspectedDuplicate={suspectedDuplicate}
+      nameDuplicates={nameDuplicates}
       notInterestedReasons={(notInterestedReasons as unknown as NotInterestedReason[]) ?? []}
       initialNotes={referralNotes}
     />

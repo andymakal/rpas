@@ -11,6 +11,7 @@ type ImportResult = {
   matched_count: number
   unmatched_count: number
   unrecognized_partners: string[]
+  debug_map_keys: string[]
 }
 
 type PromoteResult = {
@@ -368,20 +369,34 @@ export default function GdcImportPage() {
             </div>
 
             {result.unrecognized_partners.length > 0 && (
-              <div className="bg-yellow-950 border border-yellow-800 rounded-lg p-4">
-                <p className="text-yellow-300 text-sm font-semibold mb-2">
-                  Unrecognized partner numbers ({result.unrecognized_partners.length})
-                </p>
-                <p className="text-yellow-400/70 text-xs mb-2">
-                  These rows were saved but not linked to an agency. Update the partner number in the agencies table to match.
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {result.unrecognized_partners.map(p => (
-                    <span key={p} className="font-mono text-xs bg-yellow-900 text-yellow-200 px-2 py-0.5 rounded">
-                      {p}
-                    </span>
-                  ))}
+              <div className="bg-yellow-950 border border-yellow-800 rounded-lg p-4 space-y-3">
+                <div>
+                  <p className="text-yellow-300 text-sm font-semibold mb-2">
+                    Unrecognized partner numbers ({result.unrecognized_partners.length})
+                  </p>
+                  <p className="text-yellow-400/70 text-xs mb-2">
+                    These rows were saved but not linked to an agency. Looked up as &quot;A&quot; + raw value.
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {result.unrecognized_partners.map(p => (
+                      <span key={p} className="font-mono text-xs bg-yellow-900 text-yellow-200 px-2 py-0.5 rounded">
+                        {p} → A{p}
+                      </span>
+                    ))}
+                  </div>
                 </div>
+                {result.debug_map_keys.length > 0 && (
+                  <div>
+                    <p className="text-slate-400 text-xs font-semibold mb-1">Partner numbers loaded from DB ({result.debug_map_keys.length})</p>
+                    <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
+                      {result.debug_map_keys.map(k => (
+                        <span key={k} className="font-mono text-xs bg-slate-800 text-slate-300 px-2 py-0.5 rounded">
+                          {k}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
