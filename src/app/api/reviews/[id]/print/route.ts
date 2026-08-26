@@ -89,7 +89,7 @@ export async function GET(
         issue_date, term_length, face_amount, death_benefit_amount,
         cash_value_amount, cost_basis, annual_premium, premium_mode,
         rate_class, riders, insured_first_name, insured_last_name,
-        primary_beneficiary, contingent_beneficiary,
+        primary_beneficiary, contingent_beneficiary, customer_id,
         agents ( first_name, last_name )
       )
     `)
@@ -103,6 +103,7 @@ export async function GET(
   const policy = review.service_policies as unknown as (PolicyForPrep & {
     agents: { first_name: string; last_name: string } | null
     contingent_beneficiary: string | null
+    customer_id: string | null
   }) | null
 
   if (!policy) {
@@ -131,14 +132,33 @@ export async function GET(
   const hasCritical = flags.some(f => f.severity === 'critical')
   const hasWarning  = flags.some(f => f.severity === 'warning')
 
-  const statusMsg    = hasCritical
+  // Fetch open service requests for this customer
+  type OpenSR = { id: string; sr_number: string | null; request_type: string }
+  let openSRs: OpenSR[] = []
+  if (policy.customer_id) {
+    const { data: srs } = await supabase
+      .from('service_requests')
+      .select('id, sr_number, request_type')
+      .eq('customer_id', policy.customer_id)
+      .not('workflow_status', 'in', '("resolved","cannot_service")')
+      .order('date_received', { ascending: false })
+      .limit(5)
+    openSRs = (srs ?? []) as OpenSR[]
+  }
+
+  // Status banner — confirmed outcome overrides static flags
+  const outcomePositive = review.outcome === 'excellent'
+  const showCritical    = !outcomePositive && hasCritical
+  const showWarning     = !outcomePositive && hasWarning
+
+  const statusMsg    = showCritical
     ? 'Action needed — please review the items below with your advisor'
-    : hasWarning
+    : showWarning
       ? 'A few items below deserve your attention'
       : '&#10003; Your policy is in excellent standing and fully protecting your family &#10003;'
-  const statusBg     = hasCritical ? '#fdf2f2' : hasWarning ? '#fefdf2' : '#f2fdf5'
-  const statusColor  = hasCritical ? '#c0392b' : hasWarning ? '#7a6000' : '#1a7a4a'
-  const statusBorder = hasCritical ? '#e74c3c' : hasWarning ? '#f39c12' : '#27ae60'
+  const statusBg     = showCritical ? '#fdf2f2' : showWarning ? '#fefdf2' : '#f2fdf5'
+  const statusColor  = showCritical ? '#c0392b' : showWarning ? '#7a6000' : '#1a7a4a'
+  const statusBorder = showCritical ? '#e74c3c' : showWarning ? '#f39c12' : '#27ae60'
 
   const termDisplay  = isPerma
     ? 'Permanent (No Expiration)'
@@ -156,28 +176,66 @@ export async function GET(
     ? `${e(policy.insured_first_name)} ${e(policy.insured_last_name)}`
     : e(policy.client_name)
 
-  // Recommendations
+  // Personalized recommendations — outcome and action-aware
   const recs: string[] = []
+
+  // Term expiry
   if (yrLeft != null && yrLeft <= 5 && !isPerma) {
     recs.push(`Your term policy expires in ${expYear} — contact us to review your conversion and renewal options before time runs out.`)
   }
-  if (!policy.primary_beneficiary) {
-    recs.push('Update your beneficiary designations to ensure your coverage reaches your intended recipients.')
-  } else {
-    recs.push('Confirm your beneficiary designations are current, especially after any major life changes.')
+
+  // Beneficiary — uses confirmed value from the call
+  const beneConfirmed = review.primary_beneficiary_confirmed?.trim()
+  const beneOnFile    = policy.primary_beneficiary?.trim()
+  if (!beneOnFile && !beneConfirmed) {
+    recs.push('Your beneficiary designation is not on file. Please contact us to complete this — it determines who receives your death benefit.')
+  } else if (beneConfirmed) {
+    recs.push(`Beneficiary confirmed as &ldquo;${e(beneConfirmed)}&rdquo; during this review. Let us know if anything changes.`)
+  } else if (!outcomePositive) {
+    recs.push('Keep your beneficiary designation current &mdash; especially after major life events like marriage, divorce, or the birth of a child.')
   }
+
+  // Cash value
   if (isPerma && policy.cash_value_amount && policy.cash_value_amount > 0) {
-    recs.push('Your policy has accumulated cash value — ask us about options within your financial plan.')
+    recs.push('Your policy has accumulated cash value — ask us about loan options or how this value works within your financial plan.')
   }
-  flags.filter(f => f.severity === 'critical' || f.severity === 'warning').slice(0, 2).forEach(f => {
-    recs.push(e(f.description))
-  })
-  if (recs.length < 3) recs.push('Review your coverage needs annually as your life circumstances change.')
+
+  // Open SRs → "in progress" items
+  for (const sr of openSRs) {
+    recs.push(`In progress &mdash; ${e(sr.request_type)}: We have a service request open (${e(sr.sr_number ?? 'pending')}) and will follow up with you shortly.`)
+  }
+
+  // Flag-driven — skip if outcome was confirmed excellent, skip beneficiary flags already covered
+  if (!outcomePositive) {
+    flags.filter(f => f.severity === 'critical' || f.severity === 'warning').forEach(f => {
+      if (!f.label.toLowerCase().includes('beneficiar')) {
+        recs.push(e(f.description))
+      }
+    })
+  }
+
+  // Opportunity outcome
+  if (review.outcome === 'opportunity_found') {
+    recs.push('Based on our review, there may be an opportunity to enhance your coverage. We\'ll be in touch to discuss your options.')
+  }
+
+  // General fallback
+  if (recs.length < 2) recs.push('Review your coverage needs annually as your life circumstances change.')
   recs.push('Contact us any time with questions about your policy or financial planning needs.')
 
-  const recItems = recs.slice(0, 5).map((r, i) =>
+  const recItems = recs.slice(0, 6).map((r, i) =>
     `<li><div class="rec-num">${i + 1}</div><span>${r}</span></li>`
   ).join('')
+
+  const nextStepsSection = openSRs.length > 0 ? `
+    <div class="section">
+      <div class="section-title">What We&#39;re Working On</div>
+      <ul class="rec-list">
+        ${openSRs.map(sr =>
+          `<li><div style="width:8px;height:8px;border-radius:50%;background:#1B4FC4;margin-top:3px;flex-shrink:0"></div><span><strong>${e(sr.request_type)}</strong> &mdash; ${e(sr.sr_number ?? 'Service request in progress')}. We'll be in touch as this moves forward.</span></li>`
+        ).join('')}
+      </ul>
+    </div>` : ''
 
   const cashValueSection = isPerma ? `
     <div class="section">
@@ -324,6 +382,7 @@ export async function GET(
 
   ${cashValueSection}
   ${conversionSection}
+  ${nextStepsSection}
 
   <div class="section">
     <div class="section-title">Personalized Recommendations</div>
