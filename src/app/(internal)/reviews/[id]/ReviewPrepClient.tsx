@@ -13,10 +13,9 @@ import {
   reviewTypeLabel,
 } from '@/lib/reviews/prep'
 import type { PolicyForPrep, ReviewFlag } from '@/lib/reviews/prep'
-import type { ReviewDetail } from './page'
+import type { ReviewDetail, ReviewNote, RelatedSR } from './page'
 import { fmtDate as fmt } from '@/lib/fmt'
 import { NotesLog, type NoteEntry } from '@/components/NotesLog'
-import type { ReviewNote } from './page'
 import { useNavList } from '@/lib/nav-list'
 import { addRecentItem } from '@/lib/recent-items'
 
@@ -97,10 +96,12 @@ export function ReviewPrepClient({
   review: initialReview,
   producers = [],
   initialNotes = [],
+  relatedServiceRequests = [],
 }: {
-  review:       ReviewDetail
-  producers?:   ProducerOption[]
-  initialNotes?: ReviewNote[]
+  review:                    ReviewDetail
+  producers?:                ProducerOption[]
+  initialNotes?:             ReviewNote[]
+  relatedServiceRequests?:   RelatedSR[]
 }) {
   const router = useRouter()
   const [review, setReview] = useState(initialReview)
@@ -480,6 +481,28 @@ export function ReviewPrepClient({
           )}
         </div>
       </div>
+
+      {/* ── Related service requests banner ─────────────────────────────── */}
+      {relatedServiceRequests.length > 0 && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+          <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+          <div className="text-sm">
+            <span className="text-amber-300 font-medium">
+              {relatedServiceRequests.length === 1 ? 'Open service request' : `${relatedServiceRequests.length} open service requests`}
+            </span>
+            <span className="text-amber-400/70"> also open for this customer — </span>
+            {relatedServiceRequests.map((sr, i) => (
+              <span key={sr.id}>
+                {i > 0 && <span className="text-amber-600"> · </span>}
+                <a href={`/service/${sr.id}`}
+                  className="text-amber-300 hover:text-amber-200 underline underline-offset-2">
+                  {sr.sr_number ?? 'SR'} {sr.request_type}
+                </a>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Body: two-column ────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">

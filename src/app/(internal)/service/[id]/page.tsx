@@ -49,6 +49,14 @@ export type SRNote = {
   created_at:  string
 }
 
+export type RelatedReview = {
+  id:             string
+  review_number:  string | null
+  review_type:    string | null
+  status:         string
+  scheduled_date: string | null
+}
+
 export async function generateMetadata(
   { params }: { params: Promise<{ id: string }> }
 ): Promise<Metadata> {
@@ -106,13 +114,27 @@ export default async function ServiceRequestPage(
 
   if (!sr) notFound()
 
-  // Fetch SR notes
-  const { data: notesRaw } = await supabase
-    .from('customer_notes')
-    .select('id, section, author_name, body, created_at')
-    .eq('service_request_id', id)
-    .order('created_at', { ascending: false })
-  const srNotes: SRNote[] = (notesRaw ?? []) as SRNote[]
+  const customerId = (sr as unknown as { service_policies?: { customer_id?: string | null } }).service_policies?.customer_id ?? null
+
+  const [{ data: notesRaw }, { data: relatedReviewsRaw }] = await Promise.all([
+    supabase
+      .from('customer_notes')
+      .select('id, section, author_name, body, created_at')
+      .eq('service_request_id', id)
+      .order('created_at', { ascending: false }),
+    customerId
+      ? supabase
+          .from('policy_reviews')
+          .select('id, review_number, review_type, status, scheduled_date')
+          .eq('customer_id', customerId)
+          .not('status', 'in', '("complete")')
+          .order('created_at', { ascending: false })
+          .limit(10)
+      : Promise.resolve({ data: [] }),
+  ])
+
+  const srNotes: SRNote[]             = (notesRaw ?? []) as SRNote[]
+  const relatedReviews: RelatedReview[] = (relatedReviewsRaw ?? []) as RelatedReview[]
 
   return (
     <div className="p-8">
@@ -122,6 +144,7 @@ export default async function ServiceRequestPage(
           agencies={(agencies as AgencyOption[]) ?? []}
           agents={(agents as AgentOption[]) ?? []}
           initialNotes={srNotes}
+          relatedReviews={relatedReviews}
         />
       </div>
     </div>

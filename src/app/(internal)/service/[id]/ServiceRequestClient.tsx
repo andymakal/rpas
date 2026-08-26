@@ -2,8 +2,8 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, AlertCircle, Save, Pencil, User, Phone, Mail } from 'lucide-react'
-import type { ServiceRequestDetail, AgencyOption, AgentOption, SRNote } from './page'
+import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, AlertCircle, AlertTriangle, Save, Pencil, User, Phone, Mail } from 'lucide-react'
+import type { ServiceRequestDetail, AgencyOption, AgentOption, SRNote, RelatedReview } from './page'
 import { NotesLog } from '@/components/NotesLog'
 import type { NoteEntry } from '@/components/NotesLog'
 import { fmtDate as fmt } from '@/lib/fmt'
@@ -88,11 +88,13 @@ export function ServiceRequestClient({
   agencies,
   agents,
   initialNotes,
+  relatedReviews = [],
 }: {
-  sr:           ServiceRequestDetail
-  agencies:     AgencyOption[]
-  agents:       AgentOption[]
-  initialNotes: SRNote[]
+  sr:             ServiceRequestDetail
+  agencies:       AgencyOption[]
+  agents:         AgentOption[]
+  initialNotes:   SRNote[]
+  relatedReviews?: RelatedReview[]
 }) {
   const router = useRouter()
 
@@ -349,6 +351,32 @@ export function ServiceRequestClient({
           )}
         </div>
       </div>
+
+      {/* ── Related reviews banner ───────────────────────────────────────── */}
+      {relatedReviews.length > 0 && (
+        <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
+          <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+          <div className="text-sm">
+            <span className="text-amber-300 font-medium">
+              {relatedReviews.length === 1 ? 'Active policy review' : `${relatedReviews.length} active policy reviews`}
+            </span>
+            <span className="text-amber-400/70"> also open for this customer — </span>
+            {relatedReviews.map((r, i) => {
+              const typeLabel = r.review_type === 'term' ? 'Term' : r.review_type === 'permanent_ul' ? 'UL' : r.review_type === 'permanent_wl' ? 'WL' : 'Review'
+              const statusLabel = r.status === 'prep' ? 'In Prep' : r.status === 'no_contact' ? 'No Contact' : r.status
+              return (
+                <span key={r.id}>
+                  {i > 0 && <span className="text-amber-600"> · </span>}
+                  <a href={`/reviews/${r.id}`}
+                    className="text-amber-300 hover:text-amber-200 underline underline-offset-2">
+                    {r.review_number ?? 'RV'} {typeLabel} · {statusLabel}
+                  </a>
+                </span>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* ── Workflow Progress ────────────────────────────────────────────── */}
       {!isClosed && (

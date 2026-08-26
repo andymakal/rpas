@@ -67,6 +67,13 @@ export type ReviewNote = {
   created_at:  string
 }
 
+export type RelatedSR = {
+  id:              string
+  sr_number:       string | null
+  request_type:    string
+  workflow_status: string
+}
+
 export async function generateMetadata(
   { params }: { params: Promise<{ id: string }> }
 ): Promise<Metadata> {
@@ -120,7 +127,9 @@ export default async function ReviewPrepPage(
 
   if (!review) notFound()
 
-  const [{ data: producers }, { data: notesRaw }] = await Promise.all([
+  const customerId = (review as unknown as { service_policies?: { customer_id?: string | null } }).service_policies?.customer_id ?? null
+
+  const [{ data: producers }, { data: notesRaw }, { data: relatedSRsRaw }] = await Promise.all([
     supabase
       .from('producers')
       .select('id, first_name, last_name')
@@ -131,9 +140,19 @@ export default async function ReviewPrepPage(
       .select('id, section, author_name, body, created_at')
       .eq('policy_review_id', id)
       .order('created_at', { ascending: false }),
+    customerId
+      ? supabase
+          .from('service_requests')
+          .select('id, sr_number, request_type, workflow_status')
+          .eq('customer_id', customerId)
+          .not('workflow_status', 'in', '("resolved","cannot_service")')
+          .order('date_received', { ascending: false })
+          .limit(10)
+      : Promise.resolve({ data: [] }),
   ])
 
   const reviewNotes: ReviewNote[] = (notesRaw ?? []) as ReviewNote[]
+  const relatedSRs: RelatedSR[]   = (relatedSRsRaw ?? []) as RelatedSR[]
 
   return (
     <div className="p-8">
@@ -142,6 +161,7 @@ export default async function ReviewPrepPage(
           review={review as unknown as ReviewDetail}
           producers={(producers ?? []) as { id: string; first_name: string; last_name: string }[]}
           initialNotes={reviewNotes}
+          relatedServiceRequests={relatedSRs}
         />
       </div>
     </div>
