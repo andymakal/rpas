@@ -18,6 +18,7 @@ import { fmtDate as fmt } from '@/lib/fmt'
 import { NotesLog, type NoteEntry } from '@/components/NotesLog'
 import { useNavList } from '@/lib/nav-list'
 import { addRecentItem } from '@/lib/recent-items'
+import { RATE_CLASSES } from '@/lib/constants/rate-classes'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -654,8 +655,10 @@ export function ReviewPrepClient({
                   </div>
                   <div>
                     <label className="block text-xs text-slate-500 mb-1">Rate Class</label>
-                    <input type="text" value={policyEdit.rate_class}
-                      onChange={pef('rate_class')} placeholder="e.g. Preferred Plus" className={inputCls} />
+                    <select value={policyEdit.rate_class} onChange={pef('rate_class')} className={selectCls}>
+                      <option value="">— Select —</option>
+                      {RATE_CLASSES.map(r => <option key={r} value={r}>{r}</option>)}
+                    </select>
                   </div>
                 </div>
                 <div>

@@ -9,6 +9,7 @@ import type { NoteEntry } from '@/components/NotesLog'
 import { fmtDate as fmt } from '@/lib/fmt'
 import { useNavList } from '@/lib/nav-list'
 import { addRecentItem } from '@/lib/recent-items'
+import { RATE_CLASSES } from '@/lib/constants/rate-classes'
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -55,10 +56,6 @@ const PRODUCT_TYPES = [
 
 const PREMIUM_MODES = ['Annual', 'Semi-Annual', 'Quarterly', 'Monthly', 'EFT Monthly']
 
-const RATE_CLASSES = [
-  'Preferred Plus', 'Preferred', 'Standard Plus', 'Standard',
-  'Table 2', 'Table 4', 'Table 6', 'Table 8',
-]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

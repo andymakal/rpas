@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search, X, CheckCircle } from 'lucide-react'
 import type { AgencyOption, AgentOption } from './page'
+import { RATE_CLASSES } from '@/lib/constants/rate-classes'
 
 const CARRIERS = [
   'Corebridge',
@@ -46,10 +47,6 @@ const REQUEST_TYPES = [
   'Other',
 ]
 
-const RATE_CLASSES = [
-  'Preferred Plus', 'Preferred', 'Standard Plus', 'Standard',
-  'Table 2', 'Table 4', 'Table 6', 'Table 8',
-]
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function Field({ label, children, hint }: { label: string; children: React.ReactNode; hint?: string }) {
