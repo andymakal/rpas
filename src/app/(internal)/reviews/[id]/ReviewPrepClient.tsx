@@ -212,7 +212,8 @@ export function ReviewPrepClient({
     premium_mode:          policy?.premium_mode          ?? '',
     rate_class:            policy?.rate_class            ?? '',
     riders:                policy?.riders               ?? '',
-    primary_beneficiary:   policy?.primary_beneficiary  ?? '',
+    primary_beneficiary:    policy?.primary_beneficiary    ?? '',
+    contingent_beneficiary: policy?.contingent_beneficiary ?? '',
   })
   const [policySaving, setPolicySaving] = useState(false)
   const [policySaved,  setPolicySaved]  = useState(false)
@@ -241,7 +242,8 @@ export function ReviewPrepClient({
           premium_mode:          policyEdit.premium_mode          || null,
           rate_class:            policyEdit.rate_class.trim()     || null,
           riders:                policyEdit.riders.trim()         || null,
-          primary_beneficiary:   policyEdit.primary_beneficiary.trim() || null,
+          primary_beneficiary:    policyEdit.primary_beneficiary.trim()    || null,
+          contingent_beneficiary: policyEdit.contingent_beneficiary.trim() || null,
         }),
       })
       if (!res.ok) { const j = await res.json(); setPolicyError(j.error ?? 'Save failed'); return }
@@ -250,16 +252,17 @@ export function ReviewPrepClient({
         ...prev,
         service_policies: {
           ...prev.service_policies,
-          face_amount:           num(policyEdit.face_amount),
-          death_benefit_amount:  num(policyEdit.death_benefit_amount),
-          cash_value_amount:     num(policyEdit.cash_value_amount),
-          cash_value_as_of_date: policyEdit.cash_value_as_of_date || null,
-          cost_basis:            num(policyEdit.cost_basis),
-          annual_premium:        num(policyEdit.annual_premium),
-          premium_mode:          policyEdit.premium_mode          || null,
-          rate_class:            policyEdit.rate_class.trim()     || null,
-          riders:                policyEdit.riders.trim()         || null,
-          primary_beneficiary:   policyEdit.primary_beneficiary.trim() || null,
+          face_amount:            num(policyEdit.face_amount),
+          death_benefit_amount:   num(policyEdit.death_benefit_amount),
+          cash_value_amount:      num(policyEdit.cash_value_amount),
+          cash_value_as_of_date:  policyEdit.cash_value_as_of_date || null,
+          cost_basis:             num(policyEdit.cost_basis),
+          annual_premium:         num(policyEdit.annual_premium),
+          premium_mode:           policyEdit.premium_mode          || null,
+          rate_class:             policyEdit.rate_class.trim()     || null,
+          riders:                 policyEdit.riders.trim()         || null,
+          primary_beneficiary:    policyEdit.primary_beneficiary.trim()    || null,
+          contingent_beneficiary: policyEdit.contingent_beneficiary.trim() || null,
         },
       } : prev)
       setPolicySaved(true)
@@ -665,6 +668,11 @@ export function ReviewPrepClient({
                   <input type="text" value={policyEdit.primary_beneficiary}
                     onChange={pef('primary_beneficiary')} placeholder="e.g. Jane Doe (spouse)" className={inputCls} />
                 </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Contingent Beneficiary (on file)</label>
+                  <input type="text" value={policyEdit.contingent_beneficiary}
+                    onChange={pef('contingent_beneficiary')} placeholder="e.g. John Doe (son)" className={inputCls} />
+                </div>
                 {policyError  && <p className="text-xs text-red-400">{policyError}</p>}
                 {policySaved  && <p className="text-xs text-emerald-400">Saved ✓</p>}
               </div>
@@ -694,7 +702,10 @@ export function ReviewPrepClient({
                 {policy?.premium_mode && <Row label="Mode" value={policy.premium_mode} />}
                 {policy?.riders && <Row label="Riders" value={policy.riders} span />}
                 {policy?.primary_beneficiary && (
-                  <Row label="Primary Bene (file)" value={policy.primary_beneficiary} span />
+                  <Row label="Primary Bene" value={policy.primary_beneficiary} span />
+                )}
+                {policy?.contingent_beneficiary && (
+                  <Row label="Contingent Bene" value={policy.contingent_beneficiary} span />
                 )}
                 {policy?.agencies && (
                   <Row label="Agency" value={policy.agencies.display_name ?? policy.agencies.name} />

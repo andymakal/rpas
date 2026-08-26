@@ -67,7 +67,7 @@ export default async function ReviewPrintPage(
         issue_date, term_length, face_amount, death_benefit_amount,
         cash_value_amount, cost_basis, annual_premium, premium_mode,
         rate_class, riders, insured_first_name, insured_last_name,
-        primary_beneficiary,
+        primary_beneficiary, contingent_beneficiary,
         agents ( first_name, last_name )
       )
     `)
@@ -78,6 +78,7 @@ export default async function ReviewPrintPage(
 
   const policy = review.service_policies as unknown as (PolicyForPrep & {
     agents: { first_name: string; last_name: string } | null
+    contingent_beneficiary: string | null
   }) | null
 
   if (!policy) notFound()
@@ -350,7 +351,7 @@ export default async function ReviewPrintPage(
                   <tr><td>Premium Mode</td><td>{premiumDisplay}</td></tr>
                   <tr><td>Rate Class</td><td>{policy.rate_class ?? '—'}</td></tr>
                   <tr><td>Primary Beneficiary</td><td>{beneficiaryDisplay}</td></tr>
-                  <tr><td>Contingent Beneficiary</td><td>—</td></tr>
+                  <tr><td>Contingent Beneficiary</td><td>{policy.contingent_beneficiary ?? '—'}</td></tr>
                   <tr><td>Riders</td><td>{policy.riders ?? 'None'}</td></tr>
                 </tbody>
               </table>

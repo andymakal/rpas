@@ -50,7 +50,8 @@ export type ReviewDetail = {
     riders: string | null
     insured_first_name: string | null
     insured_last_name: string | null
-    primary_beneficiary: string | null
+    primary_beneficiary:    string | null
+    contingent_beneficiary: string | null
     sa_status: string
     customer_id: string | null
     agencies: { id: string; name: string; display_name: string | null } | null
@@ -116,7 +117,7 @@ export default async function ReviewPrepPage(
         issue_date, term_length, face_amount, death_benefit_amount,
         cash_value_amount, cash_value_as_of_date, cost_basis, annual_premium, premium_mode,
         rate_class, riders, insured_first_name, insured_last_name,
-        primary_beneficiary, sa_status, customer_id,
+        primary_beneficiary, contingent_beneficiary, sa_status, customer_id,
         agencies ( id, name, display_name ),
         agents ( id, first_name, last_name ),
         customers!customer_id ( id, first_name, last_name, phone, email )
