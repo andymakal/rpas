@@ -1320,7 +1320,7 @@ export function ReferralEditClient({
             <div className="flex items-center gap-3">
               <ClipboardList className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
               <div>
-                <p className="text-sm font-semibold text-emerald-300">Life Insurance Review — Route to Ashley</p>
+                <p className="text-sm font-semibold text-emerald-300">Life Insurance Review</p>
                 <p className="text-xs text-slate-400 mt-0.5">
                   {customerPolicies.length > 0
                     ? 'Select the policy to review, then create the review record for Ashley to prep.'
