@@ -199,7 +199,6 @@ export default async function CustomerCardPage({
     agencies:        (Array.isArray(p.agencies) ? p.agencies[0] : p.agencies) as { name: string; display_name: string | null } | null,
   }))
 
-  // Fetch case status history for all linked cases
   const caseIds = (cases ?? []).map(c => c.id)
   let caseHistory: CaseStatusHistoryEntry[] = []
   let touchHistory: TouchHistoryEntry[] = []
@@ -229,28 +228,23 @@ export default async function CustomerCardPage({
 
   const notes: CustomerNote[] = (notesRaw ?? []) as CustomerNote[]
 
-  // Fetch service requests, policy reviews, and producers via linked policy IDs
-  const policyIds = (policiesRaw ?? []).map(p => p.id)
+  // Fetch service requests, policy reviews, and producers directly by customer_id
   let serviceRequests: LinkedServiceRequest[] = []
   let policyReviews:   LinkedReview[]         = []
 
   const [srResult, reviewResult, producerResult] = await Promise.all([
-    policyIds.length > 0
-      ? supabase
-          .from('service_requests')
-          .select('id, sr_number, request_type, workflow_status, date_received, service_policies ( policy_number, client_name )')
-          .in('policy_id', policyIds)
-          .order('date_received', { ascending: false })
-          .limit(20)
-      : Promise.resolve({ data: [] }),
-    policyIds.length > 0
-      ? supabase
-          .from('policy_reviews')
-          .select('id, review_number, review_type, status, outcome, scheduled_date, assigned_to, service_policies ( policy_number, carrier )')
-          .in('policy_id', policyIds)
-          .order('created_at', { ascending: false })
-          .limit(20)
-      : Promise.resolve({ data: [] }),
+    supabase
+      .from('service_requests')
+      .select('id, sr_number, request_type, workflow_status, date_received, service_policies ( policy_number, client_name )')
+      .eq('customer_id', id)
+      .order('date_received', { ascending: false })
+      .limit(20),
+    supabase
+      .from('policy_reviews')
+      .select('id, review_number, review_type, status, outcome, scheduled_date, assigned_to, service_policies ( policy_number, carrier )')
+      .eq('customer_id', id)
+      .order('created_at', { ascending: false })
+      .limit(20),
     supabase
       .from('producers')
       .select('id, first_name, last_name')

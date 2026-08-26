@@ -119,6 +119,14 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // ── Resolve customer_id from the policy ─────────────────────────────────────
+  const { data: policyRecord } = await supabase
+    .from('service_policies')
+    .select('customer_id')
+    .eq('id', policyId!)
+    .single()
+  const customerId = policyRecord?.customer_id ?? null
+
   // ── Duplicate check: warn if an open SR already exists for this policy + type ─
   if (!body.force_duplicate) {
     const { data: existing } = await supabase
@@ -164,6 +172,7 @@ export async function POST(request: NextRequest) {
     .insert({
       sr_number:       srNumber,
       policy_id:       policyId,
+      customer_id:     customerId,
       request_type:    body.request_type.trim(),
       workflow_status: 'open',
       date_received:   body.date_received ?? new Date().toISOString().split('T')[0],

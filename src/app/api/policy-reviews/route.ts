@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
   // Load the policy so we can derive review_type
   const { data: policy, error: pErr } = await supabase
     .from('service_policies')
-    .select('id, product_type')
+    .select('id, product_type, customer_id')
     .eq('id', body.policy_id)
     .single()
 
@@ -69,6 +69,7 @@ export async function POST(request: NextRequest) {
     .insert({
       review_number: reviewNumber,
       policy_id:     body.policy_id,
+      customer_id:   policy.customer_id ?? null,
       review_type:   reviewType,
       assigned_to:   body.assigned_to?.trim() || null,
       prep_notes:    body.prep_notes?.trim()  || null,

@@ -202,6 +202,7 @@ export async function GET(request: NextRequest) {
         .from('policy_reviews')
         .insert({
           policy_id:      policy.id,
+          customer_id:    c.customer_id,
           review_type:    getReviewType(policy.product_type),
           scheduled_date: scheduledDate.toISOString().slice(0, 10),
           status:         'prep',
@@ -234,7 +235,7 @@ export async function GET(request: NextRequest) {
   // a large imported book.
 
   const WANDERER_PAGE = 1000
-  const wandererRows: (PolicySnapshot & { id: string; client_name: string | null })[] = []
+  const wandererRows: (PolicySnapshot & { id: string; client_name: string | null; customer_id: string | null })[] = []
   let   wandPage = 0
   let   wandErr: { message: string } | null = null
 
@@ -243,7 +244,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await supabase
       .from('service_policies')
       .select(`
-        id, client_name, product_type, rate_class, primary_beneficiary,
+        id, client_name, customer_id, product_type, rate_class, primary_beneficiary,
         cash_value_amount, cash_value_as_of_date, term_length, issue_date
       `)
       .is('source_case_id', null)
@@ -255,7 +256,7 @@ export async function GET(request: NextRequest) {
     if (error) { wandErr = error; break }
     if (!data?.length) break
 
-    wandererRows.push(...(data as unknown as (PolicySnapshot & { id: string; client_name: string | null })[]))
+    wandererRows.push(...(data as unknown as (PolicySnapshot & { id: string; client_name: string | null; customer_id: string | null })[]))
     if (data.length < WANDERER_PAGE) break
     wandPage++
   }
@@ -297,6 +298,7 @@ export async function GET(request: NextRequest) {
         .from('policy_reviews')
         .insert({
           policy_id:      p.id,
+          customer_id:    p.customer_id ?? null,
           review_type:    getReviewType(p.product_type),
           scheduled_date: scheduledDate.toISOString().slice(0, 10),
           status:         'prep',
