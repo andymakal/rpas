@@ -10,7 +10,7 @@ import {
   CalendarClock, CalendarX, History, Flame, Wrench, Send,
   ChevronLeft, ChevronRight, Users, UserPlus, Trash2, GitMerge, ClipboardList,
 } from 'lucide-react'
-import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember, SuspectedDuplicate, NameDuplicate, NotInterestedReason, ReferralNote, OpenReview } from './page'
+import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember, SuspectedDuplicate, NameDuplicate, NotInterestedReason, ReferralNote, OpenReview, CustomerPolicy } from './page'
 import { HouseholdCard } from '@/components/HouseholdCard'
 import { NotesLog } from '@/components/NotesLog'
 import type { NoteEntry } from '@/components/NotesLog'
@@ -232,6 +232,7 @@ type Props = {
   notInterestedReasons:   NotInterestedReason[]
   initialNotes:           ReferralNote[]
   openReviews?:           OpenReview[]
+  customerPolicies?:      CustomerPolicy[]
 }
 
 export function ReferralEditClient({
@@ -241,8 +242,32 @@ export function ReferralEditClient({
   nameDuplicates,
   notInterestedReasons, initialNotes,
   openReviews = [],
+  customerPolicies = [],
 }: Props) {
   const router = useRouter()
+
+  // ── Review creation state ─────────────────────────────────────
+  const [reviewCreating,   setReviewCreating]   = useState(false)
+  const [reviewError,      setReviewError]      = useState<string | null>(null)
+  const [selectedPolicyId, setSelectedPolicyId] = useState(customerPolicies[0]?.id ?? '')
+
+  async function handleCreateReview(policyId: string) {
+    if (!policyId) return
+    setReviewCreating(true); setReviewError(null)
+    try {
+      const res = await fetch('/api/policy-reviews', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ policy_id: policyId }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setReviewError(json.error ?? 'Failed to create review'); setReviewCreating(false); return }
+      router.push(`/reviews/${json.data.id}`)
+    } catch {
+      setReviewError('Network error — please try again')
+      setReviewCreating(false)
+    }
+  }
 
   // ── Duplicate detection state ─────────────────────────────────
   const [suspectedDuplicate, setSuspectedDuplicate] = useState<SuspectedDuplicate | null>(initialSuspectedDuplicate)
@@ -648,11 +673,12 @@ export function ReferralEditClient({
 
   const isFromTriage = referral.internal_status === 'triage' || referral.internal_status === 'active_referral'
 
-  // ── Service referral detection ──────────────────────────────────
+  // ── Service / review referral detection ────────────────────────
   // lead_source is set on all new submissions; fall back to notes parsing for older records
   // parsedNotes already declared above — reuse it here
   const isServiceReferral = referral.lead_source === 'existing_service'
     || parsedNotes['Type'] === 'existing_service'
+  const isReviewReferral  = leadSource === 'life_review'
   const lifePolicyNumber  = parsedNotes['Life Policy'] ?? null
 
   // Pre-build the /service/new URL so Abigail lands with everything filled in
@@ -1285,6 +1311,69 @@ export function ReferralEditClient({
         </div>
       )}
 
+      {/* ── Life Insurance Review banner ────────────────────────────
+          When lead source is "Life Insurance Review", surface policy picker
+          so the producer can create a policy review in one click. */}
+      {isReviewReferral && (
+        <div className="mb-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-5 py-4 space-y-3">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <ClipboardList className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-emerald-300">Life Insurance Review — Route to Ashley</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {customerPolicies.length > 0
+                    ? 'Select the policy to review, then create the review record for Ashley to prep.'
+                    : 'No policy on file for this customer — add a policy first before creating a review.'}
+                </p>
+              </div>
+            </div>
+            {customerPolicies.length > 0 && (
+              <button
+                onClick={() => handleCreateReview(selectedPolicyId)}
+                disabled={reviewCreating || !selectedPolicyId}
+                className="shrink-0 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                style={{ backgroundColor: '#1a4731' }}
+              >
+                <ClipboardList className="w-3.5 h-3.5" />
+                {reviewCreating ? 'Creating…' : 'Create Policy Review'}
+              </button>
+            )}
+            {customerPolicies.length === 0 && (
+              <a
+                href={`/customers/${referral.customer_id}`}
+                className="shrink-0 inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-slate-300 border border-slate-600 hover:border-slate-400 transition-colors"
+              >
+                Go to Customer Card →
+              </a>
+            )}
+          </div>
+          {customerPolicies.length > 1 && (
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-slate-400 shrink-0">Policy:</span>
+              <select
+                value={selectedPolicyId}
+                onChange={e => setSelectedPolicyId(e.target.value)}
+                className="flex-1 bg-slate-800 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-emerald-500"
+              >
+                {customerPolicies.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.policy_number} · {p.carrier}{p.product_type ? ` · ${p.product_type}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {customerPolicies.length === 1 && (
+            <p className="text-xs text-slate-500">
+              {customerPolicies[0].policy_number} · {customerPolicies[0].carrier}
+              {customerPolicies[0].product_type ? ` · ${customerPolicies[0].product_type}` : ''}
+            </p>
+          )}
+          {reviewError && <p className="text-xs text-red-400">{reviewError}</p>}
+        </div>
+      )}
+
       {/* ── Service referral banner ─────────────────────────────────
           Prominent banner when logged as existing_service; subtle link for all others.
           Either way, anyone who picks this up can route it to Abigail in one click. */}
@@ -1330,6 +1419,16 @@ export function ReferralEditClient({
           >
             {closingSr ? 'Removing…' : 'SR already exists — remove from queue'}
           </button>
+          {customerPolicies.length > 0 && !isReviewReferral && (
+            <button
+              onClick={() => handleCreateReview(selectedPolicyId)}
+              disabled={reviewCreating}
+              className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 disabled:opacity-50 transition-colors"
+            >
+              <ClipboardList className="w-3.5 h-3.5" />
+              {reviewCreating ? 'Creating…' : 'Create Policy Review'}
+            </button>
+          )}
           <a
             href={serviceNewUrl}
             className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
