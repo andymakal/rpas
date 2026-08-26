@@ -28,7 +28,8 @@ function computeFlags(p: PolicySnapshot) {
   const rateClass   = (p.rate_class ?? '').toLowerCase()
 
   const isDecUl        = ['UL', 'VUL', 'IUL'].includes(productType)
-  const tobaccoFlag    = rateClass.includes('tobacco') || rateClass.includes('smoker') || rateClass.includes('nicotine')
+  const isNonTobacco   = rateClass.includes('non-tobacco') || rateClass.includes('non tobacco') || rateClass.startsWith('non')
+  const tobaccoFlag    = !isNonTobacco && (rateClass.includes('tobacco') || rateClass.includes('smoker') || rateClass.includes('nicotine'))
   const beneMissing    = !p.primary_beneficiary?.trim()
   const cashValue      = p.cash_value_amount ?? 0
   const is1035         = isPermanent && cashValue > 0

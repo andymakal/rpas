@@ -104,7 +104,8 @@ function firstName(policy: PolicyForPrep): string {
 function isTobacco(rateClass: string | null): boolean {
   if (!rateClass) return false
   const r = rateClass.toLowerCase()
-  return r.includes('tobacco') || r.includes('smoker') || r.includes('table')
+  if (r.includes('non-tobacco') || r.includes('non tobacco') || r.startsWith('non')) return false
+  return r.includes('tobacco') || r.includes('smoker') || r.includes('nicotine')
 }
 
 function hasChildRider(riders: string | null): boolean {
