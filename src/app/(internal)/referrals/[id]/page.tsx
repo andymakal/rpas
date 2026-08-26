@@ -135,6 +135,14 @@ export type ReferralNote = {
   created_at:  string
 }
 
+export type OpenReview = {
+  id:            string
+  review_number: string | null
+  review_type:   string | null
+  status:        string
+  assigned_to:   string | null
+}
+
 export async function generateMetadata(
   { params }: { params: Promise<{ id: string }> }
 ): Promise<Metadata> {
@@ -250,6 +258,16 @@ export default async function ReferralDetailPage({
     .order('created_at', { ascending: false })
   const referralNotes: ReferralNote[] = (notesRaw ?? []) as ReferralNote[]
 
+  // Fetch open policy reviews for this customer so the referral page can surface them
+  const { data: openReviewsRaw } = await supabase
+    .from('policy_reviews')
+    .select('id, review_number, review_type, status, assigned_to')
+    .eq('customer_id', cd.customer_id)
+    .eq('status', 'prep')
+    .order('created_at', { ascending: false })
+    .limit(5)
+  const openReviews: OpenReview[] = (openReviewsRaw ?? []) as OpenReview[]
+
   // Shape suspected duplicate (phone-based, flagged at intake)
   type RawDup = { id: string; first_name: string; last_name: string; phone: string | null; agencies: { name: string; display_name: string | null } | null }
   const rawDup = dupResult?.data as unknown as RawDup | null
@@ -334,6 +352,7 @@ export default async function ReferralDetailPage({
       nameDuplicates={nameDuplicates}
       notInterestedReasons={(notInterestedReasons as unknown as NotInterestedReason[]) ?? []}
       initialNotes={referralNotes}
+      openReviews={openReviews}
     />
   )
 }

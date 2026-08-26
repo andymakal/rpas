@@ -8,9 +8,9 @@ import {
   Mail, AlertCircle, PhoneCall, PhoneOff,
   MessageCircle, ChevronDown, ChevronUp, DollarSign, Pencil, Check, X, MapPin,
   CalendarClock, CalendarX, History, Flame, Wrench, Send,
-  ChevronLeft, ChevronRight, Users, UserPlus, Trash2, GitMerge,
+  ChevronLeft, ChevronRight, Users, UserPlus, Trash2, GitMerge, ClipboardList,
 } from 'lucide-react'
-import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember, SuspectedDuplicate, NameDuplicate, NotInterestedReason, ReferralNote } from './page'
+import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember, SuspectedDuplicate, NameDuplicate, NotInterestedReason, ReferralNote, OpenReview } from './page'
 import { HouseholdCard } from '@/components/HouseholdCard'
 import { NotesLog } from '@/components/NotesLog'
 import type { NoteEntry } from '@/components/NotesLog'
@@ -231,6 +231,7 @@ type Props = {
   nameDuplicates:         NameDuplicate[]
   notInterestedReasons:   NotInterestedReason[]
   initialNotes:           ReferralNote[]
+  openReviews?:           OpenReview[]
 }
 
 export function ReferralEditClient({
@@ -239,6 +240,7 @@ export function ReferralEditClient({
   householdId, householdMembers, suspectedDuplicate: initialSuspectedDuplicate,
   nameDuplicates,
   notInterestedReasons, initialNotes,
+  openReviews = [],
 }: Props) {
   const router = useRouter()
 
@@ -1247,6 +1249,39 @@ export function ReferralEditClient({
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* ── Open policy review banner ───────────────────────────────
+          If an active review exists for this customer, surface it prominently
+          so producers don't duplicate work or miss existing prep. */}
+      {openReviews.length > 0 && (
+        <div className="mb-5 space-y-2">
+          {openReviews.map(r => {
+            const typeLabel = r.review_type === 'annual' ? 'Annual Review'
+              : r.review_type === 'referral' ? 'Referral Review'
+              : r.review_type ?? 'Policy Review'
+            return (
+              <div key={r.id} className="rounded-xl border border-violet-500/30 bg-violet-500/10 px-5 py-3 flex items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <ClipboardList className="w-4 h-4 text-violet-400 shrink-0" />
+                  <div>
+                    <p className="text-sm font-semibold text-violet-300">Open Policy Review</p>
+                    <p className="text-xs text-slate-400 mt-0.5">
+                      {r.review_number ?? 'Draft'} · {typeLabel}
+                      {r.assigned_to ? ` · Assigned to ${r.assigned_to}` : ''}
+                    </p>
+                  </div>
+                </div>
+                <a
+                  href={`/reviews/${r.id}`}
+                  className="shrink-0 inline-flex items-center gap-1.5 text-xs text-violet-300 hover:text-violet-100 transition-colors"
+                >
+                  View Review →
+                </a>
+              </div>
+            )
+          })}
         </div>
       )}
 
