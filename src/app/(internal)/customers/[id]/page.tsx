@@ -18,6 +18,14 @@ export type LinkedReview = {
 
 export type ProducerOption = { id: string; first_name: string; last_name: string }
 
+export type HouseholdMember = {
+  id:         string
+  first_name: string
+  last_name:  string
+  phone:      string | null
+  email:      string | null
+}
+
 export type CustomerDetail = {
   id:               string
   first_name:       string
@@ -228,6 +236,19 @@ export default async function CustomerCardPage({
 
   const notes: CustomerNote[] = (notesRaw ?? []) as CustomerNote[]
 
+  // Fetch household members (others in the same customer_group)
+  let householdMembers: HouseholdMember[] = []
+  if (customer.customer_group_id) {
+    const { data: hhRaw } = await supabase
+      .from('customers')
+      .select('id, first_name, last_name, phone, email')
+      .eq('customer_group_id', customer.customer_group_id)
+      .neq('id', id)
+      .eq('is_test', false)
+      .order('first_name')
+    householdMembers = (hhRaw ?? []) as HouseholdMember[]
+  }
+
   // Fetch service requests, policy reviews, and producers directly by customer_id
   let serviceRequests: LinkedServiceRequest[] = []
   let policyReviews:   LinkedReview[]         = []
@@ -293,6 +314,7 @@ export default async function CustomerCardPage({
       caseHistory={caseHistory}
       touchHistory={touchHistory}
       initialNotes={notes}
+      householdMembers={householdMembers}
     />
   )
 }

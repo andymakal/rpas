@@ -8,12 +8,12 @@ import {
   Shield, CheckCircle, ShieldOff, FileQuestion, Send,
   AlertTriangle, ChevronRight, Search, X, Trash2,
   FolderKanban, Wrench, Link2, History, Compass, ChevronDown,
-  Pencil, Check, MessageSquare, Clipboard, Plus, ClipboardCheck, FolderOpen,
+  Pencil, Check, MessageSquare, Clipboard, Plus, ClipboardCheck, FolderOpen, Users,
 } from 'lucide-react'
 import type {
   CustomerDetail, LinkedCase, LinkedPolicy, LinkedServiceRequest,
   LinkedReview, ProducerOption,
-  CaseStatusHistoryEntry, CustomerNote, TouchHistoryEntry,
+  CaseStatusHistoryEntry, CustomerNote, TouchHistoryEntry, HouseholdMember,
 } from './page'
 import { fmtDate } from '@/lib/fmt'
 import { formatPhone } from '@/lib/format-phone'
@@ -280,6 +280,7 @@ export function CustomerCardClient({
   caseHistory,
   initialNotes,
   touchHistory,
+  householdMembers = [],
 }: {
   customer:             CustomerDetail
   cases:                LinkedCase[]
@@ -291,6 +292,7 @@ export function CustomerCardClient({
   caseHistory:          CaseStatusHistoryEntry[]
   initialNotes:         CustomerNote[]
   touchHistory:         TouchHistoryEntry[]
+  householdMembers?:    HouseholdMember[]
 }) {
   const router = useRouter()
   const [cases,       setCases]       = useState<LinkedCase[]>(initialCases)
@@ -1554,6 +1556,41 @@ export function CustomerCardClient({
                 </div>
               </div>
             )}
+          </Section>
+        )}
+
+        {/* Household */}
+        {householdMembers.length > 0 && (
+          <Section title="Household" icon={Users} count={householdMembers.length}>
+            <div className="divide-y divide-slate-800">
+              {householdMembers.map(m => (
+                <Link
+                  key={m.id}
+                  href={`/customers/${m.id}`}
+                  className="flex items-center justify-between px-5 py-3 hover:bg-slate-800/50 transition-colors group"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-7 h-7 rounded-full bg-slate-800 flex items-center justify-center shrink-0">
+                      <User className="w-3.5 h-3.5 text-slate-500" />
+                    </div>
+                    <div>
+                      <p className="text-sm text-slate-200 group-hover:text-white transition-colors">
+                        {m.first_name} {m.last_name}
+                      </p>
+                      <div className="flex items-center gap-3 mt-0.5">
+                        {m.phone && (
+                          <span className="text-xs text-slate-500">{m.phone}</span>
+                        )}
+                        {m.email && (
+                          <span className="text-xs text-slate-500">{m.email}</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-slate-600 group-hover:text-slate-400 transition-colors" />
+                </Link>
+              ))}
+            </div>
           </Section>
         )}
 

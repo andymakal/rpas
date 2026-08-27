@@ -41,10 +41,10 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: 'existing_customer_id is required' }, { status: 400 })
   }
 
-  // Fetch existing customer to inherit agency and group
+  // Fetch existing customer to inherit agency, group, and shared address
   const { data: existing } = await supabase
     .from('customers')
-    .select('id, customer_group_id, agency_id')
+    .select('id, customer_group_id, agency_id, street, city, state, zip, email')
     .eq('id', existing_customer_id)
     .single()
 
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
   const resolvedAgencyId = agency_id ?? existing.agency_id ?? null
   const now = new Date().toISOString()
 
-  // 1. Create the new customer record
+  // 1. Create the new customer record — copy shared household contact info
   const { data: newCustomer, error: custErr } = await supabase
     .from('customers')
     .insert({
@@ -63,6 +63,10 @@ export async function POST(request: NextRequest) {
       last_name:  last_name.trim(),
       phone:      phone?.trim() ? (normalizePhone(phone) ?? phone.trim()) : null,
       agency_id:  resolvedAgencyId,
+      street:     existing.street  ?? null,
+      city:       existing.city    ?? null,
+      state:      existing.state   ?? null,
+      zip:        existing.zip     ?? null,
       is_test:    false,
     })
     .select('id')
