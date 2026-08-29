@@ -356,7 +356,7 @@ export default function CaseEditClient({
   const isLost    = selectedStage?.is_lost    ?? false
   const isSnoozed = selectedStage?.is_snoozed ?? false
   const isSubstandard = rateClasses.find(r => r.id === rateClassId)?.name.toLowerCase().includes('substandard') ?? false
-  const daysInStatus = daysAgo(caseData.status_entered_at)
+  const daysInStatus = status !== caseData.internal_status ? 0 : daysAgo(caseData.status_entered_at)
   const lastContactDays = daysAgo(lastContact)
 
   // Active/won stages go in the main grid; lost/snoozed go in the close-out row
@@ -900,12 +900,16 @@ export default function CaseEditClient({
                     </span>
                   </div>
                 </div>
-                {caseData.status_entered_at && (
-                  <div>
-                    <p className="text-xs text-slate-500">Since</p>
-                    <p className="text-slate-400 text-xs">{fmt(caseData.status_entered_at)}</p>
-                  </div>
-                )}
+                <div>
+                  <p className="text-xs text-slate-500">Since</p>
+                  <p className="text-slate-400 text-xs">
+                    {status !== caseData.internal_status
+                      ? fmt(new Date().toISOString())
+                      : caseData.status_entered_at
+                        ? fmt(caseData.status_entered_at)
+                        : '—'}
+                  </p>
+                </div>
               </div>
             </div>
           </div>
