@@ -76,17 +76,24 @@ export async function GET(request: NextRequest) {
     return Response.json({ data: results })
   }
 
-  // ── Household link mode (original behaviour) ──────────────────────────────
+  // ── Household link mode ───────────────────────────────────────────────────
   void agencyId  // received but not used; kept in signature for future use
+
+  // Split on whitespace; each word must appear in first_name OR last_name.
+  // This allows searching "Miller", "Kathleen", "James Miller", etc.
+  const words = q.split(/\s+/).filter(Boolean).slice(0, 3)
 
   let query = supabase
     .from('customers')
     .select('id, first_name, last_name, phone, customer_group_id')
     .eq('is_test', false)
-    .ilike('last_name', `%${q}%`)
     .order('last_name')
     .order('first_name')
     .limit(10)
+
+  for (const word of words) {
+    query = query.or(`first_name.ilike.%${word}%,last_name.ilike.%${word}%`)
+  }
 
   if (excludeId) query = query.neq('id', excludeId)
 
