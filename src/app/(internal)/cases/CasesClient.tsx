@@ -82,6 +82,7 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
   const [tab, setTab]               = useState<FilterTab>('active')
   const [search, setSearch]         = useState('')
   const [agencyFilter, setAgencyFilter] = useState('')
+  const [statusFilter, setStatusFilter] = useState('')
   const [sortKey, setSortKey]       = useState<SortKey>('days')
   const [sortDir, setSortDir]       = useState<'asc' | 'desc'>('desc')
 
@@ -120,6 +121,21 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
     return Array.from(seen).sort()
   }, [tier2Plus])
 
+  // Status options — derived from the current tab's rows so the dropdown is contextual
+  const statusOptions = useMemo(() => {
+    let rows = tier2Plus
+    if (tab === 'active')  rows = rows.filter(r => r.stage_translations?.is_active_case === true)
+    else if (tab === 'pending') rows = rows.filter(r => r.stage_translations?.tier === 2)
+    else if (tab === 'placed')  rows = rows.filter(r => r.stage_translations?.is_won === true)
+    else if (tab === 'closed')  rows = rows.filter(r => !r.stage_translations?.is_active_case && !r.stage_translations?.is_won)
+    const seen = new Set<string>()
+    for (const r of rows) {
+      const label = r.stage_translations?.agency_label ?? r.internal_status
+      if (label) seen.add(label)
+    }
+    return Array.from(seen).sort()
+  }, [tier2Plus, tab])
+
   // Filtered + sorted rows
   const filtered = useMemo(() => {
     let rows = tier2Plus
@@ -129,7 +145,8 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
     else if (tab === 'placed')  rows = rows.filter(r => r.stage_translations?.is_won === true)
     else if (tab === 'closed')  rows = rows.filter(r => !r.stage_translations?.is_active_case && !r.stage_translations?.is_won)
 
-    if (agencyFilter) rows = rows.filter(r => (r.agencies?.display_name ?? r.agencies?.name ?? '') === agencyFilter)
+    if (agencyFilter)  rows = rows.filter(r => (r.agencies?.display_name ?? r.agencies?.name ?? '') === agencyFilter)
+    if (statusFilter)  rows = rows.filter(r => (r.stage_translations?.agency_label ?? r.internal_status) === statusFilter)
 
     if (search.trim()) {
       const q = search.toLowerCase()
@@ -171,7 +188,7 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
     })
 
     return rows
-  }, [tier2Plus, tab, agencyFilter, search, sortKey, sortDir])
+  }, [tier2Plus, tab, agencyFilter, statusFilter, search, sortKey, sortDir])
 
   const SortTh = ({ k, label }: { k: SortKey; label: string }) => {
     const active = sortKey === k
@@ -218,7 +235,7 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
         <div className="flex items-center rounded-lg bg-slate-900 border border-slate-800 p-0.5 gap-0.5">
           {TABS.map(t => (
-            <button key={t.key} onClick={() => { setTab(t.key); setAgencyFilter('') }}
+            <button key={t.key} onClick={() => { setTab(t.key); setAgencyFilter(''); setStatusFilter('') }}
               className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${tab === t.key ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'}`}>
               {t.label}
             </button>
@@ -229,6 +246,12 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
           className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-slate-500">
           <option value="">All agencies</option>
           {agencyOptions.map(a => <option key={a} value={a}>{a}</option>)}
+        </select>
+
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+          className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-slate-500">
+          <option value="">All statuses</option>
+          {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
 
         <div className="relative flex-1 min-w-0 max-w-xs">
