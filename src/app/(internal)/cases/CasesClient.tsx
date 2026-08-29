@@ -127,7 +127,7 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
     if (tab === 'active')  rows = rows.filter(r => r.stage_translations?.is_active_case === true)
     else if (tab === 'pending') rows = rows.filter(r => r.stage_translations?.tier === 2)
     else if (tab === 'placed')  rows = rows.filter(r => r.stage_translations?.is_won === true)
-    else if (tab === 'closed')  rows = rows.filter(r => r.stage_translations?.is_lost === true || r.stage_translations?.is_snoozed === true)
+    else if (tab === 'closed')  rows = rows.filter(r => !r.stage_translations?.is_active_case && !r.stage_translations?.is_won)
 
     if (agencyFilter) rows = rows.filter(r => (r.agencies?.display_name ?? r.agencies?.name ?? '') === agencyFilter)
 
