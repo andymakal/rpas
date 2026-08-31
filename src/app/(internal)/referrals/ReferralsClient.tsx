@@ -119,7 +119,7 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
       const name = r.agencies?.display_name ?? r.agencies?.name ?? ''
       if (name) seen.set(name, name)
     }
-    return Array.from(seen.keys()).sort()
+    return Array.from(seen.keys()).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
   }, [rows])
 
   const filtered = useMemo(() => {

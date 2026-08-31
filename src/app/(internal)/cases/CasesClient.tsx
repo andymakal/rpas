@@ -118,7 +118,7 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
       const name = r.agencies?.display_name ?? r.agencies?.name ?? ''
       if (name) seen.add(name)
     }
-    return Array.from(seen).sort()
+    return Array.from(seen).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
   }, [tier2Plus])
 
   // Status options — derived from the current tab's rows so the dropdown is contextual

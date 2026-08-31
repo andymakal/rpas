@@ -768,7 +768,7 @@ export function TriageClient({ cases }: { cases: TriageCase[] }) {
       const name = c.agencies?.display_name ?? c.agencies?.name ?? ''
       if (name) seen.add(name)
     }
-    return Array.from(seen).sort()
+    return Array.from(seen).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
   }, [cases])
 
   const filtered = useMemo(() => {
