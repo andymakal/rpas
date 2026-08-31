@@ -837,7 +837,7 @@ export function CustomerCardClient({
                         <span>DOB: <span className="text-slate-300 font-mono">{maskDob(customer.date_of_birth)}</span></span>
                       )}
                       {customer.gender && (
-                        <span>Gender: <span className="text-slate-300">{customer.gender}</span></span>
+                        <span>Gender: <span className="text-slate-300">{customer.gender.charAt(0).toUpperCase() + customer.gender.slice(1)}</span></span>
                       )}
                       {customer.marital_status && (
                         <span>Marital: <span className="text-slate-300 capitalize">{customer.marital_status}</span></span>
