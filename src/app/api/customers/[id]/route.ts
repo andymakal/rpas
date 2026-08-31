@@ -9,6 +9,7 @@ const ALLOWED = new Set([
   'tobacco_use', 'height_ft', 'height_in', 'weight_lbs', 'health_notes',
   'preferred_language', 'customer_group_id',
   'segment', 'sms_opt_out', 'drive_folder_url',
+  'fact_finder', 'fact_finder_verified_at', 'fact_finder_verified_by',
 ])
 
 const NAME_FIELDS   = new Set(['first_name', 'last_name'])

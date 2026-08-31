@@ -17,6 +17,7 @@ import type {
 } from './page'
 import { fmtDate } from '@/lib/fmt'
 import { formatPhone } from '@/lib/format-phone'
+import { FactFinderSection } from './FactFinderSection'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1593,6 +1594,13 @@ export function CustomerCardClient({
             </div>
           </Section>
         )}
+
+        {/* Fact Finder */}
+        <FactFinderSection
+          customerId={customer.id}
+          initialData={customer.fact_finder ?? null}
+          initialVerifiedAt={customer.fact_finder_verified_at ?? null}
+        />
 
         {/* Service Requests */}
         <Section
