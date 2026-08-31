@@ -316,7 +316,8 @@ export default function CaseEditClient({
   const [touchType,   setTouchType]   = useState('call')
   const [touchNote,   setTouchNote]   = useState('')
   const [logging,     setLogging]     = useState(false)
-  const [historyOpen, setHistoryOpen] = useState(initialTouchLog.length > 0)
+  const [historyOpen,       setHistoryOpen]       = useState(initialTouchLog.length > 0)
+  const [statusHistoryOpen, setStatusHistoryOpen] = useState(false)
 
   // ── Requirements state ─────────────────────────────────────────
   type ReqState = 'inactive' | 'outstanding' | 'resolved'
@@ -1076,38 +1077,44 @@ export default function CaseEditClient({
 
           {/* 6 — Status History */}
           {statusHistory.length > 0 && (
-            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide flex items-center gap-1.5">
-                  <History className="w-3.5 h-3.5" /> Status History
-                </h2>
-                {caseData.internal_status !== 'triage' && (
-                  <button
-                    onClick={handleReturnToTriage}
-                    disabled={saving}
-                    className="text-xs text-slate-500 hover:text-amber-400 transition-colors disabled:opacity-40"
-                  >
-                    ↩ Return to Triage
-                  </button>
-                )}
-              </div>
-              <div className="space-y-3">
-                {statusHistory.map((h, i) => (
-                  <div key={h.id} className="flex items-start gap-2.5">
-                    <div className="flex flex-col items-center">
-                      <div className="w-2 h-2 rounded-full bg-slate-600 mt-1 flex-shrink-0" />
-                      {i < statusHistory.length - 1 && (
-                        <div className="w-px flex-1 bg-slate-800 mt-1 min-h-[16px]" />
-                      )}
+            <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+              <button onClick={() => setStatusHistoryOpen(o => !o)}
+                className="w-full flex items-center justify-between px-5 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide hover:text-slate-200 transition-colors">
+                <span className="flex items-center gap-1.5">
+                  <History className="w-3.5 h-3.5" /> Status History ({statusHistory.length})
+                </span>
+                <div className="flex items-center gap-3">
+                  {caseData.internal_status !== 'triage' && (
+                    <button
+                      onClick={e => { e.stopPropagation(); handleReturnToTriage() }}
+                      disabled={saving}
+                      className="text-xs text-slate-500 hover:text-amber-400 transition-colors disabled:opacity-40 normal-case font-normal"
+                    >
+                      ↩ Return to Triage
+                    </button>
+                  )}
+                  {statusHistoryOpen ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                </div>
+              </button>
+              {statusHistoryOpen && (
+                <div className="border-t border-slate-800 p-5 space-y-3">
+                  {statusHistory.map((h, i) => (
+                    <div key={h.id} className="flex items-start gap-2.5">
+                      <div className="flex flex-col items-center">
+                        <div className="w-2 h-2 rounded-full bg-slate-600 mt-1 flex-shrink-0" />
+                        {i < statusHistory.length - 1 && (
+                          <div className="w-px flex-1 bg-slate-800 mt-1 min-h-[16px]" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0 pb-1">
+                        <p className="text-sm text-slate-200">{fmtStatus(h.to_status)}</p>
+                        {h.from_status && <p className="text-xs text-slate-600">from {fmtStatus(h.from_status)}</p>}
+                        <p className="text-xs text-slate-600 mt-0.5">{fmt(h.changed_at)}</p>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0 pb-1">
-                      <p className="text-sm text-slate-200">{fmtStatus(h.to_status)}</p>
-                      {h.from_status && <p className="text-xs text-slate-600">from {fmtStatus(h.from_status)}</p>}
-                      <p className="text-xs text-slate-600 mt-0.5">{fmt(h.changed_at)}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
