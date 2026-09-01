@@ -11,7 +11,7 @@ import {
   Plus, GitMerge, ExternalLink, Send,
 } from 'lucide-react'
 import type {
-  CaseDetail, StageLookup, AgencyLookup, AgentOption, ProductLookup,
+  CaseDetail, StageLookup, AgencyLookup, AgentOption, ProducerOption, ProductLookup,
   RateClassLookup, PremiumModeLookup, LostReasonLookup, SnoozeReasonLookup,
   PendingRequirementLookup, TouchLog, StatusHistoryEntry, SiblingCase, HouseholdMember,
   CaseNote,
@@ -133,6 +133,7 @@ type Props = {
   stages:              StageLookup[]
   agencies:            AgencyLookup[]
   agentsList:          AgentOption[]
+  producersList:       ProducerOption[]
   products:            ProductLookup[]
   rateClasses:         RateClassLookup[]
   premiumModes:        PremiumModeLookup[]
@@ -150,7 +151,7 @@ type Props = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function CaseEditClient({
-  caseData, stages, agencies, agentsList, products, rateClasses, premiumModes,
+  caseData, stages, agencies, agentsList, producersList, products, rateClasses, premiumModes,
   lostReasons, snoozeReasons, pendingRequirements,
   touchLog: initialTouchLog, statusHistory,
   siblingCases: initialSiblings, householdId, householdMembers,
@@ -190,9 +191,10 @@ export default function CaseEditClient({
   const [followUpDate, setFollowUpDate] = useState(caseData.follow_up_date ?? '')
   const [isHotLead,    setIsHotLead]    = useState(caseData.is_hot_lead ?? false)
   const [isImported,   setIsImported]   = useState(caseData.is_imported ?? false)
-  const [lostReasonId,   setLostReasonId]   = useState(caseData.lost_reasons?.id ?? '')
-  const [snoozeReasonId, setSnoozeReasonId] = useState(caseData.snooze_reasons?.id ?? '')
-  const [snoozeUntil,    setSnoozeUntil]    = useState((caseData as unknown as Record<string, string | null>).snooze_until ?? '')
+  const [lostReasonId,     setLostReasonId]     = useState(caseData.lost_reasons?.id ?? '')
+  const [snoozeReasonId,   setSnoozeReasonId]   = useState(caseData.snooze_reasons?.id ?? '')
+  const [snoozeUntil,      setSnoozeUntil]      = useState((caseData as unknown as Record<string, string | null>).snooze_until ?? '')
+  const [selectedProducerId, setSelectedProducerId] = useState(caseData.producer_id ?? '')
   const [saving,       setSaving]       = useState(false)
   const [saveMsg,      setSaveMsg]      = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -401,6 +403,7 @@ export default function CaseEditClient({
       is_hot_lead:     isHotLead,
       is_imported:     isImported,
       lead_source:     leadSource   || null,
+      producer_id:     selectedProducerId || null,
     }
     if (isLost   && lostReasonId)   body.lost_reason_id   = lostReasonId
     if (isSnoozed && snoozeReasonId) body.snooze_reason_id = snoozeReasonId
@@ -1263,6 +1266,23 @@ export default function CaseEditClient({
                   />
                   <p className="text-xs text-slate-600 mt-1">Case resurfaces in the Active queue on this date</p>
                 </div>
+              </div>
+            )}
+
+            {/* Producer */}
+            {producersList.length > 0 && (
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1.5">Producer</label>
+                <select
+                  value={selectedProducerId}
+                  onChange={e => setSelectedProducerId(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 cursor-pointer"
+                >
+                  <option value="">— not assigned —</option>
+                  {producersList.map(p => (
+                    <option key={p.id} value={p.id}>{p.first_name} {p.last_name}</option>
+                  ))}
+                </select>
               </div>
             )}
 

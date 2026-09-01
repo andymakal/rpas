@@ -43,6 +43,7 @@ export type CaseDetail = {
   agency_id: string | null
   customer_id: string | null
   agent_id: string | null
+  producer_id: string | null
   producers: { first_name: string; last_name: string } | null
   customers: {
     first_name: string
@@ -118,6 +119,7 @@ export type HouseholdMember = {
 export type StageLookup = { id: string; internal_status: string; agency_label: string; tier: number; is_won: boolean; is_lost: boolean; is_snoozed: boolean; is_active_case: boolean }
 export type AgencyLookup = { id: string; name: string; display_name: string | null }
 export type AgentOption  = { id: string; first_name: string; last_name: string; email: string | null }
+export type ProducerOption = { id: string; first_name: string; last_name: string }
 export type ProductLookup = { id: string; name: string; carrier_id: string | null; carriers: { short_name: string } | null }
 export type RateClassLookup = { id: string; name: string }
 export type PremiumModeLookup = { id: string; name: string }
@@ -164,6 +166,7 @@ export default async function CaseDetailPage({
     { data: pendingRequirements },
     { data: touchLog },
     { data: statusHistory },
+    { data: producersList },
   ] = await Promise.all([
     supabase
       .from('cases')
@@ -173,7 +176,7 @@ export default async function CaseDetailPage({
         appointment_date, appointment_time, touches, last_contact_at, placed_at, submitted_at, table_rating, is_hot_lead, is_imported,
         is_1035, exchange_carrier, exchange_policy_number, exchange_product_type,
         exchange_cash_value, exchange_cost_basis, exchange_surrender_charges, exchange_net_transfer,
-        agency_id, customer_id, agent_id,
+        agency_id, customer_id, agent_id, producer_id,
         customers!customer_id ( first_name, last_name, email, phone, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, preferred_language, customer_group_id ),
         agencies ( id, name, display_name, slug ),
         agents ( first_name, last_name, email ),
@@ -233,6 +236,10 @@ export default async function CaseDetailPage({
       .select('id, from_status, to_status, changed_at')
       .eq('case_id', id)
       .order('changed_at', { ascending: false }),
+    supabase
+      .from('producers')
+      .select('id, first_name, last_name')
+      .order('first_name'),
   ])
 
   if (caseError || !caseData) {
@@ -313,6 +320,7 @@ export default async function CaseDetailPage({
       stages={(stages as unknown as StageLookup[]) ?? []}
       agencies={(agencies as unknown as AgencyLookup[]) ?? []}
       agentsList={(agentsList as unknown as AgentOption[]) ?? []}
+      producersList={(producersList as unknown as ProducerOption[]) ?? []}
       products={(sortedProducts as unknown as ProductLookup[]) ?? []}
       rateClasses={(rateClasses as unknown as RateClassLookup[]) ?? []}
       premiumModes={(premiumModes as unknown as PremiumModeLookup[]) ?? []}

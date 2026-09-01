@@ -274,6 +274,7 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
               <tr className="border-b border-slate-800">
                 <SortTh k="client"  label="Client"         />
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Agency</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Producer</th>
                 <SortTh k="status"  label="Status"         />
                 <SortTh k="carrier" label="Carrier · Product" />
                 <SortTh k="face"    label="Face Amount"    />
@@ -307,6 +308,11 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
                       {r.agencies
                         ? <span className="text-slate-300">{r.agencies.display_name ?? r.agencies.name}</span>
                         : <span className="text-amber-400 text-xs font-medium">Unassigned</span>}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-400">
+                      {r.producers
+                        ? `${r.producers.first_name} ${r.producers.last_name}`
+                        : <span className="text-slate-700">—</span>}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`inline-flex items-center rounded px-2 py-0.5 text-xs font-medium ${tierBadgeClass(r.stage_translations)}`}>

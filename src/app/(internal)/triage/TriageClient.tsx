@@ -286,7 +286,7 @@ function TriageRow({
     const res = await fetch(`/api/cases/${c.id}`, {
       method:  'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ internal_status: 'snoozed', snooze_until: snoozeDate }),
+      body:    JSON.stringify({ follow_up_date: snoozeDate }),
     })
     setSnoozeBusy(false)
     if (!res.ok) return
@@ -768,7 +768,7 @@ function TriageRow({
                     onClick={handleSnooze}
                     className="inline-flex items-center gap-1.5 text-xs font-medium rounded border px-3 py-1.5 bg-yellow-700 text-white border-yellow-600 hover:bg-yellow-600 disabled:opacity-40 transition-colors"
                   >
-                    <BellOff className="w-3.5 h-3.5" />Snooze · Remove from queue
+                    <BellOff className="w-3.5 h-3.5" />Snooze · Set follow-up date
                   </button>
                   <button
                     onClick={() => setSnoozePhase('hidden')}
@@ -783,7 +783,7 @@ function TriageRow({
               {snoozePhase === 'done' && (
                 <div className="flex items-center gap-2 text-xs text-yellow-400">
                   <Check className="w-3.5 h-3.5" />
-                  <span>Snoozed · Will resurface on {snoozeDate} · Removing from queue…</span>
+                  <span>Follow-up set for {snoozeDate} · Will resurface in Act Now then</span>
                 </div>
               )}
             </div>

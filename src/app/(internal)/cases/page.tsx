@@ -33,6 +33,7 @@ export type CaseRow = {
     name: string
     carriers: { short_name: string } | null
   } | null
+  producers: { first_name: string; last_name: string } | null
 }
 
 export default async function CasesPage() {
@@ -47,7 +48,8 @@ export default async function CasesPage() {
       customers!customer_id ( first_name, last_name ),
       agencies ( name, display_name, slug ),
       stage_translations!inner ( agency_label, tier, is_active_case, is_won, is_lost, is_snoozed ),
-      products ( name, carriers ( short_name ) )
+      products ( name, carriers ( short_name ) ),
+      producers ( first_name, last_name )
     `)
     .eq('is_test', false)
     .gte('stage_translations.tier', 2)
