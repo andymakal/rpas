@@ -43,6 +43,7 @@ export type CaseDetail = {
   agency_id: string | null
   customer_id: string | null
   agent_id: string | null
+  producers: { first_name: string; last_name: string } | null
   customers: {
     first_name: string
     last_name: string
@@ -176,6 +177,7 @@ export default async function CaseDetailPage({
         customers!customer_id ( first_name, last_name, email, phone, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, preferred_language, customer_group_id ),
         agencies ( id, name, display_name, slug ),
         agents ( first_name, last_name, email ),
+        producers ( first_name, last_name ),
         stage_translations ( agency_label, tier, is_active_case, is_won, is_lost, is_snoozed ),
         products ( id, name, carriers ( id, short_name ) ),
         rate_classes ( id, name ),

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   Search, Phone, Mail, Flame, Clock, ChevronDown, ChevronUp,
   CalendarX, Wrench, AlertTriangle, ShieldAlert, FileText, BadgeCheck,
-  PhoneCall, PhoneOff, Voicemail, MessageSquare, Calendar, Check, Globe,
+  PhoneCall, PhoneOff, Voicemail, MessageSquare, Calendar, Check, Globe, BellOff,
 } from 'lucide-react'
 import type { TriageCase } from './page'
 import { fmtDate } from '@/lib/fmt'
@@ -185,6 +185,11 @@ function TriageRow({
   // Live transfer state
   const [ltPhase, setLtPhase] = useState<'hidden' | 'confirm' | 'busy' | 'done'>('hidden')
 
+  // Snooze state
+  const [snoozePhase, setSnoozePhase] = useState<'hidden' | 'form' | 'done'>('hidden')
+  const [snoozeBusy,  setSnoozeBusy]  = useState(false)
+  const [snoozeDate,  setSnoozeDate]  = useState('')
+
   const agency         = c.agencies?.display_name ?? c.agencies?.name ?? '—'
   const client         = buildHouseholdName(c.customers ?? null, c.household_members ?? [])
   const lsp            = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
@@ -271,6 +276,21 @@ function TriageRow({
     ])
     if (!statusRes.ok) { setLtPhase('confirm'); return }
     setLtPhase('done')
+    setTimeout(() => router.refresh(), 1500)
+  }
+
+  async function handleSnooze(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (!snoozeDate) return
+    setSnoozeBusy(true)
+    const res = await fetch(`/api/cases/${c.id}`, {
+      method:  'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ internal_status: 'snoozed', snooze_until: snoozeDate }),
+    })
+    setSnoozeBusy(false)
+    if (!res.ok) return
+    setSnoozePhase('done')
     setTimeout(() => router.refresh(), 1500)
   }
 
@@ -581,8 +601,8 @@ function TriageRow({
                 )
               })()}
 
-              {/* After "Reached": live transfer, set appointment, or keep working */}
-              {touchPhase === 'reached' && apptPhase === 'hidden' && ltPhase === 'hidden' && (
+              {/* After "Reached": live transfer, set appointment, snooze, or keep working */}
+              {touchPhase === 'reached' && apptPhase === 'hidden' && ltPhase === 'hidden' && snoozePhase === 'hidden' && (
                 <div className="flex items-center gap-3 flex-wrap">
                   <span className="text-xs text-slate-500">What happened?</span>
                   <button
@@ -596,6 +616,12 @@ function TriageRow({
                     className="inline-flex items-center gap-1.5 text-xs font-medium rounded border px-3 py-1.5 bg-blue-900/30 text-blue-300 border-blue-700 hover:bg-blue-900/50 transition-colors"
                   >
                     <Calendar className="w-3.5 h-3.5" />Set Appointment
+                  </button>
+                  <button
+                    onClick={() => setSnoozePhase('form')}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium rounded border px-3 py-1.5 bg-yellow-900/30 text-yellow-300 border-yellow-700 hover:bg-yellow-900/50 transition-colors"
+                  >
+                    <BellOff className="w-3.5 h-3.5" />Snooze
                   </button>
                   <button
                     onClick={() => setTouchPhase('logged')}
@@ -723,7 +749,56 @@ function TriageRow({
                   <span>Appointment set · Calendar event downloaded · Removing from queue…</span>
                 </div>
               )}
+
+              {/* Snooze form */}
+              {snoozePhase === 'form' && (
+                <div className="flex items-end gap-3 flex-wrap bg-yellow-950/20 rounded-lg px-4 py-3 border border-yellow-900/40">
+                  <div className="space-y-1">
+                    <p className="text-xs text-yellow-300/70">Do not contact until</p>
+                    <input
+                      type="date"
+                      value={snoozeDate}
+                      min={todayDateInput()}
+                      onChange={e => setSnoozeDate(e.target.value)}
+                      className="bg-slate-900 border border-slate-600 text-slate-200 text-xs rounded px-2 py-1.5 focus:outline-none focus:border-yellow-600"
+                    />
+                  </div>
+                  <button
+                    disabled={!snoozeDate || snoozeBusy}
+                    onClick={handleSnooze}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium rounded border px-3 py-1.5 bg-yellow-700 text-white border-yellow-600 hover:bg-yellow-600 disabled:opacity-40 transition-colors"
+                  >
+                    <BellOff className="w-3.5 h-3.5" />Snooze · Remove from queue
+                  </button>
+                  <button
+                    onClick={() => setSnoozePhase('hidden')}
+                    className="text-xs text-slate-600 hover:text-slate-400 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+
+              {/* Snooze confirmed */}
+              {snoozePhase === 'done' && (
+                <div className="flex items-center gap-2 text-xs text-yellow-400">
+                  <Check className="w-3.5 h-3.5" />
+                  <span>Snoozed · Will resurface on {snoozeDate} · Removing from queue…</span>
+                </div>
+              )}
             </div>
+
+            {/* Standalone snooze — available any time without logging a touch */}
+            {touchPhase === 'idle' && snoozePhase === 'hidden' && (
+              <div className="pt-2 border-t border-slate-700/30">
+                <button
+                  onClick={() => setSnoozePhase('form')}
+                  className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-yellow-400 transition-colors"
+                >
+                  <BellOff className="w-3.5 h-3.5" /> Client unavailable — snooze until a future date
+                </button>
+              </div>
+            )}
 
             {/* Footer */}
             <div className="flex items-center justify-between mt-3 pt-2 border-t border-slate-700/30">

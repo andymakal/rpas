@@ -192,6 +192,7 @@ export default function CaseEditClient({
   const [isImported,   setIsImported]   = useState(caseData.is_imported ?? false)
   const [lostReasonId,   setLostReasonId]   = useState(caseData.lost_reasons?.id ?? '')
   const [snoozeReasonId, setSnoozeReasonId] = useState(caseData.snooze_reasons?.id ?? '')
+  const [snoozeUntil,    setSnoozeUntil]    = useState((caseData as unknown as Record<string, string | null>).snooze_until ?? '')
   const [saving,       setSaving]       = useState(false)
   const [saveMsg,      setSaveMsg]      = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -360,8 +361,14 @@ export default function CaseEditClient({
   const daysInStatus = status !== caseData.internal_status ? 0 : daysAgo(caseData.status_entered_at)
   const lastContactDays = daysAgo(lastContact)
 
-  // Active/won stages go in the main grid; lost/snoozed go in the close-out row
-  const pipelineStages = tier2Stages.filter(s => s.is_active_case || s.is_won)
+  // Active/won stages go in the main grid; lost/snoozed go in the close-out row.
+  // Progressive disclosure: once a case reaches a stage, hide earlier stages so
+  // the grid only shows where the case is now and what's still ahead.
+  const allPipelineStages = tier2Stages.filter(s => s.is_active_case || s.is_won)
+  const currentPipelineIdx = allPipelineStages.findIndex(s => s.internal_status === caseData.internal_status)
+  const pipelineStages = currentPipelineIdx >= 0
+    ? allPipelineStages.slice(currentPipelineIdx)
+    : allPipelineStages
   const terminalStages = tier2Stages.filter(s => !s.is_active_case && !s.is_won)
 
   const reqCount = {
@@ -397,6 +404,7 @@ export default function CaseEditClient({
     }
     if (isLost   && lostReasonId)   body.lost_reason_id   = lostReasonId
     if (isSnoozed && snoozeReasonId) body.snooze_reason_id = snoozeReasonId
+    if (isSnoozed && snoozeUntil)    body.snooze_until     = snoozeUntil
     try {
       const res = await fetch(`/api/cases/${caseData.id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -721,6 +729,12 @@ export default function CaseEditClient({
               {isImported && (
                 <span className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium bg-slate-800 text-slate-500 border border-slate-700">
                   Imported — Lead Manager
+                </span>
+              )}
+              {caseData.producers && (
+                <span className="inline-flex items-center gap-1 text-xs text-slate-400 border border-slate-700 rounded px-2 py-0.5">
+                  <User className="w-3 h-3 text-slate-500" />
+                  {caseData.producers.first_name} {caseData.producers.last_name}
                 </span>
               )}
               {caseData.customer_id && (
@@ -1228,15 +1242,27 @@ export default function CaseEditClient({
               </div>
             )}
 
-            {/* Snooze reason */}
+            {/* Snooze reason + date */}
             {isSnoozed && (
-              <div>
-                <label className="block text-xs font-medium text-slate-300 mb-1.5">Postpone Reason</label>
-                <select value={snoozeReasonId} onChange={e => setSnoozeReasonId(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 cursor-pointer">
-                  <option value="">— select reason —</option>
-                  {snoozeReasons.map(r => <option key={r.id} value={r.id}>{r.agency_label}</option>)}
-                </select>
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1.5">Postpone Reason</label>
+                  <select value={snoozeReasonId} onChange={e => setSnoozeReasonId(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 cursor-pointer">
+                    <option value="">— select reason —</option>
+                    {snoozeReasons.map(r => <option key={r.id} value={r.id}>{r.agency_label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1.5">Do not contact until</label>
+                  <input
+                    type="date"
+                    value={snoozeUntil}
+                    onChange={e => setSnoozeUntil(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500"
+                  />
+                  <p className="text-xs text-slate-600 mt-1">Case resurfaces in the Active queue on this date</p>
+                </div>
               </div>
             )}
 

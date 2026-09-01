@@ -20,6 +20,7 @@ export type CaseRow = {
   status_entered_at: string | null
   last_contact_at: string | null
   follow_up_date: string | null
+  snooze_until: string | null
   touches: number | null
   is_hot_lead: boolean
   is_owner_referral: boolean
@@ -28,6 +29,7 @@ export type CaseRow = {
   customer_id: string | null
   customers: { first_name: string; last_name: string; phone: string } | null
   agents: { first_name: string; last_name: string } | null
+  producers: { first_name: string; last_name: string } | null
   stage_translations: StageTranslation | null
 }
 
@@ -48,6 +50,7 @@ export default async function ReferralsPage() {
       status_entered_at,
       last_contact_at,
       follow_up_date,
+      snooze_until,
       touches,
       is_hot_lead,
       is_owner_referral,
@@ -55,6 +58,7 @@ export default async function ReferralsPage() {
       agencies ( name, display_name ),
       customers!customer_id ( first_name, last_name, phone ),
       agents ( first_name, last_name ),
+      producers ( first_name, last_name ),
       stage_translations ( agency_label, tier, is_active_case )
     `)
     .eq('is_test', false)

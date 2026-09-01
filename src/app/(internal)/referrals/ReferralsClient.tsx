@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, ChevronUp, ChevronDown, CalendarClock, AlertTriangle, Flame } from 'lucide-react'
+import { Search, ChevronUp, ChevronDown, CalendarClock, AlertTriangle, Flame, BellOff } from 'lucide-react'
 import type { CaseRow, StageTranslation } from './page'
 import { fmtDate, fmtDateShort } from '@/lib/fmt'
 import { setNavList } from '@/lib/nav-list'
@@ -122,11 +122,18 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
     return Array.from(seen.keys()).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
   }, [rows])
 
+  const todayStr = useMemo(() => new Date().toISOString().split('T')[0], [])
+
   const filtered = useMemo(() => {
     let list = rows
 
     if (tab === 'active') {
-      list = list.filter(r => r.stage_translations?.is_active_case === true)
+      list = list.filter(r => {
+        if (r.stage_translations?.is_active_case === true) return true
+        // Snoozed cases whose date has arrived resurface in Active
+        if (r.internal_status === 'snoozed' && r.snooze_until && r.snooze_until <= todayStr) return true
+        return false
+      })
     } else if (tab === 'closed') {
       list = list.filter(r =>
         r.stage_translations?.is_active_case === false &&
@@ -298,6 +305,7 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
                   )
                 })()}
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Agency</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Producer</th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Status</th>
                 {sortCols.filter(c => c.key !== 'client').map(({ key, label }) => {
                   const active = sortKey === key
@@ -364,8 +372,20 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
                   <td className="px-4 py-3 text-slate-300">
                     {r.agencies?.display_name ?? r.agencies?.name ?? '—'}
                   </td>
+                  <td className="px-4 py-3 text-sm text-slate-400">
+                    {r.producers
+                      ? `${r.producers.first_name} ${r.producers.last_name}`
+                      : <span className="text-slate-700">—</span>
+                    }
+                  </td>
                   <td className="px-4 py-3">
-                    <StatusBadge translation={r.stage_translations} internal_status={r.internal_status} />
+                    {r.internal_status === 'snoozed' && r.snooze_until && r.snooze_until <= todayStr ? (
+                      <span className="inline-flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium bg-yellow-900/40 text-yellow-300 border border-yellow-800">
+                        <BellOff className="w-3 h-3" />Back from snooze
+                      </span>
+                    ) : (
+                      <StatusBadge translation={r.stage_translations} internal_status={r.internal_status} />
+                    )}
                   </td>
                   {/* Date In */}
                   <td className="px-4 py-3">
