@@ -18,6 +18,19 @@ type Bene = {
   percentage: string; ssn: string; phone: string; email: string
 }
 
+type Dependent = {
+  name: string; dob: string; relationship: string; marital_status: string
+}
+
+type LTCPolicy = {
+  policy_name: string; insured: string; benefit_amount: string; annual_premium: string
+}
+
+type DisabilityPolicy = {
+  policy_name: string; policy_type: string; insured: string
+  benefit_amount: string; annual_premium: string; taxable: boolean
+}
+
 type FF = {
   // Identity
   middle_name: string; suffix: string; ssn: string
@@ -80,6 +93,13 @@ type FF = {
   fam_mental: boolean; fam_mental_detail: string
   // Insurance
   prior_declines: boolean; prior_declines_detail: string
+  // Goals & Financial Profile
+  goals_retirement: boolean; goals_education: boolean; goals_wealth: boolean
+  goals_estate: boolean; goals_emergencies: boolean; goals_major_purchase: boolean
+  goals_business: boolean; goals_other: string
+  risk_tolerance: string; emergency_fund: string
+  // Estate & Legal
+  has_will: string; will_detail: string
   // Misc
   bene_notes: string; ff_notes: string
 }
@@ -151,6 +171,12 @@ function initFF(raw: Record<string, unknown> | null): FF {
     fam_hereditary: b('fam_hereditary'), fam_hereditary_detail: s('fam_hereditary_detail'),
     fam_mental: b('fam_mental'), fam_mental_detail: s('fam_mental_detail'),
     prior_declines: b('prior_declines'), prior_declines_detail: s('prior_declines_detail'),
+    goals_retirement: b('goals_retirement'), goals_education: b('goals_education'),
+    goals_wealth: b('goals_wealth'), goals_estate: b('goals_estate'),
+    goals_emergencies: b('goals_emergencies'), goals_major_purchase: b('goals_major_purchase'),
+    goals_business: b('goals_business'), goals_other: s('goals_other'),
+    risk_tolerance: s('risk_tolerance'), emergency_fund: s('emergency_fund'),
+    has_will: s('has_will'), will_detail: s('will_detail'),
     bene_notes: s('bene_notes'), ff_notes: s('ff_notes'),
   }
 }
@@ -163,6 +189,9 @@ function initArr<T>(raw: Record<string, unknown> | null, key: string, map: (o: R
 
 const EMPTY_POLICY: OtherPolicy = { company: '', policy_number: '', face_amount: '', issue_date: '', type: 'personal', sold: false }
 const EMPTY_BENE: Bene = { name: '', dob: '', relationship: '', percentage: '', ssn: '', phone: '', email: '' }
+const EMPTY_DEPENDENT: Dependent = { name: '', dob: '', relationship: 'child', marital_status: '' }
+const EMPTY_LTC: LTCPolicy = { policy_name: '', insured: '', benefit_amount: '', annual_premium: '' }
+const EMPTY_DISABILITY: DisabilityPolicy = { policy_name: '', policy_type: 'long_term', insured: '', benefit_amount: '', annual_premium: '', taxable: false }
 
 function mapPolicy(o: Record<string, unknown>): OtherPolicy {
   return {
@@ -184,6 +213,35 @@ function mapBene(o: Record<string, unknown>): Bene {
     ssn:          typeof o.ssn          === 'string' ? o.ssn          : '',
     phone:        typeof o.phone        === 'string' ? o.phone        : '',
     email:        typeof o.email        === 'string' ? o.email        : '',
+  }
+}
+
+function mapDependent(o: Record<string, unknown>): Dependent {
+  return {
+    name:          typeof o.name          === 'string' ? o.name          : '',
+    dob:           typeof o.dob           === 'string' ? o.dob           : '',
+    relationship:  typeof o.relationship  === 'string' ? o.relationship  : 'child',
+    marital_status: typeof o.marital_status === 'string' ? o.marital_status : '',
+  }
+}
+
+function mapLTC(o: Record<string, unknown>): LTCPolicy {
+  return {
+    policy_name:    typeof o.policy_name    === 'string' ? o.policy_name    : '',
+    insured:        typeof o.insured        === 'string' ? o.insured        : '',
+    benefit_amount: typeof o.benefit_amount === 'string' ? o.benefit_amount : '',
+    annual_premium: typeof o.annual_premium === 'string' ? o.annual_premium : '',
+  }
+}
+
+function mapDisability(o: Record<string, unknown>): DisabilityPolicy {
+  return {
+    policy_name:    typeof o.policy_name    === 'string'  ? o.policy_name    : '',
+    policy_type:    typeof o.policy_type    === 'string'  ? o.policy_type    : 'long_term',
+    insured:        typeof o.insured        === 'string'  ? o.insured        : '',
+    benefit_amount: typeof o.benefit_amount === 'string'  ? o.benefit_amount : '',
+    annual_premium: typeof o.annual_premium === 'string'  ? o.annual_premium : '',
+    taxable:        typeof o.taxable        === 'boolean' ? o.taxable        : false,
   }
 }
 
@@ -279,7 +337,10 @@ export function FactFinderSection({
   const [ff,         setFf]         = useState<FF>(() => initFF(initialData))
   const [policies,   setPolicies]   = useState<OtherPolicy[]>(() => initArr(initialData, 'other_policies', mapPolicy))
   const [primBenes,  setPrimBenes]  = useState<Bene[]>(() => initArr(initialData, 'primary_benes', mapBene))
-  const [contBenes,  setContBenes]  = useState<Bene[]>(() => initArr(initialData, 'contingent_benes', mapBene))
+  const [contBenes,   setContBenes]   = useState<Bene[]>(() => initArr(initialData, 'contingent_benes', mapBene))
+  const [dependents,  setDependents]  = useState<Dependent[]>(() => initArr(initialData, 'dependents', mapDependent))
+  const [ltcPolicies, setLtcPolicies] = useState<LTCPolicy[]>(() => initArr(initialData, 'ltc_policies', mapLTC))
+  const [disPolicies, setDisPolicies] = useState<DisabilityPolicy[]>(() => initArr(initialData, 'disability_policies', mapDisability))
   const [verifiedAt, setVerifiedAt] = useState<string | null>(initialVerifiedAt)
   const [saving,     setSaving]     = useState(false)
   const [saveMsg,    setSaveMsg]    = useState<{ ok: boolean; text: string } | null>(null)
@@ -310,7 +371,7 @@ export function FactFinderSection({
     setSaving(true); setSaveMsg(null)
     try {
       const payload: Record<string, unknown> = {
-        fact_finder: { ...ff, other_policies: policies, primary_benes: primBenes, contingent_benes: contBenes },
+        fact_finder: { ...ff, other_policies: policies, primary_benes: primBenes, contingent_benes: contBenes, dependents, ltc_policies: ltcPolicies, disability_policies: disPolicies },
       }
       if (verify) payload.fact_finder_verified_at = new Date().toISOString()
 
@@ -638,8 +699,108 @@ export function FactFinderSection({
             </div>
           </SubSection>
 
-          {/* ── Other Insurance ───────────────────────────────────────────── */}
-          <SubSection id="insurance" title="Other Insurance & Declines"
+          {/* ── Dependents ────────────────────────────────────────────────── */}
+          <SubSection id="dependents" title="Children & Dependents"
+            open={openSections.has('dependents')} onToggle={() => toggleSec('dependents')}>
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-xs text-slate-500">Children, grandchildren, or other dependents</p>
+              <button onClick={() => setDependents(d => [...d, { ...EMPTY_DEPENDENT }])}
+                className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-500 rounded-md px-2 py-1 transition-colors">
+                <Plus className="w-3 h-3" /> Add
+              </button>
+            </div>
+            {dependents.length === 0 && <p className="text-xs text-slate-600 italic">None on file</p>}
+            {dependents.map((d, i) => (
+              <div key={i} className="bg-slate-800/40 border border-slate-700/50 rounded-lg p-3 mb-2 space-y-2">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs text-slate-400 font-medium">Dependent {i + 1}</span>
+                  <button onClick={() => setDependents(prev => prev.filter((_, j) => j !== i))}
+                    className="text-slate-600 hover:text-red-400 transition-colors">
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  <div className="col-span-2"><label className="block text-xs text-slate-500 mb-1">Full name</label>
+                    <input value={d.name} onChange={e => setDependents(prev => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} className={inpSm} />
+                  </div>
+                  <div><label className="block text-xs text-slate-500 mb-1">Date of birth</label>
+                    <input value={d.dob} onChange={e => setDependents(prev => prev.map((x, j) => j === i ? { ...x, dob: e.target.value } : x))} type="date" className={inpSm} />
+                  </div>
+                  <div><label className="block text-xs text-slate-500 mb-1">Relationship</label>
+                    <select value={d.relationship} onChange={e => setDependents(prev => prev.map((x, j) => j === i ? { ...x, relationship: e.target.value } : x))} className={inpSm}>
+                      <option value="child">Child</option>
+                      <option value="grandchild">Grandchild</option>
+                      <option value="stepchild">Stepchild</option>
+                      <option value="ward">Ward</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div><label className="block text-xs text-slate-500 mb-1">Marital status</label>
+                    <select value={d.marital_status} onChange={e => setDependents(prev => prev.map((x, j) => j === i ? { ...x, marital_status: e.target.value } : x))} className={inpSm}>
+                      <option value="">—</option>
+                      <option value="single">Single</option>
+                      <option value="married">Married</option>
+                      <option value="divorced">Divorced</option>
+                      <option value="widowed">Widowed</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </SubSection>
+
+          {/* ── Goals & Financial Profile ─────────────────────────────────── */}
+          <SubSection id="goals" title="Goals & Financial Profile"
+            open={openSections.has('goals')} onToggle={() => toggleSec('goals')}>
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Primary financial goals</p>
+              <div className="grid grid-cols-2 gap-y-2 gap-x-4">
+                {[
+                  { key: 'goals_retirement',    label: 'Retirement income' },
+                  { key: 'goals_education',      label: 'Education funding' },
+                  { key: 'goals_wealth',         label: 'Wealth accumulation' },
+                  { key: 'goals_estate',         label: 'Estate / provide for heirs' },
+                  { key: 'goals_emergencies',    label: 'Emergency fund protection' },
+                  { key: 'goals_major_purchase', label: 'Major purchase' },
+                  { key: 'goals_business',       label: 'Business planning' },
+                ].map(({ key, label }) => (
+                  <label key={key} className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={ff[key as keyof FF] as boolean}
+                      onChange={e => set(key as keyof FF, e.target.checked as FF[keyof FF])}
+                      className="rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500/30" />
+                    <span className="text-sm text-slate-300">{label}</span>
+                  </label>
+                ))}
+              </div>
+              <div className="mt-2">
+                <label className="block text-xs text-slate-500 mb-1">Other goal</label>
+                <input value={ff.goals_other} onChange={e => set('goals_other', e.target.value)} placeholder="Describe…" className={inp} />
+              </div>
+            </div>
+            <Row2>
+              <div>
+                <Label>Risk tolerance</Label>
+                <select value={ff.risk_tolerance} onChange={e => set('risk_tolerance', e.target.value)} className={inp}>
+                  <option value="">—</option>
+                  <option value="conservative">Conservative — preserve capital</option>
+                  <option value="moderately_conservative">Moderately conservative</option>
+                  <option value="moderate">Moderate — balanced growth</option>
+                  <option value="moderately_aggressive">Moderately aggressive</option>
+                  <option value="aggressive">Aggressive — maximize growth</option>
+                </select>
+              </div>
+              <div>
+                <Label>Liquid / emergency savings ($)</Label>
+                <input value={ff.emergency_fund} onChange={e => set('emergency_fund', e.target.value)}
+                  type="number" min="0" step="1000" placeholder="Accessible savings" className={inp} />
+              </div>
+            </Row2>
+          </SubSection>
+
+          {/* ── Coverage & Protection ─────────────────────────────────────── */}
+          <SubSection id="insurance" title="Coverage & Protection"
             open={openSections.has('insurance')} onToggle={() => toggleSec('insurance')}>
             <div>
               <div className="flex items-center justify-between mb-2">
@@ -696,6 +857,129 @@ export function FactFinderSection({
                   rows={2} placeholder="Carrier, year, reason if known…"
                   className="w-full bg-slate-800 border border-amber-800/40 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-amber-600/60 placeholder-slate-600 resize-none" />
               )}
+            </div>
+
+            {/* LTC */}
+            <div className="pt-2 border-t border-slate-800">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Long-term care (LTC) insurance</p>
+                <button onClick={() => setLtcPolicies(p => [...p, { ...EMPTY_LTC }])}
+                  className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-500 rounded-md px-2 py-1 transition-colors">
+                  <Plus className="w-3 h-3" /> Add
+                </button>
+              </div>
+              {ltcPolicies.length === 0 && <p className="text-xs text-slate-600 italic">No LTC policy on file</p>}
+              {ltcPolicies.map((p, i) => (
+                <div key={i} className="bg-slate-800/40 border border-slate-700/50 rounded-lg p-3 mb-2 space-y-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-slate-400 font-medium">LTC Policy {i + 1}</span>
+                    <button onClick={() => setLtcPolicies(prev => prev.filter((_, j) => j !== i))}
+                      className="text-slate-600 hover:text-red-400 transition-colors">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><label className="block text-xs text-slate-500 mb-1">Carrier / policy name</label>
+                      <input value={p.policy_name} onChange={e => setLtcPolicies(prev => prev.map((x, j) => j === i ? { ...x, policy_name: e.target.value } : x))} className={inpSm} />
+                    </div>
+                    <div><label className="block text-xs text-slate-500 mb-1">Insured</label>
+                      <input value={p.insured} onChange={e => setLtcPolicies(prev => prev.map((x, j) => j === i ? { ...x, insured: e.target.value } : x))} className={inpSm} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div><label className="block text-xs text-slate-500 mb-1">Daily / monthly benefit ($)</label>
+                      <input value={p.benefit_amount} onChange={e => setLtcPolicies(prev => prev.map((x, j) => j === i ? { ...x, benefit_amount: e.target.value } : x))} type="number" min="0" step="100" className={inpSm} />
+                    </div>
+                    <div><label className="block text-xs text-slate-500 mb-1">Annual premium ($)</label>
+                      <input value={p.annual_premium} onChange={e => setLtcPolicies(prev => prev.map((x, j) => j === i ? { ...x, annual_premium: e.target.value } : x))} type="number" min="0" step="100" className={inpSm} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Disability */}
+            <div className="pt-2 border-t border-slate-800">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide">Disability insurance</p>
+                <button onClick={() => setDisPolicies(p => [...p, { ...EMPTY_DISABILITY }])}
+                  className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-500 rounded-md px-2 py-1 transition-colors">
+                  <Plus className="w-3 h-3" /> Add
+                </button>
+              </div>
+              {disPolicies.length === 0 && <p className="text-xs text-slate-600 italic">No disability policy on file</p>}
+              {disPolicies.map((p, i) => (
+                <div key={i} className="bg-slate-800/40 border border-slate-700/50 rounded-lg p-3 mb-2 space-y-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-slate-400 font-medium">Disability Policy {i + 1}</span>
+                    <button onClick={() => setDisPolicies(prev => prev.filter((_, j) => j !== i))}
+                      className="text-slate-600 hover:text-red-400 transition-colors">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div><label className="block text-xs text-slate-500 mb-1">Carrier / policy name</label>
+                      <input value={p.policy_name} onChange={e => setDisPolicies(prev => prev.map((x, j) => j === i ? { ...x, policy_name: e.target.value } : x))} className={inpSm} />
+                    </div>
+                    <div><label className="block text-xs text-slate-500 mb-1">Type</label>
+                      <select value={p.policy_type} onChange={e => setDisPolicies(prev => prev.map((x, j) => j === i ? { ...x, policy_type: e.target.value } : x))} className={inpSm}>
+                        <option value="long_term">Long-term</option>
+                        <option value="short_term">Short-term</option>
+                        <option value="group">Group</option>
+                        <option value="state">State / SDI</option>
+                      </select>
+                    </div>
+                    <div><label className="block text-xs text-slate-500 mb-1">Insured</label>
+                      <input value={p.insured} onChange={e => setDisPolicies(prev => prev.map((x, j) => j === i ? { ...x, insured: e.target.value } : x))} className={inpSm} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div><label className="block text-xs text-slate-500 mb-1">Monthly benefit ($)</label>
+                      <input value={p.benefit_amount} onChange={e => setDisPolicies(prev => prev.map((x, j) => j === i ? { ...x, benefit_amount: e.target.value } : x))} type="number" min="0" step="100" className={inpSm} />
+                    </div>
+                    <div><label className="block text-xs text-slate-500 mb-1">Annual premium ($)</label>
+                      <input value={p.annual_premium} onChange={e => setDisPolicies(prev => prev.map((x, j) => j === i ? { ...x, annual_premium: e.target.value } : x))} type="number" min="0" step="100" className={inpSm} />
+                    </div>
+                    <div className="flex items-end pb-0.5">
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <input type="checkbox" checked={p.taxable} onChange={e => setDisPolicies(prev => prev.map((x, j) => j === i ? { ...x, taxable: e.target.checked } : x))}
+                          className="rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500/30" />
+                        <span className="text-xs text-slate-400">Benefits taxable</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Will */}
+            <div className="pt-2 border-t border-slate-800">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Estate planning — will</p>
+              <div className="flex items-center gap-3 mb-2">
+                {[
+                  { value: 'yes',         label: 'Yes — in place' },
+                  { value: 'in_progress', label: 'In progress' },
+                  { value: 'no',          label: 'No' },
+                ].map(opt => (
+                  <label key={opt.value} className="flex items-center gap-1.5 cursor-pointer">
+                    <input type="radio" name="has_will" value={opt.value}
+                      checked={ff.has_will === opt.value}
+                      onChange={() => set('has_will', opt.value)}
+                      className="accent-blue-500" />
+                    <span className="text-sm text-slate-300">{opt.label}</span>
+                  </label>
+                ))}
+              </div>
+              {(ff.has_will === 'no' || ff.has_will === 'in_progress') && (
+                <p className="text-xs text-slate-500 italic mb-2">
+                  Note: simple-needs clients can use our will template and get it notarized.
+                </p>
+              )}
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Notes (attorney, location, date last updated)</label>
+                <input value={ff.will_detail} onChange={e => set('will_detail', e.target.value)}
+                  placeholder="e.g. Filed with Atty. Smith, updated 2023" className={inp} />
+              </div>
             </div>
           </SubSection>
 
