@@ -87,11 +87,11 @@ export async function POST(req: NextRequest) {
       rawPartner.toLowerCase() === 'house account' ||
       rawPartner === '0096CC'
 
-    // DASH report drops the leading "A"; restore it for matching
-    const fullPartner = isHouseAccount ? 'A0C4775' : 'A' + rawPartner
+    // Partner numbers stored without leading "A" (agencies.allstate_partner_number = "058161" etc.)
+    const fullPartner = isHouseAccount ? 'A0C4775' : rawPartner
     const agencyId = isHouseAccount
       ? (houseAccountAgencyId ?? partnerMap.get('A0C4775') ?? null)
-      : (partnerMap.get(fullPartner) ?? partnerMap.get(rawPartner) ?? null)
+      : (partnerMap.get(fullPartner) ?? null)
     if (!agencyId) unrecognized.add(rawPartner)
 
     function parseDate(raw: unknown): string | null {
