@@ -64,6 +64,7 @@ type ContactsResult = {
 
 type AccountsResult = {
   inserted:         number
+  relinked:         number
   already_on_file:  number
   unmatched_client: number
   errors?:          string[]
@@ -268,7 +269,7 @@ function parseWorkbook(file: File): Promise<ParseResult> {
 function fmt(n: number) { return new Intl.NumberFormat('en-US').format(n) }
 
 function StatChip({ label, value, sub, color = 'slate' }: {
-  label: string; value: number; sub?: string; color?: 'slate' | 'green' | 'amber' | 'sky' | 'indigo'
+  label: string; value: number; sub?: string; color?: 'slate' | 'green' | 'amber' | 'sky' | 'indigo' | 'violet'
 }) {
   const colors = {
     slate:  'bg-slate-800 text-white',
@@ -276,6 +277,7 @@ function StatChip({ label, value, sub, color = 'slate' }: {
     amber:  'bg-amber-900/60 text-amber-300',
     sky:    'bg-sky-900/60 text-sky-300',
     indigo: 'bg-indigo-900/60 text-indigo-300',
+    violet: 'bg-violet-900/60 text-violet-300',
   }
   return (
     <div className={`rounded-xl p-4 text-center ${colors[color]}`}>
@@ -596,11 +598,17 @@ export default function BookImportPage() {
 
             <div className="rounded-xl border border-slate-800 p-5 space-y-3">
               <p className="text-slate-400 text-xs font-medium uppercase tracking-wide">Accounts</p>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <StatChip label="Inserted"          value={accountsResult.inserted}         color="green"  />
+                <StatChip label="Relinked"          value={accountsResult.relinked}         color="violet" />
                 <StatChip label="Already on file"   value={accountsResult.already_on_file}  color="sky"    />
                 <StatChip label="No client match"   value={accountsResult.unmatched_client} color="amber"  />
               </div>
+              {accountsResult.relinked > 0 && (
+                <p className="text-xs text-violet-400/80">
+                  {accountsResult.relinked.toLocaleString()} existing Everlake/LBL policies linked to customer cards.
+                </p>
+              )}
               {accountsResult.unmatched_client > 0 && (
                 <p className="text-xs text-amber-400/80">
                   Unmatched accounts have no customer card — re-run after resolving contacts.

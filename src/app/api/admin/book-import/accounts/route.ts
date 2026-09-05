@@ -58,14 +58,27 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const toInsert:        Record<string, unknown>[] = []
-  let   alreadyOnFile    = 0
-  let   unmatchedClient  = 0
+  const toInsert:  Record<string, unknown>[] = []
+  // already_on_file rows that have a known customer → relink customer_id
+  // grouped by customer_id so we can batch: one UPDATE per customer, not per policy
+  const relinkMap  = new Map<string, string[]>()  // customer_id → policy_numbers[]
+  let   alreadyOnFile   = 0
+  let   unmatchedClient = 0
 
   for (const row of accounts) {
-    if (existingSet.has(row.policy_number)) { alreadyOnFile++; continue }
-
     const customerId = clientMap.get(row.source_client_id) ?? null
+
+    if (existingSet.has(row.policy_number)) {
+      if (customerId) {
+        const arr = relinkMap.get(customerId) ?? []
+        arr.push(row.policy_number)
+        relinkMap.set(customerId, arr)
+      } else {
+        alreadyOnFile++
+      }
+      continue
+    }
+
     if (!customerId) { unmatchedClient++; continue }
 
     toInsert.push({
@@ -98,8 +111,27 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Relink existing policies to their correct customer — one UPDATE per customer,
+  // processing in chunks if a single customer has many policies
+  let relinked = 0
+  for (const [customerId, policyNumbers] of relinkMap) {
+    for (let i = 0; i < policyNumbers.length; i += CHUNK) {
+      const chunk = policyNumbers.slice(i, i + CHUNK)
+      const { error } = await supabase
+        .from('service_policies')
+        .update({ customer_id: customerId })
+        .in('policy_number', chunk)
+      if (error) {
+        errors.push(`Relink customer ${customerId}: ${error.message}`)
+      } else {
+        relinked += chunk.length
+      }
+    }
+  }
+
   return NextResponse.json({
     inserted,
+    relinked,
     already_on_file:  alreadyOnFile,
     unmatched_client: unmatchedClient,
     errors: errors.length ? errors : undefined,
