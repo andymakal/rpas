@@ -32,6 +32,7 @@ export default async function CustomersPage() {
     .eq('is_test', false)
     .order('last_name')
     .order('first_name')
+    .limit(10000)
 
   if (error) {
     console.error('Customers fetch error:', error)

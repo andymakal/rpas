@@ -49,11 +49,23 @@ export async function POST(req: NextRequest) {
 
   const supabase = createAdminClient()
 
-  // Load all existing customers for matching
-  const { data: existing } = await supabase
-    .from('customers')
-    .select('id, first_name, last_name, date_of_birth, phone, email, source_client_id, segment')
-    .eq('is_test', false)
+  // Load ALL existing customers for dedup — paginate in 1000-row pages to
+  // work around Supabase's default 1000-row response cap
+  type ExistingRow = { id: string; first_name: string | null; last_name: string | null; date_of_birth: string | null; phone: string | null; email: string | null; source_client_id: string | null; segment: string | null }
+  const existing: ExistingRow[] = []
+  const PAGE = 1000
+  let from = 0
+  while (true) {
+    const { data, error: loadErr } = await supabase
+      .from('customers')
+      .select('id, first_name, last_name, date_of_birth, phone, email, source_client_id, segment')
+      .eq('is_test', false)
+      .range(from, from + PAGE - 1)
+    if (loadErr || !data || data.length === 0) break
+    existing.push(...(data as ExistingRow[]))
+    if (data.length < PAGE) break
+    from += PAGE
+  }
 
   // Build lookup maps — each map value is the customer id.
   // Collision tracking: if two existing customers share the same key, that key is
