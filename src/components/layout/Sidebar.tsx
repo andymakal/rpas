@@ -39,6 +39,7 @@ const navItems = [
   { href: '/service',                icon: Wrench,          label: 'Service'          },
   { href: '/policies',               icon: BookOpen,        label: 'Policies'         },
   { href: '/reviews',                icon: ClipboardCheck,  label: 'Reviews'          },
+  { href: '/customers',               icon: Users,           label: 'Customers'        },
   { href: '/team',                   icon: Users,           label: 'Team'             },
   { href: '/admin/gdc-import',       icon: Upload,          label: 'GDC Import'       },
   { href: '/admin/policy-import',    icon: FileSpreadsheet, label: 'Policy Import'    },
