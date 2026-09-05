@@ -42,6 +42,7 @@ const navItems = [
   { href: '/team',                   icon: Users,           label: 'Team'             },
   { href: '/admin/gdc-import',       icon: Upload,          label: 'GDC Import'       },
   { href: '/admin/policy-import',    icon: FileSpreadsheet, label: 'Policy Import'    },
+  { href: '/admin/book-import',      icon: BookOpen,        label: 'Book Import'      },
   { href: '/admin/lead-import',      icon: Users,           label: 'Lead Import'      },
   { href: '/admin/pending-import',   icon: ClipboardList,   label: 'Pending Import'   },
   { href: '/settings/products',      icon: Package,         label: 'Products'         },
