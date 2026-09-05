@@ -133,7 +133,6 @@ export async function POST(req: NextRequest) {
         is_emoney_client:  row.is_emoney_client,
         segment:           row.segment,
         is_test:           false,
-        is_active:         true,
       })
     }
   }
