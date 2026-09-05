@@ -70,22 +70,40 @@ export async function POST(req: NextRequest) {
   // Build lookup maps — each map value is the customer id.
   // Collision tracking: if two existing customers share the same key, that key is
   // ambiguous and must NOT be used for matching (we store null to mark it unsafe).
-  const byClientId = new Map<string, string>()               // source_client_id → id  (always unique)
-  const byFullName = new Map<string, string | null>()        // first|last|year → id | null(ambiguous)
-  const byLastYear = new Map<string, string | null>()        // last|year → id | null(ambiguous)
-  const byPhone    = new Map<string, string | null>()        // phone → id | null(ambiguous)
-  const byEmail    = new Map<string, string | null>()        // email → id | null(ambiguous)
+  const byClientId  = new Map<string, string>()               // source_client_id → id  (always unique)
+  const byFullName  = new Map<string, string | null>()        // first|last|year → id | null(ambiguous)
+  const byLastYear  = new Map<string, string | null>()        // last|year → id | null(ambiguous)
+  const byPhone     = new Map<string, string | null>()        // phone → id | null(ambiguous)
+  const byEmail     = new Map<string, string | null>()        // email → id | null(ambiguous)
+  const byPolicyName = new Map<string, string | null>()       // first|last from policy client_name
 
   function setUnique<K>(map: Map<K, string | null>, key: K, id: string) {
     if (!map.has(key)) { map.set(key, id); return }
     if (map.get(key) !== id) map.set(key, null) // collision → mark ambiguous
   }
 
-  for (const c of existing ?? []) {
+  // Normalise "Last, First Middle" or "First Last" policy client_name → "first|last" key
+  function normPolicyName(raw: string): string | null {
+    const s = raw.trim().toLowerCase().replace(/[^a-z\s,'-]/g, '')
+    if (!s) return null
+    if (s.includes(',')) {
+      // "Abernatha, Kenneth" → last=abernatha first=kenneth
+      const [last, rest] = s.split(',', 2)
+      const first = (rest ?? '').trim().split(/\s+/)[0]
+      if (last && first) return `${first.trim()}|${last.trim()}`
+    } else {
+      // "Kenneth Abernatha" → first=kenneth last=abernatha
+      const parts = s.split(/\s+/)
+      if (parts.length >= 2) return `${parts[0]}|${parts[parts.length - 1]}`
+    }
+    return null
+  }
+
+  for (const c of existing) {
     if (c.source_client_id) byClientId.set(c.source_client_id, c.id)
 
     const lastLower  = normalizeLastName(c.last_name ?? '')
-    const firstLower = (c.first_name ?? '').trim().toLowerCase().split(/\s+/)[0] // first word only
+    const firstLower = (c.first_name ?? '').trim().toLowerCase().split(/\s+/)[0]
     const yr         = birthYear(c.date_of_birth)
 
     if (firstLower && lastLower && yr)
@@ -98,6 +116,30 @@ export async function POST(req: NextRequest) {
     if (ph) setUnique(byPhone, ph, c.id)
 
     if (c.email) setUnique(byEmail, c.email.toLowerCase().trim(), c.id)
+  }
+
+  // 5th dedup strategy: match against existing service_policies client_name.
+  // Catches pre-existing RPAS customers (legacy policy import) who have no
+  // DOB, phone, or email stored in their customer record.
+  {
+    let pFrom = 0
+    while (true) {
+      const { data: pols } = await supabase
+        .from('service_policies')
+        .select('customer_id, client_name')
+        .eq('is_test', false)
+        .not('client_name', 'is', null)
+        .not('customer_id', 'is', null)
+        .range(pFrom, pFrom + PAGE - 1)
+      if (!pols || pols.length === 0) break
+      for (const p of pols) {
+        if (!p.client_name || !p.customer_id) continue
+        const key = normPolicyName(p.client_name as string)
+        if (key) setUnique(byPolicyName, key, p.customer_id as string)
+      }
+      if (pols.length < PAGE) break
+      pFrom += PAGE
+    }
   }
 
   const toInsert: Record<string, unknown>[] = []
@@ -141,7 +183,14 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 5. Last name + birth year only — weakest; only fires when first name is absent on
+    // 5. Policy client_name match — catches pre-existing customers (legacy import)
+    //    who have no DOB/phone/email in their profile
+    if (!existingId && firstLower && lastLower) {
+      const candidate = byPolicyName.get(`${firstLower}|${lastLower}`)
+      if (candidate) existingId = candidate
+    }
+
+    // 6. Last name + birth year only — weakest; only fires when first name is absent on
     //    one side (legacy records created without first_name), and map is unambiguous
     if (!existingId && lastLower && yr && !firstLower) {
       const candidate = byLastYear.get(`${lastLower}|${yr}`)
