@@ -49,29 +49,43 @@ export async function POST(req: NextRequest) {
 
   const supabase = createAdminClient()
 
-  // Load all existing customers for matching (last_name, birth_year, phone, email, source_client_id)
+  // Load all existing customers for matching
   const { data: existing } = await supabase
     .from('customers')
-    .select('id, last_name, date_of_birth, phone, email, source_client_id, segment')
+    .select('id, first_name, last_name, date_of_birth, phone, email, source_client_id, segment')
     .eq('is_test', false)
 
-  // Build lookup maps — each map value is the customer id
-  const byClientId   = new Map<string, string>()  // source_client_id → id
-  const byNameYear   = new Map<string, string>()  // last_name_lower+birth_year → id
-  const byPhone      = new Map<string, string>()  // normalized 10-digit phone → id
-  const byEmail      = new Map<string, string>()  // email_lower → id
+  // Build lookup maps — each map value is the customer id.
+  // Collision tracking: if two existing customers share the same key, that key is
+  // ambiguous and must NOT be used for matching (we store null to mark it unsafe).
+  const byClientId = new Map<string, string>()               // source_client_id → id  (always unique)
+  const byFullName = new Map<string, string | null>()        // first|last|year → id | null(ambiguous)
+  const byLastYear = new Map<string, string | null>()        // last|year → id | null(ambiguous)
+  const byPhone    = new Map<string, string | null>()        // phone → id | null(ambiguous)
+  const byEmail    = new Map<string, string | null>()        // email → id | null(ambiguous)
+
+  function setUnique<K>(map: Map<K, string | null>, key: K, id: string) {
+    if (!map.has(key)) { map.set(key, id); return }
+    if (map.get(key) !== id) map.set(key, null) // collision → mark ambiguous
+  }
 
   for (const c of existing ?? []) {
     if (c.source_client_id) byClientId.set(c.source_client_id, c.id)
 
-    const nameLower = normalizeLastName(c.last_name ?? '')
-    const yr        = birthYear(c.date_of_birth)
-    if (nameLower && yr) byNameYear.set(`${nameLower}|${yr}`, c.id)
+    const lastLower  = normalizeLastName(c.last_name ?? '')
+    const firstLower = (c.first_name ?? '').trim().toLowerCase().split(/\s+/)[0] // first word only
+    const yr         = birthYear(c.date_of_birth)
+
+    if (firstLower && lastLower && yr)
+      setUnique(byFullName, `${firstLower}|${lastLower}|${yr}`, c.id)
+
+    if (lastLower && yr)
+      setUnique(byLastYear, `${lastLower}|${yr}`, c.id)
 
     const ph = normalizePhone(c.phone)
-    if (ph) byPhone.set(ph, c.id)
+    if (ph) setUnique(byPhone, ph, c.id)
 
-    if (c.email) byEmail.set(c.email.toLowerCase().trim(), c.id)
+    if (c.email) setUnique(byEmail, c.email.toLowerCase().trim(), c.id)
   }
 
   const toInsert: Record<string, unknown>[] = []
@@ -81,25 +95,45 @@ export async function POST(req: NextRequest) {
   for (const row of contacts) {
     if (!row.last_name || !row.source_client_id) { skipped++; continue }
 
-    // 1. Already matched from a prior import run
+    const lastLower  = normalizeLastName(row.last_name)
+    const firstLower = (row.first_name ?? '').trim().toLowerCase().split(/\s+/)[0]
+    const yr         = birthYear(row.date_of_birth)
+    const ph         = normalizePhone(row.phone)
+
+    // 1. source_client_id — strongest signal, always unique from the consolidation file
     let existingId = byClientId.get(row.source_client_id) ?? null
 
-    // 2. Last name + birth year
-    if (!existingId) {
-      const nameLower = normalizeLastName(row.last_name)
-      const yr        = birthYear(row.date_of_birth)
-      if (nameLower && yr) existingId = byNameYear.get(`${nameLower}|${yr}`) ?? null
+    // 2. First name + last name + birth year — 3-factor, safe even for common surnames
+    if (!existingId && firstLower && lastLower && yr) {
+      const candidate = byFullName.get(`${firstLower}|${lastLower}|${yr}`)
+      if (candidate) existingId = candidate // null means ambiguous; skip
     }
 
-    // 3. Phone
-    if (!existingId) {
-      const ph = normalizePhone(row.phone)
-      if (ph) existingId = byPhone.get(ph) ?? null
+    // 3. Phone + last name — prevents household members collapsing into one record
+    if (!existingId && ph && lastLower) {
+      const candidate = byPhone.get(ph)
+      if (candidate) {
+        const exCustomer = (existing ?? []).find(c => c.id === candidate)
+        if (exCustomer && normalizeLastName(exCustomer.last_name ?? '') === lastLower)
+          existingId = candidate
+      }
     }
 
-    // 4. Email
-    if (!existingId && row.email) {
-      existingId = byEmail.get(row.email.toLowerCase().trim()) ?? null
+    // 4. Email + last name — shared family emails still guarded by last name
+    if (!existingId && row.email && lastLower) {
+      const candidate = byEmail.get(row.email.toLowerCase().trim())
+      if (candidate) {
+        const exCustomer = (existing ?? []).find(c => c.id === candidate)
+        if (exCustomer && normalizeLastName(exCustomer.last_name ?? '') === lastLower)
+          existingId = candidate
+      }
+    }
+
+    // 5. Last name + birth year only — weakest; only fires when first name is absent on
+    //    one side (legacy records created without first_name), and map is unambiguous
+    if (!existingId && lastLower && yr && !firstLower) {
+      const candidate = byLastYear.get(`${lastLower}|${yr}`)
+      if (candidate) existingId = candidate
     }
 
     if (existingId) {

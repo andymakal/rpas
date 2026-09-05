@@ -20,6 +20,7 @@ export type CustomerRow = {
   source_client_id: string | null
   date_of_birth: string | null
   created_at: string
+  policy_count: number
 }
 
 export default async function CustomersPage() {
@@ -27,7 +28,7 @@ export default async function CustomersPage() {
 
   const { data, error } = await supabase
     .from('customers')
-    .select('id, first_name, last_name, phone, email, city, state, segment, is_emoney_client, is_deceased, source_client_id, date_of_birth, created_at')
+    .select('id, first_name, last_name, phone, email, city, state, segment, is_emoney_client, is_deceased, source_client_id, date_of_birth, created_at, service_policies(count)')
     .eq('is_test', false)
     .order('last_name')
     .order('first_name')
@@ -41,5 +42,10 @@ export default async function CustomersPage() {
     )
   }
 
-  return <CustomersClient customers={data ?? []} />
+  const customers = (data ?? []).map(c => {
+    const sp = c.service_policies as unknown as { count: number }[] | null
+    return { ...c, policy_count: sp?.[0]?.count ?? 0 }
+  })
+
+  return <CustomersClient customers={customers} />
 }

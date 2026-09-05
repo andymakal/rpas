@@ -35,14 +35,16 @@ function formatPhone(raw: string | null): string {
 type SegmentFilter = 'all' | 'wanderer' | 'explorer' | 'pathfinder' | 'voyageur' | 'trailblazer' | 'unassigned'
 
 export default function CustomersClient({ customers }: { customers: CustomerRow[] }) {
-  const [query, setQuery]           = useState('')
-  const [segFilter, setSegFilter]   = useState<SegmentFilter>('all')
-  const [showDeceased, setShowDeceased] = useState(false)
+  const [query, setQuery]                 = useState('')
+  const [segFilter, setSegFilter]         = useState<SegmentFilter>('all')
+  const [showDeceased, setShowDeceased]   = useState(false)
+  const [noPoliciesOnly, setNoPoliciesOnly] = useState(false)
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     return customers.filter(c => {
       if (!showDeceased && c.is_deceased) return false
+      if (noPoliciesOnly && c.policy_count > 0) return false
 
       if (segFilter === 'unassigned' && c.segment) return false
       if (segFilter !== 'all' && segFilter !== 'unassigned' && c.segment !== segFilter) return false
@@ -59,7 +61,7 @@ export default function CustomersClient({ customers }: { customers: CustomerRow[
         id.includes(q)
       )
     })
-  }, [customers, query, segFilter, showDeceased])
+  }, [customers, query, segFilter, showDeceased, noPoliciesOnly])
 
   const segCounts = useMemo(() => {
     const counts: Record<string, number> = { all: 0, unassigned: 0 }
@@ -91,15 +93,26 @@ export default function CustomersClient({ customers }: { customers: CustomerRow[
             <h1 className="text-xl font-semibold text-white">Customers</h1>
             <p className="text-sm text-slate-400 mt-0.5">{customers.length.toLocaleString()} total</p>
           </div>
-          <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={showDeceased}
-              onChange={e => setShowDeceased(e.target.checked)}
-              className="rounded"
-            />
-            Show deceased
-          </label>
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={noPoliciesOnly}
+                onChange={e => setNoPoliciesOnly(e.target.checked)}
+                className="rounded"
+              />
+              No policies only
+            </label>
+            <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={showDeceased}
+                onChange={e => setShowDeceased(e.target.checked)}
+                className="rounded"
+              />
+              Show deceased
+            </label>
+          </div>
         </div>
 
         {/* Search */}
@@ -143,6 +156,7 @@ export default function CustomersClient({ customers }: { customers: CustomerRow[
               <tr className="text-left text-xs text-slate-500 uppercase tracking-wider">
                 <th className="px-4 py-3 font-medium">Name</th>
                 <th className="px-4 py-3 font-medium">Segment</th>
+                <th className="px-4 py-3 font-medium text-center">Policies</th>
                 <th className="px-4 py-3 font-medium">Phone</th>
                 <th className="px-4 py-3 font-medium">Email</th>
                 <th className="px-4 py-3 font-medium">Location</th>
@@ -169,6 +183,13 @@ export default function CustomersClient({ customers }: { customers: CustomerRow[
                   </td>
                   <td className="px-4 py-3">
                     <SegmentBadge segment={c.segment} />
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    {c.policy_count > 0 ? (
+                      <span className="text-sm font-medium text-slate-300 tabular-nums">{c.policy_count}</span>
+                    ) : (
+                      <span className="text-xs text-slate-600">—</span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-slate-300 tabular-nums">
                     {formatPhone(c.phone)}
