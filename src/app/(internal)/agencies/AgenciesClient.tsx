@@ -23,9 +23,10 @@ type EditState = {
   contact_city:   string
   contact_state:  string
   contact_zip:    string
-  portal_pin:       string
-  slug:             string
-  parent_agency_id: string
+  portal_pin:             string
+  slug:                   string
+  parent_agency_id:       string
+  is_securities_licensed: boolean
 }
 
 type RowStatus = 'idle' | 'saving' | 'saved' | 'error'
@@ -44,9 +45,10 @@ function toEdit(a: AgencyRow): EditState {
     contact_city:   a.contact_city ?? '',
     contact_state:  a.contact_state ?? '',
     contact_zip:    a.contact_zip ?? '',
-    portal_pin:       a.portal_pin ?? '',
-    slug:             a.slug,
-    parent_agency_id: a.parent_agency_id ?? '',
+    portal_pin:             a.portal_pin ?? '',
+    slug:                   a.slug,
+    parent_agency_id:       a.parent_agency_id ?? '',
+    is_securities_licensed: a.is_securities_licensed,
   }
 }
 
@@ -99,7 +101,8 @@ function isDirty(a: AgencyRow, e: EditState) {
     (e.contact_zip    || null) !== (a.contact_zip    ?? null) ||
     (e.portal_pin     || null) !== (a.portal_pin     ?? null) ||
     e.slug                     !== a.slug                     ||
-    (e.parent_agency_id || null) !== (a.parent_agency_id ?? null)
+    (e.parent_agency_id || null) !== (a.parent_agency_id ?? null) ||
+    e.is_securities_licensed   !== a.is_securities_licensed
   )
 }
 
@@ -169,9 +172,10 @@ export function AgenciesClient({ agencies, teams }: Props) {
         contact_city:   edit.contact_city   || null,
         contact_state:  edit.contact_state  || null,
         contact_zip:    edit.contact_zip    || null,
-        portal_pin:       edit.portal_pin       || null,
-        slug:             edit.slug,
-        parent_agency_id: edit.parent_agency_id || null,
+        portal_pin:             edit.portal_pin       || null,
+        slug:                   edit.slug,
+        parent_agency_id:       edit.parent_agency_id || null,
+        is_securities_licensed: edit.is_securities_licensed,
       }),
     })
 
@@ -479,6 +483,7 @@ export function AgenciesClient({ agencies, teams }: Props) {
               <th className="py-2.5 px-4 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">SML team</th>
               <th className="py-2.5 px-4 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">Slug</th>
               <th className="py-2.5 px-4 text-center text-xs font-medium text-slate-500 uppercase tracking-wide">Active</th>
+              <th className="py-2.5 px-4 text-center text-xs font-medium text-slate-500 uppercase tracking-wide">6/63</th>
               <th className="py-2.5 px-4 w-32" />
             </tr>
           </thead>
@@ -560,6 +565,21 @@ export function AgenciesClient({ agencies, teams }: Props) {
                       </button>
                     </td>
 
+                    {/* Securities licensed toggle */}
+                    <td className="py-2.5 px-4 text-center">
+                      <button
+                        onClick={() => update(agency.id, 'is_securities_licensed', !edit?.is_securities_licensed)}
+                        title={edit?.is_securities_licensed ? 'Securities licensed (Series 6/63)' : 'Not securities licensed'}
+                        className={`text-xs px-2 py-0.5 rounded font-semibold tracking-wide ${
+                          edit?.is_securities_licensed
+                            ? 'bg-indigo-900/60 text-indigo-300 border border-indigo-700'
+                            : 'bg-slate-800 text-slate-700 border border-slate-700 hover:text-slate-500'
+                        }`}
+                      >
+                        {edit?.is_securities_licensed ? '6/63' : '—'}
+                      </button>
+                    </td>
+
                     {/* Actions */}
                     <td className="py-2.5 px-4">
                       <div className="flex items-center justify-end gap-2">
@@ -600,7 +620,7 @@ export function AgenciesClient({ agencies, teams }: Props) {
                   {/* Contact info panel */}
                   {isOpen && (
                     <tr key={`${agency.id}-contact`} className="border-b border-slate-800 bg-slate-800/20">
-                      <td colSpan={6} className="px-4 py-4">
+                      <td colSpan={7} className="px-4 py-4">
                         <div className="grid grid-cols-8 gap-3">
                           <div>
                             <label className="text-xs text-slate-500 mb-1 block">Agent #</label>
@@ -728,7 +748,7 @@ export function AgenciesClient({ agencies, teams }: Props) {
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={6} className="py-10 text-center text-sm text-slate-600">
+                <td colSpan={7} className="py-10 text-center text-sm text-slate-600">
                   No agencies match your search.
                 </td>
               </tr>

@@ -7,7 +7,7 @@ const ALLOWED_FIELDS = new Set([
   'name', 'display_name', 'sml_team_id', 'is_active', 'parent_agency_id',
   'agent_number', 'allstate_partner_number', 'contact_phone', 'contact_email',
   'contact_street', 'contact_city', 'contact_state', 'contact_zip',
-  'portal_pin', 'slug',
+  'portal_pin', 'slug', 'is_securities_licensed',
 ])
 
 export async function PATCH(
