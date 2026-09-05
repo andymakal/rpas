@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Search, ChevronRight } from 'lucide-react'
 import type { CustomerRow } from './page'
 
@@ -35,6 +36,7 @@ function formatPhone(raw: string | null): string {
 type SegmentFilter = 'all' | 'wanderer' | 'explorer' | 'pathfinder' | 'voyageur' | 'trailblazer' | 'unassigned'
 
 export default function CustomersClient({ customers }: { customers: CustomerRow[] }) {
+  const router = useRouter()
   const [query, setQuery]                 = useState('')
   const [segFilter, setSegFilter]         = useState<SegmentFilter>('all')
   const [showDeceased, setShowDeceased]   = useState(false)
@@ -168,7 +170,8 @@ export default function CustomersClient({ customers }: { customers: CustomerRow[
               {filtered.map(c => (
                 <tr
                   key={c.id}
-                  className={`group hover:bg-slate-800/40 transition-colors ${c.is_deceased ? 'opacity-50' : ''}`}
+                  onClick={() => router.push(`/customers/${c.id}`)}
+                  className={`group hover:bg-slate-800/40 transition-colors cursor-pointer ${c.is_deceased ? 'opacity-50' : ''}`}
                 >
                   <td className="px-4 py-3">
                     <Link
