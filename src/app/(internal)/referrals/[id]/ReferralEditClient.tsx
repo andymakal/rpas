@@ -1930,7 +1930,7 @@ export function ReferralEditClient({
                 <select value={selectedAgencyId} onChange={e => setSelectedAgencyId(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 cursor-pointer">
                   <option value="">— Unassigned —</option>
-                  {agenciesList.map(a => (
+                  {agenciesList.slice().sort((a,b)=>(a.display_name??a.name).localeCompare(b.display_name??b.name)).map(a => (
                     <option key={a.id} value={a.id}>{a.display_name ?? a.name}</option>
                   ))}
                 </select>

@@ -626,7 +626,7 @@ export function ServiceRequestClient({
                 <Field label="Agency">
                   <select className={selectCls} value={agencyId} onChange={e => { setAgencyId(e.target.value); setAgentId('') }}>
                     <option value="">No agency</option>
-                    {agencies.map(a => <option key={a.id} value={a.id}>{a.display_name ?? a.name}</option>)}
+                    {agencies.slice().sort((a,b)=>(a.display_name??a.name).localeCompare(b.display_name??b.name)).map(a => <option key={a.id} value={a.id}>{a.display_name ?? a.name}</option>)}
                   </select>
                 </Field>
                 <Field label="LSP / Agent">

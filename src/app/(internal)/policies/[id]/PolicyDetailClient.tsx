@@ -948,7 +948,7 @@ export function PolicyDetailClient({
                   className={`${selectCls} disabled:opacity-50`}
                 >
                   <option value="">— Unassigned —</option>
-                  {agencies.map(a => (
+                  {agencies.slice().sort((a,b)=>(a.display_name??a.name).localeCompare(b.display_name??b.name)).map(a => (
                     <option key={a.id} value={a.id}>{a.display_name ?? a.name}</option>
                   ))}
                 </select>
