@@ -48,9 +48,15 @@ export default function CustomersClient() {
 
   useEffect(() => {
     fetch('/api/customers')
-      .then(r => r.json())
+      .then(r => {
+        if (!r.ok) return r.json().then(e => Promise.reject(new Error(e?.error ?? `HTTP ${r.status}`)))
+        return r.json()
+      })
       .then((data: CustomerRow[]) => { setCustomers(data); setLoading(false) })
-      .catch(err => { setLoadError(String(err)); setLoading(false) })
+      .catch((err: unknown) => {
+        setLoadError(err instanceof Error ? err.message : String(err))
+        setLoading(false)
+      })
   }, [])
 
   const filtered = useMemo(() => {
