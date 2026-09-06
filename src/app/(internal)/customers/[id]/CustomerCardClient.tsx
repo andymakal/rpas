@@ -158,6 +158,53 @@ function SrStatusBadge({ status }: { status: string }) {
   )
 }
 
+// ── Customer status ───────────────────────────────────────────────────────────
+
+type CustomerStatus = 'active' | 'prospect' | 'former_client' | 'deceased'
+
+function deriveStatus(c: { is_deceased: boolean; is_former_client: boolean; is_prospect: boolean }): CustomerStatus {
+  if (c.is_deceased)     return 'deceased'
+  if (c.is_former_client) return 'former_client'
+  if (c.is_prospect)     return 'prospect'
+  return 'active'
+}
+
+const STATUS_OPTIONS: { value: CustomerStatus; label: string; badge: string; btn: string }[] = [
+  {
+    value: 'active',
+    label: 'Active',
+    badge: 'bg-emerald-900/40 text-emerald-300 border-emerald-800',
+    btn:   'border-emerald-800 hover:border-emerald-500 text-emerald-300',
+  },
+  {
+    value: 'prospect',
+    label: 'Prospect',
+    badge: 'bg-violet-900/40 text-violet-300 border-violet-800',
+    btn:   'border-violet-800 hover:border-violet-500 text-violet-300',
+  },
+  {
+    value: 'former_client',
+    label: 'Former Client',
+    badge: 'bg-slate-700/80 text-slate-400 border-slate-600',
+    btn:   'border-slate-600 hover:border-slate-400 text-slate-300',
+  },
+  {
+    value: 'deceased',
+    label: 'Deceased',
+    badge: 'bg-red-900/30 text-red-400 border-red-900',
+    btn:   'border-red-900 hover:border-red-700 text-red-400',
+  },
+]
+
+function StatusBadge({ status }: { status: CustomerStatus }) {
+  const s = STATUS_OPTIONS.find(x => x.value === status)!
+  return (
+    <span className={`inline-flex items-center text-xs border rounded-full px-2.5 py-0.5 font-medium ${s.badge}`}>
+      {s.label}
+    </span>
+  )
+}
+
 // ── Segmentation ─────────────────────────────────────────────────────────────
 
 const SEGMENTS = [
@@ -354,6 +401,10 @@ export function CustomerCardClient({
   const [editingSegment, setEditingSegment] = useState(false)
   const [segmentSaving,  setSegmentSaving]  = useState(false)
 
+  const [statusValue,    setStatusValue]    = useState<CustomerStatus>(deriveStatus(customer))
+  const [editingStatus,  setEditingStatus]  = useState(false)
+  const [statusSaving,   setStatusSaving]   = useState(false)
+
   // Notes
   const [notes,        setNotes]        = useState<CustomerNote[]>(initialNotes)
   const [noteSection,  setNoteSection]  = useState<'triage' | 'producer' | 'underwriting'>('triage')
@@ -387,6 +438,7 @@ export function CustomerCardClient({
   const caseAgencyMap = new Map(cases.map(c => [c.id, c.agencies?.display_name ?? c.agencies?.name ?? null]))
 
   const segmentRef = useRef<HTMLDivElement>(null)
+  const statusRef  = useRef<HTMLDivElement>(null)
   const searchRef  = useRef<HTMLInputElement>(null)
   const dropRef   = useRef<HTMLDivElement>(null)
 
@@ -399,6 +451,9 @@ export function CustomerCardClient({
       ) setShowPolicyDrop(false)
       if (segmentRef.current && !segmentRef.current.contains(e.target as Node)) {
         setEditingSegment(false)
+      }
+      if (statusRef.current && !statusRef.current.contains(e.target as Node)) {
+        setEditingStatus(false)
       }
     }
     document.addEventListener('mousedown', handler)
@@ -597,6 +652,24 @@ export function CustomerCardClient({
     }
   }
 
+  async function handleStatusChange(newStatus: CustomerStatus) {
+    setStatusSaving(true)
+    try {
+      const res = await fetch(`/api/customers/${customer.id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          is_deceased:     newStatus === 'deceased',
+          is_former_client: newStatus === 'former_client',
+          is_prospect:     newStatus === 'prospect',
+        }),
+      })
+      if (res.ok) { setStatusValue(newStatus); setEditingStatus(false) }
+    } finally {
+      setStatusSaving(false)
+    }
+  }
+
   async function handlePostNote() {
     if (!noteBody.trim()) { setNoteErr('Note cannot be empty'); return }
     setNotePosting(true); setNoteErr(null)
@@ -752,8 +825,11 @@ export function CustomerCardClient({
                       {displayFirst} {displayLast}
                     </h1>
 
+                    {/* Segment + Status controls */}
+                    <div className="flex items-center gap-3 mt-1.5">
+
                     {/* Segment badge + editor */}
-                    <div ref={segmentRef} className="relative mt-1.5">
+                    <div ref={segmentRef} className="relative">
                       <button
                         onClick={() => setEditingSegment(o => !o)}
                         disabled={segmentSaving}
@@ -794,6 +870,41 @@ export function CustomerCardClient({
                         </div>
                       )}
                     </div>
+
+                    {/* Status badge + editor */}
+                    <div ref={statusRef} className="relative">
+                      <button
+                        onClick={() => setEditingStatus(o => !o)}
+                        disabled={statusSaving}
+                        className="inline-flex items-center gap-1.5 focus:outline-none disabled:opacity-50"
+                      >
+                        <StatusBadge status={statusValue} />
+                        <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform ${editingStatus ? 'rotate-180' : ''}`} />
+                      </button>
+                      {editingStatus && (
+                        <div className="absolute left-0 top-full mt-1.5 z-20 bg-slate-800 border border-slate-700 rounded-xl shadow-xl p-2 min-w-52">
+                          <p className="text-xs text-slate-500 px-2 pb-2 font-medium uppercase tracking-wide">Customer status</p>
+                          <div className="space-y-1">
+                            {STATUS_OPTIONS.map(s => (
+                              <button
+                                key={s.value}
+                                onClick={() => handleStatusChange(s.value)}
+                                disabled={statusSaving}
+                                className={`w-full text-left flex items-center px-3 py-2 rounded-lg border transition-colors disabled:opacity-50 ${
+                                  statusValue === s.value
+                                    ? s.btn + ' bg-slate-700/60'
+                                    : 'border-transparent hover:bg-slate-700/50 text-slate-300'
+                                }`}
+                              >
+                                <span className="text-sm font-medium">{s.label}</span>
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    </div>{/* end flex row */}
                   </div>
 
                   {/* Edit contact button */}

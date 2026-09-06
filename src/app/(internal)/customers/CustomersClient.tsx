@@ -42,9 +42,10 @@ export default function CustomersClient() {
   const [loadError, setLoadError]         = useState<string | null>(null)
   const [query, setQuery]                 = useState('')
   const [segFilter, setSegFilter]         = useState<SegmentFilter>('all')
-  const [showDeceased, setShowDeceased]       = useState(false)
+  const [showDeceased, setShowDeceased]           = useState(false)
   const [showFormerClients, setShowFormerClients] = useState(false)
-  const [noPoliciesOnly, setNoPoliciesOnly]   = useState(false)
+  const [showProspects, setShowProspects]         = useState(false)
+  const [noPoliciesOnly, setNoPoliciesOnly]       = useState(false)
 
   useEffect(() => {
     fetch('/api/customers')
@@ -67,6 +68,7 @@ export default function CustomersClient() {
       if (!q) {
         if (!showDeceased && c.is_deceased) return false
         if (!showFormerClients && c.is_former_client) return false
+        if (!showProspects && c.is_prospect) return false
         if (noPoliciesOnly && c.policy_count > 0) return false
       }
 
@@ -85,12 +87,12 @@ export default function CustomersClient() {
         id.includes(q)
       )
     })
-  }, [customers, query, segFilter, showDeceased, showFormerClients, noPoliciesOnly])
+  }, [customers, query, segFilter, showDeceased, showFormerClients, showProspects, noPoliciesOnly])
 
   const segCounts = useMemo(() => {
     const counts: Record<string, number> = { all: 0, unassigned: 0 }
     for (const c of customers) {
-      if (c.is_deceased || c.is_former_client) continue
+      if (c.is_deceased || c.is_former_client || c.is_prospect) continue
       counts.all++
       const seg = c.segment ?? 'unassigned'
       counts[seg] = (counts[seg] ?? 0) + 1
@@ -134,6 +136,15 @@ export default function CustomersClient() {
                 className="rounded"
               />
               No policies only
+            </label>
+            <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={showProspects}
+                onChange={e => setShowProspects(e.target.checked)}
+                className="rounded"
+              />
+              Show prospects
             </label>
             <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
               <input
@@ -210,7 +221,7 @@ export default function CustomersClient() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {filtered.map(c => (
+              {filtered.slice(0, 200).map(c => (
                 <tr
                   key={c.id}
                   onClick={() => router.push(`/customers/${c.id}`)}
@@ -275,12 +286,16 @@ export default function CustomersClient() {
         )}
       </div>
 
-      {/* Footer count */}
-      {filtered.length > 0 && filtered.length !== customers.length && (
+      {/* Footer count / cap notice */}
+      {filtered.length > 200 ? (
+        <div className="shrink-0 px-6 py-2 border-t border-slate-800 text-xs text-slate-500">
+          Showing 200 of {filtered.length.toLocaleString()} — search to narrow results
+        </div>
+      ) : filtered.length > 0 && filtered.length !== customers.length ? (
         <div className="shrink-0 px-6 py-2 border-t border-slate-800 text-xs text-slate-500">
           Showing {filtered.length.toLocaleString()} of {customers.length.toLocaleString()}
         </div>
-      )}
+      ) : null}
     </div>
   )
 }

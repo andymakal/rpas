@@ -48,6 +48,9 @@ export type CustomerDetail = {
   fact_finder:          Record<string, unknown> | null
   fact_finder_verified_at: string | null
   fact_finder_verified_by: string | null
+  is_deceased:     boolean
+  is_former_client: boolean
+  is_prospect:     boolean
 }
 
 export type LinkedCase = {
@@ -145,7 +148,8 @@ export default async function CustomerCardPage({
       date_of_birth, marital_status, gender,
       tobacco_use, preferred_language, health_notes,
       customer_group_id, segment, drive_folder_url,
-      fact_finder, fact_finder_verified_at, fact_finder_verified_by
+      fact_finder, fact_finder_verified_at, fact_finder_verified_by,
+      is_deceased, is_former_client, is_prospect
     `)
     .eq('id', id)
     .single()

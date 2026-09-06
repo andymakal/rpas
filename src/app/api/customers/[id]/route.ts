@@ -10,6 +10,7 @@ const ALLOWED = new Set([
   'preferred_language', 'customer_group_id',
   'segment', 'sms_opt_out', 'drive_folder_url',
   'fact_finder', 'fact_finder_verified_at', 'fact_finder_verified_by',
+  'is_deceased', 'is_former_client', 'is_prospect',
 ])
 
 const NAME_FIELDS   = new Set(['first_name', 'last_name'])

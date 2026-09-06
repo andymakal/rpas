@@ -15,6 +15,7 @@ export type CustomerRow = {
   is_emoney_client: boolean
   is_deceased: boolean
   is_former_client: boolean
+  is_prospect: boolean
   source_client_id: string | null
   date_of_birth: string | null
   created_at: string

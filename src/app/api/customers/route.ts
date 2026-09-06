@@ -13,7 +13,7 @@ export async function GET() {
   while (true) {
     const { data, error } = await supabase
       .from('customers')
-      .select('id, first_name, last_name, phone, email, city, state, segment, is_emoney_client, is_deceased, is_former_client, source_client_id, date_of_birth, created_at, service_policies(count)')
+      .select('id, first_name, last_name, phone, email, city, state, segment, is_emoney_client, is_deceased, is_former_client, is_prospect, source_client_id, date_of_birth, created_at, service_policies(count)')
       .eq('is_test', false)
       .order('last_name')
       .order('first_name')
