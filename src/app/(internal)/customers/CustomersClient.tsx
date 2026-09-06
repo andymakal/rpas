@@ -181,7 +181,7 @@ export default function CustomersClient() {
                 onChange={e => setShowDeceased(e.target.checked)}
                 className="rounded"
               />
-              Show deceased
+              Show quiet filed
             </label>
           </div>
         </div>
@@ -293,7 +293,7 @@ export default function CustomersClient() {
                       )}
                       {c.is_deceased && (
                         <span className="text-xs px-1.5 py-0.5 rounded bg-slate-800 text-slate-500 border border-slate-700">
-                          Deceased
+                          Quiet Filed
                         </span>
                       )}
                     </div>

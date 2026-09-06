@@ -190,7 +190,7 @@ const STATUS_OPTIONS: { value: CustomerStatus; label: string; badge: string; btn
   },
   {
     value: 'deceased',
-    label: 'Deceased',
+    label: 'Quiet Filed',
     badge: 'bg-red-900/30 text-red-400 border-red-900',
     btn:   'border-red-900 hover:border-red-700 text-red-400',
   },
