@@ -47,6 +47,10 @@ export default function CustomersClient() {
   const [showProspects, setShowProspects]         = useState(false)
   const [noPoliciesOnly, setNoPoliciesOnly]       = useState(false)
 
+  // Server search state — null means not in search mode (showing browse view)
+  const [searchResults, setSearchResults] = useState<CustomerRow[] | null>(null)
+  const [searching, setSearching]         = useState(false)
+
   useEffect(() => {
     fetch('/api/customers')
       .then(r => {
@@ -60,34 +64,45 @@ export default function CustomersClient() {
       })
   }, [])
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return customers.filter(c => {
-      // When searching by name/phone/email/id, bypass status filters so
-      // deceased or former clients can still be found by name.
-      if (!q) {
-        if (!showDeceased && c.is_deceased) return false
-        if (!showFormerClients && c.is_former_client) return false
-        if (!showProspects && c.is_prospect) return false
-        if (noPoliciesOnly && c.policy_count > 0) return false
+  // Debounced server search — fires when query is 2+ chars
+  useEffect(() => {
+    const q = query.trim()
+    if (q.length < 2) {
+      setSearchResults(null)
+      return
+    }
+    setSearching(true)
+    const t = setTimeout(async () => {
+      try {
+        const res  = await fetch(`/api/customers/search?mode=list&q=${encodeURIComponent(q)}`)
+        const json = await res.json()
+        setSearchResults(Array.isArray(json.data) ? json.data : [])
+      } catch {
+        setSearchResults([])
+      } finally {
+        setSearching(false)
       }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [query])
 
+  // Browse-mode filter (segment counts + unfiltered view)
+  const browsed = useMemo(() => {
+    return customers.filter(c => {
+      if (!showDeceased && c.is_deceased) return false
+      if (!showFormerClients && c.is_former_client) return false
+      if (!showProspects && c.is_prospect) return false
+      if (noPoliciesOnly && c.policy_count > 0) return false
       if (segFilter === 'unassigned' && c.segment) return false
       if (segFilter !== 'all' && segFilter !== 'unassigned' && c.segment !== segFilter) return false
-
-      if (!q) return true
-      const name  = `${c.first_name ?? ''} ${c.last_name}`.toLowerCase()
-      const phone = (c.phone ?? '').replace(/\D/g, '')
-      const email = (c.email ?? '').toLowerCase()
-      const id    = (c.source_client_id ?? '').toLowerCase()
-      return (
-        name.includes(q) ||
-        phone.includes(q.replace(/\D/g, '')) ||
-        email.includes(q) ||
-        id.includes(q)
-      )
+      return true
     })
-  }, [customers, query, segFilter, showDeceased, showFormerClients, showProspects, noPoliciesOnly])
+  }, [customers, segFilter, showDeceased, showFormerClients, showProspects, noPoliciesOnly])
+
+  // What actually goes to the table
+  const isSearchMode = searchResults !== null
+  const displayed    = isSearchMode ? searchResults : browsed.slice(0, 200)
+  const isCapped     = !isSearchMode && browsed.length > 200
 
   const segCounts = useMemo(() => {
     const counts: Record<string, number> = { all: 0, unassigned: 0 }
@@ -120,11 +135,15 @@ export default function CustomersClient() {
           <div>
             <h1 className="text-xl font-semibold text-white">Customers</h1>
             <p className="text-sm text-slate-400 mt-0.5">
-              {loading
-                ? 'Loading…'
-                : filtered.length !== customers.length
-                  ? `${filtered.length.toLocaleString()} of ${customers.length.toLocaleString()}`
-                  : `${customers.length.toLocaleString()} total`}
+              {searching
+                ? 'Searching…'
+                : isSearchMode
+                  ? `${displayed.length.toLocaleString()} result${displayed.length === 1 ? '' : 's'}`
+                  : loading
+                    ? 'Loading…'
+                    : browsed.length !== customers.length
+                      ? `${browsed.length.toLocaleString()} of ${customers.length.toLocaleString()}`
+                      : `${customers.length.toLocaleString()} total`}
             </p>
           </div>
           <div className="flex items-center gap-4">
@@ -174,8 +193,11 @@ export default function CustomersClient() {
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder="Search name, phone, email, or client ID…"
-            className="w-full pl-9 pr-4 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
+            className="w-full pl-9 pr-10 py-2 rounded-lg bg-slate-800 border border-slate-700 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-slate-500"
           />
+          {searching && (
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs animate-pulse">…</span>
+          )}
         </div>
 
         {/* Segment filter */}
@@ -198,13 +220,13 @@ export default function CustomersClient() {
 
       {/* Table */}
       <div className="flex-1 overflow-y-auto">
-        {loading ? (
+        {searching && !isSearchMode ? (
+          <div className="flex items-center justify-center h-40 text-slate-500 text-sm">Searching…</div>
+        ) : loading && !isSearchMode ? (
+          <div className="flex items-center justify-center h-40 text-slate-500 text-sm">Loading customers…</div>
+        ) : displayed.length === 0 ? (
           <div className="flex items-center justify-center h-40 text-slate-500 text-sm">
-            Loading customers…
-          </div>
-        ) : filtered.length === 0 ? (
-          <div className="flex items-center justify-center h-40 text-slate-500 text-sm">
-            No customers match your filters.
+            {isSearchMode ? 'No customers found.' : 'No customers match your filters.'}
           </div>
         ) : (
           <table className="w-full text-sm border-collapse">
@@ -221,7 +243,7 @@ export default function CustomersClient() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/60">
-              {filtered.slice(0, 200).map(c => (
+              {displayed.map(c => (
                 <tr
                   key={c.id}
                   onClick={() => router.push(`/customers/${c.id}`)}
@@ -286,14 +308,14 @@ export default function CustomersClient() {
         )}
       </div>
 
-      {/* Footer count / cap notice */}
-      {filtered.length > 200 ? (
+      {/* Footer */}
+      {isCapped ? (
         <div className="shrink-0 px-6 py-2 border-t border-slate-800 text-xs text-slate-500">
-          Showing 200 of {filtered.length.toLocaleString()} — search to narrow results
+          Showing 200 of {browsed.length.toLocaleString()} — search to narrow results
         </div>
-      ) : filtered.length > 0 && filtered.length !== customers.length ? (
+      ) : isSearchMode && displayed.length === 100 ? (
         <div className="shrink-0 px-6 py-2 border-t border-slate-800 text-xs text-slate-500">
-          Showing {filtered.length.toLocaleString()} of {customers.length.toLocaleString()}
+          Showing first 100 results — refine your search to narrow further
         </div>
       ) : null}
     </div>

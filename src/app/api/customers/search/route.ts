@@ -9,6 +9,10 @@ import { NextRequest } from 'next/server'
  * GET /api/customers/search?q=...&dedup=true
  * Deduplication search for the intake form — searches first+last name or phone,
  * returns extended fields (DOB, city, state, case count) for identity confirmation.
+ *
+ * GET /api/customers/search?q=...&mode=list
+ * Full-text customer search for the Customers list page.
+ * Returns up to 100 CustomerRow-shaped results.
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -16,12 +20,50 @@ export async function GET(request: NextRequest) {
   const agencyId  = searchParams.get('agency_id') ?? ''
   const excludeId = searchParams.get('exclude') ?? ''
   const isDedup   = searchParams.get('dedup') === 'true'
+  const isList    = searchParams.get('mode') === 'list'
 
   if (q.length < 2) {
     return Response.json({ data: [] })
   }
 
   const supabase = createAdminClient()
+
+  // ── List (Customers page) mode ────────────────────────────────────────────
+  if (isList) {
+    const digits = q.replace(/\D/g, '')
+    const words  = q.split(/\s+/).filter(Boolean).slice(0, 3)
+
+    let listQuery = supabase
+      .from('customers')
+      .select('id, first_name, last_name, phone, email, city, state, segment, is_emoney_client, is_deceased, is_former_client, is_prospect, source_client_id, date_of_birth, created_at, service_policies(count)')
+      .eq('is_test', false)
+      .order('last_name')
+      .order('first_name')
+      .limit(100)
+
+    // Phone search: digit-only queries of 7+ digits
+    if (digits.length >= 7) {
+      listQuery = listQuery.ilike('phone', `%${digits.slice(0, 10)}%`)
+    } else {
+      // Name / email / source_client_id: each word must appear somewhere
+      for (const word of words) {
+        listQuery = listQuery.or(
+          `first_name.ilike.%${word}%,last_name.ilike.%${word}%,email.ilike.%${word}%,source_client_id.ilike.%${word}%`
+        )
+      }
+    }
+
+    const { data, error } = await listQuery
+    if (error) return Response.json({ error: error.message }, { status: 500 })
+
+    const rows = (data ?? []).map((c: Record<string, unknown>) => {
+      const sp = c.service_policies as { count: number }[] | null
+      const { service_policies: _, ...rest } = c
+      return { ...rest, policy_count: sp?.[0]?.count ?? 0 }
+    })
+
+    return Response.json({ data: rows })
+  }
 
   // ── Deduplication mode ────────────────────────────────────────────────────
   if (isDedup) {
