@@ -101,6 +101,9 @@ export function ServiceRequestClient({
   const [reviewCreating, setReviewCreating] = useState(false)
   const [reviewError,    setReviewError]    = useState<string | null>(null)
 
+  // ── Surrender cascade result ──────────────────────────────────────
+  const [surrenderResult, setSurrenderResult] = useState<string | null>(null)
+
   async function handleQueueReview() {
     const policyId = initialSr.service_policies?.id
     if (!policyId) return
@@ -176,6 +179,17 @@ export function ServiceRequestClient({
   // ── Advance workflow ────────────────────────────────────────────────────
   async function advanceWorkflow(newStatus: string) {
     setSrError(null)
+
+    if (
+      newStatus === 'resolved' &&
+      requestType === 'Policy Surrender' &&
+      !confirm(
+        'Resolve this surrender request?\n\n' +
+        'The linked policy will be marked Surrendered. ' +
+        'If this was the customer\'s last active policy, they will be flagged as a former client.'
+      )
+    ) return
+
     const patch: Record<string, string | null> = { workflow_status: newStatus }
     if (newStatus === 'resolved' && !dateResolved) {
       patch.date_resolved = new Date().toISOString().split('T')[0]
@@ -192,6 +206,14 @@ export function ServiceRequestClient({
     setWorkflowStatus(newStatus)
     if (patch.date_resolved) setDateResolved(patch.date_resolved)
     setSr(prev => ({ ...prev, workflow_status: newStatus }))
+
+    if (json.surrenderCascade) {
+      setSurrenderResult(
+        json.surrenderCascade.customerIsFormer
+          ? 'Policy marked Surrendered · Customer flagged as former client'
+          : 'Policy marked Surrendered · Customer has other active policies'
+      )
+    }
   }
 
   // ── Save SR notes / dates ───────────────────────────────────────────────
@@ -451,6 +473,14 @@ export function ServiceRequestClient({
           >
             Reopen
           </button>
+        </div>
+      )}
+
+      {/* Surrender cascade result */}
+      {surrenderResult && (
+        <div className="rounded-xl p-3 border border-amber-500/20 bg-amber-500/5 text-xs text-amber-300 flex items-center gap-2">
+          <CheckCircle2 className="w-3.5 h-3.5 shrink-0 text-amber-400" />
+          {surrenderResult}
         </div>
       )}
 

@@ -17,6 +17,7 @@ export type CustomerRow = {
   segment: string | null
   is_emoney_client: boolean
   is_deceased: boolean
+  is_former_client: boolean
   source_client_id: string | null
   date_of_birth: string | null
   created_at: string
@@ -35,7 +36,7 @@ export default async function CustomersPage() {
   while (true) {
     const { data, error } = await supabase
       .from('customers')
-      .select('id, first_name, last_name, phone, email, city, state, segment, is_emoney_client, is_deceased, source_client_id, date_of_birth, created_at, service_policies(count)')
+      .select('id, first_name, last_name, phone, email, city, state, segment, is_emoney_client, is_deceased, is_former_client, source_client_id, date_of_birth, created_at, service_policies(count)')
       .eq('is_test', false)
       .order('last_name')
       .order('first_name')

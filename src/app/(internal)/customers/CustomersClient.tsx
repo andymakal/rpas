@@ -39,13 +39,15 @@ export default function CustomersClient({ customers }: { customers: CustomerRow[
   const router = useRouter()
   const [query, setQuery]                 = useState('')
   const [segFilter, setSegFilter]         = useState<SegmentFilter>('all')
-  const [showDeceased, setShowDeceased]   = useState(false)
-  const [noPoliciesOnly, setNoPoliciesOnly] = useState(false)
+  const [showDeceased, setShowDeceased]       = useState(false)
+  const [showFormerClients, setShowFormerClients] = useState(false)
+  const [noPoliciesOnly, setNoPoliciesOnly]   = useState(false)
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     return customers.filter(c => {
       if (!showDeceased && c.is_deceased) return false
+      if (!showFormerClients && c.is_former_client) return false
       if (noPoliciesOnly && c.policy_count > 0) return false
 
       if (segFilter === 'unassigned' && c.segment) return false
@@ -68,7 +70,7 @@ export default function CustomersClient({ customers }: { customers: CustomerRow[
   const segCounts = useMemo(() => {
     const counts: Record<string, number> = { all: 0, unassigned: 0 }
     for (const c of customers) {
-      if (c.is_deceased) continue
+      if (c.is_deceased || c.is_former_client) continue
       counts.all++
       const seg = c.segment ?? 'unassigned'
       counts[seg] = (counts[seg] ?? 0) + 1
@@ -104,6 +106,15 @@ export default function CustomersClient({ customers }: { customers: CustomerRow[
                 className="rounded"
               />
               No policies only
+            </label>
+            <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={showFormerClients}
+                onChange={e => setShowFormerClients(e.target.checked)}
+                className="rounded"
+              />
+              Show former clients
             </label>
             <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
               <input
@@ -208,6 +219,11 @@ export default function CustomersClient({ customers }: { customers: CustomerRow[
                       {c.is_emoney_client && (
                         <span className="text-xs px-1.5 py-0.5 rounded bg-violet-900/50 text-violet-300 border border-violet-800 font-medium">
                           eMoney
+                        </span>
+                      )}
+                      {c.is_former_client && (
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 font-medium">
+                          Former
                         </span>
                       )}
                       {c.is_deceased && (
