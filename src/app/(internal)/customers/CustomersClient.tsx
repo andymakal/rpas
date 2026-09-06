@@ -65,7 +65,7 @@ export default function CustomersClient({ customers }: { customers: CustomerRow[
         id.includes(q)
       )
     })
-  }, [customers, query, segFilter, showDeceased, noPoliciesOnly])
+  }, [customers, query, segFilter, showDeceased, showFormerClients, noPoliciesOnly])
 
   const segCounts = useMemo(() => {
     const counts: Record<string, number> = { all: 0, unassigned: 0 }
