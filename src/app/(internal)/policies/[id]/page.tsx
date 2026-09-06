@@ -12,6 +12,8 @@ export type PolicyDetail = {
   policy_number:        string
   carrier:              string
   product_type:         string | null
+  product_category:     string | null
+  type_data:            Record<string, unknown> | null
   issue_date:           string | null
   term_length:          string | null
   face_amount:          number | null
@@ -66,7 +68,7 @@ export default async function PolicyDetailPage({
   const { data: policy, error } = await supabase
     .from('service_policies')
     .select(`
-      id, client_name, policy_number, carrier, product_type,
+      id, client_name, policy_number, carrier, product_type, product_category, type_data,
       issue_date, term_length, face_amount, death_benefit_amount,
       cash_value_amount, cost_basis, annual_premium, premium_mode,
       rate_class, riders, insured_first_name, insured_last_name,

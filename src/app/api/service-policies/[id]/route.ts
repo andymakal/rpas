@@ -22,13 +22,14 @@ export async function PATCH(
   }
 
   const allowed = [
-    'client_name', 'policy_number', 'carrier', 'product_type',
+    'client_name', 'policy_number', 'carrier', 'product_type', 'product_category',
     'issue_date', 'term_length', 'face_amount', 'death_benefit_amount',
     'cash_value_amount', 'cash_value_as_of_date', 'cost_basis',
     'annual_premium', 'premium_mode', 'rate_class', 'riders',
     'insured_first_name', 'insured_last_name', 'primary_beneficiary', 'contingent_beneficiary',
     'coverage_status', 'sa_status', 'sa_form_sent_at', 'notes',
     'agency_id', 'agent_id', 'customer_id',
+    'type_data',
   ]
   const patch: Record<string, unknown> = {}
   for (const key of allowed) {
