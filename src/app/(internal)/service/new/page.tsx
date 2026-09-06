@@ -27,7 +27,8 @@ export default async function NewServiceRequestPage({
     supabase
       .from('agencies')
       .select('id, name, display_name')
-      .eq('is_active', true),
+      .eq('is_active', true)
+      .order('name'),
     supabase
       .from('agents')
       .select('id, first_name, last_name, agency_id')

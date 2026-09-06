@@ -124,6 +124,7 @@ export default function NewReferralPage() {
         .from('agencies')
         .select('id, name, display_name')
         .eq('is_active', true)
+        .order('name')
       if (data) setAgencies(
         data.slice().sort((a, b) =>
           (a.display_name ?? a.name).localeCompare(b.display_name ?? b.name)
