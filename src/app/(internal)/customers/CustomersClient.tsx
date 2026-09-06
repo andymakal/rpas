@@ -62,9 +62,13 @@ export default function CustomersClient() {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
     return customers.filter(c => {
-      if (!showDeceased && c.is_deceased) return false
-      if (!showFormerClients && c.is_former_client) return false
-      if (noPoliciesOnly && c.policy_count > 0) return false
+      // When searching by name/phone/email/id, bypass status filters so
+      // deceased or former clients can still be found by name.
+      if (!q) {
+        if (!showDeceased && c.is_deceased) return false
+        if (!showFormerClients && c.is_former_client) return false
+        if (noPoliciesOnly && c.policy_count > 0) return false
+      }
 
       if (segFilter === 'unassigned' && c.segment) return false
       if (segFilter !== 'all' && segFilter !== 'unassigned' && c.segment !== segFilter) return false
@@ -114,7 +118,11 @@ export default function CustomersClient() {
           <div>
             <h1 className="text-xl font-semibold text-white">Customers</h1>
             <p className="text-sm text-slate-400 mt-0.5">
-              {loading ? 'Loading…' : `${customers.length.toLocaleString()} total`}
+              {loading
+                ? 'Loading…'
+                : filtered.length !== customers.length
+                  ? `${filtered.length.toLocaleString()} of ${customers.length.toLocaleString()}`
+                  : `${customers.length.toLocaleString()} total`}
             </p>
           </div>
           <div className="flex items-center gap-4">
