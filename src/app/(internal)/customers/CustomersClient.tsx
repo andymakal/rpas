@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { Search, ChevronRight } from 'lucide-react'
@@ -35,13 +35,23 @@ function formatPhone(raw: string | null): string {
 
 type SegmentFilter = 'all' | 'wanderer' | 'explorer' | 'pathfinder' | 'voyageur' | 'trailblazer' | 'unassigned'
 
-export default function CustomersClient({ customers }: { customers: CustomerRow[] }) {
+export default function CustomersClient() {
   const router = useRouter()
+  const [customers, setCustomers]         = useState<CustomerRow[]>([])
+  const [loading, setLoading]             = useState(true)
+  const [loadError, setLoadError]         = useState<string | null>(null)
   const [query, setQuery]                 = useState('')
   const [segFilter, setSegFilter]         = useState<SegmentFilter>('all')
   const [showDeceased, setShowDeceased]       = useState(false)
   const [showFormerClients, setShowFormerClients] = useState(false)
   const [noPoliciesOnly, setNoPoliciesOnly]   = useState(false)
+
+  useEffect(() => {
+    fetch('/api/customers')
+      .then(r => r.json())
+      .then((data: CustomerRow[]) => { setCustomers(data); setLoading(false) })
+      .catch(err => { setLoadError(String(err)); setLoading(false) })
+  }, [])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
@@ -88,6 +98,8 @@ export default function CustomersClient({ customers }: { customers: CustomerRow[
     { value: 'unassigned',  label: `Unassigned (${segCounts.unassigned ?? 0})` },
   ]
 
+  if (loadError) return <div className="p-6 text-red-400">Failed to load customers: {loadError}</div>
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Header */}
@@ -95,7 +107,9 @@ export default function CustomersClient({ customers }: { customers: CustomerRow[
         <div className="flex items-center justify-between mb-4">
           <div>
             <h1 className="text-xl font-semibold text-white">Customers</h1>
-            <p className="text-sm text-slate-400 mt-0.5">{customers.length.toLocaleString()} total</p>
+            <p className="text-sm text-slate-400 mt-0.5">
+              {loading ? 'Loading…' : `${customers.length.toLocaleString()} total`}
+            </p>
           </div>
           <div className="flex items-center gap-4">
             <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
@@ -159,7 +173,11 @@ export default function CustomersClient({ customers }: { customers: CustomerRow[
 
       {/* Table */}
       <div className="flex-1 overflow-y-auto">
-        {filtered.length === 0 ? (
+        {loading ? (
+          <div className="flex items-center justify-center h-40 text-slate-500 text-sm">
+            Loading customers…
+          </div>
+        ) : filtered.length === 0 ? (
           <div className="flex items-center justify-center h-40 text-slate-500 text-sm">
             No customers match your filters.
           </div>
