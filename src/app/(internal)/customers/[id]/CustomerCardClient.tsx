@@ -242,6 +242,10 @@ function Section({ title, icon: Icon, count, children, action }: {
   )
 }
 
+const TERMINAL_COVERAGE = new Set([
+  'surrendered', 'terminated', 'lapsed', 'cancelled', 'matured', 'death claim',
+])
+
 const CARRIERS = [
   'Allstate Life', 'American General', 'Banner Life', 'Corebridge Financial',
   'Equitable', 'Everlake Assurance', 'Everlake Life', 'Foresters Financial',
@@ -1239,7 +1243,11 @@ export function CustomerCardClient({
                         <SaBadge saStatus={p.sa_status} formSentAt={p.sa_form_sent_at} />
                       </td>
                       <td className="px-4 py-3">
-                        {p.flag_count > 0 ? (
+                        {TERMINAL_COVERAGE.has((p.coverage_status ?? '').toLowerCase()) ? (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-red-900/30 text-red-400 border border-red-800/50 font-medium capitalize">
+                            {(p.coverage_status ?? '').charAt(0).toUpperCase() + (p.coverage_status ?? '').slice(1).toLowerCase()}
+                          </span>
+                        ) : p.flag_count > 0 ? (
                           <span className="inline-flex items-center gap-1 text-xs text-amber-400">
                             <AlertTriangle className="w-3 h-3" /> {p.flag_count}
                           </span>
@@ -1302,11 +1310,11 @@ export function CustomerCardClient({
                               <div>
                                 <label className="block text-xs text-slate-500 mb-1">Coverage status</label>
                                 <select value={editPolStatus} onChange={e => setEditPolStatus(e.target.value)} className={inputCls}>
-                                  <option value="active">Active</option>
-                                  <option value="lapsed">Lapsed</option>
-                                  <option value="surrendered">Surrendered</option>
-                                  <option value="terminated">Terminated</option>
-                                  <option value="matured">Matured</option>
+                                  <option value="Active">Active</option>
+                                  <option value="Lapsed">Lapsed</option>
+                                  <option value="Surrendered">Surrendered</option>
+                                  <option value="Terminated">Terminated</option>
+                                  <option value="Matured">Matured</option>
                                 </select>
                               </div>
                             </div>

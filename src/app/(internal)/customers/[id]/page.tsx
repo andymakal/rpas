@@ -194,7 +194,11 @@ export default async function CustomerCardPage({
       !policiedCaseIds.has(c.id)
     )
 
-  // Compute flag counts server-side
+  const TERMINAL_STATUSES = new Set([
+    'surrendered', 'terminated', 'lapsed', 'cancelled', 'matured', 'death claim',
+  ])
+
+  // Compute flag counts server-side — terminal policies get 0 (nothing left to review)
   const policies: LinkedPolicy[] = (policiesRaw ?? []).map(p => ({
     id:              p.id,
     policy_number:   p.policy_number,
@@ -207,7 +211,9 @@ export default async function CustomerCardPage({
     sa_status:           p.sa_status,
     sa_form_sent_at:     p.sa_form_sent_at,
     primary_beneficiary: (p as unknown as Record<string, unknown>).primary_beneficiary as string | null ?? null,
-    flag_count:          generateFlags(p as unknown as Parameters<typeof generateFlags>[0]).length,
+    flag_count:          TERMINAL_STATUSES.has((p.coverage_status ?? '').toLowerCase())
+      ? 0
+      : generateFlags(p as unknown as Parameters<typeof generateFlags>[0]).length,
     agencies:        (Array.isArray(p.agencies) ? p.agencies[0] : p.agencies) as { name: string; display_name: string | null } | null,
   }))
 
