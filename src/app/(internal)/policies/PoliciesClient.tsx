@@ -6,7 +6,7 @@ import Link from 'next/link'
 import {
   Search, AlertTriangle, CheckCircle, Clock, FileQuestion,
   Send, Shield, ShieldOff, ChevronRight, Cigarette,
-  ChevronUp, ChevronDown, ChevronsUpDown,
+  ChevronUp, ChevronDown, ChevronsUpDown, Phone,
 } from 'lucide-react'
 import type { PolicyListRow } from './page'
 import { fmtDate } from '@/lib/fmt'
@@ -351,6 +351,15 @@ export function PoliciesClient({
           >
             {showInactive ? 'Hiding inactive' : 'Show inactive'}
           </button>
+
+          {/* RMD Call List shortcut */}
+          <Link
+            href="/policies/rmd"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border border-amber-800 bg-amber-900/30 text-amber-300 hover:bg-amber-900/50 transition-colors"
+          >
+            <Phone className="w-3.5 h-3.5" />
+            RMD Call List
+          </Link>
         </div>
 
         {/* Table */}
