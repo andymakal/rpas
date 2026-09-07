@@ -51,6 +51,7 @@ export type CustomerDetail = {
   is_deceased:     boolean
   is_former_client: boolean
   is_prospect:     boolean
+  is_emoney_client: boolean
 }
 
 export type LinkedCase = {
@@ -149,7 +150,7 @@ export default async function CustomerCardPage({
       tobacco_use, preferred_language, health_notes,
       customer_group_id, segment, drive_folder_url,
       fact_finder, fact_finder_verified_at, fact_finder_verified_by,
-      is_deceased, is_former_client, is_prospect
+      is_deceased, is_former_client, is_prospect, is_emoney_client
     `)
     .eq('id', id)
     .single()

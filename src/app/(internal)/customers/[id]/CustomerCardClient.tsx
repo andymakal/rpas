@@ -405,6 +405,9 @@ export function CustomerCardClient({
   const [editingStatus,  setEditingStatus]  = useState(false)
   const [statusSaving,   setStatusSaving]   = useState(false)
 
+  const [isEmoney,       setIsEmoney]       = useState(customer.is_emoney_client)
+  const [emoneySaving,   setEmoneySaving]   = useState(false)
+
   // Notes
   const [notes,        setNotes]        = useState<CustomerNote[]>(initialNotes)
   const [noteSection,  setNoteSection]  = useState<'triage' | 'producer' | 'underwriting'>('triage')
@@ -670,6 +673,20 @@ export function CustomerCardClient({
     }
   }
 
+  async function handleEmoneyToggle() {
+    setEmoneySaving(true)
+    try {
+      const res = await fetch(`/api/customers/${customer.id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ is_emoney_client: !isEmoney }),
+      })
+      if (res.ok) setIsEmoney(v => !v)
+    } finally {
+      setEmoneySaving(false)
+    }
+  }
+
   async function handlePostNote() {
     if (!noteBody.trim()) { setNoteErr('Note cannot be empty'); return }
     setNotePosting(true); setNoteErr(null)
@@ -903,6 +920,20 @@ export function CustomerCardClient({
                         </div>
                       )}
                     </div>
+
+                    {/* My Money toggle */}
+                    <button
+                      onClick={handleEmoneyToggle}
+                      disabled={emoneySaving}
+                      title="Toggle Allstate My Money (eMoney) account"
+                      className={`inline-flex items-center text-xs border rounded-full px-2.5 py-0.5 font-medium transition-colors disabled:opacity-50 ${
+                        isEmoney
+                          ? 'bg-violet-900/50 text-violet-300 border-violet-800'
+                          : 'bg-slate-800 text-slate-600 border-slate-700 hover:text-slate-400 hover:border-slate-600'
+                      }`}
+                    >
+                      My Money
+                    </button>
 
                     </div>{/* end flex row */}
                   </div>
