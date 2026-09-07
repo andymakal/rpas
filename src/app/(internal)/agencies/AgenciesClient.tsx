@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Check, Loader2, AlertCircle, Search, Plus, X, ChevronDown, ChevronUp } from 'lucide-react'
+import { Check, Loader2, AlertCircle, Search, Plus, X, ChevronDown, ChevronUp, Download } from 'lucide-react'
 import type { AgencyRow, SmlTeamOption } from './page'
 
 type Props = {
@@ -252,6 +252,46 @@ export function AgenciesClient({ agencies, teams }: Props) {
       return nameA.localeCompare(nameB)
     })
 
+  function exportCSV() {
+    const headers = [
+      'Display Name', 'Allstate Name', 'SML Team', 'Agent #', 'GDC Partner #',
+      'Phone', 'Email', 'Street', 'City', 'State', 'ZIP',
+      'Slug', 'Active', '6/63 Licensed',
+    ]
+    const escape = (v: string | null | boolean) => {
+      const s = v == null ? '' : String(v)
+      return s.includes(',') || s.includes('"') || s.includes('\n')
+        ? `"${s.replace(/"/g, '""')}"`
+        : s
+    }
+    const rows = [
+      headers.join(','),
+      ...filtered.map(a => [
+        a.display_name ?? a.name,
+        a.name,
+        a.sml_team ?? '',
+        a.agent_number ?? '',
+        a.allstate_partner_number ?? '',
+        a.contact_phone ?? '',
+        a.contact_email ?? '',
+        a.contact_street ?? '',
+        a.contact_city ?? '',
+        a.contact_state ?? '',
+        a.contact_zip ?? '',
+        a.slug,
+        a.is_active ? 'Yes' : 'No',
+        a.is_securities_licensed ? 'Yes' : 'No',
+      ].map(escape).join(',')),
+    ].join('\r\n')
+
+    const url = URL.createObjectURL(new Blob([rows], { type: 'text/csv' }))
+    const a   = document.createElement('a')
+    a.href = url
+    a.download = `agencies-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   return (
     <div className="space-y-4">
 
@@ -444,6 +484,15 @@ export function AgenciesClient({ agencies, teams }: Props) {
             className="w-64 bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600"
           />
         </div>
+
+        <button
+          onClick={exportCSV}
+          title="Export current view to CSV"
+          className="flex items-center gap-1.5 text-xs font-medium text-slate-400 border border-slate-700 hover:border-slate-500 hover:text-slate-200 px-3 py-2 rounded-lg transition-colors"
+        >
+          <Download className="w-3.5 h-3.5" />
+          Export CSV
+        </button>
 
         {teams.length > 0 && (
           <div className="flex flex-wrap items-center gap-2">
