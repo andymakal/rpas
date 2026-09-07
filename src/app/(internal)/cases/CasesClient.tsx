@@ -81,8 +81,9 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
   const router = useRouter()
   const [tab, setTab]               = useState<FilterTab>('active')
   const [search, setSearch]         = useState('')
-  const [agencyFilter, setAgencyFilter] = useState('')
-  const [statusFilter, setStatusFilter] = useState('')
+  const [agencyFilter, setAgencyFilter]   = useState('')
+  const [statusFilter, setStatusFilter]   = useState('')
+  const [carrierFilter, setCarrierFilter] = useState('')
   const [sortKey, setSortKey]       = useState<SortKey>('days')
   const [sortDir, setSortDir]       = useState<'asc' | 'desc'>('desc')
 
@@ -121,6 +122,16 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
     return Array.from(seen).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
   }, [tier2Plus])
 
+  // Carrier options
+  const carrierOptions = useMemo(() => {
+    const seen = new Set<string>()
+    for (const r of tier2Plus) {
+      const name = r.products?.carriers?.short_name ?? ''
+      if (name) seen.add(name)
+    }
+    return Array.from(seen).sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))
+  }, [tier2Plus])
+
   // Status options — derived from the current tab's rows so the dropdown is contextual
   const statusOptions = useMemo(() => {
     let rows = tier2Plus
@@ -147,6 +158,7 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
 
     if (agencyFilter)  rows = rows.filter(r => (r.agencies?.display_name ?? r.agencies?.name ?? '') === agencyFilter)
     if (statusFilter)  rows = rows.filter(r => (r.stage_translations?.agency_label ?? r.internal_status) === statusFilter)
+    if (carrierFilter) rows = rows.filter(r => (r.products?.carriers?.short_name ?? '') === carrierFilter)
 
     if (search.trim()) {
       const q = search.toLowerCase()
@@ -188,7 +200,7 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
     })
 
     return rows
-  }, [tier2Plus, tab, agencyFilter, statusFilter, search, sortKey, sortDir])
+  }, [tier2Plus, tab, agencyFilter, statusFilter, carrierFilter, search, sortKey, sortDir])
 
   const SortTh = ({ k, label }: { k: SortKey; label: string }) => {
     const active = sortKey === k
@@ -235,7 +247,7 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
         <div className="flex items-center rounded-lg bg-slate-900 border border-slate-800 p-0.5 gap-0.5">
           {TABS.map(t => (
-            <button key={t.key} onClick={() => { setTab(t.key); setAgencyFilter(''); setStatusFilter('') }}
+            <button key={t.key} onClick={() => { setTab(t.key); setAgencyFilter(''); setStatusFilter(''); setCarrierFilter('') }}
               className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${tab === t.key ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'}`}>
               {t.label}
             </button>
@@ -246,6 +258,12 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
           className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-slate-500">
           <option value="">All agencies</option>
           {agencyOptions.map(a => <option key={a} value={a}>{a}</option>)}
+        </select>
+
+        <select value={carrierFilter} onChange={e => setCarrierFilter(e.target.value)}
+          className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-slate-500">
+          <option value="">All carriers</option>
+          {carrierOptions.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
 
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
