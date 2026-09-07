@@ -120,6 +120,24 @@ export async function logCase(data: {
       return { success: false, error: 'Failed to create case record.' }
     }
 
+    // Auto-mark as Prospect if the customer has no existing client relationship
+    // (no policies, service requests, or policy reviews)
+    const isNewCustomer = !data.customer_id
+    let markProspect = isNewCustomer
+
+    if (!isNewCustomer) {
+      const [polRes, srRes, revRes] = await Promise.all([
+        supabase.from('service_policies').select('id', { count: 'exact', head: true }).eq('customer_id', customerId).eq('is_test', false),
+        supabase.from('service_requests').select('id', { count: 'exact', head: true }).eq('customer_id', customerId),
+        supabase.from('policy_reviews').select('id', { count: 'exact', head: true }).eq('customer_id', customerId),
+      ])
+      markProspect = (polRes.count ?? 0) === 0 && (srRes.count ?? 0) === 0 && (revRes.count ?? 0) === 0
+    }
+
+    if (markProspect) {
+      await supabase.from('customers').update({ is_prospect: true }).eq('id', customerId)
+    }
+
     return { success: true, case_id: newCase.id }
   } catch (err) {
     console.error('Unexpected error:', err)

@@ -90,6 +90,7 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
   const [sourceFilter, setSourceFilter] = useState('')
   const [sortKey, setSortKey]           = useState<SortKey>('date')
   const [sortDir, setSortDir]           = useState<'desc' | 'asc'>('desc')
+  const [showStalled, setShowStalled]   = useState(false)
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
@@ -157,6 +158,13 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
       })
     }
 
+    if (showStalled) {
+      list = list.filter(r =>
+        r.stage_translations?.is_active_case === true &&
+        (r.last_contact_at === null || daysAgo(r.last_contact_at) >= 30)
+      )
+    }
+
     list = [...list].sort((a, b) => {
       let diff = 0
       if (sortKey === 'client') {
@@ -182,9 +190,16 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
     })
 
     return list
-  }, [rows, tab, statusFilter, agencyFilter, sourceFilter, search, sortKey, sortDir])
+  }, [rows, tab, statusFilter, agencyFilter, sourceFilter, search, sortKey, sortDir, showStalled])
 
   const activeCount = rows.filter(r => r.stage_translations?.is_active_case === true).length
+
+  const stalledCount = useMemo(() =>
+    rows.filter(r =>
+      r.stage_translations?.is_active_case === true &&
+      (r.last_contact_at === null || daysAgo(r.last_contact_at) >= 30)
+    ).length
+  , [rows])
 
   const tabs: { key: typeof tab; label: string }[] = [
     { key: 'active', label: `Active (${activeCount})` },
@@ -204,20 +219,37 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
     <div className="space-y-4">
       {/* Tabs */}
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div className="flex gap-1 bg-slate-800 rounded-lg p-1">
-          {tabs.map(t => (
-            <button
-              key={t.key}
-              onClick={() => { setTab(t.key); setStatusFilter(''); setAgencyFilter(''); setSourceFilter('') }}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                tab === t.key
-                  ? 'bg-slate-700 text-white'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1 bg-slate-800 rounded-lg p-1">
+            {tabs.map(t => (
+              <button
+                key={t.key}
+                onClick={() => { setTab(t.key); setStatusFilter(''); setAgencyFilter(''); setSourceFilter('') }}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  tab === t.key
+                    ? 'bg-slate-700 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => {
+              const next = !showStalled
+              setShowStalled(next)
+              if (next) { setSortKey('stale'); setSortDir('asc') }
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+              showStalled
+                ? 'bg-red-900/50 text-red-300 border-red-800'
+                : 'text-slate-400 border-slate-700 hover:text-slate-200 hover:border-slate-600'
+            }`}
+          >
+            <AlertTriangle className="w-3.5 h-3.5" />
+            Stalled ({stalledCount})
+          </button>
         </div>
 
         {/* Filters */}
