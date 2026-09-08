@@ -6,8 +6,8 @@ import { useRouter } from 'next/navigation'
 import { Phone, Search, ArrowLeft, ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
 import type { RmdRow } from './page'
 
-function fmt(n: number | null) {
-  if (n == null) return '—'
+function fmtCurrency(n: number) {
+  if (n === 0) return '—'
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
 }
 
@@ -18,17 +18,17 @@ function fmtPhone(raw: string | null): string {
   return raw
 }
 
-type SortKey = 'name' | 'carrier' | 'value' | 'rmd'
+type SortKey = 'name' | 'age' | 'carrier' | 'value' | 'rmd'
 
 export function RmdClient({ rows }: { rows: RmdRow[] }) {
-  const router  = useRouter()
-  const [search, setSearch]     = useState('')
-  const [sortKey, setSortKey]   = useState<SortKey>('name')
-  const [sortDir, setSortDir]   = useState<'asc' | 'desc'>('asc')
+  const router = useRouter()
+  const [search, setSearch]   = useState('')
+  const [sortKey, setSortKey] = useState<SortKey>('name')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
   function handleSort(k: SortKey) {
     if (sortKey === k) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortKey(k); setSortDir(k === 'value' || k === 'rmd' ? 'desc' : 'asc') }
+    else { setSortKey(k); setSortDir(k === 'value' || k === 'rmd' || k === 'age' ? 'desc' : 'asc') }
   }
 
   function SortIcon({ k }: { k: SortKey }) {
@@ -36,31 +36,27 @@ export function RmdClient({ rows }: { rows: RmdRow[] }) {
     return sortDir === 'asc' ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />
   }
 
-  const totalRmd = rows.reduce((s, r) => s + (r.rmd_amount ?? 0), 0)
-  const totalValue = rows.reduce((s, r) => s + (r.cash_value_amount ?? 0), 0)
+  const totalRmd   = rows.reduce((s, r) => s + r.total_rmd_amount,    0)
+  const totalValue = rows.reduce((s, r) => s + r.total_account_value, 0)
 
   const displayed = useMemo(() => {
     let list = rows
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       list = list.filter(r =>
-        r.client_name.toLowerCase().includes(q) ||
-        (r.customers?.first_name ?? '').toLowerCase().includes(q) ||
-        (r.customers?.last_name ?? '').toLowerCase().includes(q) ||
-        (r.customers?.phone ?? '').includes(q)
+        r.first_name.toLowerCase().includes(q) ||
+        r.last_name.toLowerCase().includes(q) ||
+        (r.phone ?? '').includes(q) ||
+        r.carriers.toLowerCase().includes(q)
       )
     }
     return [...list].sort((a, b) => {
       let diff = 0
-      if (sortKey === 'name') {
-        diff = a.client_name.localeCompare(b.client_name)
-      } else if (sortKey === 'carrier') {
-        diff = a.carrier.localeCompare(b.carrier)
-      } else if (sortKey === 'value') {
-        diff = (a.cash_value_amount ?? 0) - (b.cash_value_amount ?? 0)
-      } else if (sortKey === 'rmd') {
-        diff = (a.rmd_amount ?? 0) - (b.rmd_amount ?? 0)
-      }
+      if      (sortKey === 'name')    diff = a.last_name.localeCompare(b.last_name) || a.first_name.localeCompare(b.first_name)
+      else if (sortKey === 'age')     diff = a.age - b.age
+      else if (sortKey === 'carrier') diff = a.carriers.localeCompare(b.carriers)
+      else if (sortKey === 'value')   diff = a.total_account_value - b.total_account_value
+      else if (sortKey === 'rmd')     diff = a.total_rmd_amount    - b.total_rmd_amount
       return sortDir === 'asc' ? diff : -diff
     })
   }, [rows, search, sortKey, sortDir])
@@ -69,37 +65,43 @@ export function RmdClient({ rows }: { rows: RmdRow[] }) {
     <div className="space-y-5">
 
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <Link href="/policies" className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors">
-              <ArrowLeft className="w-3.5 h-3.5" />
-              Policies
-            </Link>
-          </div>
-          <h1 className="text-white text-2xl font-semibold">RMD Call List</h1>
-          <p className="text-slate-400 text-sm mt-0.5">
-            Active annuity policies — {rows.length} client{rows.length !== 1 ? 's' : ''}
-          </p>
+      <div>
+        <div className="flex items-center gap-2 mb-1">
+          <Link href="/policies" className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors">
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Policies
+          </Link>
         </div>
+        <h1 className="text-white text-2xl font-semibold">RMD Call List</h1>
+        <p className="text-slate-400 text-sm mt-0.5">
+          Annuity clients age 73+ — {rows.length} client{rows.length !== 1 ? 's' : ''}
+        </p>
       </div>
 
       {/* Summary cards */}
       <div className="grid grid-cols-3 gap-4">
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <p className="text-xs text-slate-500 uppercase tracking-wide font-medium mb-1">Total Annual RMDs</p>
-          <p className="text-2xl font-bold text-amber-400">{fmt(totalRmd)}</p>
-          <p className="text-xs text-slate-600 mt-0.5">across {rows.filter(r => r.rmd_amount).length} with known amounts</p>
+          <p className="text-2xl font-bold text-amber-400">
+            {totalRmd > 0
+              ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(totalRmd)
+              : '—'}
+          </p>
+          <p className="text-xs text-slate-600 mt-0.5">across {rows.filter(r => r.total_rmd_amount > 0).length} with known amounts</p>
         </div>
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <p className="text-xs text-slate-500 uppercase tracking-wide font-medium mb-1">Total Account Value</p>
-          <p className="text-2xl font-bold text-slate-300">{fmt(totalValue)}</p>
-          <p className="text-xs text-slate-600 mt-0.5">across {rows.filter(r => r.cash_value_amount).length} with known values</p>
+          <p className="text-2xl font-bold text-slate-300">
+            {totalValue > 0
+              ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(totalValue)
+              : '—'}
+          </p>
+          <p className="text-xs text-slate-600 mt-0.5">across {rows.filter(r => r.total_account_value > 0).length} with known values</p>
         </div>
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <p className="text-xs text-slate-500 uppercase tracking-wide font-medium mb-1">Clients to Call</p>
           <p className="text-2xl font-bold text-white">{rows.length}</p>
-          <p className="text-xs text-slate-600 mt-0.5">active annuities in system</p>
+          <p className="text-xs text-slate-600 mt-0.5">active annuities, age 73+</p>
         </div>
       </div>
 
@@ -109,7 +111,7 @@ export function RmdClient({ rows }: { rows: RmdRow[] }) {
         <input
           value={search}
           onChange={e => setSearch(e.target.value)}
-          placeholder="Search client or phone…"
+          placeholder="Search client, carrier, or phone…"
           className="w-full bg-slate-900 border border-slate-700 text-slate-200 text-sm rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600"
         />
       </div>
@@ -126,11 +128,15 @@ export function RmdClient({ rows }: { rows: RmdRow[] }) {
               </th>
               <th className="text-left px-4 py-3 font-medium">Phone</th>
               <th className="text-left px-4 py-3 font-medium">
+                <button onClick={() => handleSort('age')} className="inline-flex items-center gap-1 hover:text-slate-300 transition-colors">
+                  Age <SortIcon k="age" />
+                </button>
+              </th>
+              <th className="text-left px-4 py-3 font-medium">
                 <button onClick={() => handleSort('carrier')} className="inline-flex items-center gap-1 hover:text-slate-300 transition-colors">
                   Carrier <SortIcon k="carrier" />
                 </button>
               </th>
-              <th className="text-left px-4 py-3 font-medium">Policy #</th>
               <th className="text-right px-4 py-3 font-medium">
                 <button onClick={() => handleSort('value')} className="inline-flex items-center gap-1 hover:text-slate-300 transition-colors ml-auto">
                   <SortIcon k="value" /> Account Value
@@ -149,37 +155,27 @@ export function RmdClient({ rows }: { rows: RmdRow[] }) {
             {displayed.length === 0 ? (
               <tr>
                 <td colSpan={8} className="px-4 py-12 text-center text-slate-500 text-sm">
-                  {search ? 'No clients match your search.' : 'No RMD policies found.'}
+                  {search ? 'No clients match your search.' : 'No annuity clients age 73+ found.'}
                 </td>
               </tr>
             ) : displayed.map(row => {
-              const phone       = row.customers?.phone ?? null
-              const phoneFormatted = fmtPhone(phone)
-              const agencyName  = row.agencies?.display_name ?? row.agencies?.name ?? '—'
-              const customerUrl = row.customer_id ? `/customers/${row.customer_id}` : null
-
+              const phoneFormatted = fmtPhone(row.phone)
               return (
                 <tr
-                  key={row.id}
-                  onClick={() => router.push(`/policies/${row.id}`)}
+                  key={row.customer_id}
+                  onClick={() => router.push(`/customers/${row.customer_id}`)}
                   className="hover:bg-slate-800/40 transition-colors cursor-pointer group"
                 >
                   <td className="px-4 py-3">
-                    <p className="text-white font-medium">{row.client_name}</p>
-                    {customerUrl && (
-                      <Link
-                        href={customerUrl}
-                        onClick={e => e.stopPropagation()}
-                        className="text-xs text-sky-400 hover:underline"
-                      >
-                        {row.customers?.first_name} {row.customers?.last_name} →
-                      </Link>
+                    <p className="text-white font-medium">{row.first_name} {row.last_name}</p>
+                    {row.policy_count > 1 && (
+                      <p className="text-xs text-slate-500">{row.policy_count} policies</p>
                     )}
                   </td>
                   <td className="px-4 py-3">
                     {phoneFormatted ? (
                       <a
-                        href={`tel:${phone}`}
+                        href={`tel:${row.phone}`}
                         onClick={e => e.stopPropagation()}
                         className="inline-flex items-center gap-1.5 text-sm font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
                       >
@@ -190,21 +186,21 @@ export function RmdClient({ rows }: { rows: RmdRow[] }) {
                       <span className="text-slate-600 text-xs">No phone</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-slate-300 text-xs">{row.carrier}</td>
-                  <td className="px-4 py-3 font-mono text-slate-400 text-xs">{row.policy_number}</td>
+                  <td className="px-4 py-3 text-slate-300 tabular-nums">{row.age}</td>
+                  <td className="px-4 py-3 text-slate-300 text-xs">{row.carriers || '—'}</td>
                   <td className="px-4 py-3 text-right text-slate-200 font-medium tabular-nums">
-                    {fmt(row.cash_value_amount)}
+                    {fmtCurrency(row.total_account_value)}
                   </td>
                   <td className="px-4 py-3 text-right tabular-nums">
-                    {row.rmd_amount
-                      ? <span className="text-amber-400 font-semibold">{fmt(row.rmd_amount)}</span>
+                    {row.total_rmd_amount > 0
+                      ? <span className="text-amber-400 font-semibold">{fmtCurrency(row.total_rmd_amount)}</span>
                       : <span className="text-slate-600 text-xs">—</span>
                     }
                   </td>
-                  <td className="px-4 py-3 text-slate-400 text-xs">{agencyName}</td>
+                  <td className="px-4 py-3 text-slate-400 text-xs">{row.agency_name ?? '—'}</td>
                   <td className="px-4 py-3">
                     <Link
-                      href={`/policies/${row.id}`}
+                      href={`/customers/${row.customer_id}`}
                       onClick={e => e.stopPropagation()}
                       className="text-slate-600 group-hover:text-slate-300 transition-colors"
                     >
