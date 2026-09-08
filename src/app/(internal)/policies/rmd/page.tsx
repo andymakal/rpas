@@ -33,7 +33,7 @@ export default async function RmdPage() {
       customers ( first_name, last_name, phone )
     `)
     .eq('is_test', false)
-    .filter('type_data->>rmd_required', 'eq', 'true')
+    .eq('product_category', 'annuity')
     .not('coverage_status', 'in', `(${TERMINAL.join(',')})`)
     .order('client_name', { ascending: true })
 

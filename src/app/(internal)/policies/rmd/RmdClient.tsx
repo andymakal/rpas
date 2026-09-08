@@ -79,7 +79,7 @@ export function RmdClient({ rows }: { rows: RmdRow[] }) {
           </div>
           <h1 className="text-white text-2xl font-semibold">RMD Call List</h1>
           <p className="text-slate-400 text-sm mt-0.5">
-            Annuity clients with required minimum distributions — {rows.length} client{rows.length !== 1 ? 's' : ''}
+            Active annuity policies — {rows.length} client{rows.length !== 1 ? 's' : ''}
           </p>
         </div>
       </div>
@@ -99,7 +99,7 @@ export function RmdClient({ rows }: { rows: RmdRow[] }) {
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <p className="text-xs text-slate-500 uppercase tracking-wide font-medium mb-1">Clients to Call</p>
           <p className="text-2xl font-bold text-white">{rows.length}</p>
-          <p className="text-xs text-slate-600 mt-0.5">active annuity policies</p>
+          <p className="text-xs text-slate-600 mt-0.5">active annuities in system</p>
         </div>
       </div>
 
