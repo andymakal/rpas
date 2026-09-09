@@ -234,6 +234,11 @@ export function NewServiceRequestClient({
         if (!clientName.trim())   { setError('Client name is required'); setSaving(false); return }
         if (!policyNumber.trim()) { setError('Policy number is required'); setSaving(false); return }
         if (!resolvedCarrier)     { setError('Carrier is required'); setSaving(false); return }
+        if (/[,/]/.test(policyNumber) || /\d\s+\d/.test(policyNumber)) {
+          setError('Policy number looks like it contains multiple numbers — enter one policy number per service request.')
+          setSaving(false)
+          return
+        }
 
         bodyPayload = {
           request_type:  resolvedType,
