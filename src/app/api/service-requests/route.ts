@@ -72,10 +72,13 @@ export async function POST(request: NextRequest) {
 
     // Find-or-create: if a policy with this number already exists, use it
     // rather than inserting a duplicate (policy_number has a unique constraint).
+    // Use ilike for case-insensitive match so minor capitalization differences
+    // don't cause a missed lookup followed by a constraint violation.
     const { data: existing } = await supabase
       .from('service_policies')
       .select('id')
-      .eq('policy_number', np.policy_number.trim())
+      .ilike('policy_number', np.policy_number.trim())
+      .limit(1)
       .maybeSingle()
 
     if (existing) {
@@ -112,10 +115,29 @@ export async function POST(request: NextRequest) {
         .single()
 
       if (pErr || !policy) {
-        console.error('service_policy insert error:', pErr)
-        return Response.json({ error: pErr?.message ?? 'Failed to create policy' }, { status: 500 })
+        // PostgreSQL unique_violation (23505) — the ilike lookup missed it due to
+        // whitespace or encoding differences. Do one more exact lookup to recover.
+        if (pErr?.code === '23505') {
+          const { data: fallback } = await supabase
+            .from('service_policies')
+            .select('id')
+            .ilike('policy_number', np.policy_number.trim())
+            .limit(1)
+            .maybeSingle()
+          if (fallback) {
+            policyId = fallback.id
+          } else {
+            return Response.json({
+              error: 'A policy with this number already exists in the system. Search for it in the "Find Existing Policy" box above and select it instead of re-entering.',
+            }, { status: 409 })
+          }
+        } else {
+          console.error('service_policy insert error:', pErr)
+          return Response.json({ error: pErr?.message ?? 'Failed to create policy' }, { status: 500 })
+        }
+      } else {
+        policyId = policy.id
       }
-      policyId = policy.id
     }
   }
 
