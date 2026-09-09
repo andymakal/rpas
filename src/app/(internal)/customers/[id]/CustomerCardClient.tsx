@@ -408,6 +408,15 @@ export function CustomerCardClient({
   const [isEmoney,       setIsEmoney]       = useState(customer.is_emoney_client)
   const [emoneySaving,   setEmoneySaving]   = useState(false)
 
+  // Household link
+  const [showHouseholdLink,   setShowHouseholdLink]   = useState(false)
+  const [householdQuery,      setHouseholdQuery]      = useState('')
+  const [householdResults,    setHouseholdResults]    = useState<{ id: string; first_name: string; last_name: string; phone: string | null }[]>([])
+  const [householdSearching,  setHouseholdSearching]  = useState(false)
+  const [householdConfirm,    setHouseholdConfirm]    = useState<{ id: string; first_name: string; last_name: string } | null>(null)
+  const [householdLinking,    setHouseholdLinking]    = useState(false)
+  const [householdErr,        setHouseholdErr]        = useState<string | null>(null)
+
   // Notes
   const [notes,        setNotes]        = useState<CustomerNote[]>(initialNotes)
   const [noteSection,  setNoteSection]  = useState<'triage' | 'producer' | 'underwriting'>('triage')
@@ -685,6 +694,40 @@ export function CustomerCardClient({
     } finally {
       setEmoneySaving(false)
     }
+  }
+
+  useEffect(() => {
+    if (householdQuery.length < 2) { setHouseholdResults([]); return }
+    setHouseholdSearching(true)
+    const t = setTimeout(async () => {
+      try {
+        const res  = await fetch(`/api/customers/search?q=${encodeURIComponent(householdQuery)}&exclude=${customer.id}`)
+        const json = await res.json()
+        setHouseholdResults(json.data ?? [])
+      } catch { /* silent */ } finally { setHouseholdSearching(false) }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [householdQuery, customer.id])
+
+  async function handleLinkHousehold() {
+    if (!householdConfirm) return
+    setHouseholdLinking(true)
+    setHouseholdErr(null)
+    try {
+      const res = await fetch('/api/customer-groups/link', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ customer_id_a: customer.id, customer_id_b: householdConfirm.id }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setHouseholdErr(json.error ?? 'Link failed'); return }
+      setShowHouseholdLink(false)
+      setHouseholdQuery('')
+      setHouseholdResults([])
+      setHouseholdConfirm(null)
+      router.refresh()
+    } catch { setHouseholdErr('Network error') }
+    finally  { setHouseholdLinking(false) }
   }
 
   async function handlePostNote() {
@@ -1711,8 +1754,80 @@ export function CustomerCardClient({
         )}
 
         {/* Household */}
-        {householdMembers.length > 0 && (
-          <Section title="Household" icon={Users} count={householdMembers.length}>
+        <Section
+          title="Household"
+          icon={Users}
+          count={householdMembers.length}
+          action={
+            <button
+              onClick={() => { setShowHouseholdLink(v => !v); setHouseholdQuery(''); setHouseholdResults([]); setHouseholdConfirm(null); setHouseholdErr(null) }}
+              className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-500 rounded-lg px-2.5 py-1 transition-colors"
+            >
+              <Plus className="w-3 h-3" /> Link
+            </button>
+          }
+        >
+          {/* Link search panel */}
+          {showHouseholdLink && (
+            <div className="px-5 py-4 border-b border-slate-800 space-y-3">
+              {householdConfirm ? (
+                <div className="space-y-3">
+                  <p className="text-sm text-slate-300">
+                    Link <span className="text-white font-medium">{customer.first_name} {customer.last_name}</span> and <span className="text-white font-medium">{householdConfirm.first_name} {householdConfirm.last_name}</span> as household members?
+                  </p>
+                  {householdErr && <p className="text-xs text-red-400">{householdErr}</p>}
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={handleLinkHousehold}
+                      disabled={householdLinking}
+                      className="text-xs bg-sky-700 hover:bg-sky-600 disabled:opacity-50 text-white rounded-lg px-3 py-1.5 transition-colors"
+                    >
+                      {householdLinking ? 'Linking…' : 'Confirm'}
+                    </button>
+                    <button
+                      onClick={() => setHouseholdConfirm(null)}
+                      className="text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                    >
+                      Back
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="relative">
+                  <input
+                    autoFocus
+                    value={householdQuery}
+                    onChange={e => setHouseholdQuery(e.target.value)}
+                    placeholder="Search by name…"
+                    className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600"
+                  />
+                  {householdSearching && (
+                    <p className="text-xs text-slate-500 mt-1">Searching…</p>
+                  )}
+                  {!householdSearching && householdQuery.length >= 2 && householdResults.length === 0 && (
+                    <p className="text-xs text-slate-500 mt-1">No customers found.</p>
+                  )}
+                  {householdResults.length > 0 && (
+                    <div className="mt-1 bg-slate-800 border border-slate-700 rounded-lg divide-y divide-slate-700 overflow-hidden">
+                      {householdResults.map(r => (
+                        <button
+                          key={r.id}
+                          onClick={() => { setHouseholdConfirm(r); setHouseholdQuery(''); setHouseholdResults([]) }}
+                          className="w-full text-left px-3 py-2 hover:bg-slate-700 transition-colors"
+                        >
+                          <p className="text-sm text-slate-200">{r.first_name} {r.last_name}</p>
+                          {r.phone && <p className="text-xs text-slate-500">{r.phone}</p>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Existing members */}
+          {householdMembers.length > 0 ? (
             <div className="divide-y divide-slate-800">
               {householdMembers.map(m => (
                 <Link
@@ -1729,12 +1844,8 @@ export function CustomerCardClient({
                         {m.first_name} {m.last_name}
                       </p>
                       <div className="flex items-center gap-3 mt-0.5">
-                        {m.phone && (
-                          <span className="text-xs text-slate-500">{m.phone}</span>
-                        )}
-                        {m.email && (
-                          <span className="text-xs text-slate-500">{m.email}</span>
-                        )}
+                        {m.phone && <span className="text-xs text-slate-500">{m.phone}</span>}
+                        {m.email && <span className="text-xs text-slate-500">{m.email}</span>}
                       </div>
                     </div>
                   </div>
@@ -1742,8 +1853,12 @@ export function CustomerCardClient({
                 </Link>
               ))}
             </div>
-          </Section>
-        )}
+          ) : (
+            !showHouseholdLink && (
+              <p className="px-5 py-4 text-sm text-slate-600">No household members linked.</p>
+            )
+          )}
+        </Section>
 
         {/* Fact Finder */}
         <FactFinderSection
