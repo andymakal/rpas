@@ -50,6 +50,10 @@ export type CaseDetail = {
     last_name: string
     email: string | null
     phone: string | null
+    street: string | null
+    city: string | null
+    state: string | null
+    zip: string | null
     date_of_birth: string | null
     marital_status: string | null
     gender: string | null
@@ -177,7 +181,7 @@ export default async function CaseDetailPage({
         is_1035, exchange_carrier, exchange_policy_number, exchange_product_type,
         exchange_cash_value, exchange_cost_basis, exchange_surrender_charges, exchange_net_transfer,
         agency_id, customer_id, agent_id, producer_id,
-        customers!customer_id ( first_name, last_name, email, phone, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, preferred_language, customer_group_id ),
+        customers!customer_id ( first_name, last_name, email, phone, street, city, state, zip, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, preferred_language, customer_group_id ),
         agencies ( id, name, display_name, slug ),
         agents ( first_name, last_name, email ),
         producers ( first_name, last_name ),

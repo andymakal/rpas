@@ -264,10 +264,10 @@ export default function CaseEditClient({
   const [cLastName,    setCLastName]    = useState(caseData.customers?.last_name      ?? '')
   const [cPhone,       setCPhone]       = useState(caseData.customers?.phone          ?? '')
   const [cEmail,       setCEmail]       = useState(caseData.customers?.email          ?? '')
-  const [cStreet,      setCStreet]      = useState('')
-  const [cCity,        setCCity]        = useState('')
-  const [cState,       setCState]       = useState('')
-  const [cZip,         setCZip]         = useState('')
+  const [cStreet,      setCStreet]      = useState(caseData.customers?.street ?? '')
+  const [cCity,        setCCity]        = useState(caseData.customers?.city   ?? '')
+  const [cState,       setCState]       = useState(caseData.customers?.state  ?? '')
+  const [cZip,         setCZip]         = useState(caseData.customers?.zip    ?? '')
   const [cDob,         setCDob]         = useState(
     caseData.customers?.date_of_birth ? caseData.customers.date_of_birth.split('T')[0] : ''
   )
@@ -871,7 +871,16 @@ export default function CaseEditClient({
                 </div>
                 <div className="flex items-start gap-2.5">
                   <MapPin className="w-4 h-4 text-slate-500 flex-shrink-0 mt-0.5" />
-                  <span className="text-sm text-slate-500 italic">Address on Referral record</span>
+                  {cStreet || cCity ? (
+                    <div className="text-sm text-slate-300 leading-snug">
+                      {cStreet && <div>{cStreet}</div>}
+                      {(cCity || cState || cZip) && (
+                        <div>{[cCity, cState].filter(Boolean).join(', ')}{cZip ? ` ${cZip}` : ''}</div>
+                      )}
+                    </div>
+                  ) : (
+                    <button onClick={() => setEditingContact(true)} className="text-sm text-slate-600 hover:text-slate-400 italic transition-colors">No address — add one</button>
+                  )}
                 </div>
                 <div className="flex items-center gap-2.5">
                   <span className="text-sm text-slate-500">Language:</span>
