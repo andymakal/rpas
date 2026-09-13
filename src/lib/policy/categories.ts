@@ -96,7 +96,7 @@ export const CATEGORY_CONFIGS: Record<PolicyCategory, CategoryConfig> = {
     typeDataFields: [
       {
         key: 'annuity_type', label: 'Annuity Type', type: 'select',
-        options: ['Fixed', 'Fixed Indexed', 'Variable', 'SPIA', 'MYGA', 'DIA'],
+        options: ['Fixed', 'Fixed Indexed', 'Variable', 'RILA', 'SPIA', 'MYGA', 'DIA'],
       },
       {
         key: 'account_type', label: 'Account Type', type: 'select',
