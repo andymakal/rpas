@@ -47,6 +47,29 @@ export async function PATCH(
 }
 
 /**
+ * DELETE /api/financial-review/[id]
+ * Permanently delete a financial review.
+ */
+export async function DELETE(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const { id } = await params
+  const supabase = createAdminClient()
+
+  const { error } = await supabase
+    .from('financial_reviews')
+    .delete()
+    .eq('id', id)
+
+  if (error) {
+    return Response.json({ error: error.message }, { status: 500 })
+  }
+
+  return new Response(null, { status: 204 })
+}
+
+/**
  * GET /api/financial-review/[id]
  * Fetch a single financial review with full customer context.
  */

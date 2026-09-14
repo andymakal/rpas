@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, ExternalLink, Save, Loader2, Printer, CheckCircle } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Save, Loader2, Printer, CheckCircle, Trash2 } from 'lucide-react'
 import type { FinancialReviewDetail, RpasPolicy, HouseholdMember, ParsedContract } from './page'
 
 // ── Formatters ────────────────────────────────────────────────────────────────
@@ -159,10 +159,19 @@ export function FinancialReviewClient({
   policies:         RpasPolicy[]
   householdMembers: HouseholdMember[]
 }) {
-  const [notes,  setNotes]  = useState(review.recommendation_notes ?? '')
-  const [status, setStatus] = useState(review.status)
-  const [saving, setSaving] = useState(false)
-  const [saved,  setSaved]  = useState(false)
+  const [notes,    setNotes]    = useState(review.recommendation_notes ?? '')
+  const [status,   setStatus]   = useState(review.status)
+  const [saving,   setSaving]   = useState(false)
+  const [saved,    setSaved]    = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+
+  async function handleDelete() {
+    if (!confirmDelete) { setConfirmDelete(true); return }
+    setDeleting(true)
+    await fetch(`/api/financial-review/${rpasId}`, { method: 'DELETE' })
+    window.location.href = '/financial-review'
+  }
 
   async function handleSave() {
     setSaving(true)
@@ -208,6 +217,19 @@ export function FinancialReviewClient({
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm border transition-colors ${
+                  confirmDelete
+                    ? 'border-red-700 bg-red-900/20 text-red-400 hover:bg-red-900/40'
+                    : 'border-slate-700 text-slate-500 hover:text-red-400 hover:border-red-700'
+                }`}
+              >
+                {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                {confirmDelete ? 'Confirm delete' : 'Delete'}
+              </button>
+
               <select
                 value={status}
                 onChange={e => setStatus(e.target.value)}
