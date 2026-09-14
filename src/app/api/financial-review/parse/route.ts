@@ -39,10 +39,11 @@ Always respond with valid JSON only — no markdown, no prose, no code fences.`
       "insured": "string or null",
       "account_type": "one of: Non-Qualified, Traditional IRA, Roth IRA, SEP IRA, SIMPLE IRA, Inherited IRA, or null",
       "issue_date": "YYYY-MM-DD or null",
-      "valuation_date": "YYYY-MM-DD or null — statement date",
-      "account_value": "number or null — total account/accumulation value",
-      "surrender_value": "number or null — net surrender value after charges",
-      "cost_basis": "number or null — owner's cost basis / premium paid",
+      "valuation_date": "YYYY-MM-DD or null — the AS-OF date of this statement (the most recent date shown, not an older period)",
+      "account_value": "number or null — the CURRENT total account/accumulation value AS OF the statement date. Use the ending or most recent balance, NOT a prior period or beginning-of-period value",
+      "surrender_value": "number or null — net surrender value after charges, as of statement date",
+      "initial_premium": "number or null — the very first premium/contribution paid when the contract was issued",
+      "total_premiums_paid": "number or null — the TOTAL of ALL premiums and contributions paid to date (initial + all subsequent). This is the owner's total investment / cost basis. Look for fields labeled: total premiums paid, total contributions, cumulative premiums, purchase payments, or cost basis",
       "surrender_period": "string or null — e.g. '7 years' or 'ends 2027'",
       "surrender_schedule": [
         { "year": 1, "charge_pct": 8 },
@@ -60,18 +61,22 @@ Always respond with valid JSON only — no markdown, no prose, no code fences.`
         "income_start_date": "YYYY-MM-DD or null",
         "income_status": "one of: not started, active, or null"
       },
-      "notes": "string or null — any important contract details not captured above"
+      "notes": "string or null — any important contract details not captured above, including additional contribution amounts and dates if visible"
     }
   ],
   "document_summary": "string — brief description of what this document is",
-  "statement_date": "YYYY-MM-DD or null",
+  "statement_date": "YYYY-MM-DD or null — the as-of date of this statement",
   "account_holder": "string — primary account holder name(s)"
 }
 
-If there is only one contract, the contracts array will have one entry.
-If there are multiple contracts (e.g. from a brokerage statement), include all of them.
-Use null for any field you cannot find or determine.
-Return ONLY the JSON object — nothing else.`
+KEY RULES:
+- account_value must be the ENDING/CURRENT balance as of the statement date, not a beginning-of-period or prior quarter value
+- total_premiums_paid is the sum of ALL money the owner has put in (initial + every subsequent contribution) — do NOT use just the initial premium
+- If the document shows a transaction history or activity table, sum all purchase payments/contributions to get total_premiums_paid
+- If there is only one contract, the contracts array will have one entry
+- If there are multiple contracts (e.g. from a brokerage statement), include all of them
+- Use null for any field you cannot find or determine
+- Return ONLY the JSON object — nothing else`
 
   try {
     const response = await client.messages.create({

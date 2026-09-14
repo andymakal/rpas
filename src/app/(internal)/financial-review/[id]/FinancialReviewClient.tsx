@@ -61,9 +61,12 @@ function ContractCard({ contract, index }: { contract: ParsedContract; index: nu
           <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
             <Field label="Owner"            value={contract.owner} />
             {contract.joint_owner && <Field label="Joint Owner" value={contract.joint_owner} />}
-            <Field label="Account Value"    value={fmtCurrency(contract.account_value)} />
-            <Field label="Surrender Value"  value={fmtCurrency(contract.surrender_value)} />
-            <Field label="Cost Basis"       value={fmtCurrency(contract.cost_basis)} />
+            <Field label="Account Value"       value={fmtCurrency(contract.account_value)} />
+            <Field label="Surrender Value"    value={fmtCurrency(contract.surrender_value)} />
+            <Field label="Total Premiums Paid" value={fmtCurrency(contract.total_premiums_paid ?? contract.cost_basis)} />
+            {contract.initial_premium != null && contract.total_premiums_paid != null && contract.initial_premium !== contract.total_premiums_paid && (
+              <Field label="Initial Premium" value={fmtCurrency(contract.initial_premium)} />
+            )}
             <Field label="Issue Date"       value={fmtDate(contract.issue_date)} />
             <Field label="Valuation Date"   value={fmtDate(contract.valuation_date)} />
             <Field label="Free Withdrawal"  value={fmtPct(contract.free_withdrawal_pct)} />

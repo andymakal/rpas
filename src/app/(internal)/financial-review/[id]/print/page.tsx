@@ -109,7 +109,7 @@ export default async function FinancialReviewPrintPage({
   const hasIncomeBenefits = contracts.some(c => c.income_benefit != null)
   const totalAccountValue = contracts.reduce((sum, c) => sum + (c.account_value ?? 0), 0)
   const totalSurrenderValue = contracts.reduce((sum, c) => sum + (c.surrender_value ?? 0), 0)
-  const totalCostBasis = contracts.reduce((sum, c) => sum + (c.cost_basis ?? 0), 0)
+  const totalCostBasis = contracts.reduce((sum, c) => sum + (c.total_premiums_paid ?? c.cost_basis ?? 0), 0)
   const totalSurrenderCharges = contracts.reduce((sum, c) => sum + (c.current_surrender_charge_amt ?? 0), 0)
 
   const navyBlue = '#1F3864'
@@ -189,9 +189,12 @@ export default async function FinancialReviewPrintPage({
                     {contract.joint_owner && <Row label="Joint Owner" value={contract.joint_owner} />}
                     <Row label="Issue Date"     value={fmtDate(contract.issue_date)} />
                     <Row label="Valuation Date" value={fmtShortDate(contract.valuation_date)} />
-                    <Row label="Account Value"  value={fmt(contract.account_value)} bold />
-                    <Row label="Surrender Value" value={fmt(contract.surrender_value)} />
-                    <Row label="Cost Basis"     value={fmt(contract.cost_basis)} />
+                    <Row label="Account Value"       value={fmt(contract.account_value)} bold />
+                    <Row label="Surrender Value"    value={fmt(contract.surrender_value)} />
+                    <Row label="Total Premiums Paid" value={fmt(contract.total_premiums_paid ?? contract.cost_basis)} />
+                    {contract.initial_premium != null && contract.total_premiums_paid != null && contract.initial_premium !== contract.total_premiums_paid && (
+                      <Row label="Initial Premium" value={fmt(contract.initial_premium)} />
+                    )}
                     {contract.free_withdrawal_pct != null && (
                       <Row label="Free Withdrawal Allowance" value={fmtPct(contract.free_withdrawal_pct)} />
                     )}
@@ -225,7 +228,7 @@ export default async function FinancialReviewPrintPage({
                     {[
                       { label: 'Account Value', fn: (c: ParsedContract) => fmt(c.account_value), bold: true },
                       { label: 'Surrender Value', fn: (c: ParsedContract) => fmt(c.surrender_value) },
-                      { label: 'Cost Basis', fn: (c: ParsedContract) => fmt(c.cost_basis) },
+                      { label: 'Total Premiums Paid', fn: (c: ParsedContract) => fmt(c.total_premiums_paid ?? c.cost_basis) },
                       { label: 'Surrender Charge', fn: (c: ParsedContract) => c.current_surrender_charge_amt != null ? fmt(c.current_surrender_charge_amt) : fmtPct(c.current_surrender_charge_pct) },
                       { label: 'Surrender Period', fn: (c: ParsedContract) => c.surrender_period ?? '—' },
                       { label: 'Free Withdrawal %', fn: (c: ParsedContract) => fmtPct(c.free_withdrawal_pct) },

@@ -18,6 +18,8 @@ export type ParsedContract = {
   valuation_date: string | null
   account_value: number | null
   surrender_value: number | null
+  initial_premium: number | null
+  total_premiums_paid: number | null
   cost_basis: number | null
   surrender_period: string | null
   surrender_schedule: { year: number; charge_pct: number }[]
