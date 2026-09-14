@@ -25,6 +25,7 @@ import {
   FileSpreadsheet,
   Shield,
   BookOpen,
+  BarChart2,
 } from 'lucide-react'
 import { NotificationBell } from '@/components/layout/NotificationBell'
 
@@ -39,6 +40,7 @@ const navItems = [
   { href: '/service',                icon: Wrench,          label: 'Service'          },
   { href: '/policies',               icon: BookOpen,        label: 'Policies'         },
   { href: '/reviews',                icon: ClipboardCheck,  label: 'Reviews'          },
+  { href: '/financial-review',       icon: BarChart2,       label: 'Financial Review' },
   { href: '/customers',               icon: Users,           label: 'Customers'        },
   { href: '/team',                   icon: Users,           label: 'Team'             },
   { href: '/admin/gdc-import',       icon: Upload,          label: 'GDC Import'       },
