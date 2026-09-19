@@ -25,7 +25,9 @@ export async function POST(request: NextRequest) {
 Extract structured data from annuity carrier statements and fact sheets.
 Always respond with valid JSON only — no markdown, no prose, no code fences.`
 
-  const userPrompt = `Extract all annuity contract information from this document and return a JSON object with this exact shape:
+  const userPrompt = `Extract all annuity contract information from this carrier statement or account document. This may be a variable, indexed, fixed, or MYGA annuity from any carrier (including Sammons Financial Group companies such as Midland National, North American Company, etc.).
+
+Return a JSON object with this exact shape:
 
 {
   "contracts": [

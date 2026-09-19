@@ -199,15 +199,23 @@ export function FinancialReviewClient({
       }
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Failed')
-      if (supplementMode === 'statement' && json.data?.contracts) {
-        setContracts(json.data.contracts)
+      if (supplementMode === 'statement') {
+        const added = json.added ?? 0
+        if (added === 0) {
+          setSupplementError('No contracts were found in that PDF. Try a different document.')
+          setSupplementing(false)
+          return
+        }
+        if (json.data?.contracts) setContracts(json.data.contracts)
+        setSupplementError(`✓ Added ${added} contract${added !== 1 ? 's' : ''}.`)
+        setSupplementFile(null)
       }
-      if (supplementMode === 'info' && json.data?.recommendation_notes != null) {
-        setNotes(json.data.recommendation_notes)
+      if (supplementMode === 'info') {
+        if (json.data?.recommendation_notes != null) setNotes(json.data.recommendation_notes)
+        setSupplementError('✓ Product info appended to notes.')
+        setSupplementFile(null)
+        setSupplementUrl('')
       }
-      setSupplementOpen(false)
-      setSupplementFile(null)
-      setSupplementUrl('')
     } catch (err) {
       setSupplementError(err instanceof Error ? err.message : 'Something went wrong')
     } finally {
@@ -320,7 +328,7 @@ export function FinancialReviewClient({
           <section className="mb-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-slate-300 text-sm font-medium uppercase tracking-wider">
-                Extracted Contracts ({contracts.length})
+                Extracted Contracts ({contracts.filter(c => c.carrier?.trim()).length})
               </h2>
               <div className="flex gap-2">
                 <button
@@ -391,7 +399,9 @@ export function FinancialReviewClient({
                 )}
 
                 {supplementError && (
-                  <p className="text-xs text-red-400 mt-2">{supplementError}</p>
+                  <p className={`text-xs mt-2 ${supplementError.startsWith('✓') ? 'text-green-400' : 'text-red-400'}`}>
+                    {supplementError}
+                  </p>
                 )}
 
                 <div className="flex gap-2 mt-3">
@@ -409,17 +419,21 @@ export function FinancialReviewClient({
               </div>
             )}
 
-            {contracts.length === 0 ? (
-              <div className="text-center py-10 border border-dashed border-slate-700 rounded-lg text-slate-500 text-sm">
-                No contracts extracted from the uploaded document.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {contracts.map((c, i) => (
-                  <ContractCard key={i} contract={c} index={i} />
-                ))}
-              </div>
-            )}
+            {(() => {
+              const visible = contracts.filter(c => c.carrier?.trim())
+              if (visible.length === 0) return (
+                <div className="text-center py-10 border border-dashed border-slate-700 rounded-lg text-slate-500 text-sm">
+                  No contracts extracted from the uploaded document.
+                </div>
+              )
+              return (
+                <div className="space-y-3">
+                  {visible.map((c, i) => (
+                    <ContractCard key={i} contract={c} index={i} />
+                  ))}
+                </div>
+              )
+            })()}
           </section>
 
           {/* Recommendation notes */}
