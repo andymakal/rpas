@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, ExternalLink, Save, Loader2, Printer, CheckCircle, Trash2 } from 'lucide-react'
+import { ArrowLeft, ExternalLink, Save, Loader2, Printer, CheckCircle, Trash2, Plus, FileText, Link2 } from 'lucide-react'
 import type { FinancialReviewDetail, RpasPolicy, HouseholdMember, ParsedContract } from './page'
 
 // ── Formatters ────────────────────────────────────────────────────────────────
@@ -161,10 +161,59 @@ export function FinancialReviewClient({
 }) {
   const [notes,    setNotes]    = useState(review.recommendation_notes ?? '')
   const [status,   setStatus]   = useState(review.status)
+  const [contracts, setContracts] = useState(review.contracts)
   const [saving,   setSaving]   = useState(false)
   const [saved,    setSaved]    = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+
+  // Supplement panel
+  const [supplementOpen, setSupplementOpen] = useState(false)
+  const [supplementMode, setSupplementMode] = useState<'statement' | 'info'>('statement')
+  const [supplementUrl,  setSupplementUrl]  = useState('')
+  const [supplementFile, setSupplementFile] = useState<File | null>(null)
+  const [supplementing,  setSupplementing]  = useState(false)
+  const [supplementError, setSupplementError] = useState<string | null>(null)
+  const supplementFileRef = useRef<HTMLInputElement>(null)
+
+  async function handleSupplement() {
+    setSupplementError(null)
+    setSupplementing(true)
+    try {
+      let res: Response
+      if (supplementMode === 'info' && supplementUrl.trim()) {
+        res = await fetch(`/api/financial-review/${rpasId}/supplement`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: supplementUrl.trim() }),
+        })
+      } else if (supplementFile) {
+        const fd = new FormData()
+        fd.append('pdf', supplementFile)
+        fd.append('mode', supplementMode)
+        res = await fetch(`/api/financial-review/${rpasId}/supplement`, { method: 'POST', body: fd })
+      } else {
+        setSupplementError('Please choose a file or enter a URL.')
+        setSupplementing(false)
+        return
+      }
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed')
+      if (supplementMode === 'statement' && json.data?.contracts) {
+        setContracts(json.data.contracts)
+      }
+      if (supplementMode === 'info' && json.data?.recommendation_notes != null) {
+        setNotes(json.data.recommendation_notes)
+      }
+      setSupplementOpen(false)
+      setSupplementFile(null)
+      setSupplementUrl('')
+    } catch (err) {
+      setSupplementError(err instanceof Error ? err.message : 'Something went wrong')
+    } finally {
+      setSupplementing(false)
+    }
+  }
 
   async function handleDelete() {
     if (!confirmDelete) { setConfirmDelete(true); return }
@@ -269,16 +318,104 @@ export function FinancialReviewClient({
 
           {/* Contracts */}
           <section className="mb-8">
-            <h2 className="text-slate-300 text-sm font-medium uppercase tracking-wider mb-4">
-              Extracted Contracts ({review.contracts.length})
-            </h2>
-            {review.contracts.length === 0 ? (
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-slate-300 text-sm font-medium uppercase tracking-wider">
+                Extracted Contracts ({contracts.length})
+              </h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setSupplementMode('statement'); setSupplementOpen(o => !o) }}
+                  className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded border border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Add Statement
+                </button>
+                <button
+                  onClick={() => { setSupplementMode('info'); setSupplementOpen(o => !o) }}
+                  className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded border border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-500 transition-colors"
+                >
+                  <Link2 className="w-3.5 h-3.5" />
+                  Add Product Info
+                </button>
+              </div>
+            </div>
+
+            {/* Supplement panel */}
+            {supplementOpen && (
+              <div className="mb-4 border border-slate-700 rounded-lg p-4 bg-slate-800/40">
+                <div className="flex gap-2 mb-3">
+                  <button
+                    onClick={() => setSupplementMode('statement')}
+                    className={`text-xs px-3 py-1.5 rounded border transition-colors ${supplementMode === 'statement' ? 'border-blue-600 bg-blue-900/30 text-blue-300' : 'border-slate-700 text-slate-400 hover:border-slate-500'}`}
+                  >
+                    Carrier Statement
+                  </button>
+                  <button
+                    onClick={() => setSupplementMode('info')}
+                    className={`text-xs px-3 py-1.5 rounded border transition-colors ${supplementMode === 'info' ? 'border-blue-600 bg-blue-900/30 text-blue-300' : 'border-slate-700 text-slate-400 hover:border-slate-500'}`}
+                  >
+                    Product Info
+                  </button>
+                </div>
+
+                {supplementMode === 'info' ? (
+                  <div className="space-y-2">
+                    <p className="text-xs text-slate-500">Paste a carrier product page URL or upload a fact sheet PDF — Claude will summarize key features and append to notes.</p>
+                    <input
+                      type="url"
+                      value={supplementUrl}
+                      onChange={e => setSupplementUrl(e.target.value)}
+                      placeholder="https://www.carrier.com/product-page"
+                      className="w-full bg-slate-900 border border-slate-700 rounded px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-500"
+                    />
+                    <p className="text-xs text-slate-600">— or upload a PDF —</p>
+                    <input ref={supplementFileRef} type="file" accept="application/pdf" className="hidden"
+                      onChange={e => setSupplementFile(e.target.files?.[0] ?? null)} />
+                    <button onClick={() => supplementFileRef.current?.click()}
+                      className="flex items-center gap-2 text-xs text-slate-400 hover:text-slate-200 border border-dashed border-slate-700 rounded px-3 py-2 w-full justify-center transition-colors">
+                      <FileText className="w-3.5 h-3.5" />
+                      {supplementFile ? supplementFile.name : 'Choose PDF'}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <p className="text-xs text-slate-500">Upload another carrier statement — contracts will be extracted and added to this review.</p>
+                    <input ref={supplementFileRef} type="file" accept="application/pdf" className="hidden"
+                      onChange={e => setSupplementFile(e.target.files?.[0] ?? null)} />
+                    <button onClick={() => supplementFileRef.current?.click()}
+                      className="flex items-center gap-2 text-xs text-slate-400 hover:text-slate-200 border border-dashed border-slate-700 rounded px-3 py-2 w-full justify-center transition-colors">
+                      <FileText className="w-3.5 h-3.5" />
+                      {supplementFile ? supplementFile.name : 'Choose PDF'}
+                    </button>
+                  </div>
+                )}
+
+                {supplementError && (
+                  <p className="text-xs text-red-400 mt-2">{supplementError}</p>
+                )}
+
+                <div className="flex gap-2 mt-3">
+                  <button onClick={handleSupplement} disabled={supplementing}
+                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded text-white disabled:opacity-50 transition-opacity hover:opacity-90"
+                    style={{ backgroundColor: '#1F3864' }}>
+                    {supplementing && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    {supplementing ? 'Analyzing...' : 'Analyze & Add'}
+                  </button>
+                  <button onClick={() => { setSupplementOpen(false); setSupplementFile(null); setSupplementUrl(''); setSupplementError(null) }}
+                    className="text-xs px-3 py-1.5 rounded text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-500 transition-colors">
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {contracts.length === 0 ? (
               <div className="text-center py-10 border border-dashed border-slate-700 rounded-lg text-slate-500 text-sm">
                 No contracts extracted from the uploaded document.
               </div>
             ) : (
               <div className="space-y-3">
-                {review.contracts.map((c, i) => (
+                {contracts.map((c, i) => (
                   <ContractCard key={i} contract={c} index={i} />
                 ))}
               </div>
