@@ -328,7 +328,7 @@ export function FinancialReviewClient({
           <section className="mb-8">
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-slate-300 text-sm font-medium uppercase tracking-wider">
-                Extracted Contracts ({contracts.filter(c => c.carrier?.trim()).length})
+                Extracted Contracts ({contracts.filter(c => c.carrier?.trim() || c.contract_number?.trim() || c.account_value != null || c.owner?.trim()).length})
               </h2>
               <div className="flex gap-2">
                 <button
@@ -420,7 +420,7 @@ export function FinancialReviewClient({
             )}
 
             {(() => {
-              const visible = contracts.filter(c => c.carrier?.trim())
+              const visible = contracts.filter(c => c.carrier?.trim() || c.contract_number?.trim() || c.account_value != null || c.owner?.trim())
               if (visible.length === 0) return (
                 <div className="text-center py-10 border border-dashed border-slate-700 rounded-lg text-slate-500 text-sm">
                   No contracts extracted from the uploaded document.

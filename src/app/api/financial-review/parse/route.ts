@@ -112,9 +112,19 @@ KEY RULES:
 
     let parsed: unknown
     try {
-      parsed = JSON.parse(textBlock.text)
+      const raw = textBlock.text.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim()
+      parsed = JSON.parse(raw)
     } catch {
       return Response.json({ error: 'AI returned non-JSON response', raw: textBlock.text }, { status: 500 })
+    }
+
+    // Filter truly empty contract entries
+    const p = parsed as { contracts?: unknown[]; document_summary?: unknown; statement_date?: unknown; account_holder?: unknown }
+    if (Array.isArray(p.contracts)) {
+      p.contracts = p.contracts.filter((c: unknown) => {
+        const ct = c as Record<string, unknown>
+        return ct.carrier || ct.contract_number || ct.account_value != null || ct.owner
+      })
     }
 
     return Response.json({ data: parsed })

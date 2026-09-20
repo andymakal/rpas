@@ -145,10 +145,19 @@ Return ONLY the JSON object — nothing else.`
 
     const textBlock = response.content.find(b => b.type === 'text')
     if (textBlock?.type === 'text') {
-      const parsed = JSON.parse(textBlock.text) as { contracts?: unknown[] }
-      newContracts = parsed.contracts ?? []
+      // Strip markdown code fences if Claude wrapped its JSON
+      const raw = textBlock.text.replace(/^```(?:json)?\n?/i, '').replace(/\n?```$/i, '').trim()
+      console.log('[supplement] raw Claude output:', raw.slice(0, 500))
+      const parsed = JSON.parse(raw) as { contracts?: unknown[] }
+      // Filter out completely empty entries (all key fields null)
+      newContracts = (parsed.contracts ?? []).filter((c: unknown) => {
+        const ct = c as Record<string, unknown>
+        return ct.carrier || ct.contract_number || ct.account_value != null || ct.owner
+      })
+      console.log('[supplement] extracted contracts:', newContracts.length, newContracts.map((c: unknown) => (c as Record<string, unknown>).carrier))
     }
   } catch (err) {
+    console.error('[supplement] parse error:', err)
     return Response.json({ error: err instanceof Error ? err.message : 'Parse failed' }, { status: 500 })
   }
 
