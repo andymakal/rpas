@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, ExternalLink, Save, Loader2, Printer, CheckCircle, Trash2, Plus, FileText, Link2 } from 'lucide-react'
-import type { FinancialReviewDetail, RpasPolicy, HouseholdMember, ParsedContract, UploadedDocument } from './page'
+import type { FinancialReviewDetail, RpasPolicy, HouseholdMember, ParsedContract, UploadedDocument, ContractFlag } from './page'
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -49,7 +49,15 @@ function ContractCard({ contract, index }: { contract: ParsedContract; index: nu
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-3">
+          {(() => {
+            const flagCount = (contract.analysis ?? []).filter(f => f.flagged).length
+            return flagCount > 0 ? (
+              <span className="text-xs font-medium bg-amber-900/40 text-amber-400 border border-amber-800/60 px-2 py-0.5 rounded-full">
+                {flagCount} finding{flagCount !== 1 ? 's' : ''}
+              </span>
+            ) : null
+          })()}
           <span className="text-white font-semibold">{fmtCurrency(contract.account_value)}</span>
           <span className="text-slate-500 text-xs">{open ? '▲' : '▼'}</span>
         </div>
@@ -128,6 +136,30 @@ function ContractCard({ contract, index }: { contract: ParsedContract; index: nu
               <p className="text-sm text-slate-300">{contract.notes}</p>
             </div>
           )}
+
+          {/* Key Findings — 10-point check */}
+          {(() => {
+            const flags: ContractFlag[] = (contract.analysis ?? []).filter(f => f.flagged)
+            if (flags.length === 0) return null
+            return (
+              <div className="border-t border-slate-800 pt-4">
+                <p className="text-xs font-medium text-amber-500 uppercase tracking-wider mb-3">
+                  Key Findings ({flags.length})
+                </p>
+                <div className="space-y-2">
+                  {flags.map(f => (
+                    <div key={f.number} className="flex gap-2.5 bg-amber-950/30 border border-amber-900/50 rounded-lg px-3 py-2">
+                      <span className="text-xs font-mono text-amber-600 mt-0.5 shrink-0">#{f.number}</span>
+                      <div>
+                        <p className="text-xs font-medium text-amber-300">{f.question}</p>
+                        {f.reason && <p className="text-xs text-amber-200/70 mt-0.5">{f.reason}</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
         </div>
       )}
     </div>

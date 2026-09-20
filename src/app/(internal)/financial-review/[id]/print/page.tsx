@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { notFound } from 'next/navigation'
-import type { ParsedContract } from '../page'
+import type { ParsedContract, ContractFlag } from '../page'
 
 export const dynamic = 'force-dynamic'
 
@@ -197,6 +197,12 @@ export default async function FinancialReviewPrintPage({
                     )}
                     {contract.free_withdrawal_pct != null && (
                       <Row label="Free Withdrawal Allowance" value={fmtPct(contract.free_withdrawal_pct)} />
+                    )}
+                    {contract.total_cost_pct != null && (
+                      <Row label="Total Annual Cost" value={fmtPct(contract.total_cost_pct)} />
+                    )}
+                    {contract.beneficiary && (
+                      <Row label="Primary Beneficiary" value={contract.beneficiary} />
                     )}
                   </tbody>
                 </table>
@@ -406,6 +412,56 @@ export default async function FinancialReviewPrintPage({
               ))}
             </div>
           )}
+
+          {/* ── Section 5: Key Findings (10-point check) ──────────────── */}
+          {(() => {
+            const contractsWithFlags = contracts
+              .map(c => ({ contract: c, flags: (c.analysis ?? []).filter((f: ContractFlag) => f.flagged) }))
+              .filter(({ flags }) => flags.length > 0)
+            if (contractsWithFlags.length === 0) return null
+
+            const amber = '#b45309'
+            const amberBg = '#fffbeb'
+            const amberBorder = '#fde68a'
+
+            return (
+              <div className="no-break" style={{ marginBottom: '32px' }}>
+                <SectionHeading>Section 5 — Key Findings</SectionHeading>
+                <p style={{ padding: '10px 12px', fontSize: '12px', color: '#6b7280', borderBottom: '1px solid #e5e7eb' }}>
+                  The following items were identified during the 10-point review. Each represents a potential opportunity or area for further discussion.
+                </p>
+                {contractsWithFlags.map(({ contract, flags }, ci) => (
+                  <div key={ci} className="no-break" style={{ marginBottom: '8px' }}>
+                    <div style={{
+                      backgroundColor: '#f9fafb', padding: '8px 16px',
+                      borderLeft: `4px solid ${amber}`, marginTop: '12px',
+                    }}>
+                      <p style={{ fontWeight: 700, color: navyBlue, fontSize: '13px' }}>
+                        {contract.carrier}{contract.product_name ? ` · ${contract.product_name}` : ''}
+                      </p>
+                    </div>
+                    <table>
+                      <tbody>
+                        {flags.map((f: ContractFlag) => (
+                          <tr key={f.number} style={{ borderBottom: `1px solid ${amberBorder}`, backgroundColor: amberBg }}>
+                            <td style={{ padding: '8px 12px', color: amber, fontSize: '11px', fontWeight: 700, width: '28px', verticalAlign: 'top' }}>
+                              #{f.number}
+                            </td>
+                            <td style={{ padding: '8px 12px', verticalAlign: 'top' }}>
+                              <p style={{ fontSize: '12px', fontWeight: 600, color: '#78350f' }}>{f.question}</p>
+                              {f.reason && (
+                                <p style={{ fontSize: '11px', color: '#92400e', marginTop: '3px' }}>{f.reason}</p>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+              </div>
+            )
+          })()}
 
           {/* ── Recommendation Notes ───────────────────────────────────── */}
           {rd.recommendation_notes && (

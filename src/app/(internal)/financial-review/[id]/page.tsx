@@ -5,6 +5,13 @@ import { FinancialReviewClient } from './FinancialReviewClient'
 
 export const dynamic = 'force-dynamic'
 
+export type ContractFlag = {
+  number: number
+  question: string
+  flagged: boolean
+  reason: string | null
+}
+
 export type ParsedContract = {
   contract_number: string | null
   carrier: string
@@ -21,11 +28,17 @@ export type ParsedContract = {
   initial_premium: number | null
   total_premiums_paid: number | null
   cost_basis: number | null
+  total_withdrawals: number | null
   surrender_period: string | null
   surrender_schedule: { year: number; charge_pct: number }[]
   current_surrender_charge_pct: number | null
   current_surrender_charge_amt: number | null
   free_withdrawal_pct: number | null
+  me_cost_pct: number | null
+  total_rider_cost_pct: number | null
+  total_cost_pct: number | null
+  beneficiary: string | null
+  beneficiary_is_trust: boolean | null
   income_benefit: {
     rider_name: string | null
     benefit_base: number | null
@@ -36,6 +49,7 @@ export type ParsedContract = {
     income_status: string | null
   } | null
   notes: string | null
+  analysis: ContractFlag[]
 }
 
 export type UploadedDocument = {

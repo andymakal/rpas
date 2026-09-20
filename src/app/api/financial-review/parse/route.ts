@@ -1,15 +1,9 @@
 import { NextRequest } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { ANNUITY_SYSTEM_PROMPT, ANNUITY_USER_PROMPT } from '@/lib/financial-review/annuity-prompt'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-/**
- * POST /api/financial-review/parse
- *
- * Accepts a multipart/form-data with a PDF file (field name: "pdf").
- * Sends the PDF to Claude Opus 5 for structured annuity contract extraction.
- * Returns parsed contract data as JSON.
- */
 export async function POST(request: NextRequest) {
   const formData = await request.formData()
   const file = formData.get('pdf') as File | null
@@ -21,90 +15,21 @@ export async function POST(request: NextRequest) {
   const bytes = await file.arrayBuffer()
   const base64 = Buffer.from(bytes).toString('base64')
 
-  const systemPrompt = `You are an expert financial analyst specializing in annuity contracts.
-Extract structured data from annuity carrier statements and fact sheets.
-Always respond with valid JSON only — no markdown, no prose, no code fences.`
-
-  const userPrompt = `Extract all annuity contract information from this carrier statement or account document. This may be a variable, indexed, fixed, or MYGA annuity from any carrier (including Sammons Financial Group companies such as Midland National, North American Company, etc.).
-
-Return a JSON object with this exact shape:
-
-{
-  "contracts": [
-    {
-      "contract_number": "string or null",
-      "carrier": "string — insurance company name",
-      "product_name": "string — product or series name, or null",
-      "annuity_type": "one of: Fixed, Fixed Indexed, Variable, RILA, SPIA, MYGA, DIA, or null",
-      "owner": "string — owner name(s)",
-      "joint_owner": "string or null",
-      "insured": "string or null",
-      "account_type": "one of: Non-Qualified, Traditional IRA, Roth IRA, SEP IRA, SIMPLE IRA, Inherited IRA, or null",
-      "issue_date": "YYYY-MM-DD or null",
-      "valuation_date": "YYYY-MM-DD or null — the AS-OF date of this statement (the most recent date shown, not an older period)",
-      "account_value": "number or null — the CURRENT total account/accumulation value AS OF the statement date. Use the ending or most recent balance, NOT a prior period or beginning-of-period value",
-      "surrender_value": "number or null — net surrender value after charges, as of statement date",
-      "initial_premium": "number or null — the very first premium/contribution paid when the contract was issued",
-      "total_premiums_paid": "number or null — the TOTAL of ALL premiums and contributions paid to date (initial + all subsequent). This is the owner's total investment / cost basis. Look for fields labeled: total premiums paid, total contributions, cumulative premiums, purchase payments, or cost basis",
-      "surrender_period": "string or null — e.g. '7 years' or 'ends 2027'",
-      "surrender_schedule": [
-        { "year": 1, "charge_pct": 8 },
-        { "year": 2, "charge_pct": 7 }
-      ],
-      "current_surrender_charge_pct": "number or null — current applicable surrender charge %",
-      "current_surrender_charge_amt": "number or null — dollar amount of current surrender charge",
-      "free_withdrawal_pct": "number or null — typical 10%",
-      "income_benefit": {
-        "rider_name": "string or null — e.g. 'Guaranteed Lifetime Withdrawal Benefit'",
-        "benefit_base": "number or null — income base / protected benefit value",
-        "guaranteed_rollup_rate": "number or null — annual rollup % during accumulation phase",
-        "withdrawal_pct": "number or null — payout % applied to benefit base",
-        "annual_income": "number or null — guaranteed annual income amount",
-        "income_start_date": "YYYY-MM-DD or null",
-        "income_status": "one of: not started, active, or null"
-      },
-      "notes": "string or null — any important contract details not captured above, including additional contribution amounts and dates if visible"
-    }
-  ],
-  "document_summary": "string — brief description of what this document is",
-  "statement_date": "YYYY-MM-DD or null — the as-of date of this statement",
-  "account_holder": "string — primary account holder name(s)"
-}
-
-KEY RULES:
-- account_value must be the ENDING/CURRENT balance as of the statement date, not a beginning-of-period or prior quarter value
-- total_premiums_paid is the sum of ALL money the owner has put in (initial + every subsequent contribution) — do NOT use just the initial premium
-- If the document shows a transaction history or activity table, sum all purchase payments/contributions to get total_premiums_paid
-- If there is only one contract, the contracts array will have one entry
-- If there are multiple contracts (e.g. from a brokerage statement), include all of them
-- Use null for any field you cannot find or determine
-- Return ONLY the JSON object — nothing else`
-
   try {
     const response = await client.messages.create({
       model: 'claude-opus-5',
-      max_tokens: 4096,
+      max_tokens: 8192,
       thinking: { type: 'adaptive' },
-      system: systemPrompt,
-      messages: [
-        {
-          role: 'user',
-          content: [
-            {
-              type: 'document',
-              source: {
-                type: 'base64',
-                media_type: 'application/pdf',
-                data: base64,
-              },
-            },
-            { type: 'text', text: userPrompt },
-          ],
-        },
-      ],
+      system: ANNUITY_SYSTEM_PROMPT,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
+          { type: 'text', text: ANNUITY_USER_PROMPT },
+        ],
+      }],
     })
 
-    // Find the text block (thinking block may precede it)
     const textBlock = response.content.find(b => b.type === 'text')
     if (!textBlock || textBlock.type !== 'text') {
       return Response.json({ error: 'No text response from AI' }, { status: 500 })
@@ -119,7 +44,7 @@ KEY RULES:
     }
 
     // Filter truly empty contract entries
-    const p = parsed as { contracts?: unknown[]; document_summary?: unknown; statement_date?: unknown; account_holder?: unknown }
+    const p = parsed as { contracts?: unknown[] }
     if (Array.isArray(p.contracts)) {
       p.contracts = p.contracts.filter((c: unknown) => {
         const ct = c as Record<string, unknown>
@@ -130,7 +55,6 @@ KEY RULES:
     return Response.json({ data: parsed })
   } catch (err) {
     console.error('Claude parse error:', err)
-    const message = err instanceof Error ? err.message : 'Unknown error'
-    return Response.json({ error: message }, { status: 500 })
+    return Response.json({ error: err instanceof Error ? err.message : 'Unknown error' }, { status: 500 })
   }
 }

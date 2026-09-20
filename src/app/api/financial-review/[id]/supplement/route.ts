@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import Anthropic from '@anthropic-ai/sdk'
+import { ANNUITY_SYSTEM_PROMPT, ANNUITY_USER_PROMPT } from '@/lib/financial-review/annuity-prompt'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -81,64 +82,21 @@ async function parseAndAppendContracts(
   base64: string,
   filename: string
 ) {
-  const systemPrompt = `You are an expert financial analyst specializing in annuity contracts.
-Extract structured data from annuity carrier statements.
-Always respond with valid JSON only — no markdown, no prose, no code fences.`
-
-  const userPrompt = `Extract all annuity contract information from this carrier statement or account document. This may be a variable, indexed, fixed, or MYGA annuity from any carrier (including Sammons Financial Group companies such as Midland National, North American Company, Sammons Corporate Markets, etc.).
-
-Return a JSON object with this exact shape:
-
-{
-  "contracts": [
-    {
-      "contract_number": "string or null",
-      "carrier": "string — insurance company name",
-      "product_name": "string — product or series name, or null",
-      "annuity_type": "one of: Fixed, Fixed Indexed, Variable, RILA, SPIA, MYGA, DIA, or null",
-      "owner": "string — owner name(s)",
-      "joint_owner": "string or null",
-      "insured": "string or null",
-      "account_type": "one of: Non-Qualified, Traditional IRA, Roth IRA, SEP IRA, SIMPLE IRA, Inherited IRA, or null",
-      "issue_date": "YYYY-MM-DD or null",
-      "valuation_date": "YYYY-MM-DD or null — the AS-OF date of this statement",
-      "account_value": "number or null — CURRENT ending balance as of statement date",
-      "surrender_value": "number or null — net surrender value after charges",
-      "initial_premium": "number or null — first premium paid at contract issue",
-      "total_premiums_paid": "number or null — ALL premiums and contributions paid to date",
-      "surrender_period": "string or null",
-      "surrender_schedule": [{ "year": 1, "charge_pct": 8 }],
-      "current_surrender_charge_pct": "number or null",
-      "current_surrender_charge_amt": "number or null",
-      "free_withdrawal_pct": "number or null",
-      "income_benefit": {
-        "rider_name": "string or null",
-        "benefit_base": "number or null",
-        "guaranteed_rollup_rate": "number or null",
-        "withdrawal_pct": "number or null",
-        "annual_income": "number or null",
-        "income_start_date": "YYYY-MM-DD or null",
-        "income_status": "one of: not started, active, or null"
-      },
-      "notes": "string or null"
-    }
-  ]
-}
-
-Return ONLY the JSON object — nothing else.`
+  const systemPrompt = ANNUITY_SYSTEM_PROMPT
+  const userPrompt = ANNUITY_USER_PROMPT
 
   let newContracts: unknown[] = []
   try {
     const response = await client.messages.create({
       model: 'claude-opus-5',
-      max_tokens: 4096,
+      max_tokens: 8192,
       thinking: { type: 'adaptive' },
       system: systemPrompt,
       messages: [{
         role: 'user',
         content: [
           { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
-          { type: 'text', text: userPrompt },
+          { type: 'text', text: ANNUITY_USER_PROMPT },
         ],
       }],
     })
