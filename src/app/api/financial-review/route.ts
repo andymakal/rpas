@@ -13,6 +13,7 @@ export async function POST(request: NextRequest) {
     customer_id?: string
     contracts?: unknown[]
     recommendation_notes?: string | null
+    documents?: unknown[]
   }
 
   try {
@@ -47,6 +48,7 @@ export async function POST(request: NextRequest) {
       review_number:        reviewNumber,
       customer_id:          body.customer_id ?? null,
       contracts:            body.contracts   ?? [],
+      documents:            body.documents   ?? [],
       recommendation_notes: body.recommendation_notes ?? null,
       status:               'draft',
     })

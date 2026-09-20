@@ -51,7 +51,7 @@ export async function POST(
     }
 
     const summary = await summarizeText(pageText, body.url)
-    return appendInsight(supabase, id, summary)
+    return appendInsight(supabase, id, summary, undefined, body.url)
   }
 
   // ── PDF mode ─────────────────────────────────────────────────────────────────
@@ -63,14 +63,13 @@ export async function POST(
 
   const bytes = await file.arrayBuffer()
   const base64 = Buffer.from(bytes).toString('base64')
+  const filename = file.name
 
   if (mode === 'statement') {
-    // Parse as a carrier statement and append contracts
-    return parseAndAppendContracts(supabase, id, base64)
+    return parseAndAppendContracts(supabase, id, base64, filename)
   } else {
-    // Summarize as product info and append to notes
     const summary = await summarizePdf(base64)
-    return appendInsight(supabase, id, summary)
+    return appendInsight(supabase, id, summary, filename)
   }
 }
 
@@ -79,7 +78,8 @@ export async function POST(
 async function parseAndAppendContracts(
   supabase: ReturnType<typeof import('@/lib/supabase/admin').createAdminClient>,
   reviewId: string,
-  base64: string
+  base64: string,
+  filename: string
 ) {
   const systemPrompt = `You are an expert financial analyst specializing in annuity contracts.
 Extract structured data from annuity carrier statements.
@@ -161,24 +161,28 @@ Return ONLY the JSON object — nothing else.`
     return Response.json({ error: err instanceof Error ? err.message : 'Parse failed' }, { status: 500 })
   }
 
-  // Fetch existing contracts and merge
+  // Fetch existing contracts + documents and merge
   const { data: existing } = await supabase
     .from('financial_reviews')
-    .select('contracts')
+    .select('contracts, documents')
     .eq('id', reviewId)
     .single()
 
-  const existingContracts = Array.isArray((existing as { contracts?: unknown[] } | null)?.contracts)
-    ? (existing as { contracts: unknown[] }).contracts
-    : []
+  const ex = existing as { contracts?: unknown[]; documents?: unknown[] } | null
+  const existingContracts = Array.isArray(ex?.contracts) ? ex!.contracts : []
+  const existingDocs      = Array.isArray(ex?.documents) ? ex!.documents : []
 
-  const merged = [...existingContracts, ...newContracts]
+  const newDoc = { filename, uploaded_at: new Date().toISOString(), mode: 'statement' }
 
   const { data, error } = await supabase
     .from('financial_reviews')
-    .update({ contracts: merged, updated_at: new Date().toISOString() })
+    .update({
+      contracts:   [...existingContracts, ...newContracts],
+      documents:   [...existingDocs, newDoc],
+      updated_at:  new Date().toISOString(),
+    })
     .eq('id', reviewId)
-    .select('id, contracts')
+    .select('id, contracts, documents')
     .single()
 
   if (error) return Response.json({ error: error.message }, { status: 500 })
@@ -217,23 +221,37 @@ async function summarizeText(text: string, url: string): Promise<string> {
 async function appendInsight(
   supabase: ReturnType<typeof import('@/lib/supabase/admin').createAdminClient>,
   reviewId: string,
-  insight: string
+  insight: string,
+  filename?: string,
+  url?: string
 ) {
   const { data: existing } = await supabase
     .from('financial_reviews')
-    .select('recommendation_notes')
+    .select('recommendation_notes, documents')
     .eq('id', reviewId)
     .single()
 
-  const currentNotes = (existing as { recommendation_notes?: string | null } | null)?.recommendation_notes ?? ''
+  const ex = existing as { recommendation_notes?: string | null; documents?: unknown[] } | null
+  const currentNotes  = ex?.recommendation_notes ?? ''
+  const existingDocs  = Array.isArray(ex?.documents) ? ex!.documents : []
+
   const separator = currentNotes.trim() ? '\n\n---\n\n' : ''
-  const newNotes = `${currentNotes}${separator}${insight}`
+  const newNotes  = `${currentNotes}${separator}${insight}`
+  const newDoc    = filename
+    ? { filename, uploaded_at: new Date().toISOString(), mode: 'info' }
+    : url
+    ? { filename: url, uploaded_at: new Date().toISOString(), mode: 'url', url }
+    : null
 
   const { data, error } = await supabase
     .from('financial_reviews')
-    .update({ recommendation_notes: newNotes, updated_at: new Date().toISOString() })
+    .update({
+      recommendation_notes: newNotes,
+      documents:            newDoc ? [...existingDocs, newDoc] : existingDocs,
+      updated_at:           new Date().toISOString(),
+    })
     .eq('id', reviewId)
-    .select('id, recommendation_notes')
+    .select('id, recommendation_notes, documents')
     .single()
 
   if (error) return Response.json({ error: error.message }, { status: 500 })

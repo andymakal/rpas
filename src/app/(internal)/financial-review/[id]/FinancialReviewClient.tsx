@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, ExternalLink, Save, Loader2, Printer, CheckCircle, Trash2, Plus, FileText, Link2 } from 'lucide-react'
-import type { FinancialReviewDetail, RpasPolicy, HouseholdMember, ParsedContract } from './page'
+import type { FinancialReviewDetail, RpasPolicy, HouseholdMember, ParsedContract, UploadedDocument } from './page'
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -162,6 +162,7 @@ export function FinancialReviewClient({
   const [notes,    setNotes]    = useState(review.recommendation_notes ?? '')
   const [status,   setStatus]   = useState(review.status)
   const [contracts, setContracts] = useState(review.contracts)
+  const [documents, setDocuments] = useState<UploadedDocument[]>(review.documents ?? [])
   const [saving,   setSaving]   = useState(false)
   const [saved,    setSaved]    = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -207,11 +208,13 @@ export function FinancialReviewClient({
           return
         }
         if (json.data?.contracts) setContracts(json.data.contracts)
+        if (json.data?.documents) setDocuments(json.data.documents)
         setSupplementError(`✓ Added ${added} contract${added !== 1 ? 's' : ''}.`)
         setSupplementFile(null)
       }
       if (supplementMode === 'info') {
         if (json.data?.recommendation_notes != null) setNotes(json.data.recommendation_notes)
+        if (json.data?.documents) setDocuments(json.data.documents)
         setSupplementError('✓ Product info appended to notes.')
         setSupplementFile(null)
         setSupplementUrl('')
@@ -486,6 +489,30 @@ export function FinancialReviewClient({
                   {m.first_name} {m.last_name}
                   <ExternalLink className="w-3 h-3 text-slate-600" />
                 </Link>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Uploaded documents */}
+        {documents.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">
+              Uploaded Documents
+            </p>
+            <div className="space-y-2">
+              {documents.map((doc, i) => (
+                <div key={i} className="flex items-start gap-2">
+                  <FileText className="w-3.5 h-3.5 text-slate-500 mt-0.5 shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-slate-300 text-xs truncate" title={doc.filename}>
+                      {doc.filename}
+                    </p>
+                    <p className="text-slate-600 text-xs">
+                      {doc.mode === 'statement' ? 'Statement' : doc.mode === 'url' ? 'URL' : 'Info'} · {fmtDate(doc.uploaded_at)}
+                    </p>
+                  </div>
+                </div>
               ))}
             </div>
           </div>

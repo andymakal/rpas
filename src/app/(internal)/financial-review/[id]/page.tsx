@@ -38,11 +38,19 @@ export type ParsedContract = {
   notes: string | null
 }
 
+export type UploadedDocument = {
+  filename: string
+  uploaded_at: string
+  mode: 'statement' | 'info' | 'url'
+  url?: string
+}
+
 export type FinancialReviewDetail = {
   id: string
   review_number: string | null
   status: string
   contracts: ParsedContract[]
+  documents: UploadedDocument[]
   recommendation_notes: string | null
   created_at: string
   updated_at: string | null
@@ -106,7 +114,7 @@ export default async function FinancialReviewDetailPage({
   const { data: review, error } = await supabase
     .from('financial_reviews')
     .select(`
-      id, review_number, status, contracts, recommendation_notes, created_at, updated_at,
+      id, review_number, status, contracts, documents, recommendation_notes, created_at, updated_at,
       customer_id,
       customers ( id, first_name, last_name, city, state, phone, email, date_of_birth, customer_group_id )
     `)

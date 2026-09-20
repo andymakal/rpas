@@ -124,6 +124,12 @@ export function NewFinancialReviewClient() {
     }
 
     // Step 3: save the review record
+    const now = new Date().toISOString()
+    const documents = [
+      { filename: pdfFile.name, uploaded_at: now, mode: 'statement' },
+      ...(factFile ? [{ filename: factFile.name, uploaded_at: now, mode: 'info' }] : []),
+    ]
+
     try {
       const res = await fetch('/api/financial-review', {
         method: 'POST',
@@ -131,6 +137,7 @@ export function NewFinancialReviewClient() {
         body: JSON.stringify({
           customer_id: selectedCustomer?.id ?? null,
           contracts,
+          documents,
         }),
       })
       const json = await res.json()
