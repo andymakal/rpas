@@ -43,11 +43,16 @@ export type PolicyForPrep = {
 
 export function getReviewType(productType: string | null): ReviewType {
   if (!productType) return 'term'
-  const p = productType.toUpperCase()
-  if (p === 'TERM')            return 'term'
-  if (p === 'UL' || p === 'VUL') return 'permanent_ul'
-  if (p === 'WL' || p === 'PERM') return 'permanent_wl'
-  return 'term'
+  const p = productType.toUpperCase().replace(/[\s_-]/g, '')
+  if (p === 'TERM' || p.startsWith('TERM'))        return 'term'
+  // Universal life variants
+  if (['UL','VUL','IUL','GUL','SUL','SVUL','CAUL','IUL'].includes(p)) return 'permanent_ul'
+  if (p.includes('UNIVERSAL'))                     return 'permanent_ul'
+  // Whole life variants
+  if (['WL','PERM','WLI','PAR','NONPAR'].includes(p)) return 'permanent_wl'
+  if (p.includes('WHOLE') || p.includes('PERMANENT') || p.includes('PARTIC')) return 'permanent_wl'
+  // Anything not explicitly term defaults to permanent
+  return 'permanent_ul'
 }
 
 export function reviewTypeLabel(t: ReviewType): string {
