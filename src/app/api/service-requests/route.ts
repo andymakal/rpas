@@ -138,21 +138,38 @@ export async function POST(request: NextRequest) {
       } else {
         policyId = policy.id
 
-        // Auto-create a minimal customer record and link it to the new policy.
+        // Auto-link or create a customer record for the new policy.
         // Splits "First Last" by whitespace: last word → last_name, rest → first_name.
-        const nameParts  = np.client_name.trim().split(/\s+/)
-        const custLast   = nameParts.length > 1 ? nameParts[nameParts.length - 1] : nameParts[0]
-        const custFirst  = nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : ''
-        const { data: newCustomer } = await supabase
+        // Checks for an existing customer by name first to avoid creating duplicates
+        // when the agent portal already created one for the same person.
+        const nameParts = np.client_name.trim().split(/\s+/)
+        const custLast  = nameParts.length > 1 ? nameParts[nameParts.length - 1] : nameParts[0]
+        const custFirst = nameParts.length > 1 ? nameParts.slice(0, -1).join(' ') : ''
+        const { data: existingCustomer } = await supabase
           .from('customers')
-          .insert({ first_name: custFirst, last_name: custLast })
           .select('id')
-          .single()
-        if (newCustomer) {
+          .ilike('first_name', custFirst)
+          .ilike('last_name', custLast)
+          .limit(1)
+          .maybeSingle()
+        const linkedCustomerId = existingCustomer?.id ?? null
+        if (linkedCustomerId) {
           await supabase
             .from('service_policies')
-            .update({ customer_id: newCustomer.id })
+            .update({ customer_id: linkedCustomerId })
             .eq('id', policy.id)
+        } else {
+          const { data: newCustomer } = await supabase
+            .from('customers')
+            .insert({ first_name: custFirst, last_name: custLast })
+            .select('id')
+            .single()
+          if (newCustomer) {
+            await supabase
+              .from('service_policies')
+              .update({ customer_id: newCustomer.id })
+              .eq('id', policy.id)
+          }
         }
       }
     }
