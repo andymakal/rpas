@@ -1139,9 +1139,9 @@ export function AgencyPortal({
   // ── Filtered + sorted lists ─────────────────────────────────────────────────
   const hotFirst     = (a: Case, b: Case) => (b.is_hot_lead ? 1 : 0) - (a.is_hot_lead ? 1 : 0)
   const referrals    = filtered.filter(c => c.stage_translations?.tier === 1 && c.stage_translations?.is_active_case).sort(hotFirst)
-  const pendingCases = filtered.filter(c => (c.stage_translations?.tier ?? 0) >= 2 && c.stage_translations?.is_active_case).sort(hotFirst)
-  const placedCases  = filtered.filter(c => c.stage_translations?.is_won === true)
-  const closedCases   = filtered.filter(c => c.stage_translations?.is_lost === true || c.internal_status === 'snoozed')
+  const pendingCases = cases.filter(c => (c.stage_translations?.tier ?? 0) >= 2 && c.stage_translations?.is_active_case).sort(hotFirst)
+  const placedCases  = cases.filter(c => c.stage_translations?.is_won === true)
+  const closedCases   = cases.filter(c => c.stage_translations?.is_lost === true || c.internal_status === 'snoozed')
   const prospectCases = filtered.filter(c => c.stage_translations?.is_prospect === true)
 
   // ── Portal content by type ──────────────────────────────────────────────────
