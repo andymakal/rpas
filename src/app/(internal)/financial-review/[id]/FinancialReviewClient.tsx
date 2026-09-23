@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, ExternalLink, Save, Loader2, Printer, CheckCircle, Trash2, Plus, FileText, Link2 } from 'lucide-react'
 import type { FinancialReviewDetail, RpasPolicy, HouseholdMember, ParsedContract, UploadedDocument, ContractFlag } from './page'
@@ -108,27 +108,36 @@ function ContractCard({ contract, index }: { contract: ParsedContract; index: nu
             </div>
           )}
 
-          {/* Income benefit */}
-          {contract.income_benefit && (
-            <div className="border-t border-slate-800 pt-4">
-              <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">
-                Income Benefit
-                {contract.income_benefit.rider_name && (
-                  <span className="ml-2 normal-case text-slate-500 font-normal">
-                    {contract.income_benefit.rider_name}
-                  </span>
-                )}
-              </p>
-              <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-                <Field label="Income Base"    value={fmtCurrency(contract.income_benefit.benefit_base)} />
-                <Field label="Rollup Rate"    value={fmtPct(contract.income_benefit.guaranteed_rollup_rate)} />
-                <Field label="Withdrawal %"   value={fmtPct(contract.income_benefit.withdrawal_pct)} />
-                <Field label="Annual Income"  value={fmtCurrency(contract.income_benefit.annual_income)} />
-                <Field label="Income Start"   value={fmtDate(contract.income_benefit.income_start_date)} />
-                <Field label="Status"         value={contract.income_benefit.income_status ?? '—'} />
+          {/* Income benefit — only show when there is actual rider data */}
+          {(() => {
+            const ib = contract.income_benefit
+            const hasData = ib && (
+              ib.benefit_base != null || ib.annual_income != null ||
+              ib.income_start_date != null || ib.rider_name != null ||
+              ib.withdrawal_pct != null || ib.guaranteed_rollup_rate != null
+            )
+            if (!hasData) return null
+            return (
+              <div className="border-t border-slate-800 pt-4">
+                <p className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-3">
+                  Income Benefit
+                  {ib!.rider_name && (
+                    <span className="ml-2 normal-case text-slate-500 font-normal">
+                      {ib!.rider_name}
+                    </span>
+                  )}
+                </p>
+                <div className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+                  <Field label="Income Base"    value={fmtCurrency(ib!.benefit_base)} />
+                  <Field label="Rollup Rate"    value={fmtPct(ib!.guaranteed_rollup_rate)} />
+                  <Field label="Withdrawal %"   value={fmtPct(ib!.withdrawal_pct)} />
+                  <Field label="Annual Income"  value={fmtCurrency(ib!.annual_income)} />
+                  <Field label="Income Start"   value={fmtDate(ib!.income_start_date)} />
+                  <Field label="Status"         value={ib!.income_status ?? '—'} />
+                </div>
               </div>
-            </div>
-          )}
+            )
+          })()}
 
           {contract.notes && (
             <div className="border-t border-slate-800 pt-3">
@@ -175,6 +184,22 @@ function Field({ label, value }: { label: string; value: string }) {
   )
 }
 
+function FactBox({ label, value, highlight, tone }: {
+  label: string; value: string; highlight?: boolean; tone?: 'positive' | 'negative' | 'warning'
+}) {
+  const valueColor = tone === 'positive' ? 'text-emerald-400'
+    : tone === 'negative' ? 'text-red-400'
+    : tone === 'warning'  ? 'text-amber-400'
+    : highlight           ? 'text-white'
+    : 'text-slate-200'
+  return (
+    <div className={`rounded-lg px-4 py-3 border ${highlight ? 'bg-slate-800 border-slate-600' : 'bg-slate-900/60 border-slate-800'}`}>
+      <p className="text-slate-500 text-xs mb-1">{label}</p>
+      <p className={`text-base font-semibold ${valueColor}`}>{value || '—'}</p>
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 const STATUS_OPTIONS = ['draft', 'ready', 'delivered']
@@ -199,6 +224,14 @@ export function FinancialReviewClient({
   const [saved,    setSaved]    = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+
+  const notesRef = useRef<HTMLTextAreaElement>(null)
+  useEffect(() => {
+    const el = notesRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${el.scrollHeight}px`
+  }, [notes])
 
   // Supplement panel
   const [supplementOpen, setSupplementOpen] = useState(false)
@@ -359,6 +392,46 @@ export function FinancialReviewClient({
             </div>
           </div>
 
+          {/* Key Facts */}
+          {(() => {
+            const visible = contracts.filter(c => c.carrier?.trim() || c.account_value != null)
+            if (visible.length === 0) return null
+            const sum = (fn: (c: ParsedContract) => number | null | undefined) =>
+              visible.reduce((acc, c) => { const v = fn(c); return v != null ? acc + v : acc }, 0)
+            const any = (fn: (c: ParsedContract) => number | null | undefined) =>
+              visible.some(c => fn(c) != null)
+            const totalAV  = sum(c => c.account_value)
+            const totalSV  = sum(c => c.surrender_value)
+            const totalPP  = sum(c => c.total_premiums_paid ?? c.cost_basis)
+            const totalSC  = sum(c => c.current_surrender_charge_amt)
+            const totalInc = sum(c => c.income_benefit?.annual_income)
+            const hasSC    = any(c => c.current_surrender_charge_amt)
+            const hasInc   = visible.some(c => {
+              const ib = c.income_benefit
+              return ib && (ib.annual_income != null || ib.benefit_base != null || ib.rider_name != null)
+            })
+            const gain = totalAV - totalPP
+            const gainPct = totalPP > 0 ? (gain / totalPP * 100) : null
+            return (
+              <section className="mb-6">
+                <h2 className="text-slate-300 text-sm font-medium uppercase tracking-wider mb-3">Key Facts</h2>
+                <div className="grid grid-cols-2 gap-3">
+                  <FactBox label="Account Value" value={fmtCurrency(totalAV)} highlight />
+                  <FactBox label="Surrender Value" value={fmtCurrency(totalSV)} />
+                  <FactBox label="Premiums Paid" value={fmtCurrency(totalPP)} />
+                  <FactBox
+                    label="Gain / (Loss)"
+                    value={`${fmtCurrency(gain)}${gainPct != null ? ` (${gainPct >= 0 ? '+' : ''}${gainPct.toFixed(1)}%)` : ''}`}
+                    tone={gain >= 0 ? 'positive' : 'negative'}
+                  />
+                  {hasSC && <FactBox label="Surrender Charges" value={fmtCurrency(totalSC)} tone="warning" />}
+                  {hasInc && <FactBox label="Annual Income" value={fmtCurrency(totalInc)} />}
+                  {visible.length > 1 && <FactBox label="Contracts" value={String(visible.length)} />}
+                </div>
+              </section>
+            )
+          })()}
+
           {/* Contracts */}
           <section className="mb-8">
             <div className="flex items-center justify-between mb-4">
@@ -473,15 +546,22 @@ export function FinancialReviewClient({
 
           {/* Recommendation notes */}
           <section>
-            <h2 className="text-slate-300 text-sm font-medium uppercase tracking-wider mb-3">
+            <h2 className="text-slate-300 text-sm font-medium uppercase tracking-wider mb-1">
               Recommendation Notes
             </h2>
+            <p className="text-slate-500 text-xs mb-3">Why is this in the best interest of the client?</p>
             <textarea
+              ref={notesRef}
               value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder="Summary of findings, recommendations, and action items for the client..."
-              rows={6}
-              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 placeholder-slate-600 text-sm focus:outline-none focus:border-blue-500 resize-y"
+              onChange={e => {
+                setNotes(e.target.value)
+                e.target.style.height = 'auto'
+                e.target.style.height = `${e.target.scrollHeight}px`
+              }}
+              placeholder="Explain how this recommendation addresses the client's specific situation, goals, and needs..."
+              rows={4}
+              className="w-full bg-slate-800 border border-slate-700 rounded-lg px-4 py-3 text-slate-200 placeholder-slate-600 text-sm focus:outline-none focus:border-blue-500 resize-none overflow-hidden"
+              style={{ minHeight: '7rem' }}
             />
           </section>
         </div>
