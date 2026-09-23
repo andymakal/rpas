@@ -24,6 +24,30 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
   const supabase = createAdminClient()
 
   try {
+    // 0. Resolve the agent record for this LSP so we can set agent_id on the case.
+    //    Also back-fills the agent's email if it was missing.
+    let agentId: string | null = null
+    if (form.lsp_name.trim()) {
+      const nameParts  = form.lsp_name.trim().split(/\s+/)
+      const agentFirst = nameParts[0]
+      const agentLast  = nameParts.slice(1).join(' ')
+      if (agentFirst && agentLast) {
+        const { data: agentRow } = await supabase
+          .from('agents')
+          .select('id, email')
+          .eq('agency_id', form.agency_id)
+          .ilike('first_name', agentFirst)
+          .ilike('last_name',  agentLast)
+          .maybeSingle()
+        if (agentRow) {
+          agentId = agentRow.id
+          if (!agentRow.email && form.lsp_email) {
+            await supabase.from('agents').update({ email: form.lsp_email }).eq('id', agentRow.id)
+          }
+        }
+      }
+    }
+
     // 1. Find or create customer by name + agency; back-fill any missing contact fields
     let customerId: string
     let suspectedDuplicateId: string | null = null
@@ -82,6 +106,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
           is_hot_lead:        form.is_hot_lead ?? false,
           notes:              updatedNotes,
           updated_at:         now,
+          ...(agentId ? { agent_id: agentId } : {}),
         }).eq('id', existingCase.id)
 
         await supabase.from('case_status_history').insert({
@@ -197,6 +222,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       .insert({
         agency_id:                        form.agency_id,
         customer_id:                      customerId,
+        agent_id:                         agentId,
         internal_status:                  'triage',
         lead_source:                      form.referral_type ?? null,
         notes:                            noteLines.join('\n'),
@@ -262,29 +288,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       link:  `/referrals/${newCase.id}`,
     })
 
-    // 8. Back-fill agent email if provided and not already on file
-    if (form.lsp_email && form.lsp_name) {
-      const parts     = form.lsp_name.trim().split(/\s+/)
-      const firstName = parts[0]
-      const lastName  = parts.slice(1).join(' ')
-      if (firstName && lastName) {
-        const { data: agentRow } = await supabase
-          .from('agents')
-          .select('id, email')
-          .eq('agency_id', form.agency_id)
-          .ilike('first_name', firstName)
-          .ilike('last_name', lastName)
-          .maybeSingle()
-        if (agentRow && !agentRow.email) {
-          await supabase
-            .from('agents')
-            .update({ email: form.lsp_email })
-            .eq('id', agentRow.id)
-        }
-      }
-    }
-
-    // 9. Save to intake_raw as audit trail (already processed — case_id set)
+    // 8. Save to intake_raw as audit trail (already processed — case_id set)
     // Non-critical: log errors but don't fail the submission over an audit record
     const { error: rawErr } = await supabase.from('intake_raw').insert({
       agency_id:    form.agency_id,
