@@ -1111,7 +1111,8 @@ export function AgencyPortal({
 
   const filtered = agentFilter
     ? cases.filter(c => {
-        const name = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : ''
+        if (!c.agents) return true   // unassigned cases always show
+        const name = `${c.agents.first_name} ${c.agents.last_name}`
         return name.toLowerCase().includes(agentFilter.toLowerCase())
       })
     : cases
