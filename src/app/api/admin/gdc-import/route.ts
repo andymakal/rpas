@@ -41,6 +41,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Sheet "${sheetName}" is empty or could not be parsed` }, { status: 400 })
   }
 
+  // Extract the report's declared Start Date / End Date from header rows 0-5.
+  // These are the authoritative bounds for deduplication — more reliable than
+  // deriving min/max from the records themselves, which can shift between
+  // partial exports of the same period and leave orphaned rows.
+  let reportStartDate: string | null = null
+  let reportEndDate:   string | null = null
+  for (let r = 0; r < 6; r++) {
+    const cell = sheet[XLSX.utils.encode_cell({ r, c: 0 })]
+    const text = cell ? String(cell.v ?? '').trim() : ''
+    const sm = text.match(/start\s*date[:\s]+(\d{1,2})\/(\d{1,2})\/(\d{4})/i)
+    const em = text.match(/end\s*date[:\s]+(\d{1,2})\/(\d{1,2})\/(\d{4})/i)
+    if (sm) reportStartDate = `${sm[3]}-${sm[1].padStart(2,'0')}-${sm[2].padStart(2,'0')}`
+    if (em) reportEndDate   = `${em[3]}-${em[1].padStart(2,'0')}-${em[2].padStart(2,'0')}`
+  }
+
   const supabase = createAdminClient()
 
   const { data: agencies } = await supabase
@@ -135,12 +150,23 @@ export async function POST(req: NextRequest) {
     }
   }
   for (const [agencyId, { min, max }] of agencyDateRanges) {
+    // Use the report's declared range when available; fall back to record-derived min/max.
+    // The declared range prevents orphaned rows when an earlier partial-year import
+    // had a different min date than the current full-year re-import.
+    const deleteMin = reportStartDate ?? min
+    const deleteMax = reportEndDate   ?? max
     await supabase
       .from('gdc_records')
       .delete()
       .eq('agency_id', agencyId)
-      .gte('process_date', min)
-      .lte('process_date', max)
+      .gte('process_date', deleteMin)
+      .lte('process_date', deleteMax)
+    // Also clear any null-date records for this agency (not caught by range delete)
+    await supabase
+      .from('gdc_records')
+      .delete()
+      .eq('agency_id', agencyId)
+      .is('process_date', null)
   }
 
   const CHUNK = 200
@@ -163,6 +189,8 @@ export async function POST(req: NextRequest) {
     row_count:            rows.length,
     matched_count:        matchedCount,
     unmatched_count:      unmatchedCount,
+    report_start_date:    reportStartDate,
+    report_end_date:      reportEndDate,
     unrecognized_partners: Array.from(unrecognized).sort(),
     debug_map_keys:        Array.from(partnerMap.keys()).sort(),
   })
