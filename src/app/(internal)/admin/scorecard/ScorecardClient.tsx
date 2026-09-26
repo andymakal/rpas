@@ -219,6 +219,10 @@ export default function ScorecardClient({ rows, currentQuarter, year }: Props) {
           <p className="text-slate-400 text-xs font-semibold uppercase tracking-widest mb-3">
             {year} Annual — Participating Agency (12 policies/year)
           </p>
+          <p className="text-slate-600 text-xs mb-3">
+            Reflects RPA-shared business only. Agencies may have additional Allstate production
+            from solo writing or prior EFS relationships not visible in this report.
+          </p>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {[
               { label: 'Participating',         value: String(participating),                        sub: `≥ 12 policies YTD`,       accent: 'text-emerald-400' },
@@ -381,8 +385,11 @@ export default function ScorecardClient({ rows, currentQuarter, year }: Props) {
       </div>
 
       <p className="text-slate-600 text-xs">
-        Policy counts are sourced from the Allstate compensation report (GDC import) and represent
-        Allstate-credited production. Referrals, pending, and placed figures come from RPAS cases.
+        Policy counts are sourced from the Allstate compensation report (GDC import) and reflect
+        RPA-shared business only — policies written by the agency independently or through a prior
+        EFS relationship are not included. Annual counts may therefore understate an agency&apos;s
+        true Allstate Participating status. Quarterly counts are accurate since the quarter starts
+        clean for all partners. Referrals, pending, and placed figures come from RPAS cases.
         GDC reflects credits processed in the period; chargebacks reduce the total.
         {' '}Quarterly bonus pool eligibility requires 12 Allstate-credited policies in Q{currentQuarter}.
       </p>
