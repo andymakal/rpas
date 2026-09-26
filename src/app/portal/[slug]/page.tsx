@@ -171,7 +171,6 @@ export default async function PortalPage({
 
   // Filter out expired content in JS (avoids complex SQL OR on expires_at)
   type RawContent = PortalContent & { expires_at?: string | null }
-  const now           = new Date()
   const portalContent: PortalContent[] = ((contentResult.data ?? []) as RawContent[])
     .filter(item => !item.expires_at || new Date(item.expires_at) > now)
 
