@@ -48,23 +48,29 @@ export default async function ScorecardPage() {
   const qStart  = new Date(year, qIndex * 3, 1).toISOString().split('T')[0]
 
   // ── 1. All active agencies with SML team ──────────────────────────────────
-  const { data: agencyRows } = await supabase
+  const { data: agencyRows, error: agencyError } = await supabase
     .from('agencies')
-    .select('id, name, display_name, slug, sml_teams ( name )')
+    .select('id, name, display_name, slug, sml_teams ( display_name )')
     .eq('is_test', false)
     .eq('is_active', true)
     .order('name')
 
+  if (agencyError) {
+    return <div className="p-8 text-red-400">Agency query failed: {agencyError.message}</div>
+  }
   if (!agencyRows?.length) {
     return <div className="p-8 text-slate-400">No agencies found.</div>
   }
 
   // ── 2. Cases for current year (all statuses) ──────────────────────────────
+  // referral_origin not yet selected here — column added by migration
+  // 20260926000001 which must be applied in Supabase first.
+  // All existing rows default to 'portal'; the aggregation below
+  // treats absent referral_origin as 'portal' for pre-migration data.
   const { data: caseRows } = await supabase
     .from('cases')
     .select(`
-      id, agency_id, internal_status, created_at, placed_at,
-      annual_premium, referral_origin,
+      id, agency_id, internal_status, created_at, placed_at, annual_premium,
       stage_translations!inner ( is_won, is_active_case, tier )
     `)
     .eq('is_test', false)
@@ -84,11 +90,15 @@ export default async function ScorecardPage() {
     const agencyCases = (caseRows ?? []).filter(c => c.agency_id === a.id)
     const agencyGdc   = (gdcRows  ?? []).filter(g => g.agency_id === a.id)
 
-    // Referrals: any case created this year (portal = EFS-generated)
+    // Referrals: any case created this year
+    // referral_origin not yet in query (migration pending); treat all as 'portal' for now
     const referrals_total  = agencyCases.length
-    const referrals_portal = agencyCases.filter(c => c.referral_origin === 'portal').length
+    const referrals_portal = agencyCases.filter(
+      (c: Record<string, unknown>) => !c.referral_origin || c.referral_origin === 'portal'
+    ).length
     const referrals_gifted = agencyCases.filter(
-      c => c.referral_origin === 'producer_credit' || c.referral_origin === 'acom_gift'
+      (c: Record<string, unknown>) =>
+        c.referral_origin === 'producer_credit' || c.referral_origin === 'acom_gift'
     ).length
 
     // Pending: tier >= 2 and is_active_case = true
@@ -134,7 +144,7 @@ export default async function ScorecardPage() {
       name:        a.name,
       display_name: a.display_name ?? null,
       slug:        a.slug,
-      sml_team:    (a.sml_teams as unknown as { name: string } | null)?.name ?? null,
+      sml_team:    (a.sml_teams as unknown as { display_name: string } | null)?.display_name ?? null,
 
       referrals_total,
       referrals_portal,
