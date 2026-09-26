@@ -77,9 +77,13 @@ export default async function PortalPage({
     }
   }
 
-  const year      = new Date().getFullYear()
-  const yearStart = `${year}-01-01`
-  const yearEnd   = `${year}-12-31`
+  const now        = new Date()
+  const year       = now.getFullYear()
+  const yearStart  = `${year}-01-01`
+  const yearEnd    = `${year}-12-31`
+  const qIndex     = Math.floor(now.getMonth() / 3)
+  const currentQuarter = qIndex + 1
+  const qStart     = new Date(year, qIndex * 3, 1).toISOString().split('T')[0]
 
   const [casesResult, gdcResult, appResult, srResult, prResult, spiffResult, contentResult] =
     await Promise.all([
@@ -196,7 +200,7 @@ export default async function PortalPage({
   if (isOwner) {
     const { data } = await supabase
       .from('gdc_records')
-      .select('id, policy_number, insured_name, product, production_credit, app_date, process_date, allstate_partner_number')
+      .select('id, policy_number, insured_name, product, production_credit, policy_count, app_date, process_date, allstate_partner_number')
       .in('agency_id', agencyIds)
       .gte('process_date', yearStart)
       .lte('process_date', yearEnd)
@@ -234,6 +238,9 @@ export default async function PortalPage({
       portalContent={portalContent}
       recentActivity={recentActivity}
       bookLabels={bookLabels}
+      currentQuarter={currentQuarter}
+      qStart={qStart}
+      year={year}
     />
   )
 }

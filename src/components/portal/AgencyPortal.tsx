@@ -82,6 +82,7 @@ export type GdcRecord = {
   insured_name: string | null
   product: string | null
   production_credit: number
+  policy_count: number
   app_date: string | null
   process_date: string | null
   allstate_partner_number: string | null
@@ -966,6 +967,90 @@ function GdcTransactionTable({ records }: { records: GdcRecord[] }) {
   )
 }
 
+// ── Owner section: Quarterly Bonus Pool widget ────────────────────────────────
+
+const QUARTER_NAMES = ['', 'January – March', 'April – June', 'July – September', 'October – December']
+
+function QuarterlyBonusWidget({
+  gdcRecords,
+  currentQuarter,
+  qStart,
+  year,
+}: {
+  gdcRecords:     GdcRecord[]
+  currentQuarter: number
+  qStart:         string
+  year:           number
+}) {
+  const quarterRecords = gdcRecords.filter(r => r.process_date && r.process_date >= qStart)
+  const count          = quarterRecords.reduce((s, r) => s + (r.policy_count ?? 0), 0)
+  const GOAL           = 12
+  const pct            = Math.min((count / GOAL) * 100, 100)
+
+  // Days remaining in quarter
+  const qEndMonth  = currentQuarter * 3   // 0-indexed month after quarter end
+  const qEnd       = new Date(year, qEndMonth, 0) // last day of last month in quarter
+  const daysLeft   = Math.max(0, Math.ceil((qEnd.getTime() - Date.now()) / 86_400_000))
+
+  const { label, accent, bg, bar } = count >= GOAL
+    ? { label: '🏆 Bonus Pool Eligible!',       accent: 'text-amber-700',  bg: 'bg-amber-50 border-amber-200',   bar: 'bg-amber-400' }
+    : count >= 9
+    ? { label: 'Close — push for the bonus!',   accent: 'text-amber-600',  bg: 'bg-amber-50 border-amber-200',   bar: 'bg-amber-400' }
+    : count >= 5
+    ? { label: 'Building momentum',             accent: 'text-blue-600',   bg: 'bg-blue-50 border-blue-200',     bar: 'bg-blue-500'  }
+    : { label: 'Early stage',                   accent: 'text-slate-500',  bg: 'bg-white border-slate-100',      bar: 'bg-slate-300' }
+
+  return (
+    <div className={`rounded-2xl border px-6 py-5 ${bg}`}>
+      <div className="flex items-start justify-between gap-4 mb-4">
+        <div>
+          <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">
+            Q{currentQuarter} Bonus Pool — {QUARTER_NAMES[currentQuarter]} {year}
+          </p>
+          <p className="text-xs text-slate-400 mt-0.5">
+            12 placed policies = Allstate quarterly bonus pool eligibility
+          </p>
+        </div>
+        {daysLeft > 0 && (
+          <p className="text-xs text-slate-400 whitespace-nowrap shrink-0">
+            {daysLeft}d left in Q{currentQuarter}
+          </p>
+        )}
+      </div>
+
+      {/* Big number */}
+      <div className="flex items-end gap-3 mb-4">
+        <p className={`text-5xl font-black tabular-nums leading-none ${count >= GOAL ? 'text-amber-600' : 'text-slate-800'}`}>
+          {count}
+        </p>
+        <p className="text-slate-400 text-lg font-semibold mb-1">/ {GOAL}</p>
+        {count >= GOAL && <p className="text-2xl mb-1">🏆</p>}
+      </div>
+
+      {/* Progress bar */}
+      <div className="h-3 bg-slate-200 rounded-full overflow-hidden mb-3">
+        <div
+          className={`h-full rounded-full transition-all ${bar}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+
+      <p className={`text-sm font-semibold ${accent}`}>{label}</p>
+
+      {count < GOAL && (
+        <p className="text-xs text-slate-400 mt-1">
+          {GOAL - count} {GOAL - count === 1 ? 'policy' : 'policies'} to go
+        </p>
+      )}
+
+      <p className="text-xs text-slate-400 mt-3 pt-3 border-t border-slate-200/60">
+        Policy count reflects RPA-shared business only. Your agency may have additional
+        Allstate production not visible here.
+      </p>
+    </div>
+  )
+}
+
 // ── Owner section: PIN change form ────────────────────────────────────────────
 
 function PinChangeForm({ slug }: { slug: string }) {
@@ -1056,6 +1141,9 @@ export function AgencyPortal({
   portalContent,
   recentActivity,
   bookLabels,
+  currentQuarter,
+  qStart,
+  year,
 }: {
   agency:          AgencyProps
   cases:           Case[]
@@ -1069,6 +1157,9 @@ export function AgencyPortal({
   portalContent:   PortalContent[]
   recentActivity:  ActivityEntry[]
   bookLabels:      Map<string, string>
+  currentQuarter:  number
+  qStart:          string
+  year:            number
 }) {
   const router = useRouter()
   const [agentFilter, setAgentFilter] = useState('')
@@ -1484,10 +1575,18 @@ export function AgencyPortal({
               <span className="text-xs bg-emerald-100 text-emerald-700 font-semibold px-2 py-0.5 rounded-full">Private</span>
             </div>
 
+            {/* Quarterly Bonus Pool progress */}
+            <QuarterlyBonusWidget
+              gdcRecords={gdcRecords}
+              currentQuarter={currentQuarter}
+              qStart={qStart}
+              year={year}
+            />
+
             {/* GDC Transactions */}
             <div className="bg-white rounded-2xl border border-slate-100 px-6 py-5">
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-4">
-                GDC Transactions — {new Date().getFullYear()}
+                GDC Transactions — {year}
               </p>
               <GdcTransactionTable records={gdcRecords} />
             </div>
