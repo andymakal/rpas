@@ -30,9 +30,11 @@ export type ScorecardRow = {
   placed_count_q:      number
   placed_premium_q:    number
 
-  // GDC from Allstate compensation report (current year)
-  gdc_ytd:             number
-  allstate_policy_count: number  // Allstate's policy_count sum — source of truth for the 12-policy goal
+  // GDC from Allstate compensation report
+  gdc_ytd:                  number   // production_credit sum, full year
+  gdc_quarter:              number   // production_credit sum, current quarter
+  allstate_policy_count:    number   // policy_count sum YTD — Participating Agency goal (12/year)
+  allstate_policy_count_q:  number   // policy_count sum current quarter — Bonus Pool goal (12/quarter)
 }
 
 export default async function ScorecardPage() {
@@ -71,7 +73,7 @@ export default async function ScorecardPage() {
   // ── 3. GDC records for current year ──────────────────────────────────────
   const { data: gdcRows } = await supabase
     .from('gdc_records')
-    .select('agency_id, production_credit, policy_count')
+    .select('agency_id, production_credit, policy_count, process_date')
     .gte('process_date', yearStart)
     .not('agency_id', 'is', null)
 
@@ -120,9 +122,12 @@ export default async function ScorecardPage() {
     const placed_count_q   = placedQ.length
     const placed_premium_q = placedQ.reduce((s, c) => s + (c.annual_premium ?? 0), 0)
 
-    // GDC
-    const gdc_ytd             = agencyGdc.reduce((s, g) => s + (g.production_credit ?? 0), 0)
-    const allstate_policy_count = agencyGdc.reduce((s, g) => s + (g.policy_count ?? 0), 0)
+    // GDC — split annual vs. current quarter
+    const gdc_ytd                = agencyGdc.reduce((s, g) => s + (g.production_credit ?? 0), 0)
+    const gdcQ                   = agencyGdc.filter(g => g.process_date && g.process_date >= qStart)
+    const gdc_quarter            = gdcQ.reduce((s, g) => s + (g.production_credit ?? 0), 0)
+    const allstate_policy_count  = agencyGdc.reduce((s, g) => s + (g.policy_count ?? 0), 0)
+    const allstate_policy_count_q = gdcQ.reduce((s, g) => s + (g.policy_count ?? 0), 0)
 
     return {
       agency_id:   a.id,
@@ -145,7 +150,9 @@ export default async function ScorecardPage() {
       placed_premium_q,
 
       gdc_ytd,
+      gdc_quarter,
       allstate_policy_count,
+      allstate_policy_count_q,
     }
   })
 
