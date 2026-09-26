@@ -85,7 +85,7 @@ export default async function PortalPage({
   const currentQuarter = qIndex + 1
   const qStart     = new Date(year, qIndex * 3, 1).toISOString().split('T')[0]
 
-  const [casesResult, gdcResult, appResult, srResult, prResult, spiffResult, contentResult] =
+  const [casesResult, gdcResult, appResult, gdcQResult, srResult, prResult, spiffResult, contentResult] =
     await Promise.all([
       supabase
         .from('cases')
@@ -125,6 +125,14 @@ export default async function PortalPage({
         .gte('process_date', yearStart)
         .lte('process_date', yearEnd)
         .eq('policy_count', 1),
+
+      // Q GDC — policy count for current quarter (shown to all portal visitors)
+      supabase
+        .from('gdc_records')
+        .select('policy_count')
+        .in('agency_id', agencyIds)
+        .gte('process_date', qStart)
+        .lte('process_date', yearEnd),
 
       // Service requests — filter by agency via service_policies join
       supabase
@@ -176,6 +184,9 @@ export default async function PortalPage({
 
   const gdcYtd = (gdcResult.data ?? []).reduce(
     (sum, r) => sum + Number(r.production_credit ?? 0), 0
+  )
+  const quarterPolicyCount = (gdcQResult.data ?? []).reduce(
+    (sum, r) => sum + Number(r.policy_count ?? 0), 0
   )
   const appCount = new Set(
     (appResult.data ?? []).map(r => r.policy_number).filter(Boolean)
@@ -240,6 +251,7 @@ export default async function PortalPage({
       currentQuarter={currentQuarter}
       qStart={qStart}
       year={year}
+      quarterPolicyCount={quarterPolicyCount}
     />
   )
 }

@@ -972,18 +972,14 @@ function GdcTransactionTable({ records }: { records: GdcRecord[] }) {
 const QUARTER_NAMES = ['', 'January – March', 'April – June', 'July – September', 'October – December']
 
 function QuarterlyBonusWidget({
-  gdcRecords,
+  count,
   currentQuarter,
-  qStart,
   year,
 }: {
-  gdcRecords:     GdcRecord[]
+  count:          number
   currentQuarter: number
-  qStart:         string
   year:           number
 }) {
-  const quarterRecords = gdcRecords.filter(r => r.process_date && r.process_date >= qStart)
-  const count          = quarterRecords.reduce((s, r) => s + (r.policy_count ?? 0), 0)
   const GOAL           = 12
   const pct            = Math.min((count / GOAL) * 100, 100)
 
@@ -1144,6 +1140,7 @@ export function AgencyPortal({
   currentQuarter,
   qStart,
   year,
+  quarterPolicyCount,
 }: {
   agency:          AgencyProps
   cases:           Case[]
@@ -1157,9 +1154,10 @@ export function AgencyPortal({
   portalContent:   PortalContent[]
   recentActivity:  ActivityEntry[]
   bookLabels:      Map<string, string>
-  currentQuarter:  number
-  qStart:          string
-  year:            number
+  currentQuarter:      number
+  qStart:              string
+  year:                number
+  quarterPolicyCount:  number
 }) {
   const router = useRouter()
   const [agentFilter, setAgentFilter] = useState('')
@@ -1538,6 +1536,13 @@ export function AgencyPortal({
           {/* ── Right column ──────────────────────────────────────────────────── */}
           <div className="space-y-4">
 
+            {/* Quarterly Bonus Pool progress */}
+            <QuarterlyBonusWidget
+              count={quarterPolicyCount}
+              currentQuarter={currentQuarter}
+              year={year}
+            />
+
             {/* SPIFF + Kept Appts */}
             <SpiffKeptCard
               spiffRecords={spiffRecords}
@@ -1574,14 +1579,6 @@ export function AgencyPortal({
               <h2 className="text-base font-bold text-slate-800">Agency Owner Section</h2>
               <span className="text-xs bg-emerald-100 text-emerald-700 font-semibold px-2 py-0.5 rounded-full">Private</span>
             </div>
-
-            {/* Quarterly Bonus Pool progress */}
-            <QuarterlyBonusWidget
-              gdcRecords={gdcRecords}
-              currentQuarter={currentQuarter}
-              qStart={qStart}
-              year={year}
-            />
 
             {/* GDC Transactions */}
             <div className="bg-white rounded-2xl border border-slate-100 px-6 py-5">
