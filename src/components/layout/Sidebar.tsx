@@ -26,6 +26,7 @@ import {
   Shield,
   BookOpen,
   BarChart2,
+  LayoutList,
 } from 'lucide-react'
 import { NotificationBell } from '@/components/layout/NotificationBell'
 
@@ -43,6 +44,7 @@ const navItems = [
   { href: '/financial-review',       icon: BarChart2,       label: 'Financial Review' },
   { href: '/customers',               icon: Users,           label: 'Customers'        },
   { href: '/team',                   icon: Users,           label: 'Team'             },
+  { href: '/admin/scorecard',         icon: LayoutList,      label: 'Scorecard'        },
   { href: '/admin/gdc-import',       icon: Upload,          label: 'GDC Import'       },
   { href: '/admin/policy-import',    icon: FileSpreadsheet, label: 'Policy Import'    },
   { href: '/admin/book-import',      icon: BookOpen,        label: 'Book Import'      },
