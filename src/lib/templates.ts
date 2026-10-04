@@ -241,6 +241,64 @@ export const TEMPLATES = {
     ].join('\n'),
   },
 
+  /**
+   * Q4 Agency Outreach
+   * Trigger: manual — admin sends from Scorecard page
+   * Recipient: agency owner / primary contact
+   * Variables: agency_name, portal_url, policy_count, status_note
+   */
+  q4_agency: {
+    subject: 'Your Q4 Scorecard Is Live — 3 Months to Finish Strong',
+    body: [
+      'Hi {agency_name},',
+      '',
+      'October is here and Q4 is officially underway. I wanted to make sure you have everything you need to see where things stand and make the most of the next three months.',
+      '',
+      'We\'ve added a Scorecard to your agency portal that gives you a real-time view of your production — policies placed, GDC credit, referral activity, and your progress toward the annual goal. Log in any time:',
+      '',
+      '    {portal_url}',
+      '',
+      '---',
+      '',
+      'ANNUAL GOAL — 12 Policies = Participating Status',
+      '',
+      'The benchmark to reach Participating status with us this year is 12 placed policies through our partnership. You currently have {policy_count} placed. {status_note}',
+      '',
+      'Your Scorecard shows your full year-to-date breakdown so you always know exactly where you stand.',
+      '',
+      '---',
+      '',
+      'Q4 BONUS POOL — 12 Policies This Quarter',
+      '',
+      'In addition to the annual goal, we\'re running a quarterly bonus pool: any agency that places 12 or more policies between October 1 and December 31 qualifies. Your Q4 count starts fresh today — the progress bar on your portal tracks it in real time.',
+      '',
+      'With three full months ahead, this is very achievable. Agencies that get their referral pipeline moving in October tend to close Q4 well — don\'t wait until December.',
+      '',
+      '---',
+      '',
+      'RING CENTRAL LIVE TRANSFERS',
+      '',
+      'The fastest way to connect a customer to us is a Ring Central live transfer. When a customer calls in, opens a new policy, or mentions anything about life insurance or financial planning, you can warm-transfer them directly to our team — right then, while you still have them on the line.',
+      '',
+      'Live transfers work because the customer is already engaged. They don\'t have to remember a callback number or wait for us to reach out — they\'re already talking to us. This converts at a significantly higher rate than a referral we follow up on later.',
+      '',
+      'If your team isn\'t using Ring Central transfers yet, reach out and we\'ll walk you through the setup. It takes about 5 minutes to configure and your agents can start using it the same day.',
+      '',
+      '---',
+      '',
+      'LOOKING AHEAD — Finishing 2026 Sets the Table for 2027',
+      '',
+      'The agencies that enter January with momentum — strong Q4 numbers, active referral habits, and customers in the pipeline — are the ones that have their best year. Our shared goal is to make sure every customer in your book has had a meaningful life insurance conversation before the year is out.',
+      '',
+      'As always, if you have any questions about your numbers, your portal, or how to get more referrals moving, don\'t hesitate to reach out.',
+      '',
+      'Let\'s make it a great finish.',
+      '',
+      'Andy Makal',
+      'Right Path Agency',
+    ].join('\n'),
+  },
+
 } as const
 
 // ── Scripts (voicemail, text, live transfer) ──────────────────────────────────

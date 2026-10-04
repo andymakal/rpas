@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import { ChevronUp, ChevronDown, Search, Trophy, TrendingUp, AlertCircle, Star } from 'lucide-react'
+import { useState, useMemo, useEffect } from 'react'
+import { ChevronUp, ChevronDown, Search, Trophy, TrendingUp, AlertCircle, Star, Mail, X, Copy, ExternalLink } from 'lucide-react'
 import type { ScorecardRow } from './page'
+import { TEMPLATES, interpolate, buildMailto } from '@/lib/templates'
 
 const POLICY_GOAL = 12  // applies to both annual (Participating) and quarterly (bonus pool)
 
@@ -93,6 +94,148 @@ function QuarterBadge({ count }: { count: number }) {
   )
 }
 
+// ── Q4 email helpers ──────────────────────────────────────────────────────────
+
+function buildStatusNote(count: number): string {
+  if (count >= 12) return 'You\'ve already hit the 12-policy Participating benchmark — outstanding work.'
+  if (count >= 9)  return `With ${count} policies this year, you're on pace to hit Participating status — a strong Q4 locks it in.`
+  if (count >= 5)  return `You have ${count} policies this year. A focused push over the next three months gets you to Participating status.`
+  return 'There\'s still time to make real progress before year-end. Let\'s talk about how we can help you get more referrals moving.'
+}
+
+function buildEmailBody(agency: ScorecardRow): string {
+  const portalUrl = `${typeof window !== 'undefined' ? window.location.origin : ''}/portal/${agency.slug}`
+  return interpolate(TEMPLATES.q4_agency.body, {
+    agency_name:  agency.display_name ?? agency.name,
+    portal_url:   portalUrl,
+    policy_count: String(agency.allstate_policy_count),
+    status_note:  buildStatusNote(agency.allstate_policy_count),
+  })
+}
+
+// ── Q4 Email Modal ────────────────────────────────────────────────────────────
+
+function Q4EmailModal({ agency, onClose }: { agency: ScorecardRow; onClose: () => void }) {
+  const subject = TEMPLATES.q4_agency.subject
+  const [body,   setBody]   = useState(() => buildEmailBody(agency))
+  const [copied, setCopied] = useState(false)
+
+  // Close on Escape
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  function copyBody() {
+    navigator.clipboard.writeText(body)
+      .then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000) })
+      .catch(() => {
+        const ta = document.getElementById('q4-email-body') as HTMLTextAreaElement | null
+        ta?.select()
+      })
+  }
+
+  const mailto = buildMailto(agency.contact_email, subject, body)
+  const hasEmail = !!agency.contact_email
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="w-full max-w-2xl bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl flex flex-col max-h-[90vh]">
+
+        {/* Header */}
+        <div className="flex items-start justify-between px-5 py-4 border-b border-slate-800 flex-shrink-0">
+          <div>
+            <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-0.5">Q4 Agency Email</p>
+            <h2 className="text-white font-semibold text-base leading-tight">{agency.display_name ?? agency.name}</h2>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors p-1 -mr-1">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Fields */}
+        <div className="px-5 pt-4 flex-shrink-0 space-y-3">
+          {/* To */}
+          <div className="flex items-center gap-3 text-sm">
+            <span className="text-slate-500 w-14 text-right flex-shrink-0">To</span>
+            {hasEmail ? (
+              <span className="text-slate-200 font-mono text-xs bg-slate-800 rounded px-2.5 py-1.5 flex-1">
+                {agency.contact_email}
+              </span>
+            ) : (
+              <span className="text-amber-400 text-xs bg-amber-900/30 border border-amber-800/50 rounded px-2.5 py-1.5 flex-1">
+                No contact email on file — add one in the Agency record before sending
+              </span>
+            )}
+          </div>
+
+          {/* Subject */}
+          <div className="flex items-center gap-3 text-sm">
+            <span className="text-slate-500 w-14 text-right flex-shrink-0">Subject</span>
+            <span className="text-slate-200 text-sm bg-slate-800 rounded px-2.5 py-1.5 flex-1 font-medium">
+              {subject}
+            </span>
+          </div>
+
+          {/* Stats pill row */}
+          <div className="flex gap-2 ml-[68px]">
+            <span className="text-xs bg-slate-800 text-slate-400 rounded-full px-2.5 py-0.5">
+              {agency.allstate_policy_count} policies YTD
+            </span>
+            <span className="text-xs bg-slate-800 text-slate-400 rounded-full px-2.5 py-0.5">
+              {agency.allstate_policy_count_q} this quarter
+            </span>
+          </div>
+        </div>
+
+        {/* Body textarea */}
+        <div className="px-5 pt-3 pb-1 flex-1 min-h-0 flex flex-col">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs text-slate-500 uppercase tracking-wider font-semibold">Email Body</span>
+            <span className="text-xs text-slate-600">Edit directly before opening in Outlook</span>
+          </div>
+          <textarea
+            id="q4-email-body"
+            value={body}
+            onChange={e => setBody(e.target.value)}
+            className="flex-1 min-h-[280px] bg-slate-800 border border-slate-700 rounded-lg p-3.5 text-sm text-slate-200 font-mono leading-relaxed resize-none focus:outline-none focus:border-slate-500"
+            spellCheck={false}
+          />
+        </div>
+
+        {/* Actions */}
+        <div className="px-5 py-4 border-t border-slate-800 flex items-center gap-3 flex-shrink-0 flex-wrap">
+          <button
+            onClick={copyBody}
+            className="inline-flex items-center gap-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          >
+            {copied ? <><Copy className="w-4 h-4 text-emerald-400" /> Copied!</> : <><Copy className="w-4 h-4" /> Copy Body</>}
+          </button>
+
+          <a
+            href={hasEmail ? mailto : '#'}
+            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+              hasEmail
+                ? 'bg-blue-700 hover:bg-blue-600 text-white'
+                : 'bg-slate-800 text-slate-500 cursor-not-allowed pointer-events-none'
+            }`}
+          >
+            <ExternalLink className="w-4 h-4" /> Open in Outlook
+          </a>
+
+          <button onClick={onClose} className="ml-auto text-slate-500 hover:text-slate-300 text-sm transition-colors">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 type Props = {
   rows:           ScorecardRow[]
   currentQuarter: number
@@ -100,10 +243,11 @@ type Props = {
 }
 
 export default function ScorecardClient({ rows, currentQuarter, year }: Props) {
-  const [view,    setView]    = useState<View>('quarter')
-  const [search,  setSearch]  = useState('')
-  const [sortKey, setSortKey] = useState<SortKey>('policies')
-  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const [view,         setView]        = useState<View>('quarter')
+  const [search,       setSearch]      = useState('')
+  const [sortKey,      setSortKey]     = useState<SortKey>('policies')
+  const [sortDir,      setSortDir]     = useState<'asc' | 'desc'>('desc')
+  const [emailAgency,  setEmailAgency] = useState<ScorecardRow | null>(null)
 
   const isQuarter = view === 'quarter'
 
@@ -190,6 +334,9 @@ export default function ScorecardClient({ rows, currentQuarter, year }: Props) {
 
   return (
     <div className="space-y-5">
+      {emailAgency && (
+        <Q4EmailModal agency={emailAgency} onClose={() => setEmailAgency(null)} />
+      )}
 
       {/* Summary strip — two rows, two contexts */}
       <div className="grid grid-cols-2 gap-3">
@@ -289,6 +436,7 @@ export default function ScorecardClient({ rows, currentQuarter, year }: Props) {
               <Th k="placed_premium" label={premiumColLabel} />
               <Th k="gdc"            label={gdcColLabel}     />
               <Th k="conversion"     label="Conv %"          />
+              <th className="px-3 py-2.5 pr-4" />
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/50">
@@ -366,8 +514,19 @@ export default function ScorecardClient({ rows, currentQuarter, year }: Props) {
                   </td>
 
                   {/* Conversion */}
-                  <td className="px-3 py-3 tabular-nums text-right pr-4 text-slate-400">
+                  <td className="px-3 py-3 tabular-nums text-right text-slate-400">
                     {convRate !== null ? `${convRate}%` : '—'}
+                  </td>
+
+                  {/* Send Q4 email */}
+                  <td className="px-3 py-3 pr-4 text-right">
+                    <button
+                      onClick={() => setEmailAgency(r)}
+                      title="Send Q4 email"
+                      className="text-slate-600 hover:text-blue-400 transition-colors"
+                    >
+                      <Mail className="w-4 h-4" />
+                    </button>
                   </td>
                 </tr>
               )
@@ -375,7 +534,7 @@ export default function ScorecardClient({ rows, currentQuarter, year }: Props) {
 
             {sorted.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-12 text-center text-slate-500 text-sm">
+                <td colSpan={10} className="px-4 py-12 text-center text-slate-500 text-sm">
                   No agencies match your search.
                 </td>
               </tr>

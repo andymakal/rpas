@@ -10,6 +10,7 @@ export type ScorecardRow = {
   name:             string
   display_name:     string | null
   slug:             string
+  contact_email:    string | null
   sml_team:         string | null
 
   // Referrals (portal-submitted, current year)
@@ -50,7 +51,7 @@ export default async function ScorecardPage() {
   // ── 1. All active agencies with SML team ──────────────────────────────────
   const { data: agencyRows, error: agencyError } = await supabase
     .from('agencies')
-    .select('id, name, display_name, slug, sml_teams ( display_name )')
+    .select('id, name, display_name, slug, contact_email, sml_teams ( display_name )')
     .eq('is_test', false)
     .eq('is_active', true)
     .order('name')
@@ -140,11 +141,12 @@ export default async function ScorecardPage() {
     const allstate_policy_count_q = gdcQ.reduce((s, g) => s + (g.policy_count ?? 0), 0)
 
     return {
-      agency_id:   a.id,
-      name:        a.name,
+      agency_id:    a.id,
+      name:         a.name,
       display_name: a.display_name ?? null,
-      slug:        a.slug,
-      sml_team:    (a.sml_teams as unknown as { display_name: string } | null)?.display_name ?? null,
+      slug:         a.slug,
+      contact_email: (a as unknown as { contact_email: string | null }).contact_email ?? null,
+      sml_team:     (a.sml_teams as unknown as { display_name: string } | null)?.display_name ?? null,
 
       referrals_total,
       referrals_portal,
