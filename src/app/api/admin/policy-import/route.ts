@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
 
 /**
  * POST /api/admin/policy-import
@@ -41,6 +42,14 @@ type PolicyRow = {
 }
 
 export async function POST(req: NextRequest) {
+  // This route is excluded from the proxy matcher (large request bodies), so it
+  // must verify the logged-in internal user itself before any service-role work.
+  const sessionClient = await createClient()
+  const { data: { user }, error: authError } = await sessionClient.auth.getUser()
+  if (authError || !user) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
   let body: {
     policies:          PolicyRow[]
     file_name:         string
