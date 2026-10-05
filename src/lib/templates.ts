@@ -264,6 +264,8 @@ export const TEMPLATES = {
       '',
       'The benchmark to reach Participating status with us this year is 12 placed policies through our partnership. {status_note}',
       '',
+      'But here\'s the number that really moves the needle: 19. The 19th policy gets you on the Allstate bonus grid with points toward your year-end bonus. Participating status is the floor — 19 is where it starts to pay.',
+      '',
       'Your Scorecard shows your full year-to-date breakdown so you always know exactly where you stand.',
       '',
       '---',

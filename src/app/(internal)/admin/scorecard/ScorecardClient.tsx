@@ -97,9 +97,10 @@ function QuarterBadge({ count }: { count: number }) {
 // ── Q4 email helpers ──────────────────────────────────────────────────────────
 
 function buildStatusNote(count: number): string {
-  if (count >= 12) return `You've got ${count} policies placed with us this year — you've already hit the Participating benchmark. Outstanding work.`
-  if (count >= 9)  return `You've got ${count} policies placed with us this year and you're on pace to hit Participating status — a strong Q4 locks it in.`
-  if (count >= 5)  return `You've got ${count} policies placed with us this year. A focused push over the next three months gets you to Participating status.`
+  if (count >= 19) return `You've got ${count} policies placed with us this year — you're on the Allstate bonus grid with points toward your year-end bonus. Let's keep the momentum going.`
+  if (count >= 12) return `You've got ${count} policies placed with us this year — you've hit Participating status. Now let's push to 19, which gets you on the Allstate bonus grid with points toward your year-end bonus.`
+  if (count >= 9)  return `You've got ${count} policies placed with us this year and you're on pace to hit Participating status at 12. A strong Q4 could get you all the way to 19, which is where the Allstate bonus grid kicks in.`
+  if (count >= 5)  return `You've got ${count} policies placed with us this year. A focused push over the next three months gets you to Participating status at 12 — and 19 is where you get on the Allstate bonus grid with points toward your year-end bonus.`
   return `You've got ${count} ${count === 1 ? 'policy' : 'policies'} placed with us this year. There's still time to make real progress before year-end — let's talk about how we can help you get more referrals moving.`
 }
 
