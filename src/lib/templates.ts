@@ -284,6 +284,8 @@ export const TEMPLATES = {
       '',
       'If your team isn\'t using Ring Central transfers yet, reach out and we\'ll walk you through the setup. It takes about 5 minutes to configure and your agents can start using it the same day.',
       '',
+      'One thing — we still want you putting the referral into Right Path even when you do a live transfer. It keeps everything tracked and visible to you and your team for accountability. The live transfer works 75% of the time, every time. Right Path makes sure nothing falls through the cracks on the other 25%.',
+      '',
       '---',
       '',
       'LOOKING AHEAD — Finishing 2026 Sets the Table for 2027',
