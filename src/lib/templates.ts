@@ -262,7 +262,7 @@ export const TEMPLATES = {
       '',
       'ANNUAL GOAL — 12 Policies = Participating Status',
       '',
-      'The benchmark to reach Participating status with us this year is 12 placed policies through our partnership. You currently have {policy_count} placed. {status_note}',
+      'The benchmark to reach Participating status with us this year is 12 placed policies through our partnership. {status_note}',
       '',
       'Your Scorecard shows your full year-to-date breakdown so you always know exactly where you stand.',
       '',

@@ -97,10 +97,10 @@ function QuarterBadge({ count }: { count: number }) {
 // ── Q4 email helpers ──────────────────────────────────────────────────────────
 
 function buildStatusNote(count: number): string {
-  if (count >= 12) return 'You\'ve already hit the 12-policy Participating benchmark — outstanding work.'
-  if (count >= 9)  return `With ${count} policies this year, you're on pace to hit Participating status — a strong Q4 locks it in.`
-  if (count >= 5)  return `You have ${count} policies this year. A focused push over the next three months gets you to Participating status.`
-  return 'There\'s still time to make real progress before year-end. Let\'s talk about how we can help you get more referrals moving.'
+  if (count >= 12) return `You've got ${count} policies placed with us this year — you've already hit the Participating benchmark. Outstanding work.`
+  if (count >= 9)  return `You've got ${count} policies placed with us this year and you're on pace to hit Participating status — a strong Q4 locks it in.`
+  if (count >= 5)  return `You've got ${count} policies placed with us this year. A focused push over the next three months gets you to Participating status.`
+  return `You've got ${count} ${count === 1 ? 'policy' : 'policies'} placed with us this year. There's still time to make real progress before year-end — let's talk about how we can help you get more referrals moving.`
 }
 
 function buildEmailBody(agency: ScorecardRow): string {
@@ -108,7 +108,6 @@ function buildEmailBody(agency: ScorecardRow): string {
   return interpolate(TEMPLATES.q4_agency.body, {
     agency_name:  agency.display_name ?? agency.name,
     portal_url:   portalUrl,
-    policy_count: String(agency.allstate_policy_count),
     status_note:  buildStatusNote(agency.allstate_policy_count),
   })
 }
