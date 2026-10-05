@@ -250,7 +250,7 @@ export const TEMPLATES = {
   q4_agency: {
     subject: 'Your Q4 Scorecard Is Live — 3 Months to Finish Strong',
     body: [
-      'Hi {agency_name},',
+      'Hi [FIRST NAME],',
       '',
       'October is here and Q4 is officially underway. I wanted to make sure you have everything you need to see where things stand and make the most of the next three months.',
       '',
