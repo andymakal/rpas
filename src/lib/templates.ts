@@ -300,8 +300,8 @@ export const TEMPLATES = {
       '',
       'Let\'s make it a great finish.',
       '',
-      'Andy Makal',
-      'Right Path Agency',
+      'All the best,',
+      'Andy',
     ].join('\n'),
   },
 
