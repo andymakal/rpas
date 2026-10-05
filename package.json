@@ -2,11 +2,16 @@
   "name": "rpas",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",
@@ -15,7 +20,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^1.14.0",
-    "next": "16.2.6",
+    "next": "16.3.8",
     "radix-ui": "^1.4.3",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -25,12 +30,16 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
+    "@storybook/addon-mcp": "10.6.1",
+    "@storybook/nextjs-vite": "10.6.1",
+    "@storybook/react": "10.6.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.6",
+    "eslint-config-next": "16.3.8",
+    "storybook": "10.6.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
