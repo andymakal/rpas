@@ -20,7 +20,10 @@
 --   * service_requests.customer_id: inserted and filtered on by
 --     src/app/api/service-requests/route.ts and read by the Review flow's
 --     related-service-requests query.
--- The extended service_policies drift columns are NOT touched here because no
+--   * service_policies.sa_form_sent_at: toggled by the stewardship outreach flow
+--     when the servicing-agent form is sent, and read across the policies /
+--     customer-card / policy-detail surfaces to derive servicing-agent status.
+-- Other extended service_policies drift columns are NOT touched here because no
 -- code in this feature or the Review flow depends on them.
 -- =============================================================================
 
@@ -90,3 +93,14 @@ begin
   end if;
 end
 $$;
+
+
+-- =============================================================================
+-- service_policies.sa_form_sent_at
+-- Nullable timestamptz. Set when the servicing-agent form is sent to the
+-- customer; the policies list, customer card, and policy detail derive the
+-- servicing-agent "form sent" status from it, and the stewardship outreach flow
+-- toggles it. Matches the verified live definition (nullable, no default).
+-- =============================================================================
+alter table public.service_policies
+  add column if not exists sa_form_sent_at timestamptz;
