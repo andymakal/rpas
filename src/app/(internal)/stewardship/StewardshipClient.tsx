@@ -73,8 +73,6 @@ type Holding = {
   in_request: boolean
 }
 
-type RequiredSigner = { id: string; name: string; email: string | null; phone: string | null; role: string }
-
 type Detail = BoardItem & {
   form_received_at: string | null
   customer: Customer & {
@@ -86,8 +84,8 @@ type Detail = BoardItem & {
   }
   source_agency_id: string | null
   holdings: Holding[]
-  required_signers: RequiredSigner[]
-  additional_signers_tracked: boolean
+  /** Signer identity is not derivable from durable data; always false today. */
+  signer_identity_known: boolean
 }
 
 const QUEUE_ICON: Record<OutreachQueue, typeof Mail> = {
@@ -722,7 +720,24 @@ function FormAction({
     )
   }
 
-  // Step 2: form received — confirm policies + signers, then submit.
+  // Step 2: form received — confirm policies and that the required signatures
+  // are present, then submit.
+  return <FormConfirmAndSubmit detail={detail} request={request} busy={busy} noteBox={noteBox} act={act} />
+}
+
+function FormConfirmAndSubmit({
+  detail, request, busy, noteBox, act,
+}: {
+  detail: Detail
+  request: Holding[]
+  busy: boolean
+  noteBox: React.ReactNode
+  act: (action: unknown, successNote?: string) => void
+}) {
+  // Signer identity is not derivable from durable data, so the worker must
+  // affirmatively confirm the signatures on the RETURNED form before submitting.
+  const [signaturesConfirmed, setSignaturesConfirmed] = useState(false)
+
   return (
     <ActionPanel heading={`Confirm and submit ${detail.customer.first_name}\u2019s form`}>
       {noteBox}
@@ -731,12 +746,16 @@ function FormAction({
       </div>
 
       <FormCoverage request={request} />
-      <RequiredSigners detail={detail} />
+      <RequiredSignatureConfirm
+        request={request}
+        confirmed={signaturesConfirmed}
+        onToggle={() => setSignaturesConfirmed(v => !v)}
+      />
 
       <PrimaryAction
         icon={Building2}
-        label="Policies and signer confirmed, submit to carrier"
-        disabled={busy || request.length === 0}
+        label="Submit to carrier"
+        disabled={busy || request.length === 0 || !signaturesConfirmed}
         onClick={() => act({ type: 'submit-to-carrier' }, 'Submitted. Moved to Waiting for Carrier.')}
       />
       <NextNote>Submitting moves {detail.customer.first_name} to Waiting for Carrier. There is no separate Forms Received queue.</NextNote>
@@ -744,28 +763,43 @@ function FormAction({
   )
 }
 
-function RequiredSigners({ detail }: { detail: Detail }) {
+function RequiredSignatureConfirm({
+  request, confirmed, onToggle,
+}: {
+  request: Holding[]
+  confirmed: boolean
+  onToggle: () => void
+}) {
+  // Insured names from the request policies are the only signer-adjacent facts
+  // we hold; they are shown as context, not asserted as the required signers.
+  const insuredNames = Array.from(
+    new Set(request.map(h => h.insured_name).filter((n): n is string => !!n)),
+  )
+
   return (
-    <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-4">
-      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Required signer(s)</p>
-      <div className="space-y-1.5">
-        {detail.required_signers.map(s => (
-          <div key={s.id} className="text-sm">
-            <span className="font-medium text-slate-900">{s.name}</span>
-            <span className="ml-2 text-slate-600">{s.role}</span>
-            {!s.email && !s.phone && (
-              <span className="ml-2 italic text-rose-600">no usable contact on file</span>
-            )}
-          </div>
-        ))}
-      </div>
-      {!detail.additional_signers_tracked && (
-        <p className="flex items-start gap-2 border-t border-slate-100 pt-2 text-sm text-slate-600">
-          <PenLine className="mt-0.5 size-3.5 shrink-0 text-slate-500" aria-hidden />
-          Any additional co-owner / joint signers are not tracked in durable data yet. Confirm the
-          signed form carries every required signature before submitting.
+    <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-4">
+      <p className="flex items-start gap-2 text-sm text-amber-900">
+        <PenLine className="mt-0.5 size-4 shrink-0" aria-hidden />
+        <span>
+          The required signer(s) for this form are not known from our records. Determine who must sign
+          from the returned form and the policy ownership, and confirm every required signature is
+          present before submitting.
+        </span>
+      </p>
+      {insuredNames.length > 0 && (
+        <p className="text-sm text-slate-700">
+          Insured on the request policies: {insuredNames.join(', ')} (context only, not necessarily the signer).
         </p>
       )}
+      <label className="mt-1 flex cursor-pointer items-start gap-2 text-sm font-medium text-slate-900">
+        <input
+          type="checkbox"
+          checked={confirmed}
+          onChange={onToggle}
+          className="mt-0.5 size-4 rounded border-slate-400 text-teal-600 focus:ring-teal-500"
+        />
+        I have verified every required signature is present on the returned form.
+      </label>
     </div>
   )
 }

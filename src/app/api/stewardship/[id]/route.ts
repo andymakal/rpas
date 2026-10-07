@@ -109,18 +109,12 @@ export async function GET(
     address_line1: string | null; city: string | null; state: string | null; zip: string | null
   }
 
-  // Required signer identity we can state durably: the customer is the owner /
-  // signer of record. Co-owner / joint signers are not represented in durable
-  // data today, so we surface the customer as the known required signer and flag
-  // that any additional signers are not tracked yet, rather than inventing them.
-  const requiredSigners = [{
-    id: cust.id,
-    name: `${cust.first_name} ${cust.last_name}`.trim(),
-    email: cust.email,
-    phone: cust.phone,
-    role: 'Owner / customer',
-  }]
-
+  // Required-signer identity is NOT durable today: there is no owner/signer
+  // record, and the customer is not necessarily the policy owner or a required
+  // signer. We therefore do not assert any signer. The customer and the request
+  // policies' insured names are returned as context the worker uses to verify
+  // the actual signature(s) from the returned form before submitting; the UI
+  // requires that confirmation.
   return Response.json({
     data: {
       id: o.id,
@@ -138,8 +132,8 @@ export async function GET(
       customer: cust,
       source_agency_id: pre.source_agency_id,
       holdings,
-      required_signers: requiredSigners,
-      additional_signers_tracked: false,
+      // Signer identity cannot be determined from durable data.
+      signer_identity_known: false,
     },
   })
 }
@@ -261,13 +255,29 @@ export async function PATCH(
       .select('policy_id')
       .eq('outreach_id', id)
     const policyIds = (links ?? []).map((l: { policy_id: string }) => l.policy_id)
+
+    // The servicing-status update is the point of carrier confirmation. The
+    // outreach row must NOT be deleted unless that update actually succeeds —
+    // otherwise the work would vanish while the policies stayed unconfirmed.
+    // Order the writes so the required update happens first and is checked
+    // before the delete.
     if (policyIds.length > 0) {
-      await supabase
+      const { error: saErr } = await supabase
         .from('service_policies')
         .update({ sa_status: 'confirmed' })
         .in('id', policyIds)
+      if (saErr) {
+        console.error('stewardship carrier-confirm sa_status update error:', saErr)
+        return Response.json(
+          { error: 'Could not update servicing status; the item was left in Waiting for Carrier.' },
+          { status: 500 },
+        )
+      }
     }
-    // Deleting cascades stewardship_outreach_policies; the prereview is untouched.
+
+    // Servicing status is confirmed (or there were no request policies to
+    // update). Now end outreach. Deleting cascades stewardship_outreach_policies;
+    // the open customer_prereview is untouched for the documentation layer.
     const { error: delErr } = await supabase
       .from('stewardship_outreach')
       .delete()

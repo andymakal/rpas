@@ -131,6 +131,11 @@ export async function POST(request: NextRequest) {
     }
 
     // 2. Create the outreach row with the derived initial queue.
+    // If any required write below fails, compensate by deleting the pre-review
+    // we just created (which cascades to the outreach row and its policy links),
+    // so a failed start never leaves an orphan open pre-review or a partial
+    // outreach item. There is no cross-table transaction available to the client,
+    // so compensation is the smallest safe consistency approach here.
     const route = initialQueue({ email: c.email, phone: c.phone })
     const { data: outreach, error: outErr } = await supabase
       .from('stewardship_outreach')
@@ -144,14 +149,23 @@ export async function POST(request: NextRequest) {
       .single()
     if (outErr || !outreach) {
       console.error('stewardship start: outreach insert error', outErr)
+      await supabase.from('customer_prereviews').delete().eq('id', pre.id)
       skipped++
       continue
     }
 
-    // 3. Record the request-policy set from the source cohort.
-    await supabase
+    // 3. Record the request-policy set from the source cohort. This is a
+    // required part of a started item (an outreach with no request policies is
+    // incomplete), so roll back the whole item if it fails.
+    const { error: linkErr } = await supabase
       .from('stewardship_outreach_policies')
       .insert(requestPolicies.map(p => ({ outreach_id: outreach.id, policy_id: p.id })))
+    if (linkErr) {
+      console.error('stewardship start: request-policy insert error', linkErr)
+      await supabase.from('customer_prereviews').delete().eq('id', pre.id)
+      skipped++
+      continue
+    }
 
     started++
   }
