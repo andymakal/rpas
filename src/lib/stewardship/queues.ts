@@ -107,9 +107,11 @@ export function initialQueue(contact: { email: string | null; phone: string | nu
  */
 export type OutreachAction =
   | { type: 'email-sent'; follow_up_days?: number }
+  | { type: 'email-bounced' }        // emailed outreach bounced
   | { type: 'call-outcome'; outcome: CallOutcome; callback_date?: string | null }
   | { type: 'form-sent' }            // after a reached call, the form is (re)sent
   | { type: 'research-found'; found: 'email' | 'phone' | 'nothing' }
+  | { type: 'form-received' }        // signed form came back (before submit)
   | { type: 'submit-to-carrier' }
   | { type: 'carrier-correction'; note: string }
   | { type: 'carrier-confirmed' }
@@ -122,8 +124,16 @@ export interface OutreachState {
   callback_date: string | null
   email_sent_at: string | null
   follow_up_due: string | null
+  form_received_at: string | null
   submitted_at: string | null
   carrier_correction: string | null
+  /**
+   * Whether the customer currently has a usable phone. Not stored on the
+   * outreach row (contact facts live on customers); supplied by the caller so
+   * email-bounce routing is deterministic: bounce + phone -> Ready to Call,
+   * bounce + no phone -> Research Needed.
+   */
+  has_usable_phone: boolean
 }
 
 export type OutreachPatch = Partial<OutreachState>
@@ -145,6 +155,24 @@ function addDays(iso: string, days: number): string {
 }
 
 /**
+ * Deterministic derived routing for overdue waiting-for-response items.
+ *
+ * When the follow-up window has lapsed with no response, the item should be in
+ * Ready to Call (reason: no-response). This is derived from follow_up_due vs
+ * now, so overdue work surfaces in the right queue without manual housekeeping.
+ * Returns a patch to apply, or null when nothing is overdue.
+ */
+export function deriveFollowUpRouting(
+  state: Pick<OutreachState, 'queue' | 'follow_up_due'>,
+  now: Date = new Date(),
+): OutreachPatch | null {
+  if (state.queue !== 'waiting-for-response') return null
+  if (!state.follow_up_due) return null
+  if (new Date(state.follow_up_due).getTime() > now.getTime()) return null
+  return { queue: 'ready-to-call', call_reason: 'no-response' }
+}
+
+/**
  * Pure transition function. Given the current state and an action, return the
  * patch to persist. Invalid actions for the current queue return an error so
  * the API can reject them rather than silently corrupting state.
@@ -163,6 +191,30 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
           follow_up_due: addDays(now, action.follow_up_days ?? 7),
           call_reason: null,
           research_reason: null,
+        },
+      }
+    }
+
+    case 'email-bounced': {
+      if (state.queue !== 'ready-to-email' && state.queue !== 'waiting-for-response') {
+        return { patch: {}, error: `Cannot record a bounce from ${state.queue}` }
+      }
+      // Settled routing: bounce + usable phone -> Ready to Call (email bounced);
+      // bounce + no usable phone -> Research Needed.
+      if (state.has_usable_phone) {
+        return {
+          patch: {
+            queue: 'ready-to-call',
+            call_reason: 'email-bounced',
+            research_reason: null,
+          },
+        }
+      }
+      return {
+        patch: {
+          queue: 'research-needed',
+          research_reason: 'bounce-no-phone',
+          call_reason: null,
         },
       }
     }
@@ -223,9 +275,23 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
       return { patch: {} }
     }
 
+    case 'form-received': {
+      if (state.queue !== 'waiting-for-form') {
+        return { patch: {}, error: `Cannot record form receipt from ${state.queue}` }
+      }
+      // Step 1 of the two-step form flow: record that the signed form came back.
+      // Stays in waiting-for-form; the worker then confirms policies + signer(s)
+      // before Submit to carrier becomes available.
+      return { patch: { form_received_at: new Date().toISOString() } }
+    }
+
     case 'submit-to-carrier': {
       if (state.queue !== 'waiting-for-form') {
         return { patch: {}, error: `Cannot submit to carrier from ${state.queue}` }
+      }
+      // Step 2: submission only after the signed form has been recorded received.
+      if (!state.form_received_at) {
+        return { patch: {}, error: 'Record the signed form as received before submitting to the carrier' }
       }
       return {
         patch: {

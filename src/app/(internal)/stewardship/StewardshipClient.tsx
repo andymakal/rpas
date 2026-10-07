@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
   Mail, Phone, Search, Inbox, FileText, Building2, Check, ExternalLink,
-  Clock, CircleAlert, Play,
+  Clock, CircleAlert, Play, PenLine, MailX,
 } from 'lucide-react'
 import {
   WorkflowPage, WorkflowHeader,
@@ -24,7 +24,22 @@ import {
   QUEUE_META, OUTREACH_QUEUES,
   type OutreachQueue, type CallOutcome,
 } from '@/lib/stewardship/queues'
+import { buildMailto } from '@/lib/templates'
 import type { AgencyOption } from './page'
+
+const SA_SUBJECT = 'Right Path — servicing agent confirmation'
+function saEmailBody(firstName: string): string {
+  return [
+    `Hi ${firstName},`,
+    '',
+    'This is your Right Path servicing agent. We are confirming the servicing agent on your life',
+    'policies so we can keep helping you. Please review and sign the attached servicing-agent form.',
+    'Reply here with any questions.',
+    '',
+    'Thank you,',
+    'Right Path',
+  ].join('\n')
+}
 
 type Customer = { id: string; first_name: string; last_name: string; email: string | null; phone: string | null }
 
@@ -37,6 +52,7 @@ type BoardItem = {
   callback_date: string | null
   email_sent_at: string | null
   follow_up_due: string | null
+  form_received_at: string | null
   submitted_at: string | null
   carrier_correction: string | null
   prereview_id: string
@@ -57,7 +73,10 @@ type Holding = {
   in_request: boolean
 }
 
+type RequiredSigner = { id: string; name: string; email: string | null; phone: string | null; role: string }
+
 type Detail = BoardItem & {
+  form_received_at: string | null
   customer: Customer & {
     date_of_birth: string | null
     address_line1: string | null
@@ -67,6 +86,8 @@ type Detail = BoardItem & {
   }
   source_agency_id: string | null
   holdings: Holding[]
+  required_signers: RequiredSigner[]
+  additional_signers_tracked: boolean
 }
 
 const QUEUE_ICON: Record<OutreachQueue, typeof Mail> = {
@@ -313,17 +334,19 @@ function StewardshipTask({ itemId, onBack }: { itemId: string; onBack: () => voi
       const json = await res.json()
       if (!res.ok) { setNote(json.error ?? 'Action failed.'); return }
       if (json.completed_outreach) {
-        setNote('Carrier confirmed. Servicing access confirmed; customer moves to documentation.')
-      } else if (successNote) {
-        setNote(successNote)
+        // Carrier confirmed: the outreach row is gone and the customer has left
+        // outreach for the documentation layer. Return to the board.
+        onBack()
+        return
       }
+      if (successNote) setNote(successNote)
       await load()
     } catch {
       setNote('Network error.')
     } finally {
       setBusy(false)
     }
-  }, [itemId, load])
+  }, [itemId, load, onBack])
 
   if (!detail) {
     return (
@@ -377,11 +400,15 @@ function TaskAction({
       return (
         <ActionPanel heading={`Email ${name}`}>
           {noteBox}
-          <PrimaryAction
-            icon={ExternalLink}
-            label="Open prepared email"
-            onClick={() => window.open(`mailto:${detail.customer.email ?? ''}`)}
-          />
+          {/* Established Right Path behavior: open the prepared email in the
+              team member's own Outlook via a mailto link. Launching Outlook is
+              not proof the email was sent — the worker confirms explicitly. */}
+          <a
+            href={buildMailto(detail.customer.email, SA_SUBJECT, saEmailBody(detail.customer.first_name))}
+            className="block"
+          >
+            <PrimaryAction icon={ExternalLink} label="Open prepared email in Outlook" />
+          </a>
           <WorkflowButton
             icon={Check}
             selected
@@ -390,8 +417,19 @@ function TaskAction({
           >
             Email sent
           </WorkflowButton>
+          <WorkflowButton
+            icon={MailX}
+            disabled={busy}
+            onClick={() => act({ type: 'email-bounced' },
+              detail.customer.phone ? 'Bounce recorded. Moved to Ready to Call.' : 'Bounce recorded. Moved to Research Needed.')}
+          >
+            Email bounced
+          </WorkflowButton>
           <FormCoverage request={request} />
-          <NextNote>Sending moves {detail.customer.first_name} to Waiting for Response. Nothing is auto-closed.</NextNote>
+          <NextNote>
+            Sending moves {detail.customer.first_name} to Waiting for Response. A bounce routes to Ready to
+            Call when a phone is on file, or Research Needed when it is not. Nothing is auto-closed.
+          </NextNote>
         </ActionPanel>
       )
 
@@ -399,29 +437,8 @@ function TaskAction({
       return <CallAction detail={detail} request={request} busy={busy} noteBox={noteBox} act={act} />
 
     case 'research-needed':
-      return (
-        <ActionPanel heading={`Find contact for ${name}`}>
-          {noteBox}
-          <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-4 text-base text-rose-800">
-            <Search className="size-5" aria-hidden /> Usable contact information is missing or has failed.
-          </div>
-          <div className="flex flex-col gap-2">
-            <WorkflowButton size="lg" disabled={busy} className="h-12 justify-start"
-              onClick={() => act({ type: 'research-found', found: 'email' }, 'Email found. Moved to Ready to Email.')}>
-              Found an email
-            </WorkflowButton>
-            <WorkflowButton size="lg" disabled={busy} className="h-12 justify-start"
-              onClick={() => act({ type: 'research-found', found: 'phone' }, 'Phone found. Moved to Ready to Call.')}>
-              Found a phone, no email
-            </WorkflowButton>
-            <WorkflowButton size="lg" disabled={busy} className="h-12 justify-start"
-              onClick={() => act({ type: 'research-found', found: 'nothing' }, 'Recorded. Stays in Research Needed.')}>
-              Nothing usable yet
-            </WorkflowButton>
-          </div>
-          <NextNote>Nothing is auto-closed. An item with no usable contact stays here until a human decides.</NextNote>
-        </ActionPanel>
-      )
+      return <ResearchAction detail={detail} busy={busy} noteBox={noteBox} act={act} />
+
 
     case 'waiting-for-response':
       return (
@@ -439,36 +456,32 @@ function TaskAction({
               </span>
             )}
           </div>
-          <PrimaryAction icon={ExternalLink} label="Open inbox" onClick={() => window.open('https://mail.google.com', '_blank')} />
+          {/* Check the reply in the team member's own Outlook. */}
+          <a href="https://outlook.office.com/mail/" target="_blank" rel="noopener noreferrer" className="block">
+            <PrimaryAction icon={ExternalLink} label="Open inbox in Outlook" />
+          </a>
           <div className="space-y-2 border-t border-slate-100 pt-4">
             <p className="text-sm font-medium text-slate-700">When the customer engages</p>
             <WorkflowButton icon={FileText} disabled={busy}
               onClick={() => act({ type: 'form-sent' }, 'Form sent. Moved to Waiting for Form.')}>
               Form sent to customer
             </WorkflowButton>
+            <WorkflowButton icon={MailX} disabled={busy}
+              onClick={() => act({ type: 'email-bounced' },
+                detail.customer.phone ? 'Bounce recorded. Moved to Ready to Call.' : 'Bounce recorded. Moved to Research Needed.')}>
+              Email bounced
+            </WorkflowButton>
           </div>
-          <NextNote>If the follow-up lapses with no response, re-engage by phone from Ready to Call. Nothing is auto-closed.</NextNote>
+          <NextNote>
+            When the follow-up date passes with no response, this customer moves to Ready to Call
+            automatically. Nothing is auto-closed.
+          </NextNote>
         </ActionPanel>
       )
 
     case 'waiting-for-form':
-      return (
-        <ActionPanel heading={`Follow up on ${detail.customer.first_name}\u2019s form`}>
-          {noteBox}
-          <p className="text-sm text-slate-600">
-            When the signed form returns, confirm the signatures and submit it to the carrier. One form
-            can cover several policy numbers.
-          </p>
-          <FormCoverage request={request} />
-          <PrimaryAction
-            icon={Building2}
-            label="Signatures present, submit to carrier"
-            disabled={busy || request.length === 0}
-            onClick={() => act({ type: 'submit-to-carrier' }, 'Submitted. Moved to Waiting for Carrier.')}
-          />
-          <NextNote>Submitting moves {detail.customer.first_name} to Waiting for Carrier. There is no separate Forms Received queue.</NextNote>
-        </ActionPanel>
-      )
+      return <FormAction detail={detail} request={request} busy={busy} noteBox={noteBox} act={act} />
+
 
     case 'waiting-for-carrier':
       return <CarrierAction detail={detail} request={request} busy={busy} noteBox={noteBox} act={act} />
@@ -504,12 +517,16 @@ function CallAction({
           <CircleAlert className="size-3.5" aria-hidden /> {callReasonLabel(detail.call_reason)}
         </span>
       )}
-      <PrimaryAction
-        icon={Phone}
-        label={phone ? `Call ${phone}` : 'No phone on file'}
-        disabled={!phone}
-        onClick={() => window.open(`tel:${phone ?? ''}`)}
-      />
+      {/* Established call behavior: a tel: link dials via the team member's
+          configured phone (RingCentral). Launching the dialer is not proof the
+          call happened — the worker records the outcome below. */}
+      {phone ? (
+        <a href={`tel:${phone}`} className="block">
+          <PrimaryAction icon={Phone} label={`Call ${phone}`} />
+        </a>
+      ) : (
+        <PrimaryAction icon={Phone} label="No phone on file" disabled />
+      )}
       <div className="border-t border-slate-100 pt-4">
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-600">Record the call outcome</p>
         <div className="flex flex-wrap gap-2">
@@ -612,6 +629,144 @@ function CarrierAction({
       </div>
       <NextNote>Carrier confirmation confirms servicing access and moves the customer to documentation. It does not create a review.</NextNote>
     </ActionPanel>
+  )
+}
+
+function ResearchAction({
+  detail, busy, noteBox, act,
+}: {
+  detail: Detail
+  busy: boolean
+  noteBox: React.ReactNode
+  act: (action: unknown, successNote?: string) => void
+}) {
+  const [emailVal, setEmailVal] = useState('')
+  const [phoneVal, setPhoneVal] = useState('')
+
+  return (
+    <ActionPanel heading={`Find contact for ${fullName(detail.customer)}`}>
+      {noteBox}
+      <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-4 text-base text-rose-800">
+        <Search className="size-5" aria-hidden /> Usable contact information is missing or has failed.
+      </div>
+
+      {/* Found an email — capture the actual value; it is written to the
+          customer record before routing to Ready to Email. */}
+      <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-4">
+        <label htmlFor="found-email" className="text-sm font-medium text-slate-800">Found an email</label>
+        <input id="found-email" type="email" value={emailVal} onChange={e => setEmailVal(e.target.value)}
+          placeholder="name@example.com"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-base text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-200" />
+        <WorkflowButton icon={Check} selected disabled={busy || !emailVal.trim()}
+          onClick={() => act({ type: 'research-found', found: 'email', email: emailVal.trim() }, 'Email saved. Moved to Ready to Email.')}>
+          Save email, move to Ready to Email
+        </WorkflowButton>
+      </div>
+
+      {/* Found a phone — same, routes to Ready to Call. */}
+      <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-4">
+        <label htmlFor="found-phone" className="text-sm font-medium text-slate-800">Found a phone, no email</label>
+        <input id="found-phone" type="tel" value={phoneVal} onChange={e => setPhoneVal(e.target.value)}
+          placeholder="215-555-0100"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-base text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-200" />
+        <WorkflowButton icon={Check} selected disabled={busy || !phoneVal.trim()}
+          onClick={() => act({ type: 'research-found', found: 'phone', phone: phoneVal.trim() }, 'Phone saved. Moved to Ready to Call.')}>
+          Save phone, move to Ready to Call
+        </WorkflowButton>
+      </div>
+
+      <WorkflowButton disabled={busy}
+        onClick={() => act({ type: 'research-found', found: 'nothing' }, 'Recorded. Stays in Research Needed.')}>
+        Nothing usable yet
+      </WorkflowButton>
+
+      <NextNote>
+        A found value is saved to the customer record (field by field, without overwriting the other)
+        before the customer is routed forward. Nothing is auto-closed.
+      </NextNote>
+    </ActionPanel>
+  )
+}
+
+function FormAction({
+  detail, request, busy, noteBox, act,
+}: {
+  detail: Detail
+  request: Holding[]
+  busy: boolean
+  noteBox: React.ReactNode
+  act: (action: unknown, successNote?: string) => void
+}) {
+  const received = !!detail.form_received_at
+
+  // Step 1: the signed form has not been recorded received yet.
+  if (!received) {
+    return (
+      <ActionPanel heading={`Follow up on ${detail.customer.first_name}\u2019s form`}>
+        {noteBox}
+        <p className="text-sm text-slate-600">
+          The servicing-agent form has been sent. First, record when the signed form comes back. One
+          form can cover several policy numbers.
+        </p>
+        <PrimaryAction
+          icon={FileText}
+          label="Signed form received"
+          disabled={busy}
+          onClick={() => act({ type: 'form-received' }, 'Form receipt recorded. Confirm the policies and signer below, then submit to the carrier.')}
+        />
+        <NextNote>
+          Recording receipt does not submit anything. After it is recorded, you confirm the applicable
+          policies and required signer, then Submit to carrier becomes available.
+        </NextNote>
+      </ActionPanel>
+    )
+  }
+
+  // Step 2: form received — confirm policies + signers, then submit.
+  return (
+    <ActionPanel heading={`Confirm and submit ${detail.customer.first_name}\u2019s form`}>
+      {noteBox}
+      <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+        <Check className="size-4" aria-hidden /> Signed form received{detail.form_received_at ? ` ${shortDate(detail.form_received_at)}` : ''}.
+      </div>
+
+      <FormCoverage request={request} />
+      <RequiredSigners detail={detail} />
+
+      <PrimaryAction
+        icon={Building2}
+        label="Policies and signer confirmed, submit to carrier"
+        disabled={busy || request.length === 0}
+        onClick={() => act({ type: 'submit-to-carrier' }, 'Submitted. Moved to Waiting for Carrier.')}
+      />
+      <NextNote>Submitting moves {detail.customer.first_name} to Waiting for Carrier. There is no separate Forms Received queue.</NextNote>
+    </ActionPanel>
+  )
+}
+
+function RequiredSigners({ detail }: { detail: Detail }) {
+  return (
+    <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-4">
+      <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">Required signer(s)</p>
+      <div className="space-y-1.5">
+        {detail.required_signers.map(s => (
+          <div key={s.id} className="text-sm">
+            <span className="font-medium text-slate-900">{s.name}</span>
+            <span className="ml-2 text-slate-600">{s.role}</span>
+            {!s.email && !s.phone && (
+              <span className="ml-2 italic text-rose-600">no usable contact on file</span>
+            )}
+          </div>
+        ))}
+      </div>
+      {!detail.additional_signers_tracked && (
+        <p className="flex items-start gap-2 border-t border-slate-100 pt-2 text-sm text-slate-600">
+          <PenLine className="mt-0.5 size-3.5 shrink-0 text-slate-500" aria-hidden />
+          Any additional co-owner / joint signers are not tracked in durable data yet. Confirm the
+          signed form carries every required signature before submitting.
+        </p>
+      )}
+    </div>
   )
 }
 

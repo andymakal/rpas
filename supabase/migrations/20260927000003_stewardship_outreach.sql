@@ -69,6 +69,10 @@ create table if not exists public.stewardship_outreach (
   -- when a follow-up becomes due
   follow_up_due date,
 
+  -- when the signed form was received back from the customer. Set first, while
+  -- still in waiting-for-form, so the two-step receive -> confirm -> submit flow
+  -- survives a refresh. Submission to the carrier is a separate later step.
+  form_received_at timestamptz,
   -- when the signed form was submitted to the carrier (enters waiting-for-carrier)
   submitted_at  timestamptz,
   -- carrier-requested correction text — actionable work within waiting-for-carrier

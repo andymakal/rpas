@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { QUEUE_META, type OutreachQueue } from '@/lib/stewardship/queues'
+import { requireInternalAdmin } from '@/lib/stewardship/auth'
+import { QUEUE_META, deriveFollowUpRouting, type OutreachQueue } from '@/lib/stewardship/queues'
 
 /**
  * GET /api/stewardship
@@ -9,18 +10,42 @@ import { QUEUE_META, type OutreachQueue } from '@/lib/stewardship/queues'
  * queue and the customer identity needed to render the queue list. Backed by
  * stewardship_outreach joined to customer_prereviews -> customers.
  *
+ * Before building the board, overdue waiting-for-response items are moved to
+ * Ready to Call (reason: no-response) by deterministic derived routing, so
+ * overdue work surfaces in the right queue without manual housekeeping.
+ *
  * Optional ?queue=<OutreachQueue> filters to one queue.
  */
 export async function GET(request: NextRequest) {
+  const auth = await requireInternalAdmin()
+  if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
+
   const supabase = createAdminClient()
   const url = new URL(request.url)
   const queueFilter = url.searchParams.get('queue')
+
+  // Deterministic follow-up routing: promote overdue waiting-for-response items
+  // to Ready to Call (no-response) up front, and persist the move so it is
+  // durable rather than a per-render illusion.
+  const now = new Date()
+  const { data: waiting } = await supabase
+    .from('stewardship_outreach')
+    .select('id, follow_up_due')
+    .eq('queue', 'waiting-for-response')
+    .not('follow_up_due', 'is', null)
+    .lte('follow_up_due', now.toISOString())
+  for (const w of (waiting ?? []) as { id: string; follow_up_due: string | null }[]) {
+    const patch = deriveFollowUpRouting({ queue: 'waiting-for-response', follow_up_due: w.follow_up_due }, now)
+    if (patch) {
+      await supabase.from('stewardship_outreach').update(patch).eq('id', w.id)
+    }
+  }
 
   let query = supabase
     .from('stewardship_outreach')
     .select(`
       id, prereview_id, queue, call_reason, research_reason, last_call_outcome,
-      callback_date, email_sent_at, follow_up_due, submitted_at, carrier_correction,
+      callback_date, email_sent_at, follow_up_due, form_received_at, submitted_at, carrier_correction,
       updated_at,
       customer_prereviews!inner (
         id, customer_id, source_agency_id, decision,
@@ -48,6 +73,7 @@ export async function GET(request: NextRequest) {
     callback_date: string | null
     email_sent_at: string | null
     follow_up_due: string | null
+    form_received_at: string | null
     submitted_at: string | null
     carrier_correction: string | null
     customer_prereviews: {
@@ -70,6 +96,7 @@ export async function GET(request: NextRequest) {
     callback_date: r.callback_date,
     email_sent_at: r.email_sent_at,
     follow_up_due: r.follow_up_due,
+    form_received_at: r.form_received_at,
     submitted_at: r.submitted_at,
     carrier_correction: r.carrier_correction,
     prereview_id: r.customer_prereviews.id,
