@@ -34,82 +34,6 @@
 
 
 -- =============================================================================
--- SERVICE REQUESTS
--- Tracks formal requests submitted to a carrier on behalf of an existing client.
--- Examples: beneficiary changes, EFT updates, policy loans, surrenders.
---
--- Workflow:
---   New → Form Sent to Client → Form Sent to Carrier
---       → Pending Client Response | Awaiting Carrier
---       → Resolved | Converted to Review
--- =============================================================================
-create table if not exists public.service_requests (
-  id                  uuid primary key default gen_random_uuid(),
-
-  -- ownership (denormalized for query performance)
-  agency_id           uuid        not null references public.agencies  (id),
-  customer_id         uuid        not null references public.customers (id),
-
-  -- the existing policy being serviced
-  carrier_id          uuid        references public.carriers              (id) on delete set null,
-  policy_number       text,
-  existing_product_name text,     -- free text — legacy products may not be in our catalog
-
-  -- request details
-  request_type_id     uuid        references public.service_request_types (id) on delete set null,
-  status_id           uuid        references public.request_statuses       (id) on delete set null,
-
-  -- traceability — set when this request was opened as a result of a policy review
-  policy_review_id    uuid        references public.policy_reviews         (id) on delete set null,
-
-  -- resolution
-  resolved_at         timestamptz,
-  notes               text,
-
-  is_test             boolean not null default false,
-  created_at          timestamptz not null default now(),
-  updated_at          timestamptz not null default now()
-);
-
-comment on table public.service_requests is
-  'Formal requests to carriers on behalf of existing policyholders. '
-  'Admin (SML team) only — agencies do not see this table. '
-  'carrier_id covers legacy carriers: Everlake Life, Everlake Assurance, Lincoln Benefit Life, etc.';
-
-comment on column public.service_requests.carrier_id is
-  'The carrier currently holding the existing policy. '
-  'For legacy Allstate Life books: use Everlake Life Insurance Company or '
-  'Everlake Assurance Company. Lincoln Benefit Life Company is unchanged.';
-
-comment on column public.service_requests.existing_product_name is
-  'Free-text product name for legacy policies not in the products catalog. '
-  'If the product IS in our catalog, leave null and rely on carrier + policy_number.';
-
-comment on column public.service_requests.policy_review_id is
-  'Set when this request was generated from a policy review '
-  '(review_status = ''Complete — Service Request'').';
-
-create trigger service_requests_set_updated_at
-  before update on public.service_requests
-  for each row execute function public.set_updated_at();
-
-create index if not exists service_requests_agency_idx
-  on public.service_requests (agency_id)
-  where is_test = false;
-
-create index if not exists service_requests_customer_idx
-  on public.service_requests (customer_id);
-
-create index if not exists service_requests_open_idx
-  on public.service_requests (agency_id, created_at desc)
-  where resolved_at is null and is_test = false;
-
-create index if not exists service_requests_review_idx
-  on public.service_requests (policy_review_id)
-  where policy_review_id is not null;
-
-
--- =============================================================================
 -- POLICY REVIEWS
 -- Annual (or event-triggered) reviews of an existing client's in-force policy.
 -- Identifies health changes, conversion opportunities, rate improvements, etc.
@@ -193,6 +117,85 @@ create index if not exists policy_reviews_resulting_case_idx
 
 
 -- =============================================================================
+-- SERVICE REQUESTS
+-- Tracks formal requests submitted to a carrier on behalf of an existing client.
+-- Examples: beneficiary changes, EFT updates, policy loans, surrenders.
+--
+-- Created after policy_reviews so service_requests.policy_review_id can
+-- reference policy_reviews(id) within this same migration.
+--
+-- Workflow:
+--   New → Form Sent to Client → Form Sent to Carrier
+--       → Pending Client Response | Awaiting Carrier
+--       → Resolved | Converted to Review
+-- =============================================================================
+create table if not exists public.service_requests (
+  id                  uuid primary key default gen_random_uuid(),
+
+  -- ownership (denormalized for query performance)
+  agency_id           uuid        not null references public.agencies  (id),
+  customer_id         uuid        not null references public.customers (id),
+
+  -- the existing policy being serviced
+  carrier_id          uuid        references public.carriers              (id) on delete set null,
+  policy_number       text,
+  existing_product_name text,     -- free text — legacy products may not be in our catalog
+
+  -- request details
+  request_type_id     uuid        references public.service_request_types (id) on delete set null,
+  status_id           uuid        references public.request_statuses       (id) on delete set null,
+
+  -- traceability — set when this request was opened as a result of a policy review
+  policy_review_id    uuid        references public.policy_reviews         (id) on delete set null,
+
+  -- resolution
+  resolved_at         timestamptz,
+  notes               text,
+
+  is_test             boolean not null default false,
+  created_at          timestamptz not null default now(),
+  updated_at          timestamptz not null default now()
+);
+
+comment on table public.service_requests is
+  'Formal requests to carriers on behalf of existing policyholders. '
+  'Admin (SML team) only — agencies do not see this table. '
+  'carrier_id covers legacy carriers: Everlake Life, Everlake Assurance, Lincoln Benefit Life, etc.';
+
+comment on column public.service_requests.carrier_id is
+  'The carrier currently holding the existing policy. '
+  'For legacy Allstate Life books: use Everlake Life Insurance Company or '
+  'Everlake Assurance Company. Lincoln Benefit Life Company is unchanged.';
+
+comment on column public.service_requests.existing_product_name is
+  'Free-text product name for legacy policies not in the products catalog. '
+  'If the product IS in our catalog, leave null and rely on carrier + policy_number.';
+
+comment on column public.service_requests.policy_review_id is
+  'Set when this request was generated from a policy review '
+  '(review_status = ''Complete — Service Request'').';
+
+create trigger service_requests_set_updated_at
+  before update on public.service_requests
+  for each row execute function public.set_updated_at();
+
+create index if not exists service_requests_agency_idx
+  on public.service_requests (agency_id)
+  where is_test = false;
+
+create index if not exists service_requests_customer_idx
+  on public.service_requests (customer_id);
+
+create index if not exists service_requests_open_idx
+  on public.service_requests (agency_id, created_at desc)
+  where resolved_at is null and is_test = false;
+
+create index if not exists service_requests_review_idx
+  on public.service_requests (policy_review_id)
+  where policy_review_id is not null;
+
+
+-- =============================================================================
 -- ROW LEVEL SECURITY
 -- Agency users get read-only SELECT on their own agency's records.
 -- This drives a transparency panel on the agency dashboard so agencies can
@@ -230,7 +233,8 @@ create policy policy_reviews_select
 
 -- =============================================================================
 -- FORWARD REFERENCE NOTE
--- service_requests.policy_review_id references policy_reviews.id.
--- Because policy_reviews is created first in this file, the FK is valid.
--- If you ever split these into separate migrations, policy_reviews must run first.
+-- service_requests.policy_review_id references policy_reviews(id).
+-- policy_reviews is created above, before service_requests, so the FK resolves
+-- during a clean replay. If you ever split these into separate migrations,
+-- policy_reviews must run first.
 -- =============================================================================
