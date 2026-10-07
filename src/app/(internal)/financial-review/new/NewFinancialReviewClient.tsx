@@ -15,12 +15,12 @@ type CustomerHit = {
   customer_group_id: string | null
 }
 
-export function NewFinancialReviewClient() {
+export function NewFinancialReviewClient({ initialCustomer }: { initialCustomer?: CustomerHit | null }) {
   const router = useRouter()
 
   const [customerQuery, setCustomerQuery]     = useState('')
   const [customerResults, setCustomerResults] = useState<CustomerHit[]>([])
-  const [selectedCustomer, setSelectedCustomer] = useState<CustomerHit | null>(null)
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerHit | null>(initialCustomer ?? null)
   const [searching, setSearching]             = useState(false)
 
   const [pdfFile, setPdfFile]   = useState<File | null>(null)

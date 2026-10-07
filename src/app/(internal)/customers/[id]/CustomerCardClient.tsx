@@ -1973,14 +1973,22 @@ export function CustomerCardClient({
           icon={ClipboardCheck}
           count={policyReviews.length}
           action={
-            policies.length > 0 ? (
-              <button
-                onClick={() => { setShowNewReview(v => !v); setNewReviewError(null) }}
+            <div className="flex items-center gap-3">
+              <Link
+                href={`/financial-review/new?customer_id=${customer.id}`}
                 className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
               >
-                <Plus className="w-3.5 h-3.5" /> Schedule Review
-              </button>
-            ) : null
+                <Plus className="w-3.5 h-3.5" /> New Financial Review
+              </Link>
+              {policies.length > 0 && (
+                <button
+                  onClick={() => { setShowNewReview(v => !v); setNewReviewError(null) }}
+                  className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Schedule Review
+                </button>
+              )}
+            </div>
           }
         >
           {showNewReview && (

@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Search, ChevronRight } from 'lucide-react'
+import { Search, ChevronRight, Plus, X } from 'lucide-react'
 import type { CustomerRow } from './page'
 
 const SEGMENTS = [
@@ -46,6 +46,38 @@ export default function CustomersClient() {
   const [showFormerClients, setShowFormerClients] = useState(false)
   const [showProspects, setShowProspects]         = useState(false)
   const [noPoliciesOnly, setNoPoliciesOnly]       = useState(false)
+
+  // New customer modal
+  const [showNewCustomer, setShowNewCustomer] = useState(false)
+  const [ncFirstName, setNcFirstName]         = useState('')
+  const [ncLastName,  setNcLastName]          = useState('')
+  const [ncPhone,     setNcPhone]             = useState('')
+  const [ncEmail,     setNcEmail]             = useState('')
+  const [ncSaving,    setNcSaving]            = useState(false)
+  const [ncError,     setNcError]             = useState<string | null>(null)
+
+  async function handleNewCustomer() {
+    if (!ncLastName.trim()) { setNcError('Last name is required.'); return }
+    setNcSaving(true); setNcError(null)
+    try {
+      const res  = await fetch('/api/customers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ first_name: ncFirstName, last_name: ncLastName, phone: ncPhone, email: ncEmail }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to create customer')
+      router.push(`/customers/${json.data.id}`)
+    } catch (err) {
+      setNcError(err instanceof Error ? err.message : 'Error')
+      setNcSaving(false)
+    }
+  }
+
+  function openNewCustomer() {
+    setNcFirstName(''); setNcLastName(''); setNcPhone(''); setNcEmail(''); setNcError(null)
+    setShowNewCustomer(true)
+  }
 
   // Server search state — null means not in search mode (showing browse view)
   const [searchResults, setSearchResults] = useState<CustomerRow[] | null>(null)
@@ -129,6 +161,60 @@ export default function CustomersClient() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
+
+      {/* New Customer Modal */}
+      {showNewCustomer && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-sm mx-4 p-6">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="text-white font-semibold text-base">New Customer</h2>
+              <button onClick={() => setShowNewCustomer(false)} className="text-slate-500 hover:text-slate-300 transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">First name</label>
+                  <input value={ncFirstName} onChange={e => setNcFirstName(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                    placeholder="First" autoFocus />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Last name <span className="text-red-400">*</span></label>
+                  <input value={ncLastName} onChange={e => setNcLastName(e.target.value)}
+                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                    placeholder="Last" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Phone</label>
+                <input value={ncPhone} onChange={e => setNcPhone(e.target.value)} type="tel"
+                  className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                  placeholder="(555) 555-5555" />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Email</label>
+                <input value={ncEmail} onChange={e => setNcEmail(e.target.value)} type="email"
+                  className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500"
+                  placeholder="name@example.com" />
+              </div>
+              {ncError && <p className="text-xs text-red-400">{ncError}</p>}
+              <div className="flex items-center gap-2 pt-1">
+                <button onClick={handleNewCustomer} disabled={ncSaving || !ncLastName.trim()}
+                  className="flex-1 py-2 rounded-lg text-sm font-medium bg-blue-700 hover:bg-blue-600 text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                  {ncSaving ? 'Creating…' : 'Create Customer'}
+                </button>
+                <button onClick={() => setShowNewCustomer(false)}
+                  className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="px-6 pt-6 pb-4 border-b border-slate-800 shrink-0">
         <div className="flex items-center justify-between mb-4">
@@ -147,6 +233,12 @@ export default function CustomersClient() {
             </p>
           </div>
           <div className="flex items-center gap-4">
+            <button
+              onClick={openNewCustomer}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-700 hover:bg-blue-600 text-white transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" /> New Customer
+            </button>
             <label className="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
               <input
                 type="checkbox"
