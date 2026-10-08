@@ -14,6 +14,34 @@
 
 
 -- =============================================================================
+-- 0. PRODUCERS — internal SML team members (producers / reps)
+--    Must exist before cases.producer_id references it below. Created here
+--    (idempotent) because this is the first migration to depend on it.
+--    create table if not exists keeps this a no-op on environments where the
+--    table already exists.
+-- =============================================================================
+create table if not exists public.producers (
+  id                uuid primary key default gen_random_uuid(),
+  auth_user_id      uuid,
+  first_name        text not null,
+  last_name         text not null,
+  email             text,
+  phone             text,
+  title             text,
+  allstate_id       text,
+  npn               text,
+  sub_producer_code text,
+  birthday          date,
+  is_active         boolean not null default true,
+  created_at        timestamptz not null default now()
+);
+
+comment on table public.producers is
+  'Internal SML team members (producers / reps) who work cases and reviews. '
+  'Referenced by cases.producer_id and gdc_records.producer_id.';
+
+
+-- =============================================================================
 -- 1. CASES — add producer_id for assignment tracking
 --    Nullable FK to producers (the SML/internal team member working the case)
 --    ON DELETE SET NULL: if producer leaves the team, cases are unassigned not lost

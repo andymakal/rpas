@@ -26,18 +26,26 @@ create policy staff_profiles_admin_select
   for select to authenticated
   using (public.jwt_is_admin());
 
--- Seed: internal Right Path team
-insert into public.staff_profiles (id, display_name) values
-  ('1a153da7-a0f8-4742-82c1-8a0ed5969268', 'Andy Makal'),
-  ('02d328c6-10fb-4a44-9063-7e93411de7cc', 'Bob Pfromm'),
-  ('80282142-925c-49e8-8899-e64719afb0f0', 'Dulce Velazquez'),
-  ('2b44645a-f755-43b6-aab9-c070eb10de3b', 'Nikki Fox'),
-  ('49323b2f-fc31-4a5c-baf7-6158591195a9', 'Gabe Aldridge'),
-  ('fcbdc978-da30-40fa-83e8-6b69de9f444a', 'Ashley Brown'),
-  ('6dabae1c-ebf9-4a3e-8a39-b7637ff466df', 'Abigail Brown'),
-  ('76c98896-035a-4696-bca4-78b457330a8b', 'Lucas Pearson'),
-  ('0d2ee55f-d030-4820-85c3-a99de2b22b5d', 'Tyler Gee'),
-  ('27eab126-8d14-4b39-a9da-6b4b248ba6d9', 'Angie Strem');
+-- Seed: internal Right Path team.
+-- staff_profiles.id is a FK to auth.users(id). Seed a row only when the
+-- corresponding auth.users row actually exists, so a clean replay against a
+-- fresh database (no auth.users yet) does not violate the FK. In production,
+-- where these users exist, all matching rows are inserted as before.
+insert into public.staff_profiles (id, display_name)
+select v.id, v.display_name
+from (values
+  ('1a153da7-a0f8-4742-82c1-8a0ed5969268'::uuid, 'Andy Makal'),
+  ('02d328c6-10fb-4a44-9063-7e93411de7cc'::uuid, 'Bob Pfromm'),
+  ('80282142-925c-49e8-8899-e64719afb0f0'::uuid, 'Dulce Velazquez'),
+  ('2b44645a-f755-43b6-aab9-c070eb10de3b'::uuid, 'Nikki Fox'),
+  ('49323b2f-fc31-4a5c-baf7-6158591195a9'::uuid, 'Gabe Aldridge'),
+  ('fcbdc978-da30-40fa-83e8-6b69de9f444a'::uuid, 'Ashley Brown'),
+  ('6dabae1c-ebf9-4a3e-8a39-b7637ff466df'::uuid, 'Abigail Brown'),
+  ('76c98896-035a-4696-bca4-78b457330a8b'::uuid, 'Lucas Pearson'),
+  ('0d2ee55f-d030-4820-85c3-a99de2b22b5d'::uuid, 'Tyler Gee'),
+  ('27eab126-8d14-4b39-a9da-6b4b248ba6d9'::uuid, 'Angie Strem')
+) as v (id, display_name)
+where exists (select 1 from auth.users u where u.id = v.id);
 
 
 -- =============================================================================

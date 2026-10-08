@@ -18,11 +18,29 @@ alter table public.customers
 comment on column public.customers.preferred_language is
   'ISO-639-1 code for client preferred language. en = English (default). Used for triage badge and routing notes.';
 
--- Migrate existing spanish-speaking flag before it is removed from the codebase
-update public.customers
-  set preferred_language = 'es'
-  where spanish_speaking = true
-    and preferred_language = 'en';
+-- Migrate existing spanish-speaking flag before it is removed from the codebase.
+-- The legacy spanish_speaking column is not created by the committed migration
+-- chain (it predates/exists only in environments that had it), so guard the
+-- back-fill to run only where that column actually exists. In production, where
+-- spanish_speaking is present, this back-fill runs exactly as before; on a clean
+-- replay against a fresh database it is a no-op.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name   = 'customers'
+      and column_name  = 'spanish_speaking'
+  ) then
+    execute $mig$
+      update public.customers
+        set preferred_language = 'es'
+        where spanish_speaking = true
+          and preferred_language = 'en'
+    $mig$;
+  end if;
+end
+$$;
 
 -- ── 2. Triage lost_reasons ────────────────────────────────────────────────────
 

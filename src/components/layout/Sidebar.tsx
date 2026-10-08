@@ -27,6 +27,7 @@ import {
   BookOpen,
   BarChart2,
   LayoutList,
+  HeartHandshake,
 } from 'lucide-react'
 import { NotificationBell } from '@/components/layout/NotificationBell'
 
@@ -39,6 +40,7 @@ const navItems = [
   { href: '/cases',                  icon: FolderKanban,    label: 'Cases'            },
   { href: '/production',             icon: TrendingUp,      label: 'Production'       },
   { href: '/service',                icon: Wrench,          label: 'Service'          },
+  { href: '/stewardship',            icon: HeartHandshake,  label: 'Stewardship'      },
   { href: '/policies',               icon: BookOpen,        label: 'Policies'         },
   { href: '/reviews',                icon: ClipboardCheck,  label: 'Reviews'          },
   { href: '/financial-review',       icon: BarChart2,       label: 'Financial Review' },
