@@ -33,6 +33,12 @@ type PolicyRow = {
   riders:               string | null
   insured_first_name:   string | null
   insured_last_name:    string | null
+  insured_dob:          string | null   // full date, only when precision is 'exact'
+  insured_dob_year:     number | null
+  insured_dob_month:    number | null
+  insured_dob_precision: 'exact' | 'month_year' | 'year_only' | 'missing'
+  insured_state:        string | null
+  policy_termination_date: string | null
   owner_phone:          string | null
   owner_dob_approx:     string | null
   writing_agent_name:   string | null

@@ -1,7 +1,10 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-const PUBLIC_ROUTES = ['/intake', '/portal', '/api/portal']
+// /api/cron/* is authenticated by its own CRON_SECRET Bearer check inside each
+// handler. Vercel cron requests carry no Supabase session, so letting the proxy
+// run would redirect them to /login before that check, so the routes must pass through.
+const PUBLIC_ROUTES = ['/intake', '/portal', '/api/portal', '/api/cron']
 
 export async function proxy(request: NextRequest) {
   const pathname = request.nextUrl.pathname

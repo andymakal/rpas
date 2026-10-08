@@ -27,6 +27,8 @@ export async function PATCH(
     'cash_value_amount', 'cash_value_as_of_date', 'cost_basis',
     'annual_premium', 'premium_mode', 'rate_class', 'riders',
     'insured_first_name', 'insured_last_name', 'primary_beneficiary', 'contingent_beneficiary',
+    'insured_dob', 'insured_dob_year', 'insured_dob_month', 'insured_dob_precision',
+    'insured_state', 'policy_termination_date',
     'coverage_status', 'sa_status', 'sa_form_sent_at', 'notes',
     'agency_id', 'agent_id', 'customer_id',
     'type_data',
