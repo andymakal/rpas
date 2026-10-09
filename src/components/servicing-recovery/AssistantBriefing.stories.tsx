@@ -1,8 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { WorkflowSurface } from '@/components/workflow'
 import { AssistantBriefing } from './AssistantBriefing'
 import { allItems } from './fixtures'
-import { PAGE_BG, prototypeFontStyle } from './theme'
 
 /**
  * The Assistant briefing in isolation. It summarizes the work available right
@@ -18,9 +18,11 @@ const meta = {
   parameters: { layout: 'padded' },
   decorators: [
     (Story) => (
-      <div className={`mx-auto max-w-md ${PAGE_BG} p-6 text-slate-800`} style={prototypeFontStyle}>
-        <Story />
-      </div>
+      <WorkflowSurface>
+        <div className="mx-auto max-w-md">
+          <Story />
+        </div>
+      </WorkflowSurface>
     ),
   ],
 } satisfies Meta<typeof AssistantBriefing>

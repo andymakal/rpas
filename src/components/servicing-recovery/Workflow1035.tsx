@@ -16,9 +16,9 @@
 import { useState } from 'react'
 import { type QueueId, type WorkItem } from './data'
 import { allItems } from './fixtures'
+import { WorkflowSurface } from '@/components/workflow'
 import { QueueBoard, QueueList } from './QueueBoard'
 import { TaskForItem } from './TaskViews'
-import { PAGE_BG, prototypeFontStyle } from './theme'
 
 type View =
   | { level: 'board' }
@@ -36,7 +36,7 @@ export function Workflow1035({ items = allItems, initialView }: Workflow1035Prop
   const [view, setView] = useState<View>(initialView ?? { level: 'board' })
 
   return (
-    <div className={`min-h-full ${PAGE_BG} px-6 py-8 text-slate-800`} style={prototypeFontStyle}>
+    <WorkflowSurface>
       {view.level === 'board' && (
         <QueueBoard
           items={items}
@@ -59,6 +59,6 @@ export function Workflow1035({ items = allItems, initialView }: Workflow1035Prop
           onBack={() => setView({ level: 'queue', queue: view.item.queue })}
         />
       )}
-    </div>
+    </WorkflowSurface>
   )
 }

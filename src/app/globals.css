@@ -4,12 +4,71 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ───────────────────────────────────────────────────────────────────────────
+ * Right Path workflow design tokens.
+ *
+ * These consolidate the visual decisions already established in the workflow
+ * component layer (src/components/workflow) and the Storybook reference so new
+ * workflow surfaces inherit them instead of re-deciding per screen. See
+ * .kiro/steering/workflow-visual-rules.md for the standard they encode.
+ *
+ * Scope note: these are ADDITIVE and workflow-scoped. They do NOT change the
+ * shadcn --primary (near-black) that production chrome depends on. Per the
+ * steering standard, workflow emphasis is Right Path teal applied through this
+ * token layer, never by overriding the global primary.
+ *
+ * The values are anchored to the Tailwind v4 teal/slate palette already in use
+ * (teal-600/700, slate tiers), so `bg-brand` renders identically to the
+ * existing `bg-teal-600` utilities — this is a rename into tokens, not a
+ * restyle.
+ * ───────────────────────────────────────────────────────────────────────── */
+:root {
+  /* Right Path muted-teal brand accent. Anchored to Tailwind teal-600/700. */
+  --brand:            oklch(0.6 0.118 184.704);  /* teal-600 */
+  --brand-hover:      oklch(0.511 0.096 186.391); /* teal-700 */
+  --brand-foreground: oklch(1 0 0);               /* white text on teal */
+  --brand-subtle:     oklch(0.953 0.051 180.801); /* teal-100 surface */
+  --brand-subtle-foreground: oklch(0.437 0.078 188.216); /* teal-800 text on subtle */
+
+  /* Light neutral workflow page background (slate-50). */
+  --workflow-surface: oklch(0.984 0.003 247.858); /* slate-50 */
+
+  /* Operational text contrast ladder (slate 900/700/600/400). The hierarchy is
+   * the standard; these name the approved tiers so screens reference intent. */
+  --text-primary:    oklch(0.208 0.042 265.755); /* slate-900 */
+  --text-secondary:  oklch(0.372 0.044 257.287); /* slate-700 */
+  --text-supporting: oklch(0.446 0.043 257.281); /* slate-600 */
+  --text-muted:      oklch(0.704 0.04 256.788);  /* slate-400, incidental only */
+
+  /* Modern sans-serif workflow font stack (no serif in workflow UI). Prefers
+   * the app's injected --font-geist-sans, then a clean system sans fallback so
+   * Storybook (which does not inject the Next font var) still renders sans. */
+  --font-workflow: var(--font-geist-sans), "Inter", "Segoe UI", system-ui,
+    -apple-system, "Helvetica Neue", Arial, sans-serif;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-sans);
   --font-mono: var(--font-geist-mono);
   --font-heading: var(--font-sans);
+
+  /* Expose the Right Path workflow tokens as Tailwind utilities:
+   *   bg-brand / text-brand / border-brand, bg-brand-hover, bg-brand-subtle,
+   *   bg-workflow-surface, text-ink / text-ink-secondary / text-ink-supporting /
+   *   text-ink-muted, and font-workflow. */
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-foreground: var(--brand-foreground);
+  --color-brand-subtle: var(--brand-subtle);
+  --color-brand-subtle-foreground: var(--brand-subtle-foreground);
+  --color-workflow-surface: var(--workflow-surface);
+  --color-ink: var(--text-primary);
+  --color-ink-secondary: var(--text-secondary);
+  --color-ink-supporting: var(--text-supporting);
+  --color-ink-muted: var(--text-muted);
+  --font-workflow: var(--font-workflow);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);

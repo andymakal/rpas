@@ -5,6 +5,7 @@
  */
 
 export {
+  WorkflowSurface,
   WORKFLOW_MAX_WIDTH,
   WorkflowPage,
   WorkflowHeader,

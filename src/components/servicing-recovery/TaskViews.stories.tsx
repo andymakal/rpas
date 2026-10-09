@@ -21,7 +21,7 @@ import {
   demoWaitingCarrier,
   demoCarrierCorrection,
 } from './fixtures'
-import { PAGE_BG, prototypeFontStyle } from './theme'
+import { WorkflowSurface } from '@/components/workflow'
 
 /**
  * A no-op back handler so every page-level Task View story demonstrates the
@@ -47,9 +47,9 @@ const meta = {
   },
   decorators: [
     (Story) => (
-      <div className={`min-h-screen ${PAGE_BG} p-6 text-slate-800`} style={prototypeFontStyle}>
+      <WorkflowSurface className="min-h-screen">
         <Story />
-      </div>
+      </WorkflowSurface>
     ),
   ],
 } satisfies Meta

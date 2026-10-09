@@ -23,6 +23,41 @@ import { Button } from '@/components/ui/button'
 type IconType = ComponentType<{ className?: string }>
 
 // ─────────────────────────────────────────────────────────────────────────────
+// WorkflowSurface — the outermost workflow shell.
+//
+// This is the single place every Right Path workflow surface inherits its base
+// visual identity from: the light neutral page background, the modern sans
+// workflow font, and the default readable (not pale) operational text color.
+// New pages wrap their content in WorkflowSurface and inherit all three — they
+// do not re-declare the font, background, or base text color per screen.
+//
+// Values come from the consolidated design tokens in globals.css
+// (--color-workflow-surface, --font-workflow, the slate text ladder), so the
+// look is defined once and changes in one place.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function WorkflowSurface({
+  children,
+  className,
+}: {
+  children: ReactNode
+  className?: string
+}) {
+  return (
+    <div
+      className={cn(
+        // bg + font + base text come from tokens; px/py are the shared gutter.
+        'min-h-full bg-workflow-surface font-workflow text-ink-secondary',
+        'px-6 py-8',
+        className,
+      )}
+    >
+      {children}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // WorkflowPage / WorkflowHeader — page shell and prominent page heading.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -216,11 +251,11 @@ export function PrimaryAction({
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        // Right Path teal primary-action treatment. Applied here in the shared
-        // layer so the primary action is teal everywhere, never the near-black
-        // shadcn default.
+        // Right Path teal primary-action treatment, driven by the brand token
+        // so it is teal everywhere and tunable in one place — never the
+        // near-black shadcn default.
         'h-14 w-full justify-start gap-3 rounded-xl px-5 text-lg font-semibold',
-        'border-transparent bg-teal-600 text-white hover:bg-teal-700',
+        'border-transparent bg-brand text-brand-foreground hover:bg-brand-hover',
       )}
     >
       <Icon className="size-5" aria-hidden />
@@ -266,8 +301,8 @@ export function WorkflowButton({
       disabled={disabled}
       className={cn(
         selected
-          // Selected / active: solid Right Path teal.
-          ? 'border-transparent bg-teal-600 text-white hover:bg-teal-700'
+          // Selected / active: solid Right Path teal, from the brand token.
+          ? 'border-transparent bg-brand text-brand-foreground hover:bg-brand-hover'
           // Unselected: neutral outline that reads as teal-capable on hover.
           : 'border-slate-300 text-slate-700 hover:border-teal-300 hover:bg-teal-50 hover:text-teal-800',
         className,

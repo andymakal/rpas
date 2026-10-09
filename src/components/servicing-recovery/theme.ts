@@ -1,23 +1,26 @@
 /**
- * Visual theme tokens for the 1035 Workflow prototype. STORYBOOK-ONLY.
+ * Visual theme constants for the 1035 Workflow prototype. STORYBOOK-ONLY.
  *
- * This prototype uses a clean modern sans-serif throughout and a muted-teal
- * accent, independent of the host app's theme. The font stack is applied via an
- * inline style on the prototype root so it does not depend on the Next.js font
- * CSS variables (which Storybook does not inject). Nothing here changes global
- * tokens or any shared UI primitive.
+ * These used to carry the prototype's own font stack and page background. Those
+ * decisions are now consolidated into the shared Right Path design tokens
+ * (globals.css: --font-workflow, --color-workflow-surface) and applied through
+ * the shared `WorkflowSurface` wrapper, so every workflow surface inherits the
+ * same look from one place.
+ *
+ * The exports below are kept as thin aliases over the token-backed Tailwind
+ * utilities so existing references keep working. New code should prefer
+ * `WorkflowSurface` (which applies all three: background, font, base text).
  */
 
-import type { CSSProperties } from 'react'
+/** Token-backed page background utility (was a raw slate-50 class). */
+export const PAGE_BG = 'bg-workflow-surface'
 
-/** A clean, modern sans-serif stack. No serif anywhere in this workflow. */
-export const PROTOTYPE_FONT_STACK =
-  '"Inter", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif'
-
-/** Inline style for the prototype root, so every surface inherits the sans font. */
-export const prototypeFontStyle: CSSProperties = {
-  fontFamily: PROTOTYPE_FONT_STACK,
-}
-
-/** The calm page background shared by every prototype surface. */
-export const PAGE_BG = 'bg-slate-50'
+/**
+ * The workflow font is now a token (`--font-workflow`) applied via the
+ * `font-workflow` utility and the shared `WorkflowSurface`. This empty inline
+ * style is retained only so existing `style={prototypeFontStyle}` references
+ * keep type-checking; it no longer sets the font itself.
+ *
+ * @deprecated Prefer `WorkflowSurface` or the `font-workflow` utility.
+ */
+export const prototypeFontStyle: Record<string, never> = {}
