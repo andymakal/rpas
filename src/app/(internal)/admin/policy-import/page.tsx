@@ -24,6 +24,11 @@ type PolicyRow = {
   riders:               string | null
   insured_first_name:   string | null
   insured_last_name:    string | null
+  insured_dob:          string | null   // full date, ONLY when precision is 'exact'
+  insured_dob_year:     number | null
+  insured_dob_month:    number | null
+  insured_dob_precision: 'exact' | 'month_year' | 'year_only' | 'missing'
+  insured_state:        string | null
   owner_phone:          string | null
   owner_dob_approx:     string | null
   writing_agent_name:   string | null
@@ -96,6 +101,79 @@ function str(v: unknown): string | null {
   return s || null
 }
 
+// US state: pass through a clean 2-letter code (e.g. "PA"); otherwise drop it so
+// insured_state only ever carries a reliable value.
+function parseState(v: unknown): string | null {
+  const s = str(v)
+  if (!s) return null
+  const up = s.toUpperCase()
+  return /^[A-Z]{2}$/.test(up) ? up : null
+}
+
+/**
+ * Derive insured DOB precision parts from a source birth value WITHOUT inventing
+ * a day or month we were not given. The DB stores DOB by precision (see
+ * 20261008000001): 'exact' carries a full date + year + month; 'month_year'
+ * carries year + month; 'year_only' carries year; 'missing' carries nothing.
+ *   - a real Date or an M/D/Y string  -> exact
+ *   - a masked 'MM/xx/YYYY'            -> month_year
+ *   - a masked 'xx/xx/YYYY' / bare year-> year_only
+ *   - anything else                    -> missing
+ */
+function parseDobPrecision(v: unknown): {
+  insured_dob: string | null
+  insured_dob_year: number | null
+  insured_dob_month: number | null
+  insured_dob_precision: 'exact' | 'month_year' | 'year_only' | 'missing'
+} {
+  const none = { insured_dob: null, insured_dob_year: null, insured_dob_month: null, insured_dob_precision: 'missing' as const }
+  if (v == null) return none
+
+  // Full date from a real Excel date cell → exact precision.
+  if (v instanceof Date && !isNaN(v.getTime())) {
+    const y = v.getFullYear()
+    const m = v.getMonth() + 1
+    const d = v.getDate()
+    return {
+      insured_dob: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
+      insured_dob_year: y,
+      insured_dob_month: m,
+      insured_dob_precision: 'exact',
+    }
+  }
+
+  const s = String(v).trim()
+  if (!s) return none
+
+  // Full numeric date "M/D/YYYY" → exact.
+  const full = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (full) {
+    const m = Number(full[1]), d = Number(full[2]), y = Number(full[3])
+    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return {
+        insured_dob: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
+        insured_dob_year: y,
+        insured_dob_month: m,
+        insured_dob_precision: 'exact',
+      }
+    }
+  }
+
+  // Masked "MM/xx/YYYY" (month + year, no day) → month_year.
+  const year = s.match(/(\d{4})\s*$/)?.[1]
+  if (!year) return none
+  const y = Number(year)
+  const leadMonth = s.match(/^(\d{1,2})/)?.[1]
+  if (leadMonth && /xx/i.test(s)) {
+    const m = Number(leadMonth)
+    if (m >= 1 && m <= 12) {
+      return { insured_dob: null, insured_dob_year: y, insured_dob_month: m, insured_dob_precision: 'month_year' }
+    }
+  }
+  // Only a year is reliably known.
+  return { insured_dob: null, insured_dob_year: y, insured_dob_month: null, insured_dob_precision: 'year_only' }
+}
+
 function col(row: Record<string, unknown>, ...keys: string[]): unknown {
   for (const key of keys) {
     if (key in row && row[key] != null && row[key] !== '') return row[key]
@@ -139,12 +217,46 @@ function parseRow(row: Record<string, unknown>): PolicyRow | null {
   const ownerFirst = str(col(row,'OwnerFirstName','Owner First Name','FirstName','First Name','OwnerFirst'))
   const ownerLast  = str(col(row,'OwnerLastName','Owner Last Name','LastName','Last Name','OwnerLast'))
   const clientName = [ownerFirst, ownerLast].filter(Boolean).join(' ') || 'Unknown'
+  const ownerState = parseState(col(row,'OwnerState','Owner State','State','OwnerStateCd','ResidenceState'))
+  const rawOwnerDob = col(row,'OwnerDateOfBirth','DateOfBirth','DOB','Owner DOB','OwnerDOB')
 
   const carrierRaw = str(col(row,'Carrier','CarrierName','Carrier Name','Company'))
   const carrier    = carrierRaw ?? 'Lincoln Benefit Life'
 
   const coverageRaw    = str(col(row,'CoverageStatusCd','CoverageStatus','Coverage Status','Status','PolicyStatus'))
   const coverageStatus = coverageRaw ?? 'Active'
+
+  // ── Owner-as-insured rule ──────────────────────────────────────────────────
+  // If the source explicitly identifies an insured, that insured is preserved
+  // and its details come only from insured columns. If no insured is identified,
+  // the owner IS the insured: name, DOB (at whatever precision the owner source
+  // actually knows — never inventing a day), and state are taken from the owner.
+  // We do NOT borrow owner details to fill gaps in an explicitly identified
+  // insured (e.g. a named insured missing a DOB stays missing).
+  const explicitInsuredFirst = str(col(row,'InsuredFirstName','Insured First Name','InsuredFirst'))
+  const explicitInsuredLast  = str(col(row,'InsuredLastName','Insured Last Name','InsuredLast'))
+  const explicitInsuredState = parseState(col(row,'InsuredState','Insured State','InsuredStateCd'))
+  const hasExplicitInsured   = Boolean(explicitInsuredFirst || explicitInsuredLast)
+
+  let insuredFirst: string | null
+  let insuredLast:  string | null
+  let insuredState: string | null
+  let insuredDobParts: ReturnType<typeof parseDobPrecision>
+
+  if (hasExplicitInsured) {
+    insuredFirst    = explicitInsuredFirst
+    insuredLast     = explicitInsuredLast
+    insuredState    = explicitInsuredState
+    // No insured-DOB column in this source. Preserve "missing"; never substitute
+    // the owner's DOB for an identified insured.
+    insuredDobParts = parseDobPrecision(col(row,'InsuredDateOfBirth','Insured DOB','InsuredDOB'))
+  } else {
+    // Owner is the insured.
+    insuredFirst    = ownerFirst
+    insuredLast     = ownerLast
+    insuredState    = ownerState
+    insuredDobParts = parseDobPrecision(rawOwnerDob)
+  }
 
   return {
     policy_number:        policyNumber,
@@ -158,10 +270,15 @@ function parseRow(row: Record<string, unknown>): PolicyRow | null {
     annual_premium:       parseCurrency(col(row,'AnnualPremiumAmt','AnnualPremium','Annual Premium','Premium')),
     rate_class:           str(col(row,'UnderwritingClassCd','RateClass','Rate Class','Underwriting Class','UnderwritingClass')),
     riders:               str(col(row,'Rider','Riders','RiderCd','Rider Cd')),
-    insured_first_name:   str(col(row,'InsuredFirstName','Insured First Name','InsuredFirst')),
-    insured_last_name:    str(col(row,'InsuredLastName','Insured Last Name','InsuredLast')),
+    insured_first_name:   insuredFirst,
+    insured_last_name:    insuredLast,
+    insured_dob:          insuredDobParts.insured_dob,
+    insured_dob_year:     insuredDobParts.insured_dob_year,
+    insured_dob_month:    insuredDobParts.insured_dob_month,
+    insured_dob_precision: insuredDobParts.insured_dob_precision,
+    insured_state:        insuredState,
     owner_phone:          str(col(row,'OwnerPhoneNumber','PhoneNumber','Phone Number','Phone','OwnerPhone')),
-    owner_dob_approx:     parseDob(col(row,'OwnerDateOfBirth','DateOfBirth','DOB','Owner DOB','OwnerDOB')),
+    owner_dob_approx:     parseDob(rawOwnerDob),
     writing_agent_name:   str(col(row,'WritingAgentFullName','WritingAgent','Writing Agent','AgentName')),
     coverage_status:      coverageStatus,
     sa_status:            'unknown',

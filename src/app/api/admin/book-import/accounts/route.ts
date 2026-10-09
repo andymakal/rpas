@@ -44,17 +44,69 @@ export async function POST(req: NextRequest) {
     for (const r of data ?? []) existingSet.add(r.policy_number)
   }
 
-  // Build source_client_id → customer_id map
+  // Build source_client_id → customer map. We pull the owner's identifying
+  // fields too (name, exact DOB, state) so new policies can apply the
+  // owner-as-insured rule: a book-import account never identifies a separate
+  // insured, so the linked customer (the owner) IS the insured.
   const clientIds = [...new Set(accounts.map(a => a.source_client_id).filter(Boolean))]
   const clientMap = new Map<string, string>()
+  const ownerMap  = new Map<string, {
+    first_name: string | null
+    last_name: string | null
+    date_of_birth: string | null
+    state: string | null
+  }>()
 
   for (let i = 0; i < clientIds.length; i += LOOKUP_CHUNK) {
     const { data } = await supabase
       .from('customers')
-      .select('id, source_client_id')
+      .select('id, source_client_id, first_name, last_name, date_of_birth, state')
       .in('source_client_id', clientIds.slice(i, i + LOOKUP_CHUNK))
     for (const r of data ?? []) {
-      if (r.source_client_id) clientMap.set(r.source_client_id, r.id)
+      if (r.source_client_id) {
+        clientMap.set(r.source_client_id, r.id)
+        ownerMap.set(r.source_client_id, {
+          first_name: r.first_name ?? null,
+          last_name: r.last_name ?? null,
+          date_of_birth: r.date_of_birth ?? null,
+          state: r.state ?? null,
+        })
+      }
+    }
+  }
+
+  // Build the insured_* columns for a new policy from its owner/customer, per
+  // the owner-as-insured rule. Book-import accounts carry no explicit insured,
+  // so the owner is the insured. DOB is stored at the precision actually known:
+  // customers hold either a full date ('exact') or nothing ('missing') — no day
+  // is ever invented. A 2-letter state is passed through; anything else drops.
+  function insuredFromOwner(sourceClientId: string): Record<string, unknown> {
+    const owner = ownerMap.get(sourceClientId)
+    if (!owner) {
+      return { insured_dob_precision: 'missing' }
+    }
+    const dob = owner.date_of_birth // 'YYYY-MM-DD' or null
+    let insuredDob: string | null = null
+    let year: number | null = null
+    let month: number | null = null
+    let precision: 'exact' | 'missing' = 'missing'
+    const m = dob?.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+    if (m) {
+      insuredDob = dob
+      year  = Number(m[1])
+      month = Number(m[2])
+      precision = 'exact'
+    }
+    const stUp = (owner.state ?? '').toUpperCase()
+    const insuredState = /^[A-Z]{2}$/.test(stUp) ? stUp : null
+    return {
+      insured_first_name:    owner.first_name,
+      insured_last_name:     owner.last_name,
+      insured_dob:           insuredDob,
+      insured_dob_year:      year,
+      insured_dob_month:     month,
+      insured_dob_precision: precision,
+      insured_state:         insuredState,
     }
   }
 
@@ -95,6 +147,8 @@ export async function POST(req: NextRequest) {
       coverage_status:    row.coverage_status || 'Active',
       sa_status:          'unknown',
       is_test:            false,
+      // Owner-as-insured: the linked customer is the insured for this account.
+      ...insuredFromOwner(row.source_client_id),
     })
   }
 
