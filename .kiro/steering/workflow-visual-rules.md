@@ -1,31 +1,47 @@
 ---
 inclusion: auto
 name: Right Path workflow visual rules
-description: Visual-prominence and reusable-component rules for Right Path workflow UI (queues, task views, assistant, and other operator-facing workflow screens).
+description: Visual-prominence and reusable-component rules for Right Path's LIGHT-theme operator-facing workflow UI (queues, task views, assistant, and other light-theme workflow screens). Scopes the light Storybook design system; does not govern Andy's existing dark screens.
 ---
 
 # Right Path workflow visual rules
 
-These rules govern operator-facing workflow UI: the queue boards, queue lists,
-task screens, and the Assistant. They are a design standard about clarity,
-prominence, and reuse, not about workflow logic. Tailwind and shadcn are the
-implementation tools underneath this standard, not a replacement for it.
+These rules govern the LIGHT-theme operator-facing workflow UI: the queue
+boards, queue lists, task screens, and the Assistant. They are a design standard
+about clarity, prominence, and reuse, not about workflow logic. Tailwind and
+shadcn are the implementation tools underneath this standard, not a replacement
+for it. They describe the light theme only (see "Two themes, one application"
+below); they do not govern Andy's existing dark screens.
 
-## The shared design system is the default for all UI
+## Two themes, one application: this standard is the LIGHT theme
 
-Right Path has one design system: the design tokens in
-`src/app/globals.css` and the shared workflow components in
-`src/components/workflow/`. Build new pages and workflows on top of it by
-default. This is how the UI stays consistent and how a single visual change
-reaches every screen at once; it is not an extra process, review gate, or
-separate system to maintain.
+Right Path currently has two intentionally separate visual themes inside one
+shared application:
 
-In practice this means:
+- The LIGHT theme — the Storybook-based design system defined by the design
+  tokens in `src/app/globals.css` (`--brand`, the `--text-*`/ink tiers, the
+  `--surface-*`, `--status-*`, and `--tag-*` families, `--font-workflow`) and
+  the shared components in `src/components/workflow/`.
+- The DARK theme — Andy's existing dark screens and chrome (dashboard, login,
+  the navy sidebar, and other dark surfaces), built with their own styling.
 
-- Compose screens from the shared components (`WorkflowSurface`, `WorkflowPage`,
-  `TaskShell`, `QueueSection`, `OperationalTag`, and the rest below) and the
-  standard layouts they provide. A new page should inherit the look by using
-  them, not by re-deriving it.
+Keeping them separate is deliberate and temporary while the two designs are
+evaluated. Right Path may eventually offer user-selectable Light, Dark, and
+System themes, but theme switching is NOT implemented yet, so do not build it.
+
+This file's rules — and the design tokens and shared components — are the
+standard for LIGHT-theme screens only. They are not an application-wide theme.
+Do not apply them to Andy's dark screens, and do not treat the dark screens as
+drifting from this standard; they are a separate theme, not a violation of it.
+
+### Working within the light theme
+
+For new or changed LIGHT-theme screens:
+
+- Build on the shared components (`WorkflowSurface`, `WorkflowPage`, `TaskShell`,
+  `QueueSection`, `OperationalTag`, and the rest below) and the standard layouts
+  they provide. A new light-theme page should inherit the look by using them,
+  not by re-deriving it.
 - Use the design tokens for color, typography, surface, and spacing rather than
   hardcoding raw Tailwind palette values. The tokens carry the meaning
   (`bg-brand`, `text-ink`/`text-ink-secondary`/`text-ink-supporting`/
@@ -33,22 +49,31 @@ In practice this means:
   `border-surface-border`, the `status-*` and `tag-*` tones, `font-workflow`).
   Reach for a literal shade like `bg-teal-600` or `text-slate-700` only when no
   token expresses what you mean.
-- Make changes to shared visual elements at the token or shared-component level,
-  so they propagate everywhere. Do not fork the look with page-specific styling
-  or local overrides that drift from the shared layer. If the shared teal, the
-  text-contrast tiers, a card surface, or a status tone needs to change, change
-  the token or the component once.
+- Make changes to shared LIGHT-theme visual elements at the token or
+  shared-component level so they propagate across light-theme screens. Do not
+  fork the look with page-specific styling or local overrides that drift from
+  the shared layer.
 - Page-specific styling is allowed only for a genuinely unique requirement that
-  no shared token or component covers. When you do it, keep it local to that one
-  screen and prefer the tokens even there; a recurring need is a signal to lift
-  it into the shared layer, not to copy it.
+  no shared token or component covers. Keep it local to that one screen and
+  prefer the tokens even there; a recurring need is a signal to lift it into the
+  shared layer, not to copy it.
 - Extend an existing shared component (a new `OperationalTag` tone, a new prop)
-  rather than creating a near-duplicate. Duplicates are what let the look drift.
+  rather than creating a near-duplicate. Do not duplicate the application or its
+  business components to achieve a visual change.
 
-Storybook is the living reference for this system and must stay aligned with the
-actual shared components and tokens. `Workflow Design System/Design Tokens`
-(`src/components/workflow/DesignTokens.stories.tsx`) catalogs the tokens and
-`Workflow Design System/Text Contrast`
+### Do not let the themes bleed into each other
+
+The light tokens carry fixed light values and intentionally have NO `.dark`
+overrides. A change to light-theme typography, colors, spacing, or component
+appearance must not alter the dark screens, and vice versa. Concretely: do not
+give the light tokens `.dark` variants, do not point Andy's dark screens at the
+light tokens or shared light components, and keep the two themes' styling
+separate until (and unless) real theme switching is designed.
+
+Storybook is the living reference for the LIGHT design system and must stay
+aligned with the actual shared components and tokens. `Workflow Design System/
+Design Tokens` (`src/components/workflow/DesignTokens.stories.tsx`) catalogs the
+tokens and `Workflow Design System/Text Contrast`
 (`src/components/workflow/TextContrast.stories.tsx`) shows the contrast ladder.
 When you add or change a shared component or token, update its story in the same
 change so the reference keeps matching the code.

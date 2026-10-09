@@ -12,10 +12,23 @@
  * workflow surfaces inherit them instead of re-deciding per screen. See
  * .kiro/steering/workflow-visual-rules.md for the standard they encode.
  *
- * Scope note: these are ADDITIVE and workflow-scoped. They do NOT change the
- * shadcn --primary (near-black) that production chrome depends on. Per the
- * steering standard, workflow emphasis is Right Path teal applied through this
- * token layer, never by overriding the global primary.
+ * SCOPE — LIGHT THEME ONLY. These tokens are the light Storybook-based design
+ * system. They are consumed only by the shared light-theme workflow components
+ * (src/components/workflow/) and the light-theme application screens built on
+ * them. They are NOT the application-wide theme: Andy's existing dark screens
+ * (dashboard, login, sidebar, and other dark chrome) do not use these tokens
+ * and must not be affected by changes here.
+ *
+ * Because they are light-only, these tokens carry fixed light values and
+ * deliberately have NO `.dark` overrides. Do not add `.dark` variants to them
+ * and do not apply them to dark screens; doing so would couple the two
+ * intentionally-separate themes. The light/dark split is intentional and
+ * temporary while the two designs are evaluated; theme switching is not
+ * implemented. If real Light/Dark/System switching is introduced later, these
+ * tokens get a proper light/dark treatment then — not before.
+ *
+ * These are ADDITIVE: they do NOT change the shadcn --primary (near-black) or
+ * the other shadcn semantic tokens that the existing chrome depends on.
  *
  * The values are anchored to the Tailwind v4 teal/slate palette already in use
  * (teal-600/700, slate tiers), so `bg-brand` renders identically to the
