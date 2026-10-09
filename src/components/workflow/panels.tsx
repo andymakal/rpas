@@ -57,7 +57,7 @@ export function ContextHeader({
   showVerificationKey?: boolean
 }) {
   return (
-    <header className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
+    <header className="space-y-3 rounded-xl border border-surface-border bg-surface-card p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           {onBack ? (
@@ -72,7 +72,7 @@ export function ContextHeader({
           ) : eyebrow != null ? (
             <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{eyebrow}</p>
           ) : null}
-          <h2 className="text-lg font-semibold text-slate-900">{title}</h2>
+          <h2 className="text-lg font-semibold text-ink">{title}</h2>
           {location && (
             <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
               <MapPin className="size-3" aria-hidden /> {location}
@@ -88,10 +88,10 @@ export function ContextHeader({
             {/* Field labels identify operational values; keep them readable
                 (slate-600), never pale gray. Only empty values fall back to
                 muted slate-400. */}
-            <dt className="text-[11px] uppercase tracking-wide text-slate-600">{f.label}</dt>
+            <dt className="text-[11px] uppercase tracking-wide text-ink-supporting">{f.label}</dt>
             <dd className="mt-0.5 flex items-center gap-1.5">
               <FieldStatusDot tone={f.statusTone} icon={f.statusIcon} label={f.statusLabel} />
-              <span className={cn('truncate', f.empty ? 'italic text-slate-400' : 'text-slate-900')}>
+              <span className={cn('truncate', f.empty ? 'italic text-ink-muted' : 'text-ink')}>
                 {f.value}
               </span>
             </dd>
@@ -115,16 +115,17 @@ const VERIFICATION_KEY: { tone: FieldStatusTone; label: string }[] = [
   { tone: 'missing',   label: 'Missing or unusable' },
 ]
 
+// Solid status dots in the verification key, from the status tokens.
 const KEY_DOT: Record<FieldStatusTone, string> = {
-  confirmed: 'bg-emerald-500',
-  known:     'bg-amber-500',
-  missing:   'bg-rose-500',
+  confirmed: 'bg-status-confirmed',
+  known:     'bg-status-known',
+  missing:   'bg-status-missing',
 }
 
 export function VerificationKey() {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-slate-100 pt-2.5 text-[11px] text-slate-600">
-      <span className="font-medium uppercase tracking-wide text-slate-600">Key</span>
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-surface-divider pt-2.5 text-[11px] text-ink-supporting">
+      <span className="font-medium uppercase tracking-wide text-ink-supporting">Key</span>
       {VERIFICATION_KEY.map(k => (
         <span key={k.tone} className="inline-flex items-center gap-1.5">
           <span className={cn('size-2.5 rounded-full', KEY_DOT[k.tone])} aria-hidden />
@@ -158,7 +159,7 @@ export function SlimTaskHeader({
   escapeHatch?: ReactNode
 }) {
   return (
-    <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-slate-200 pb-3">
+    <header className="flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-surface-border pb-3">
       {onBack && (
         <Button
           variant="ghost"
@@ -187,17 +188,17 @@ export function AssistantPanel({
 }) {
   return (
     <section
-      className="flex flex-col gap-7 rounded-3xl border border-teal-100 bg-white p-7 sm:p-8"
+      className="flex flex-col gap-7 rounded-3xl border border-brand-subtle bg-surface-card p-7 sm:p-8"
       aria-label={label}
     >
       <div className="flex items-center gap-3">
-        <span className="flex size-10 items-center justify-center rounded-full bg-teal-600 text-white">
+        <span className="flex size-10 items-center justify-center rounded-full bg-brand text-brand-foreground">
           <Sparkles className="size-5" aria-hidden />
         </span>
-        <p className="text-sm font-semibold uppercase tracking-[0.1em] text-teal-700">{label}</p>
+        <p className="text-sm font-semibold uppercase tracking-[0.1em] text-brand-hover">{label}</p>
       </div>
 
-      <h2 className="text-4xl font-semibold leading-tight tracking-tight text-slate-900">{heading}</h2>
+      <h2 className="text-4xl font-semibold leading-tight tracking-tight text-ink">{heading}</h2>
 
       {children}
     </section>

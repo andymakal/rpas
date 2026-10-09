@@ -11,15 +11,26 @@ import { ArrowRight } from 'lucide-react'
  * globals.css, so these swatches render exactly what new workflow surfaces
  * inherit. See .kiro/steering/workflow-visual-rules.md for the standard.
  *
- * Tokens → Tailwind utilities:
+ * Tokens → Tailwind utilities (every workflow component reads these, so a
+ * change here propagates to every page using the shared components):
  *   --brand            → bg-brand / text-brand / border-brand   (teal-600)
  *   --brand-hover      → bg-brand-hover                         (teal-700)
  *   --brand-subtle     → bg-brand-subtle                        (teal-100)
+ *   --brand-wash       → bg-brand-wash                          (teal-50 hover wash)
+ *   --brand-ring       → border-brand-ring                      (teal-300)
+ *   --brand-icon       → text-brand-icon                        (teal-700 icon)
  *   --workflow-surface → bg-workflow-surface                    (slate-50)
+ *   --surface-card     → bg-surface-card                        (white card)
+ *   --surface-muted    → bg-surface-muted                       (slate-50 inset)
+ *   --surface-border   → border-surface-border                  (slate-200)
+ *   --surface-border-strong → border-surface-border-strong      (slate-300)
+ *   --surface-divider  → divide-surface-divider                 (slate-100)
  *   --text-primary     → text-ink                               (slate-900)
  *   --text-secondary   → text-ink-secondary                     (slate-700)
  *   --text-supporting  → text-ink-supporting                    (slate-600)
  *   --text-muted       → text-ink-muted                         (slate-400)
+ *   --status-*         → status dots/fills (emerald / amber / rose)
+ *   --tag-*            → OperationalTag tones (reason/exception/blocked/info)
  *   --font-workflow    → font-workflow                          (sans stack)
  *
  * STORYBOOK-ONLY. No data, APIs, or production workflow logic.
@@ -35,7 +46,7 @@ type Story = StoryObj<typeof meta>
 
 function Swatch({ cls, name, token, note }: { cls: string; name: string; token: string; note?: string }) {
   return (
-    <div className="flex items-center gap-4 rounded-xl border border-slate-200 bg-white p-4">
+    <div className="flex items-center gap-4 rounded-xl border border-surface-border bg-surface-card p-4">
       <span className={`size-12 shrink-0 rounded-lg border border-black/5 ${cls}`} aria-hidden />
       <div className="min-w-0">
         <p className="text-base font-semibold text-ink">{name}</p>
@@ -59,20 +70,36 @@ export const Tokens: Story = {
             <Swatch cls="bg-brand" name="Brand" token="--brand / bg-brand" note="Primary workflow emphasis. teal-600." />
             <Swatch cls="bg-brand-hover" name="Brand hover" token="--brand-hover / bg-brand-hover" note="Hover/active. teal-700." />
             <Swatch cls="bg-brand-subtle" name="Brand subtle" token="--brand-subtle / bg-brand-subtle" note="Tinted fill. teal-100." />
+            <Swatch cls="bg-brand-wash" name="Brand wash" token="--brand-wash / bg-brand-wash" note="Hover/selected wash. teal-50." />
+            <Swatch cls="bg-brand-ring" name="Brand ring" token="--brand-ring / border-brand-ring" note="Hover border/ring. teal-300." />
+            <Swatch cls="bg-brand-icon" name="Brand icon" token="--brand-icon / text-brand-icon" note="Icon on subtle fill. teal-700." />
           </div>
         </section>
 
         <section className="space-y-4">
           <ContextLabel>Surface</ContextLabel>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Swatch cls="bg-workflow-surface" name="Workflow surface" token="--workflow-surface / bg-workflow-surface" note="Light neutral page background. slate-50." />
-            <Swatch cls="bg-white" name="Card / panel" token="bg-white" note="Panels and cards sit above the surface." />
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <Swatch cls="bg-workflow-surface" name="Workflow surface" token="--workflow-surface" note="Light neutral page background. slate-50." />
+            <Swatch cls="bg-surface-card" name="Card / panel" token="--surface-card / bg-surface-card" note="White card above the surface." />
+            <Swatch cls="bg-surface-muted" name="Inset panel" token="--surface-muted / bg-surface-muted" note="Muted inset panel. slate-50." />
+            <Swatch cls="bg-surface-border" name="Hairline border" token="--surface-border" note="Default card border. slate-200." />
+            <Swatch cls="bg-surface-border-strong" name="Strong border" token="--surface-border-strong" note="Inputs / dashed. slate-300." />
+            <Swatch cls="bg-surface-divider" name="Divider" token="--surface-divider" note="Row dividers. slate-100." />
+          </div>
+        </section>
+
+        <section className="space-y-4">
+          <ContextLabel>Status tones (dot / fill / foreground)</ContextLabel>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <Swatch cls="bg-status-confirmed" name="Confirmed" token="--status-confirmed" note="Verified. emerald." />
+            <Swatch cls="bg-status-known" name="Known" token="--status-known" note="On record, unconfirmed. amber." />
+            <Swatch cls="bg-status-missing" name="Missing" token="--status-missing" note="Missing / unusable. rose." />
           </div>
         </section>
 
         <section className="space-y-4">
           <ContextLabel>Operational text contrast ladder</ContextLabel>
-          <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-5">
+          <div className="space-y-2 rounded-xl border border-surface-border bg-surface-card p-5">
             <p className="text-lg font-semibold text-ink">text-ink — primary task text (slate-900)</p>
             <p className="text-base text-ink-secondary">text-ink-secondary — secondary operational text (slate-700)</p>
             <p className="text-base text-ink-supporting">text-ink-supporting — labels &amp; supporting phrases (slate-600)</p>
@@ -82,7 +109,7 @@ export const Tokens: Story = {
 
         <section className="space-y-4">
           <ContextLabel>Typography</ContextLabel>
-          <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-5 font-workflow">
+          <div className="space-y-3 rounded-xl border border-surface-border bg-surface-card p-5 font-workflow">
             <p className="text-ink-supporting text-sm">font-workflow — modern sans-serif, no serif in workflow UI.</p>
             <p className="text-4xl font-semibold tracking-tight text-ink">Heading 4xl semibold</p>
             <p className="text-2xl font-semibold text-ink">Heading 2xl semibold</p>
@@ -95,14 +122,14 @@ export const Tokens: Story = {
         <section className="space-y-4">
           <ContextLabel>Emphasis components (token-driven)</ContextLabel>
           <div className="grid gap-4 lg:grid-cols-2">
-            <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-5">
+            <div className="space-y-3 rounded-xl border border-surface-border bg-surface-card p-5">
               <PrimaryAction icon={ArrowRight} label="Primary action" />
               <div className="flex flex-wrap gap-2">
                 <WorkflowButton selected>Selected</WorkflowButton>
                 <WorkflowButton>Unselected</WorkflowButton>
               </div>
             </div>
-            <div className="flex flex-wrap items-start gap-2 rounded-xl border border-slate-200 bg-white p-5">
+            <div className="flex flex-wrap items-start gap-2 rounded-xl border border-surface-border bg-surface-card p-5">
               <OperationalTag tone="reason">Reason</OperationalTag>
               <OperationalTag tone="exception">Exception</OperationalTag>
               <OperationalTag tone="blocked">Blocked</OperationalTag>

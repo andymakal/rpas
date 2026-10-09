@@ -110,12 +110,12 @@ export function WorkflowHeader({
 }) {
   return (
     <header>
-      <h1 className="text-3xl font-semibold tracking-tight text-slate-900 sm:text-4xl">
+      <h1 className="text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
         {primary}
         {secondary != null && (
           <>
-            {' '}<span className="font-normal text-slate-300">{'\u2014'}</span>{' '}
-            <span className="font-normal text-slate-600">{secondary}</span>
+            {' '}<span className="font-normal text-surface-border-strong">{'\u2014'}</span>{' '}
+            <span className="font-normal text-ink-supporting">{secondary}</span>
           </>
         )}
       </h1>
@@ -134,11 +134,14 @@ export function WorkflowHeader({
 
 export type OperationalTone = 'reason' | 'exception' | 'blocked' | 'info'
 
+// Operational tag tones are driven by the status/tag design tokens (see
+// globals.css) so a tone's color can be retuned centrally and propagate to
+// every tag everywhere, instead of being hardcoded per use.
 const OPERATIONAL_TONE: Record<OperationalTone, string> = {
-  reason:    'border-teal-200 bg-teal-100 text-teal-900',
-  exception: 'border-amber-200 bg-amber-100 text-amber-900',
-  blocked:   'border-rose-200 bg-rose-100 text-rose-900',
-  info:      'border-blue-200 bg-blue-100 text-blue-900',
+  reason:    'border-tag-reason-border bg-tag-reason-fill text-tag-reason-text',
+  exception: 'border-tag-exception-border bg-tag-exception-fill text-tag-exception-text',
+  blocked:   'border-tag-blocked-border bg-tag-blocked-fill text-tag-blocked-text',
+  info:      'border-tag-info-border bg-tag-info-fill text-tag-info-text',
 }
 
 export function OperationalTag({
@@ -173,10 +176,12 @@ export function OperationalTag({
 
 export type FieldStatusTone = 'confirmed' | 'known' | 'missing'
 
+// Field-status cue colors come from the status tokens so verification coloring
+// is defined once and shared by every field cue and the verification key.
 const FIELD_STATUS_DOT: Record<FieldStatusTone, string> = {
-  confirmed: 'bg-emerald-100 text-emerald-700',
-  known:     'bg-amber-100 text-amber-700',
-  missing:   'bg-rose-100 text-rose-700',
+  confirmed: 'bg-status-confirmed-fill text-status-confirmed-foreground',
+  known:     'bg-status-known-fill text-status-known-foreground',
+  missing:   'bg-status-missing-fill text-status-missing-foreground',
 }
 
 export function FieldStatusDot({
@@ -216,7 +221,7 @@ export function TaskShell({
   context: ReactNode
 }) {
   return (
-    <div className={cn('mx-auto w-full', WORKFLOW_MAX_WIDTH, 'space-y-6 text-slate-800')}>
+    <div className={cn('mx-auto w-full', WORKFLOW_MAX_WIDTH, 'space-y-6 text-ink-secondary')}>
       {header}
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-[3fr_2fr]">
         <div className="space-y-5">{action}</div>
@@ -229,7 +234,7 @@ export function TaskShell({
 /** A column heading for grouping context blocks on the left of a task screen. */
 export function ContextLabel({ children }: { children: ReactNode }) {
   return (
-    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-slate-600">{children}</p>
+    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-supporting">{children}</p>
   )
 }
 
@@ -245,8 +250,8 @@ export function ActionPanel({
   children: ReactNode
 }) {
   return (
-    <section className="space-y-5 rounded-2xl border border-teal-100 bg-white p-6">
-      <h3 className="text-2xl font-semibold leading-tight tracking-tight text-slate-900">{heading}</h3>
+    <section className="space-y-5 rounded-2xl border border-brand-subtle bg-surface-card p-6">
+      <h3 className="text-2xl font-semibold leading-tight tracking-tight text-ink">{heading}</h3>
       {children}
     </section>
   )
@@ -326,8 +331,8 @@ export function WorkflowButton({
         selected
           // Selected / active: solid Right Path teal, from the brand token.
           ? 'border-transparent bg-brand text-brand-foreground hover:bg-brand-hover'
-          // Unselected: neutral outline that reads as teal-capable on hover.
-          : 'border-slate-300 text-slate-700 hover:border-teal-300 hover:bg-teal-50 hover:text-teal-800',
+          // Unselected: neutral outline that reads as brand-capable on hover.
+          : 'border-surface-border-strong text-ink-secondary hover:border-brand-ring hover:bg-brand-wash hover:text-brand-subtle-foreground',
         className,
       )}
     >
@@ -345,7 +350,7 @@ export function NextNote({ children }: { children: ReactNode }) {
   // "What happens next" is operational: it tells the worker the resulting
   // state. Keep it readable (slate-600), never pale gray.
   return (
-    <p className="flex items-start gap-1.5 text-sm text-slate-600">
+    <p className="flex items-start gap-1.5 text-sm text-ink-supporting">
       <span className="mt-0.5 shrink-0" aria-hidden>{'\u2192'}</span>
       <span>{children}</span>
     </p>
@@ -386,7 +391,7 @@ export function ExternalActionConfirm({
 
   if (confirmed) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-base text-emerald-800">
+      <div className="flex items-center gap-2 rounded-xl border border-status-confirmed-border bg-status-confirmed-soft p-4 text-base text-status-confirmed-strong">
         <Check className="size-5" aria-hidden /> {confirmedNote}
       </div>
     )
@@ -404,9 +409,9 @@ export function ExternalActionConfirm({
           launched. Launching is not completion. */}
       <div className={cn(
         'flex flex-wrap items-center gap-3 rounded-xl border p-3 transition-colors',
-        launched ? 'border-slate-200 bg-white' : 'border-dashed border-slate-200 bg-slate-50',
+        launched ? 'border-surface-border bg-surface-card' : 'border-dashed border-surface-border bg-surface-muted',
       )}>
-        <span className="text-sm text-slate-600">
+        <span className="text-sm text-ink-supporting">
           {launched ? 'Done in the external tool?' : 'After you open it and finish there, confirm here.'}
         </span>
         <Button
