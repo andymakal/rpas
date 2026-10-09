@@ -64,17 +64,36 @@ export function WorkflowSurface({
 /** The desktop working width shared by every workflow surface. */
 export const WORKFLOW_MAX_WIDTH = 'max-w-[1360px]'
 
+/**
+ * The standard page body for a Right Path workflow surface.
+ *
+ * WorkflowPage now OWNS the shared visual surface: it wraps its centered,
+ * max-width content column in `WorkflowSurface`, so any application page that
+ * renders through WorkflowPage automatically inherits the light workflow
+ * background, the modern sans workflow font, the standard page gutter, and the
+ * readable default text color. Pages no longer paint their own `bg-slate-50
+ * px-6 py-8` wrapper or reach for a special surface wrapper — using the shared
+ * component is enough.
+ *
+ * `className` still applies to the inner content column (e.g. to adjust the
+ * vertical rhythm), while `surfaceClassName` can tune the outer surface when a
+ * page needs it (rare).
+ */
 export function WorkflowPage({
   children,
   className,
+  surfaceClassName,
 }: {
   children: ReactNode
   className?: string
+  surfaceClassName?: string
 }) {
   return (
-    <div className={cn('mx-auto w-full', WORKFLOW_MAX_WIDTH, 'space-y-8 text-slate-800', className)}>
-      {children}
-    </div>
+    <WorkflowSurface className={cn('sm:px-10', surfaceClassName)}>
+      <div className={cn('mx-auto w-full', WORKFLOW_MAX_WIDTH, 'space-y-8 text-ink-secondary', className)}>
+        {children}
+      </div>
+    </WorkflowSurface>
   )
 }
 
@@ -282,6 +301,7 @@ export function WorkflowButton({
   onClick,
   disabled,
   size = 'default',
+  type = 'button',
   className,
 }: {
   icon?: IconType
@@ -291,12 +311,15 @@ export function WorkflowButton({
   onClick?: () => void
   disabled?: boolean
   size?: 'sm' | 'default' | 'lg'
+  /** Native button type, so WorkflowButton can submit a form. */
+  type?: 'button' | 'submit' | 'reset'
   className?: string
 }) {
   return (
     <Button
       variant="outline"
       size={size}
+      type={type}
       onClick={onClick}
       disabled={disabled}
       className={cn(
