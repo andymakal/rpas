@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
+import { assertProjectActive } from '@/lib/projects/guard'
 import { initialQueue } from '@/lib/stewardship/queues'
 import { isPermanent } from '@/lib/policies/product-type'
 
@@ -77,6 +78,14 @@ export async function POST(request: NextRequest) {
   let targets: Target[]
 
   if (projectId) {
+    // Archived projects are read-only: an archived project cannot launch new
+    // stewardship work. This gates ONLY the project-scoped start. It does not
+    // restrict the shared servicing records themselves, the agency-book start
+    // path below, or starting these same customers from any other project —
+    // normal relationship and policy operations continue independently.
+    const active = await assertProjectActive(supabase, projectId)
+    if (!active.ok) return Response.json({ error: active.error }, { status: active.status })
+
     // Membership is exactly the project_customers for this project.
     const { data: members, error: memberErr } = await supabase
       .from('project_customers')

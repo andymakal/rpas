@@ -1,5 +1,7 @@
 import { NextRequest } from 'next/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
+import { assertProjectActive } from '@/lib/projects/guard'
 import { normalizeCriteria } from '@/lib/projects/population-criteria'
 import { commitPopulation } from '@/lib/projects/population-engine'
 
@@ -22,6 +24,11 @@ export async function POST(request: NextRequest, context: { params: Promise<{ id
   if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
 
   const { id: projectId } = await context.params
+
+  // Archived projects are read-only: no new population may be added until the
+  // project is restored. Existing runs remain fully viewable.
+  const active = await assertProjectActive(createAdminClient(), projectId)
+  if (!active.ok) return Response.json({ error: active.error }, { status: active.status })
 
   let body: { criteria?: unknown }
   try {

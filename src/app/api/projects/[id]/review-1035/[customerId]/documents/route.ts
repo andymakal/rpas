@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
+import { assertProjectActive } from '@/lib/projects/guard'
 import {
   REQUIRED_DOCUMENT_TYPES,
   type RequiredDocumentType,
@@ -51,6 +52,11 @@ export async function POST(
 
   const { id: projectId, customerId } = await params
   const supabase = createAdminClient()
+
+  // Archived projects are read-only: no new documents may be uploaded until the
+  // project is restored. Existing documents remain downloadable via GET.
+  const active = await assertProjectActive(supabase, projectId)
+  if (!active.ok) return Response.json({ error: active.error }, { status: active.status })
 
   let form: FormData
   try {
@@ -233,6 +239,11 @@ export async function DELETE(
   }
 
   const supabase = createAdminClient()
+
+  // Archived projects are read-only: a project's own documents are frozen until
+  // it is restored. Existing documents remain downloadable via GET.
+  const active = await assertProjectActive(supabase, projectId)
+  if (!active.ok) return Response.json({ error: active.error }, { status: active.status })
 
   // Remove the stored object first (best effort), then the record. Scoped to the
   // specific policy so another policy's document is never deleted.

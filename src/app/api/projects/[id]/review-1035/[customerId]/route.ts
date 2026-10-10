@@ -1,6 +1,7 @@
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
+import { assertProjectActive } from '@/lib/projects/guard'
 import { buildProjectWorkflow } from '@/lib/projects/review-1035'
 
 /**
@@ -32,6 +33,11 @@ export async function PATCH(
 
   const { id: projectId, customerId } = await params
   const supabase = createAdminClient()
+
+  // Archived projects are read-only: Step 3 prep/determination cannot advance
+  // until the project is restored. The read model (GET) stays available.
+  const active = await assertProjectActive(supabase, projectId)
+  if (!active.ok) return Response.json({ error: active.error }, { status: active.status })
 
   let body: {
     action?: string
