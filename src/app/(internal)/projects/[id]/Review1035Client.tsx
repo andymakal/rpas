@@ -278,7 +278,8 @@ function CustomerRow({
         <div className="rounded-xl border border-surface-border bg-surface-muted/40 p-4">
           <p className="text-sm font-semibold text-ink">Step 3 · Prepare &amp; evaluate</p>
           <p className="mt-1 text-sm text-ink-supporting">
-            Each policy being evaluated needs its own carrier statement and reprojection.
+            Collect a carrier statement and reprojection for each permanent policy. Missing
+            documents on supplemental policies don&apos;t block handing the customer to Bob.
           </p>
 
           {row.permanent_count === 0 ? (
@@ -311,12 +312,12 @@ function CustomerRow({
               {row.prep_status !== 'ready_for_evaluation' ? (
                 <button
                   type="button"
-                  disabled={busy || !row.documents_complete}
+                  disabled={busy}
                   onClick={() => patch({ action: 'set_prep', prep_status: 'ready_for_evaluation' })}
                   className="inline-flex h-9 items-center gap-2 rounded-lg bg-brand px-3 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <ClipboardCheck className="size-4" aria-hidden />
-                  Mark preparation complete
+                  Hand to Bob for evaluation
                 </button>
               ) : (
                 <button
@@ -328,9 +329,9 @@ function CustomerRow({
                   Reopen preparation
                 </button>
               )}
-              {!row.documents_complete && (
-                <span className="text-sm text-ink-supporting">
-                  Every evaluated policy needs both documents.
+              {row.prep_status !== 'ready_for_evaluation' && !row.documents_complete && (
+                <span className="text-sm text-ink-secondary">
+                  Some policies are missing documents. You can still hand to Bob — he decides which policies qualify.
                 </span>
               )}
             </div>
@@ -429,7 +430,7 @@ function PolicyDocuments({
         {policy.documents_complete ? (
           <OperationalTag tone="info" className="px-2.5 py-0.5 text-sm">Documents complete</OperationalTag>
         ) : (
-          <OperationalTag tone="reason" className="px-2.5 py-0.5 text-sm">Needs documents</OperationalTag>
+          <OperationalTag tone="reason" className="px-2.5 py-0.5 text-sm">Documents outstanding</OperationalTag>
         )}
       </div>
       <div className="mt-2 space-y-2">

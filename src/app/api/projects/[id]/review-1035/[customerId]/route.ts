@@ -60,29 +60,15 @@ export async function PATCH(
       return Response.json({ error: "prep_status must be 'preparing' or 'ready_for_evaluation'" }, { status: 400 })
     }
     if (next === 'ready_for_evaluation') {
+      // Step 2 is the only hard gate for the handoff to Bob: all known permanent
+      // policies must have confirmed servicing access. Document completeness is
+      // deliberately NOT required — supplemental permanent policies may still be
+      // missing a statement/reprojection, and that must not block advancement.
+      // Bob decides which policies are exchange candidates and whether to
+      // combine them.
       if (!wf.step2_satisfied) {
         return Response.json(
           { error: 'Servicing access (Step 2) is not established for all permanent policies; complete Stewardship first.' },
-          { status: 409 },
-        )
-      }
-      if (!wf.documents_complete) {
-        // Documents are per policy: name each evaluated policy that is still
-        // missing one or both required documents.
-        const incomplete = wf.permanent_policies
-          .filter(p => !p.documents_complete)
-          .map(p => {
-            const miss = [
-              !p.has_carrier_statement ? 'carrier statement' : null,
-              !p.has_reprojection ? 'reprojection' : null,
-            ].filter(Boolean).join(' and ')
-            return `${p.policy_number} (missing ${miss})`
-          })
-        return Response.json(
-          {
-            error:
-              `Preparation is incomplete — every evaluated policy needs both documents. Still needed: ${incomplete.join('; ')}.`,
-          },
           { status: 409 },
         )
       }
@@ -106,10 +92,13 @@ export async function PATCH(
       return Response.json({ error: "determination must be 'candidate', 'not_a_candidate', or null" }, { status: 400 })
     }
     if (det !== null) {
-      // Bob can only decide a customer who is actually ready for evaluation.
-      if (!wf.step2_satisfied || !wf.documents_complete || wf.prep_status !== 'ready_for_evaluation') {
+      // Bob can only decide a customer who is ready for evaluation: Step 2
+      // satisfied and operations has marked preparation complete. Document
+      // completeness is NOT required — Bob evaluates with whatever documents are
+      // present and determines which policies qualify.
+      if (!wf.step2_satisfied || wf.prep_status !== 'ready_for_evaluation') {
         return Response.json(
-          { error: 'Customer is not ready for evaluation yet (needs servicing access, both documents, and operations to mark preparation complete).' },
+          { error: 'Customer is not ready for evaluation yet (needs servicing access and operations to mark preparation complete).' },
           { status: 409 },
         )
       }

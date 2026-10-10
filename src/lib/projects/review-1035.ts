@@ -14,14 +14,17 @@
  *
  *   Step 3 — Prepare & Evaluate
  *     Operations collects the carrier statement and the reprojection for EACH
- *     permanent policy being evaluated (stored in policy_documents, scoped to
- *     this project + customer + policy). A customer can have several permanent
- *     policies in evaluation, so the documents are policy-specific. Step 3 is
- *     ready for Bob only when every evaluated policy has BOTH documents. When
- *     that holds and operations marks preparation complete, the customer is
- *     surfaced for Bob's single determination (Candidate / Not a Candidate),
- *     stored on project_customer_reviews. The determination stays customer-level
- *     and unchanged.
+ *     known permanent policy (stored in policy_documents, scoped to this
+ *     project + customer + policy). A customer can have several permanent
+ *     policies, and policies not originally flagged may still become part of a
+ *     1035 exchange, so all known permanent policies are shown and each can
+ *     receive its own documents. Document completeness is INFORMATIONAL: it is
+ *     shown per policy but does NOT gate advancement. Operations marks
+ *     preparation complete to hand the customer to Bob even when supplemental
+ *     policies are still missing documents. Bob then makes the single
+ *     customer-level determination (Candidate / Not a Candidate), decides which
+ *     policies are exchange candidates, and whether to combine them. Stored on
+ *     project_customer_reviews; the determination stays customer-level.
  *
  * The "whose turn is it" stage is DERIVED here from those facts; it is not a
  * stored column, so it can never drift from the underlying data.
@@ -113,10 +116,12 @@ export type CustomerWorkflow = {
   permanent_count: number
   unconfirmed_permanent_count: number
   step2_satisfied: boolean
-  // Step 3 — documents. The evaluated set is the customer's permanent policies;
-  // readiness requires BOTH documents for EVERY evaluated policy. These
-  // customer-level flags are the aggregate across all evaluated policies and
-  // drive the single customer-level Bob determination (unchanged).
+  // Step 3 — documents (INFORMATIONAL aggregate across the customer's permanent
+  // policies). has_* is true only when every permanent policy has that
+  // document; documents_complete is true only when every permanent policy has
+  // both. These report progress to operations and Bob — they are NOT a gate on
+  // advancement. Operations may hand the customer to Bob with supplemental
+  // policies still missing documents.
   has_carrier_statement: boolean
   has_reprojection: boolean
   documents_complete: boolean
@@ -131,7 +136,6 @@ export type CustomerWorkflow = {
 
 function deriveStage(args: {
   step2: boolean
-  documentsComplete: boolean
   prepReady: boolean
   determination: Determination | null
 }): WorkflowStage {
@@ -141,9 +145,13 @@ function deriveStage(args: {
   // Not a Candidate is terminal: the 1035 review is complete at Step 3.
   if (args.determination === 'candidate') return 'ready_for_outreach'
   if (args.determination === 'not_a_candidate') return 'complete'
-  // Step 2 done, not yet determined. Bob's turn only once operations has both
-  // documents AND has marked preparation complete. Otherwise it is ops' turn.
-  if (args.documentsComplete && args.prepReady) return 'bob_evaluation'
+  // Step 2 done, not yet determined. Bob's turn once operations has marked
+  // preparation complete. Document completeness is NOT a gate: additional
+  // permanent policies may lack a statement/reprojection, and that must not
+  // block the handoff — Bob decides which policies are exchange candidates and
+  // whether to combine them. The per-policy present/missing state is shown to
+  // operations and Bob, but it does not hold the customer out of evaluation.
+  if (args.prepReady) return 'bob_evaluation'
   return 'operations_prep'
 }
 
@@ -287,12 +295,13 @@ export async function buildProjectWorkflow(
     // they are not blocked by Step 2.
     const step2Satisfied = unconfirmed.length === 0
 
-    // Step 3 documents are evaluated PER permanent policy. The customer-level
-    // aggregate flags report whether EVERY evaluated (permanent) policy has each
-    // document, and documents_complete requires both documents for every
-    // evaluated policy. With zero permanent policies there is nothing to
-    // collect, so the customer is not blocked on documents (matches Step 2's
-    // treatment of the no-permanent-policy case).
+    // Step 3 documents are tracked PER permanent policy and reported as an
+    // informational customer-level aggregate: has* is true only when every
+    // permanent policy has that document; documentsComplete only when every
+    // permanent policy has both. These describe collection progress and do NOT
+    // gate advancement — operations can hand the customer to Bob with
+    // supplemental policies still missing documents. (Zero permanent policies
+    // reads as complete, matching Step 2's no-permanent-policy case.)
     const hasCarrier = permanent.length > 0 && permanent.every(p => p.has_carrier_statement)
     const hasReproj = permanent.length > 0 && permanent.every(p => p.has_reprojection)
     const documentsComplete = permanent.length === 0
@@ -305,7 +314,6 @@ export async function buildProjectWorkflow(
 
     const stage = deriveStage({
       step2: step2Satisfied,
-      documentsComplete,
       prepReady: prepStatus === 'ready_for_evaluation',
       determination,
     })
