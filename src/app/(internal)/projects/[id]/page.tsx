@@ -25,7 +25,7 @@ export default async function ProjectDetailPage({
 
   const { data } = await supabase
     .from('projects')
-    .select('id, name, description, status, created_at, completed_at, project_types ( name )')
+    .select('id, name, description, status, created_at, completed_at, archived_at, project_types ( name )')
     .eq('id', id)
     .maybeSingle()
 
@@ -35,6 +35,8 @@ export default async function ProjectDetailPage({
   const project = { ...rest, project_type: project_types?.name ?? '' }
 
   const isCompleted = project.status === 'completed'
+  const isArchived  = project.status === 'archived'
+  const statusLabel = isArchived ? 'Archived' : isCompleted ? 'Completed' : 'Active'
 
   // The stewardship/capture flow is the 1035 working surface. Only 1035
   // projects get a "Work Project" action; other project types do not reuse this
@@ -82,33 +84,47 @@ export default async function ProjectDetailPage({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <WorkflowHeader primary={project.name} secondary={project.project_type} />
           <div className="flex items-center gap-3">
-            <OperationalTag tone={isCompleted ? 'info' : 'reason'}>
-              {isCompleted ? 'Completed' : 'Active'}
+            <OperationalTag tone={isArchived ? 'blocked' : isCompleted ? 'info' : 'reason'}>
+              {statusLabel}
             </OperationalTag>
-            {/* Work Project — opens the existing Stewardship/capture workflow
-                scoped to this project's population (1035 projects only). Not a
-                new workflow: it is the same /stewardship screen with a
-                project_id scope. */}
-            {is1035 && (
-              <Link
-                href={`/stewardship?project_id=${project.id}`}
-                className="inline-flex h-10 items-center gap-2 rounded-xl bg-teal-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-teal-700"
-              >
-                <Play className="size-4" aria-hidden />
-                Work Project
-              </Link>
+            {/* An archived project is kept for viewing but takes no new activity
+                until it is restored, so its activity actions are withheld. */}
+            {!isArchived && (
+              <>
+                {/* Work Project — opens the existing Stewardship/capture
+                    workflow scoped to this project's population (1035 projects
+                    only). Not a new workflow: it is the same /stewardship screen
+                    with a project_id scope. */}
+                {is1035 && (
+                  <Link
+                    href={`/stewardship?project_id=${project.id}`}
+                    className="inline-flex h-10 items-center gap-2 rounded-xl bg-teal-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-teal-700"
+                  >
+                    <Play className="size-4" aria-hidden />
+                    Work Project
+                  </Link>
+                )}
+                {/* Add Population — administrative action, authorized internal
+                    staff only. Available on an existing project to add another run. */}
+                <Link
+                  href={`/projects/${project.id}/population`}
+                  className="inline-flex h-10 items-center gap-2 rounded-xl border border-surface-border bg-surface-card px-4 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted"
+                >
+                  <FolderPlus className="size-4" aria-hidden />
+                  Add Population
+                </Link>
+              </>
             )}
-            {/* Add Population — administrative action, authorized internal staff only.
-                Available on an existing project to add another run. */}
-            <Link
-              href={`/projects/${project.id}/population`}
-              className="inline-flex h-10 items-center gap-2 rounded-xl border border-surface-border bg-surface-card px-4 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted"
-            >
-              <FolderPlus className="size-4" aria-hidden />
-              Add Population
-            </Link>
           </div>
         </div>
+
+        {/* Archived notice — explains why the activity actions are absent and
+            how to bring the project back. */}
+        {isArchived && (
+          <p className="max-w-3xl rounded-xl border border-surface-border bg-surface-muted px-4 py-3 text-sm font-medium text-ink-secondary">
+            This project is archived. Its records are preserved and viewable, but it takes no new activity until you restore it from the Projects list.
+          </p>
+        )}
 
         {project.description && (
           <p className="max-w-3xl text-lg leading-relaxed text-ink-secondary">{project.description}</p>
@@ -121,7 +137,7 @@ export default async function ProjectDetailPage({
           </div>
           <div>
             <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-supporting">Status</dt>
-            <dd className="mt-1 text-base text-ink">{isCompleted ? 'Completed' : 'Active'}</dd>
+            <dd className="mt-1 text-base text-ink">{statusLabel}</dd>
           </div>
           <div>
             <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-supporting">Started</dt>
@@ -150,7 +166,9 @@ export default async function ProjectDetailPage({
           {runList.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-surface-border-strong bg-surface-card p-8 text-center">
               <p className="text-base text-ink-supporting">
-                No population yet. Use <span className="font-semibold text-ink">Add Population</span> to build the first run.
+                {isArchived
+                  ? 'No population was built for this project.'
+                  : <>No population yet. Use <span className="font-semibold text-ink">Add Population</span> to build the first run.</>}
               </p>
             </div>
           ) : (
@@ -184,7 +202,7 @@ export default async function ProjectDetailPage({
 
         {/* 1035 Exchange Review — Step 2 / Step 3 operations surface. Only the
             1035 project type uses this workflow; other types do not render it. */}
-        {is1035 && customerCount != null && customerCount > 0 && (
+        {!isArchived && is1035 && customerCount != null && customerCount > 0 && (
           <Review1035Client projectId={project.id} />
         )}
     </WorkflowPage>
