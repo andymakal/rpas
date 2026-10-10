@@ -9,7 +9,6 @@ import {
   OperationalTag,
 } from '@/components/workflow'
 import { fmtDate } from '@/lib/fmt'
-import { Review1035Client } from './Review1035Client'
 
 export const metadata: Metadata = { title: 'Project' }
 
@@ -91,13 +90,13 @@ export default async function ProjectDetailPage({
                 until it is restored, so its activity actions are withheld. */}
             {!isArchived && (
               <>
-                {/* Work Project — opens the existing Stewardship/capture
-                    workflow scoped to this project's population (1035 projects
-                    only). Not a new workflow: it is the same /stewardship screen
-                    with a project_id scope. */}
+                {/* Work Project — opens the existing 1035 working interface
+                    (Steps 2 & 3: Stewardship servicing access, policy documents,
+                    and Bob's determinations) on its own route, keeping the
+                    project overview uncluttered. 1035 projects only. */}
                 {is1035 && (
                   <Link
-                    href={`/stewardship?project_id=${project.id}`}
+                    href={`/projects/${project.id}/review`}
                     className="inline-flex h-10 items-center gap-2 rounded-xl bg-teal-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-teal-700"
                   >
                     <Play className="size-4" aria-hidden />
@@ -199,12 +198,6 @@ export default async function ProjectDetailPage({
             Each run is preserved separately. Adding a new run never removes customers already in the project.
           </p>
         </section>
-
-        {/* 1035 Exchange Review — Step 2 / Step 3 operations surface. Only the
-            1035 project type uses this workflow; other types do not render it. */}
-        {!isArchived && is1035 && customerCount != null && customerCount > 0 && (
-          <Review1035Client projectId={project.id} />
-        )}
     </WorkflowPage>
   )
 }
