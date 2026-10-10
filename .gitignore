@@ -35,6 +35,8 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+# Opt-in: non-secret example templates are tracked (placeholders only, no keys).
+!.env*.example
 
 # vercel
 .vercel
@@ -42,3 +44,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# One-time data-enrichment artifacts containing customer PII — never commit.
+/private/
+*.data.sql
