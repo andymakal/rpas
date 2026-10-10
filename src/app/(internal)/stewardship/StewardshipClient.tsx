@@ -112,7 +112,14 @@ function currency(n: number | null) {
   return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
 }
 
-export function StewardshipClient({ agencies }: { agencies: AgencyOption[] }) {
+export function StewardshipClient({
+  agencies,
+  project = null,
+}: {
+  agencies: AgencyOption[]
+  /** When set, the whole screen is scoped to this project. */
+  project?: { id: string; name: string } | null
+}) {
   const [items, setItems] = useState<BoardItem[]>([])
   const [counts, setCounts] = useState<Record<OutreachQueue, number>>(
     Object.fromEntries(OUTREACH_QUEUES.map(q => [q, 0])) as Record<OutreachQueue, number>,
@@ -124,7 +131,10 @@ export function StewardshipClient({ agencies }: { agencies: AgencyOption[] }) {
   const loadBoard = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/stewardship', { cache: 'no-store' })
+      // In project scope, ask the board for only this project's work; counts
+      // come back already scoped from the API.
+      const url = project ? `/api/stewardship?project_id=${encodeURIComponent(project.id)}` : '/api/stewardship'
+      const res = await fetch(url, { cache: 'no-store' })
       const json = await res.json()
       if (res.ok) {
         setItems(json.data.items as BoardItem[])
@@ -133,7 +143,7 @@ export function StewardshipClient({ agencies }: { agencies: AgencyOption[] }) {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [project])
 
   useEffect(() => { void loadBoard() }, [loadBoard])
 
@@ -179,12 +189,21 @@ export function StewardshipClient({ agencies }: { agencies: AgencyOption[] }) {
 
   return (
     <WorkflowPage>
-      <WorkflowHeader
-        primary="Stewardship"
-        secondary="Capture outreach — confirm servicing access on each customer's permanent policies."
-      />
+      {project ? (
+        <WorkflowHeader
+          primary={`Stewardship — ${project.name}`}
+          secondary="Capture outreach scoped to this project's population. Queues and lists below show only this project's work."
+        />
+      ) : (
+        <WorkflowHeader
+          primary="Stewardship"
+          secondary="Capture outreach — confirm servicing access on each customer's permanent policies."
+        />
+      )}
 
-      <StartCapture agencies={agencies} onStarted={loadBoard} />
+      {project
+        ? <StartProjectCapture project={project} onStarted={loadBoard} />
+        : <StartCapture agencies={agencies} onStarted={loadBoard} />}
 
       <div className="mt-6 space-y-6">
         {QUEUE_GROUPS.map(group => (
@@ -297,6 +316,59 @@ function StartCapture({ agencies, onStarted }: { agencies: AgencyOption[]; onSta
         </select>
         <WorkflowButton icon={Play} selected disabled={!agencyId || busy} onClick={start}>
           {busy ? 'Starting…' : 'Start capture'}
+        </WorkflowButton>
+        {result && <span className="text-sm font-medium text-slate-700">{result}</span>}
+      </div>
+    </section>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Work Project — begin stewardship work for a project's population. Reuses the
+// same capture flow and the same /api/stewardship/start endpoint, scoped by
+// project_id instead of an agency book. Customers already in open stewardship
+// work are reused, not duplicated.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function StartProjectCapture({ project, onStarted }: { project: { id: string; name: string }; onStarted: () => void }) {
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<string | null>(null)
+
+  async function start() {
+    setBusy(true); setResult(null)
+    try {
+      const res = await fetch('/api/stewardship/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: project.id }),
+      })
+      const json = await res.json()
+      if (res.ok) {
+        setResult(`Started ${json.data.started} customer${json.data.started === 1 ? '' : 's'}` +
+          (json.data.skipped ? `, reused ${json.data.skipped} already in progress.` : '.'))
+        onStarted()
+      } else {
+        setResult(json.error ?? 'Could not work this project.')
+      }
+    } catch {
+      setResult('Network error.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className="rounded-2xl border border-teal-100 bg-white p-5">
+      <h2 className="text-base font-semibold text-slate-900">Work this project</h2>
+      <p className="mt-1 text-sm text-slate-600">
+        Starts a stewardship work item for each customer in this project that is not already in
+        progress. Customers with open stewardship work are reused, not duplicated. Each new item
+        routes to Ready to Email, Ready to Call, or Research Needed based on the contact information
+        on file.
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <WorkflowButton icon={Play} selected disabled={busy} onClick={start}>
+          {busy ? 'Working…' : 'Work project'}
         </WorkflowButton>
         {result && <span className="text-sm font-medium text-slate-700">{result}</span>}
       </div>

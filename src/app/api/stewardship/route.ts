@@ -15,6 +15,11 @@ import { QUEUE_META, deriveFollowUpRouting, type OutreachQueue } from '@/lib/ste
  * overdue work surfaces in the right queue without manual housekeeping.
  *
  * Optional ?queue=<OutreachQueue> filters to one queue.
+ *
+ * Optional ?project_id=<uuid> scopes the board to a single project: only
+ * outreach for customers in that project's project_customers is returned, and
+ * the counts reflect only that scoped set. Without the param the board is the
+ * normal unscoped view across all open outreach.
  */
 export async function GET(request: NextRequest) {
   const auth = await requireInternalAdmin()
@@ -23,6 +28,29 @@ export async function GET(request: NextRequest) {
   const supabase = createAdminClient()
   const url = new URL(request.url)
   const queueFilter = url.searchParams.get('queue')
+  const projectId = url.searchParams.get('project_id')?.trim() || null
+
+  // Project scope: resolve the project's customer set up front. The board is
+  // then filtered to these customers so counts and lists show only this
+  // project's work. An empty project yields an empty board.
+  let projectCustomerIds: Set<string> | null = null
+  if (projectId) {
+    const { data: members, error: memberErr } = await supabase
+      .from('project_customers')
+      .select('customer_id')
+      .eq('project_id', projectId)
+    if (memberErr) {
+      console.error('stewardship board: project membership query error', memberErr)
+      return Response.json({ error: memberErr.message }, { status: 500 })
+    }
+    projectCustomerIds = new Set((members ?? []).map((m: { customer_id: string }) => m.customer_id))
+    if (projectCustomerIds.size === 0) {
+      const emptyCounts = Object.fromEntries(
+        (Object.keys(QUEUE_META) as OutreachQueue[]).map(q => [q, 0]),
+      ) as Record<OutreachQueue, number>
+      return Response.json({ data: { items: [], counts: emptyCounts } })
+    }
+  }
 
   // Deterministic follow-up routing: promote overdue waiting-for-response items
   // to Ready to Call (no-response) up front, and persist the move so it is
@@ -84,8 +112,14 @@ export async function GET(request: NextRequest) {
   }
 
   // Only open items (decision still null) belong on the outreach board. A
-  // decided pre-review is no longer stewardship/outreach work.
-  const rows = ((data ?? []) as unknown as Row[]).filter(r => r.customer_prereviews?.decision == null)
+  // decided pre-review is no longer stewardship/outreach work. When a project
+  // scope is set, also drop any item whose customer is not in the project, so
+  // both the list and the counts below reflect only this project's work.
+  const rows = ((data ?? []) as unknown as Row[]).filter(r => {
+    if (r.customer_prereviews?.decision != null) return false
+    if (projectCustomerIds && !projectCustomerIds.has(r.customer_prereviews.customers.id)) return false
+    return true
+  })
 
   const items = rows.map(r => ({
     id: r.id,
