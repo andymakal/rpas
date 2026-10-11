@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { getMyWork } from '@/lib/my-work/composition'
 import type { MyWorkState } from '@/lib/my-work/types'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
@@ -26,6 +27,14 @@ export default async function MyWorkPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+
+  // Gate the service-role composition behind the established internal-admin
+  // check: My Work reads the shared board and the 1035 workflow through the
+  // service-role client (bypassing RLS), so an authenticated-but-not-internal
+  // user (e.g. an agency portal user) must never reach it. requireInternalAdmin
+  // returns ok only for internal admins; agency/portal users are sent to login.
+  const auth = await requireInternalAdmin()
+  if (!auth.ok) redirect('/login')
 
   const actorTimeZone = await getActorTimeZone()
 

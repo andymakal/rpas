@@ -101,17 +101,32 @@ interface Accum {
   workFunction: WorkFunctionKey
   label: string
   description: string | null
+  /** Total items in this activity (every item, regardless of eligibility). */
   total: number
-  owned: number
-  /** Count of due DATE-ONLY promised callbacks (not exact-time commitments). */
-  due: number
   sources: WorkSource[]
   /**
-   * Every project this activity's work belongs to. Includes projects a shared
-   * Stewardship item's CUSTOMER belongs to (so a project focus elevates the
-   * project's work even while it sits in a shared queue), and projects that are
-   * themselves a source (operations prep, determination). Used only to match
-   * project-scoped eligibility and focus; the activity still appears once.
+   * Per-ITEM facts are aggregated here so a project-scoped focus or eligibility
+   * applies ONLY to the items it actually covers, never to the whole activity:
+   *   - eligible: items the employee is eligible to work (agency-wide
+   *     eligibility covers all; a project-scoped eligibility covers only items
+   *     whose customer belongs to that project).
+   *   - focusEligible: eligible items that are ALSO focus-elevated (a project
+   *     focus covers only that project's items; an agency-wide activity focus
+   *     covers all). Focus never elevates ineligible items.
+   *   - dueEligible: eligible items with a due DATE-ONLY callback.
+   *   - owned: eligible items the employee has claimed.
+   * These counts drive the ZEN facts, so the activity's band reflects the
+   * elevated/eligible PORTION, not an unrelated-customer union.
+   */
+  eligible: number
+  focusEligible: number
+  dueEligible: number
+  owned: number
+  /**
+   * Every project this activity's work belongs to (union across items). Used
+   * ONLY for display (the sources already name their project) and for deciding
+   * whether to surface an empty, focus-directed activity; never to grant
+   * eligibility or focus to unrelated items.
    */
   projectIds: Set<string>
 }
@@ -157,11 +172,28 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       label: wf.label,
       description: wf.description,
       total: 0,
-      owned: 0,
-      due: 0,
       sources: [],
+      eligible: 0,
+      focusEligible: 0,
+      dueEligible: 0,
+      owned: 0,
       projectIds: new Set<string>(),
     })
+  }
+
+  // Per-item eligibility + focus helpers. An item's project set decides which
+  // project-scoped eligibilities/focuses apply to it; agency-wide ones always
+  // apply. This is the heart of the project-scoping fix: a focus or eligibility
+  // on project A affects an item ONLY when that item belongs to project A.
+  const itemEligible = (activity: WorkFunctionKey, itemProjects: Set<string>): boolean => {
+    if (isEligibleFor(profile, activity)) return true // agency-wide
+    for (const pid of itemProjects) if (isEligibleFor(profile, activity, pid)) return true
+    return false
+  }
+  const itemFocusElevated = (activity: WorkFunctionKey, itemProjects: Set<string>): boolean => {
+    if (focusElevatesActivity(focus, activity)) return true // agency-wide activity focus
+    for (const pid of itemProjects) if (focusElevatesActivity(focus, activity, pid)) return true
+    return false
   }
 
   // 3. Shared Stewardship board (the SAME read the board + Daily Direction use).
@@ -209,57 +241,49 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       | OutreachQueue
       | undefined) ?? r.queue
 
-  // Tally the shared board. Outreach is split by its actual queue so each links
-  // to the RIGHT queue (ready-to-call vs ready-to-email), never always to calls.
-  // Research is its own activity. We also carry each item's project association
-  // onto the activity so a project-scoped focus/eligibility matches shared work.
-  type QueueBucket = { total: number; owned: number; due: number }
-  const perQueue = new Map<OutreachQueue, QueueBucket>()
-  const projectIdsByActivity = new Map<WorkFunctionKey, Set<string>>()
+  // Tally the shared board PER ITEM. Outreach is split by its actual queue so
+  // each source links to the RIGHT queue (ready-to-call vs ready-to-email),
+  // never always to calls. Research is its own activity. For every item we judge
+  // eligibility and focus against the item's OWN projects, so a project-scoped
+  // focus/eligibility only ever counts items that belong to that project.
+  const perQueueTotal = new Map<OutreachQueue, number>()
   for (const r of openRows) {
     const q = effectiveQueue(r)
     const activity = STEWARDSHIP_ACTIVITY[q]
     if (!activity) continue // waiting queues are not actionable MY WORK
-    const bucket = perQueue.get(q) ?? { total: 0, owned: 0, due: 0 }
-    bucket.total += 1
-    if (r.claimed_by_producer_id && r.claimed_by_producer_id === myProducerId) bucket.owned += 1
-    // Date-only due callback: a ready-to-call item with a callback_date due on
-    // the actor's calendar. This is DUE WORK, not an exact-time commitment.
-    if (q === 'ready-to-call' && isCallbackDue(r.callback_date, timeCtx)) bucket.due += 1
-    perQueue.set(q, bucket)
+    const a = acc.get(activity)
+    if (!a) continue
 
-    const custProjects = projectsByCustomer.get(r.customer_prereviews.customer_id)
-    if (custProjects) {
-      const set = projectIdsByActivity.get(activity) ?? new Set<string>()
-      for (const pid of custProjects) set.add(pid)
-      projectIdsByActivity.set(activity, set)
-    }
+    const itemProjects = projectsByCustomer.get(r.customer_prereviews.customer_id) ?? new Set<string>()
+    for (const pid of itemProjects) a.projectIds.add(pid)
+
+    a.total += 1
+    perQueueTotal.set(q, (perQueueTotal.get(q) ?? 0) + 1)
+
+    const eligible = itemEligible(activity, itemProjects)
+    if (!eligible) continue // ineligible items count toward total only
+    a.eligible += 1
+    if (itemFocusElevated(activity, itemProjects)) a.focusEligible += 1
+    if (q === 'ready-to-call' && isCallbackDue(r.callback_date, timeCtx)) a.dueEligible += 1
+    if (r.claimed_by_producer_id && r.claimed_by_producer_id === myProducerId) a.owned += 1
   }
 
-  // Fold the per-queue buckets into their activity accumulators, with ONE source
-  // per contributing queue (so each links to the correct queue, including the
-  // email-only queue). The activity still appears once; sources list beneath it.
-  for (const [q, bucket] of perQueue) {
+  // One source per contributing queue (so each links to the correct queue,
+  // including the email-only queue). The activity still appears once; sources
+  // list beneath it. Source counts are the total board counts (what a worker
+  // sees in that queue), independent of this employee's eligibility.
+  for (const [q, total] of perQueueTotal) {
     const activity = STEWARDSHIP_ACTIVITY[q]
     if (!activity) continue
     const a = acc.get(activity)
-    if (!a || bucket.total === 0) continue
-    a.total += bucket.total
-    a.owned += bucket.owned
-    a.due += bucket.due
+    if (!a || total === 0) continue
     a.sources.push({
       kind: 'stewardship',
       label: `Shared Stewardship board — ${QUEUE_LABEL[q]}`,
-      count: bucket.total,
+      count: total,
       route: stewardshipRoute(q),
       projectId: null,
     })
-  }
-  // Attach the collected project associations to each stewardship activity.
-  for (const [activity, pids] of projectIdsByActivity) {
-    const a = acc.get(activity)
-    if (!a) continue
-    for (const pid of pids) a.projectIds.add(pid)
   }
 
   // 4. The 1035 project workflow (the SAME derived read the project surface
@@ -284,34 +308,28 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     const determineCount = summary.by.bob_evaluation
     const reviewRoute = `/projects/${projectId}/review`
 
-    if (prepCount > 0) {
-      const a = acc.get('operations_prep')
-      if (a) {
-        a.total += prepCount
-        a.projectIds.add(projectId)
-        a.sources.push({
-          kind: 'project',
-          label: projectName,
-          count: prepCount,
-          route: reviewRoute,
-          projectId,
-        })
-      }
+    // These project activities are inherently scoped to this project, so
+    // eligibility and focus are judged against THIS project only (never
+    // agency-wide-by-accident). The whole prep/determination count is treated
+    // as one project-scoped partition.
+    const projectSet = new Set<string>([projectId])
+    const addProjectActivity = (
+      key: WorkFunctionKey,
+      count: number,
+    ) => {
+      if (count <= 0) return
+      const a = acc.get(key)
+      if (!a) return
+      a.total += count
+      a.projectIds.add(projectId)
+      a.sources.push({ kind: 'project', label: projectName, count, route: reviewRoute, projectId })
+      if (!itemEligible(key, projectSet)) return // ineligible: counts to total only
+      a.eligible += count
+      if (itemFocusElevated(key, projectSet)) a.focusEligible += count
+      // No date-only callbacks and no claim model on project-stage work yet.
     }
-    if (determineCount > 0) {
-      const a = acc.get('determination')
-      if (a) {
-        a.total += determineCount
-        a.projectIds.add(projectId)
-        a.sources.push({
-          kind: 'project',
-          label: projectName,
-          count: determineCount,
-          route: reviewRoute,
-          projectId,
-        })
-      }
-    }
+    addProjectActivity('operations_prep', prepCount)
+    addProjectActivity('determination', determineCount)
   }
 
   // 5. Decide each activity's priority band via ZEN. An activity is included
@@ -321,16 +339,11 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   // eligibility/focus is matched against any project source on the activity.
   const activities: ActivityGroup[] = []
   for (const a of acc.values()) {
-    // Project associations now come from the accumulator (shared-queue work is
-    // tagged with its customer's project, and project sources add their own id),
-    // so a project-scoped focus or eligibility matches work in a shared queue.
-    const projectIds = Array.from(a.projectIds)
-    const eligible =
-      isEligibleFor(profile, a.workFunction) ||
-      projectIds.some((pid) => isEligibleFor(profile, a.workFunction, pid))
-    const focusElevated =
-      focusElevatesActivity(focus, a.workFunction) ||
-      projectIds.some((pid) => focusElevatesActivity(focus, a.workFunction, pid))
+    // Eligibility and focus come from PER-ITEM aggregation, so a project-scoped
+    // focus/eligibility only ever reflects items that actually belong to that
+    // project — never the whole activity, and never unrelated customers.
+    const eligible = a.eligible > 0
+    const focusElevated = a.focusEligible > 0
 
     // Drop activities with no work that are not a directed focus for this
     // eligible employee. (An ineligible, empty activity is simply not shown.)
@@ -342,11 +355,13 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       hasExactTimeCommitment: false,
       isEligible: eligible,
       isFocusElevated: focusElevated,
-      hasDueCallback: a.due > 0,
+      hasDueCallback: a.dueEligible > 0,
       hasOwnedWork: a.owned > 0,
     }
     const verdict = await evaluateActivityBand(facts)
-    const sharedCount = Math.max(a.total - a.owned, 0)
+    // Counts shown reflect the whole activity (recorded once); owned/shared are
+    // the eligible portion the worker can act on.
+    const sharedCount = Math.max(a.eligible - a.owned, 0)
     activities.push({
       workFunction: a.workFunction,
       label: a.label,
@@ -355,7 +370,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       rank: verdict.rank,
       reasonCode: verdict.reasonCode,
       reason: buildActivityReason(verdict.reasonCode, {
-        dueCount: a.due,
+        dueCount: a.dueEligible,
         ownedCount: a.owned,
         sharedCount,
         label: a.label,
@@ -363,7 +378,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       totalCount: a.total,
       ownedCount: a.owned,
       sharedCount,
-      dueCount: a.due,
+      dueCount: a.dueEligible,
       isEligible: eligible,
       isFocusElevated: focusElevated,
       sources: a.sources,

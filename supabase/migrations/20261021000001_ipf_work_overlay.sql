@@ -410,55 +410,61 @@ begin
   -- flags stay NULL (unknown), per the eligibility-fact design.
   update public.producers set is_life_licensed = true where id = p_bob;
 
-  -- Agency-wide capability assignments (project_id NULL). Routable primary/support
-  -- only; nobody is seeded 'overqualified' here (that exception is set per case
-  -- via the UI). "Not qualified" is simply the absence of a row.
+  -- Bob's life-license fact only applies if that producer exists here.
+  if not exists (select 1 from public.producers where id = p_bob) then
+    -- No roster overlap in this environment: skip all roster-specific seeding.
+    -- The capability catalog + schema above are still in place; capabilities are
+    -- simply unassigned until this environment's own staff are assigned.
+    return;
+  end if;
+
+  -- NOTE (historical): this section originally seeded a broader set of
+  -- agency-wide capability assignments inferred from job titles (outreach to
+  -- client-relations staff, research/preparation to case managers, office
+  -- support broadly). A later correction (20261022000001) established that
+  -- capabilities must come from evidence or a settled decision, not a title, and
+  -- removed those inferred rows, keeping only Bob -> determination. To make this
+  -- migration SAFE TO REPLAY and portable, it now seeds ONLY that one settled
+  -- assignment, and only when both the producer and the capability exist. The
+  -- evidence-based assignments live in the forward correction migration, not
+  -- here, so a replay of this file never re-creates the title-inferred rows.
   insert into public.producer_work_functions (producer_id, work_function_id, assignment_type, project_id)
-  values
-    -- Outreach (shared Stewardship board): client-relations + case managers.
-    (p_gabe,  wf_outreach, 'primary', null),
-    (p_dulce, wf_outreach, 'primary', null),
-    (p_nikki, wf_outreach, 'support', null),
-    (p_angie, wf_outreach, 'support', null),
-    -- Research (exception path): operations.
-    (p_angie, wf_research, 'primary', null),
-    (p_nikki, wf_research, 'primary', null),
-    -- Operations preparation (1035 Step 3 prep and the like): operations.
-    (p_angie,  wf_ops_prep, 'primary', null),
-    (p_nikki,  wf_ops_prep, 'primary', null),
-    (p_ashley, wf_ops_prep, 'support', null),
-    -- Determination (senior producer; life-licensed gate): Bob.
-    (p_bob, wf_determine, 'primary', null),
-    -- General office support: broadly available.
-    (p_gabe,   wf_office, 'primary', null),
-    (p_dulce,  wf_office, 'primary', null),
-    (p_tyler,  wf_office, 'primary', null),
-    (p_ashley, wf_office, 'support', null)
+  select p_bob, wf_determine, 'primary', null
+  where wf_determine is not null
   on conflict do nothing;
 
   -- The rest below is scoped to the real 1035 project. Guard on its existence so
-  -- a replay against an environment without that project is a clean no-op.
+  -- a replay against an environment without that project is a clean no-op. Every
+  -- insert is additionally guarded on the producer existing, so a different
+  -- roster cannot cause a foreign-key failure.
   select exists(select 1 from public.projects where id = proj_1035) into has_proj;
   if has_proj then
     -- 1035 participation: the people who work this project (My Projects). This
     -- is participation, not ownership — ownership/escalation are separate.
+    -- Inserted per-producer, each guarded on that producer existing.
     insert into public.project_participants (project_id, producer_id, note)
-    values
-      (proj_1035, p_angie,  'Operations: servicing access, Step 3 preparation'),
-      (proj_1035, p_nikki,  'Operations: outreach and preparation'),
-      (proj_1035, p_gabe,   'Outreach'),
-      (proj_1035, p_dulce,  'Outreach'),
-      (proj_1035, p_ashley, 'Operations manager'),
-      (proj_1035, p_bob,    'Senior producer: candidacy determination')
+    select proj_1035, p.id, v.note
+    from (values
+      (p_angie,  'Operations: servicing access, Step 3 preparation'),
+      (p_nikki,  'Operations: outreach and preparation'),
+      (p_gabe,   'Outreach'),
+      (p_dulce,  'Outreach'),
+      (p_ashley, 'Senior producer'),
+      (p_bob,    'Senior producer: candidacy determination')
+    ) as v(pid, note)
+    join public.producers p on p.id = v.pid
     on conflict (project_id, producer_id) do nothing;
 
     -- 1035 escalation order: an operational exception goes to Angie FIRST
     -- (tier 1), then to Bob (tier 2). Andy is deliberately NOT an escalation
-    -- destination for routine operational exceptions.
+    -- destination for routine operational exceptions. Each guarded on existence.
     insert into public.project_escalation_contacts (project_id, producer_id, tier, note)
-    values
-      (proj_1035, p_angie, 1, 'Operational exceptions escalate here first'),
-      (proj_1035, p_bob,   2, 'Senior producer: reached only when the first tier cannot resolve it')
+    select proj_1035, p.id, v.tier, v.note
+    from (values
+      (p_angie, 1, 'Operational exceptions escalate here first'),
+      (p_bob,   2, 'Senior producer: reached only when the first tier cannot resolve it')
+    ) as v(pid, tier, note)
+    join public.producers p on p.id = v.pid
     on conflict (project_id, tier) do nothing;
   end if;
 end

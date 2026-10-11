@@ -89,19 +89,48 @@ comment on column public.project_participants.role is
 -- (producer, capability) pairs so it cannot touch any assignment a human later
 -- makes through the Team editor on another environment; a no-op if already gone.
 -- =============================================================================
+-- Remove ONLY the exact title-inferred agency-wide assignments the first-slice
+-- seed (20261021000001 section 8) created. Scoping to those precise (producer,
+-- capability) pairs — rather than deleting every agency-wide assignment — means
+-- a replay can never wipe a legitimate assignment a human (or a later migration)
+-- made, and the step is a clean no-op in an environment that never had the seed
+-- or whose producers differ. Bob -> determination is deliberately NOT listed,
+-- because it is a settled assignment that must be kept.
 do $$
 declare
-  p_bob uuid := '55c0e564-35d1-4bcc-888d-8edaa4e2fdf7';
+  -- the exact seeded pairs (producer id, canonical_key), excluding the kept
+  -- Bob -> determination row.
+  seeded constant text[][] := array[
+    -- Gabe (7a8ffc03)
+    ['7a8ffc03-a89a-4dfc-96d9-2cb552ca6036', 'outreach'],
+    ['7a8ffc03-a89a-4dfc-96d9-2cb552ca6036', 'office_support'],
+    -- Dulce (afc210a6)
+    ['afc210a6-9974-4459-95bf-87dee6274f30', 'outreach'],
+    ['afc210a6-9974-4459-95bf-87dee6274f30', 'office_support'],
+    -- Nikki (dcb3c1f9)
+    ['dcb3c1f9-a260-44ae-b02a-70fd000ea117', 'outreach'],
+    ['dcb3c1f9-a260-44ae-b02a-70fd000ea117', 'research'],
+    ['dcb3c1f9-a260-44ae-b02a-70fd000ea117', 'operations_prep'],
+    -- Angie (6fbce54f)
+    ['6fbce54f-5c02-4589-90b3-f4eb19248256', 'outreach'],
+    ['6fbce54f-5c02-4589-90b3-f4eb19248256', 'research'],
+    ['6fbce54f-5c02-4589-90b3-f4eb19248256', 'operations_prep'],
+    -- Ashley (067ca02d)
+    ['067ca02d-7618-4aea-84ad-9abaa5d166e0', 'operations_prep'],
+    ['067ca02d-7618-4aea-84ad-9abaa5d166e0', 'office_support'],
+    -- Tyler (280f5f81)
+    ['280f5f81-939c-4b29-b73c-97cf05f4411d', 'office_support']
+  ];
+  pair text[];
 begin
-  -- Remove all agency-wide (project_id IS NULL) capability assignments that are
-  -- NOT the kept Bob -> determination one.
-  delete from public.producer_work_functions pwf
-  using public.work_functions wf
-  where pwf.work_function_id = wf.id
-    and pwf.project_id is null
-    and not (
-      pwf.producer_id = p_bob and wf.canonical_key = 'determination'
-    );
+  foreach pair slice 1 in array seeded loop
+    delete from public.producer_work_functions pwf
+    using public.work_functions wf
+    where pwf.work_function_id = wf.id
+      and pwf.project_id is null
+      and pwf.producer_id = pair[1]::uuid
+      and wf.canonical_key = pair[2];
+  end loop;
 end
 $$;
 
