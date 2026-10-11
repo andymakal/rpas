@@ -21,8 +21,9 @@
  */
 
 import Link from 'next/link'
-import { Sparkles, ArrowRight, Phone, CheckCircle2 } from 'lucide-react'
+import { ArrowRight, Phone, CheckCircle2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { AssistantPanel } from './panels'
 import type { DailyDirectionState } from '@/lib/daily-direction/types'
 
 /**
@@ -45,29 +46,15 @@ export function DailyDirectionBriefing({
   const isOutreach = state.nextActionKind === 'outreach'
 
   return (
-    <section
-      aria-label="Assistant"
-      className={cn(
-        'rounded-2xl border border-brand-subtle bg-surface-card p-5 sm:p-6',
-        className,
-      )}
-    >
-      {/* Assistant identity row. This is the Assistant surface, labeled as such,
-          deliberately separate from any Mentoring/coaching treatment. */}
-      <div className="flex items-center gap-2.5">
-        <span className="flex size-7 items-center justify-center rounded-full bg-brand text-brand-foreground">
-          <Sparkles className="size-4" aria-hidden />
-        </span>
-        <p className="text-xs font-semibold uppercase tracking-[0.1em] text-brand-hover">
-          Assistant
-        </p>
-      </div>
-
-      {/* The Next Best Action heading + deterministic reason. */}
-      <h2 className="mt-3 text-xl font-semibold leading-snug tracking-tight text-ink">
-        {nextActionHeading(state)}
-      </h2>
-      <p className="mt-1.5 max-w-prose text-sm leading-relaxed text-ink-secondary">
+    // Built on the shared AssistantPanel shell so the live Assistant inherits
+    // the canonical teal identity row + heading from the design system instead
+    // of re-rolling them. The panel owns the "Assistant" label and the heading;
+    // everything below is the ready DailyDirectionState the composition
+    // resolved. Spacing is overridden to the compact board density.
+    <div className={cn('[&>section]:gap-4 [&>section]:p-5 sm:[&>section]:p-6', className)}>
+      <AssistantPanel heading={<span className="text-2xl">{nextActionHeading(state)}</span>}>
+      {/* The deterministic reason: a plain statement of available work. */}
+      <p className="-mt-2 max-w-prose text-sm leading-relaxed text-ink-secondary">
         {state.reason}
       </p>
 
@@ -75,7 +62,7 @@ export function DailyDirectionBriefing({
       {singleRoute && !isOutreach && (
         <Link
           href={state.route as string}
-          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand-hover"
+          className="inline-flex w-fit items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand-hover"
         >
           {ctaLabel(state)}
           <ArrowRight className="size-4" aria-hidden />
@@ -85,7 +72,7 @@ export function DailyDirectionBriefing({
       {/* Outreach: equally-eligible options, presented side by side with no
           ranking. Each opens its own queue. */}
       {isOutreach && state.outreachOptions.length > 0 && (
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2">
           {state.outreachOptions.map((o) => (
             <Link
               key={o.queue}
@@ -104,7 +91,7 @@ export function DailyDirectionBriefing({
           day is shown or implied. Each links into the Ready to Call queue where
           that customer is worked, so the recommendation is directly reachable. */}
       {state.dueCallbacks.length > 0 && (
-        <div className="mt-5 rounded-xl border border-brand-subtle bg-brand-wash p-4">
+        <div className="rounded-xl border border-brand-subtle bg-brand-wash p-4">
           <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-brand-hover">
             <Phone className="size-3.5" aria-hidden />
             Promised callbacks due
@@ -130,7 +117,7 @@ export function DailyDirectionBriefing({
       {/* The scannable board breakdown: the same candidates handed to the
           decision, presented as rows that link into each queue. */}
       {state.availableWork.length > 0 ? (
-        <div className="mt-5 border-t border-surface-border pt-4">
+        <div className="border-t border-surface-border pt-4">
           <p className="text-xs font-semibold uppercase tracking-wide text-ink-supporting">
             On the board
           </p>
@@ -163,12 +150,13 @@ export function DailyDirectionBriefing({
           </ul>
         </div>
       ) : (
-        <div className="mt-5 flex items-center gap-2 border-t border-surface-border pt-4 text-sm text-ink-supporting">
+        <div className="flex items-center gap-2 border-t border-surface-border pt-4 text-sm text-ink-supporting">
           <CheckCircle2 className="size-4 text-status-confirmed" aria-hidden />
           The Stewardship board is clear.
         </div>
       )}
-    </section>
+      </AssistantPanel>
+    </div>
   )
 }
 

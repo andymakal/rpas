@@ -25,16 +25,22 @@ import {
   type OperationalTone,
 } from '@/components/workflow'
 import { cn } from '@/lib/utils'
+import { capabilityStatusLabel } from '@/lib/capabilities/explanations'
 import type { ActivityGroup, MyWorkState, PriorityBand } from '@/lib/my-work/types'
 
-/** The band's human section title and tag tone, driven by ZEN's band. */
+/** The band's human section title and tag tone, driven by ZEN's band. The three
+ * non-routable bands are deliberately distinct sections, each saying something
+ * different: assist is actionable; unassigned and unlicensed are awareness-only
+ * for different reasons. */
 const BAND_META: Record<PriorityBand, { title: string; tone: OperationalTone }> = {
   exact_time_commitment: { title: 'Fixed appointments now', tone: 'exception' },
   focus:                 { title: "Today's Focus", tone: 'reason' },
   due_callback:          { title: 'Promised callbacks due', tone: 'exception' },
   owned:                 { title: 'Your claimed work', tone: 'info' },
   shared:                { title: 'Shared work you can pick up', tone: 'info' },
-  ineligible:            { title: 'Elsewhere in the office', tone: 'info' },
+  assist:                { title: 'You can assist (not routinely yours)', tone: 'info' },
+  unassigned:            { title: 'Not assigned to you', tone: 'info' },
+  unlicensed:            { title: 'Needs a license you have not established', tone: 'info' },
 }
 
 export function MyWorkClient({ state }: { state: MyWorkState }) {
@@ -120,14 +126,18 @@ export function MyWorkClient({ state }: { state: MyWorkState }) {
   )
 }
 
+/** The bands that are shown for awareness only — not routed and not actionable
+ * by this employee. 'assist' is deliberately NOT here: it is pickable. */
+const AWARENESS_BANDS = new Set<PriorityBand>(['unassigned', 'unlicensed'])
+
 /** One activity group card: the activity, its counts, reason, sources, claim. */
 function ActivityCard({ activity }: { activity: ActivityGroup }) {
-  const ineligible = activity.band === 'ineligible'
+  const awarenessOnly = AWARENESS_BANDS.has(activity.band)
   return (
     <article
       className={cn(
         'rounded-2xl border bg-surface-card p-5',
-        ineligible ? 'border-surface-border opacity-90' : 'border-brand-subtle',
+        awarenessOnly ? 'border-surface-border opacity-90' : 'border-brand-subtle',
       )}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -140,10 +150,13 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
                 {activity.dueCount} due
               </OperationalTag>
             )}
-            {activity.isFocusElevated && !ineligible && (
+            {activity.isFocusElevated && !awarenessOnly && (
               <OperationalTag tone="reason">
                 <Sparkles className="mr-1.5 size-4" aria-hidden /> Focus
               </OperationalTag>
+            )}
+            {activity.band === 'assist' && (
+              <OperationalTag tone="info">You can assist</OperationalTag>
             )}
           </div>
           <p className="mt-1.5 max-w-prose text-sm leading-relaxed text-ink-secondary">
@@ -207,13 +220,13 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
                 </Link>
                 {/* Per-source claim breakdown, only when there is something to
                     distinguish beyond the simple count. */}
-                {(s.ownedByMe > 0 || s.claimedByOthers > 0 || (s.notEligible > 0 && !ineligible)) && (
+                {(s.ownedByMe > 0 || s.claimedByOthers > 0 || (s.notEligible > 0 && !awarenessOnly)) && (
                   <p className="px-2 pb-0.5 text-[11px] text-ink-muted">
                     {[
                       s.ownedByMe > 0 ? `${s.ownedByMe} yours` : null,
                       s.availableToMe > 0 ? `${s.availableToMe} available` : null,
                       s.claimedByOthers > 0 ? `${s.claimedByOthers} with teammates` : null,
-                      s.notEligible > 0 && !ineligible ? `${s.notEligible} not yours` : null,
+                      s.notEligible > 0 && !awarenessOnly ? `${s.notEligible} not yours` : null,
                     ].filter(Boolean).join(' · ')}
                   </p>
                 )}
@@ -223,10 +236,12 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
         </ul>
       )}
 
-      {ineligible && (
+      {awarenessOnly && (
         <p className="mt-3 flex items-center gap-1.5 text-xs text-ink-supporting">
           <Lock className="size-3.5" aria-hidden />
-          Shown for awareness. This activity is not routed to you.
+          {/* A compact status cue; the full reason above (the SHARED capability
+              explanation) says why unassigned and unlicensed differ. */}
+          Shown for awareness · {capabilityStatusLabel(activity.band === 'unlicensed' ? 'unlicensed' : 'unassigned')}
         </p>
       )}
     </article>
@@ -237,7 +252,10 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
 function groupByBand(
   activities: ActivityGroup[],
 ): { band: PriorityBand; items: ActivityGroup[] }[] {
-  const order: PriorityBand[] = ['exact_time_commitment', 'focus', 'due_callback', 'owned', 'shared', 'ineligible']
+  const order: PriorityBand[] = [
+    'exact_time_commitment', 'focus', 'due_callback', 'owned', 'shared',
+    'assist', 'unassigned', 'unlicensed',
+  ]
   const out: { band: PriorityBand; items: ActivityGroup[] }[] = []
   for (const band of order) {
     const items = activities.filter((a) => a.band === band)

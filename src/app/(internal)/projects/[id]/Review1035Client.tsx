@@ -10,13 +10,18 @@
  * tokens + shared OperationalTag.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import {
   ShieldCheck, ShieldAlert, FileText, FileCheck2, Play, Check, X,
-  CircleUser, ClipboardCheck, Loader2,
+  CircleUser, ClipboardCheck, Loader2, ShieldQuestion, Wrench, UserCheck,
+  Send, CheckCircle2, ChevronLeft,
 } from 'lucide-react'
-import { OperationalTag, type OperationalTone, NextNote } from '@/components/workflow'
+import {
+  OperationalTag, type OperationalTone, NextNote,
+  QueueSection, QueueRow, QueueListHeader, CustomerQueueCard, QueueEmptyState,
+} from '@/components/workflow'
 
 type DocType = 'carrier_statement' | 'reprojection'
 type Determination = 'candidate' | 'not_a_candidate'
@@ -76,11 +81,45 @@ const TURN_TONE: Record<CustomerWorkflow['whose_turn'], OperationalTone> = {
   Done: 'info',
 }
 
+/** The ordered stages shown as the step-based work overview, with the concise
+ * copy and icon each step uses. Order is the real workflow order. 'action'
+ * steps are active work; the two terminal-for-now steps use the quieter
+ * 'waiting' tone so they read as outcomes, not work to push. */
+const STAGE_STEPS: {
+  stage: Stage
+  label: string
+  blurb: string
+  icon: typeof ShieldAlert
+  tone: 'action' | 'waiting'
+}[] = [
+  { stage: 'stewardship', label: 'Needs servicing access', blurb: 'Worked on the shared Stewardship board', icon: ShieldQuestion, tone: 'action' },
+  { stage: 'operations_prep', label: 'Operations preparation', blurb: 'Collect the carrier statement and reprojection', icon: Wrench, tone: 'action' },
+  { stage: 'bob_evaluation', label: 'Ready for determination', blurb: 'Awaiting the Candidate / Not a candidate decision', icon: UserCheck, tone: 'action' },
+  { stage: 'ready_for_outreach', label: 'Candidate · awaiting Step 4', blurb: 'Determined a candidate; Step 4 outreach not built yet', icon: Send, tone: 'waiting' },
+  { stage: 'complete', label: 'Not a candidate · complete', blurb: '1035 review finished at Step 3', icon: CheckCircle2, tone: 'waiting' },
+]
+
+/** Stewardship-stage work is OWNED BY the shared Stewardship board (the IPF
+ * shared-queue doctrine), so opening one of its customers hands off to the
+ * board, deep-linked to that customer's actual outreach task. The project's own
+ * stages (operations prep, determination, and the two terminal states) are
+ * worked inline here in a focused single-customer task view. */
+function stageIsOnStewardshipBoard(stage: Stage): boolean {
+  return stage === 'stewardship'
+}
+
 export function Review1035Client({ projectId }: { projectId: string }) {
+  const router = useRouter()
   const [rows, setRows] = useState<CustomerWorkflow[]>([])
   const [summary, setSummary] = useState<Summary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // The step-based view has three levels: the step overview (openStage null),
+  // one step's concise customer list (openStage set), and a single customer's
+  // task (openCustomerId set). This mirrors the Stewardship board's
+  // board -> list -> task shape rather than dumping every expanded card at once.
+  const [openStage, setOpenStage] = useState<Stage | null>(null)
+  const [openCustomerId, setOpenCustomerId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setError(null)
@@ -99,6 +138,16 @@ export function Review1035Client({ projectId }: { projectId: string }) {
 
   useEffect(() => { load() }, [load])
 
+  const rowsByStage = useMemo(() => {
+    const m = new Map<Stage, CustomerWorkflow[]>()
+    for (const r of rows) {
+      const list = m.get(r.stage) ?? []
+      list.push(r)
+      m.set(r.stage, list)
+    }
+    return m
+  }, [rows])
+
   if (loading) {
     return (
       <div className="flex items-center gap-2 rounded-2xl border border-surface-border bg-surface-card p-6 text-ink-supporting">
@@ -115,49 +164,181 @@ export function Review1035Client({ projectId }: { projectId: string }) {
     )
   }
 
-  return (
-    <section className="space-y-4">
-      <div className="flex items-center gap-2">
-        <ClipboardCheck className="size-5 text-teal-700" aria-hidden />
-        <h2 className="text-lg font-semibold text-ink">Review workflow</h2>
-      </div>
+  // Level 3 — a single customer's task (operations prep / determination / the
+  // terminal states). The existing per-customer servicing controls are reused
+  // unchanged; only ONE customer is shown, so this is their actual task.
+  if (openCustomerId) {
+    const row = rows.find(r => r.customer_id === openCustomerId)
+    if (row) {
+      const name = `${row.first_name ?? ''} ${row.last_name ?? ''}`.trim() || 'this customer'
+      return (
+        <section className="space-y-4">
+          <button
+            type="button"
+            onClick={() => setOpenCustomerId(null)}
+            className="-ml-1 inline-flex items-center gap-1 text-sm font-medium text-ink-supporting hover:text-ink"
+          >
+            <ChevronLeft className="size-4" aria-hidden /> Back to {openStage ? STAGE_LABEL[openStage].toLowerCase() : 'the workflow'}
+          </button>
+          <h2 className="sr-only">{name} — 1035 task</h2>
+          <CustomerRow projectId={projectId} row={row} onChanged={load} />
+        </section>
+      )
+    }
+    // The customer moved out of the data (e.g. after an action); fall through.
+  }
 
-      {summary && (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-          <SummaryCard label="Needs access" value={summary.by.stewardship} tone="blocked" />
-          <SummaryCard label="Operations prep" value={summary.by.operations_prep} tone="reason" />
-          <SummaryCard label="Ready for Bob" value={summary.by.bob_evaluation} tone="exception" />
-          <SummaryCard label="Ready for outreach" value={summary.by.ready_for_outreach} tone="reason"
-            sub="Candidate · awaiting Step 4" />
-          <SummaryCard label="Not a candidate" value={summary.by.complete} tone="info"
-            sub="1035 review complete" />
-        </div>
-      )}
-
-      <div className="space-y-3">
-        {rows.map(r => (
-          <CustomerRow key={r.customer_id} projectId={projectId} row={r} onChanged={load} />
-        ))}
-        {rows.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-surface-border-strong bg-surface-card p-8 text-center text-ink-supporting">
-            No customers in this project yet.
-          </div>
+  // Level 2 — one step's concise customer list. Opening a customer leads to
+  // their actual task: the Stewardship board (stewardship stage) or the inline
+  // single-customer task (the project's own stages).
+  if (openStage) {
+    const step = STAGE_STEPS.find(s => s.stage === openStage)!
+    const stageRows = rowsByStage.get(openStage) ?? []
+    const onBoard = stageIsOnStewardshipBoard(openStage)
+    return (
+      <section className="space-y-4">
+        <QueueListHeader
+          icon={step.icon}
+          label={step.label}
+          count={stageRows.length}
+          blurb={step.blurb}
+          onBack={() => setOpenStage(null)}
+          backLabel="All steps"
+        />
+        {onBoard && (
+          <p className="rounded-xl border border-surface-border bg-surface-muted/50 px-4 py-3 text-sm text-ink-secondary">
+            Establishing servicing access is worked on the shared Stewardship board.
+            Opening a customer takes you straight to their outreach task there.
+          </p>
         )}
+        <div className="space-y-3">
+          {stageRows.length === 0 ? (
+            <QueueEmptyState>No customers at this step.</QueueEmptyState>
+          ) : (
+            stageRows.map(r => {
+              const name = `${r.first_name ?? ''} ${r.last_name ?? ''}`.trim() || 'Unknown customer'
+              return (
+                <CustomerQueueCard
+                  key={r.customer_id}
+                  name={name}
+                  detail={customerStepDetail(r)}
+                  trailing={
+                    <OperationalTag tone={TURN_TONE[r.whose_turn]} className="px-3 py-1 text-sm">
+                      {r.whose_turn}
+                    </OperationalTag>
+                  }
+                  onOpen={() => {
+                    if (onBoard) {
+                      // Hand off to the shared board, deep-linked to this
+                      // customer's actual outreach task.
+                      router.push(`/stewardship?project_id=${projectId}&customer_id=${r.customer_id}`)
+                    } else {
+                      setOpenCustomerId(r.customer_id)
+                    }
+                  }}
+                />
+              )
+            })
+          )}
+        </div>
+      </section>
+    )
+  }
+
+  // Level 1 — the step overview: each stage as a row with its count. This is
+  // the concise progress/step view that replaces the 71-card dump.
+  const total = summary?.total ?? rows.length
+  return (
+    <section className="space-y-5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <ClipboardCheck className="size-5 text-teal-700" aria-hidden />
+          <h2 className="text-lg font-semibold text-ink">Review workflow</h2>
+        </div>
+        <p className="text-sm text-ink-supporting">
+          {total.toLocaleString()} customer{total === 1 ? '' : 's'}
+        </p>
       </div>
+
+      {total === 0 ? (
+        <div className="rounded-2xl border border-dashed border-surface-border-strong bg-surface-card p-8 text-center text-ink-supporting">
+          No customers in this project yet.
+        </div>
+      ) : (
+        <>
+          {/* Progress across the five steps, at a glance. */}
+          <StepProgress summary={summary} total={total} />
+
+          <QueueSection label="Work by step">
+            {STAGE_STEPS.map(step => (
+              <QueueRow
+                key={step.stage}
+                icon={step.icon}
+                label={step.label}
+                tag={step.blurb}
+                count={summary?.by[step.stage] ?? rowsByStage.get(step.stage)?.length ?? 0}
+                tone={step.tone}
+                onOpen={() => { setOpenCustomerId(null); setOpenStage(step.stage) }}
+              />
+            ))}
+          </QueueSection>
+        </>
+      )}
     </section>
   )
 }
 
-function SummaryCard({ label, value, tone, sub }: { label: string; value: number; tone: OperationalTone; sub?: string }) {
+/** A single, compact progress bar across the five workflow steps, so the whole
+ * project's position is visible without opening any step. */
+function StepProgress({ summary, total }: { summary: Summary | null; total: number }) {
+  if (!summary || total === 0) return null
+  const segments: { stage: Stage; className: string }[] = [
+    { stage: 'stewardship', className: 'bg-tag-blocked-text' },
+    { stage: 'operations_prep', className: 'bg-tag-reason-text' },
+    { stage: 'bob_evaluation', className: 'bg-tag-exception-text' },
+    { stage: 'ready_for_outreach', className: 'bg-brand' },
+    { stage: 'complete', className: 'bg-ink-muted' },
+  ]
   return (
-    <div className="rounded-2xl border border-surface-border bg-surface-card p-4">
-      <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold uppercase tracking-[0.06em] text-ink-supporting">{label}</p>
-        <OperationalTag tone={tone} className="px-2.5 py-0.5 text-sm">{value}</OperationalTag>
-      </div>
-      {sub && <p className="mt-2 text-xs text-ink-supporting">{sub}</p>}
+    <div
+      className="flex h-2.5 w-full overflow-hidden rounded-full bg-surface-muted"
+      role="img"
+      aria-label="Progress across the five 1035 workflow steps"
+    >
+      {segments.map(seg => {
+        const n = summary.by[seg.stage] ?? 0
+        if (n === 0) return null
+        return (
+          <div
+            key={seg.stage}
+            className={seg.className}
+            style={{ width: `${(n / total) * 100}%` }}
+            title={`${STAGE_LABEL[seg.stage]}: ${n}`}
+          />
+        )
+      })}
     </div>
   )
+}
+
+/** A concise one-line detail for a customer in a step's list: enough to orient
+ * (policy count + the current readiness) without expanding the whole card. */
+function customerStepDetail(r: CustomerWorkflow): string {
+  const policies = `${r.permanent_count} permanent ${r.permanent_count === 1 ? 'policy' : 'policies'}`
+  switch (r.stage) {
+    case 'stewardship':
+      return `${r.unconfirmed_permanent_count} of ${r.permanent_count} not confirmed`
+    case 'operations_prep':
+      return r.documents_complete
+        ? `${policies} · documents complete`
+        : `${policies} · documents outstanding`
+    case 'bob_evaluation':
+      return `${policies} · prepared, awaiting determination`
+    case 'ready_for_outreach':
+      return `${policies} · candidate`
+    case 'complete':
+      return `${policies} · not a candidate`
+  }
 }
 
 function CustomerRow({

@@ -17,6 +17,7 @@ import type {
   AssignmentType,
   CapabilityEligibility,
   ProducerCapabilityProfile,
+  QualificationFacts,
   WorkFunction,
   WorkFunctionKey,
   QualificationKey,
@@ -85,12 +86,19 @@ export async function resolveCapabilityProfile(
   if (!producer) return null
 
   const supabase = createAdminClient()
-  const [{ data: wfData }, { data: asgData }] = await Promise.all([
+  const [{ data: wfData }, { data: asgData }, { data: qualData }] = await Promise.all([
     supabase.from('work_functions').select('id, canonical_key'),
     supabase
       .from('producer_work_functions')
       .select('work_function_id, assignment_type, project_id')
       .eq('producer_id', producer.id),
+    // The producer's held qualification FACTS, used to tell a confirmed license
+    // gap (unlicensed) apart from simply-unassigned work. NULL stays unknown.
+    supabase
+      .from('producers')
+      .select('is_life_licensed, is_securities_licensed, is_registered_support_staff')
+      .eq('id', producer.id)
+      .maybeSingle(),
   ])
 
   const keyById = new Map<string, WorkFunctionKey>(
@@ -112,10 +120,22 @@ export async function resolveCapabilityProfile(
     })
     .filter((e): e is CapabilityEligibility => e !== null)
 
+  const q = (qualData ?? null) as {
+    is_life_licensed: boolean | null
+    is_securities_licensed: boolean | null
+    is_registered_support_staff: boolean | null
+  } | null
+  const qualifications: QualificationFacts = {
+    life_licensed: q?.is_life_licensed ?? null,
+    securities_licensed: q?.is_securities_licensed ?? null,
+    registered_support_staff: q?.is_registered_support_staff ?? null,
+  }
+
   return {
     producerId: producer.id,
     firstName: producer.first_name ?? '',
     lastName: producer.last_name ?? '',
     eligibilities,
+    qualifications,
   }
 }

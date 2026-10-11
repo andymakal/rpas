@@ -137,12 +137,22 @@ function ProjectCard({ project }: { project: MyProjectCard }) {
             {project.participants.length === 0 ? (
               <li className="text-sm text-ink-muted">No participants recorded.</li>
             ) : (
-              project.participants.map((p) => (
-                <li key={p.producerId} className="text-sm text-ink">
-                  <span className="font-medium">{p.name}</span>
-                  {p.role ? <span className="text-ink-supporting"> — {roleLabel(p.role)}</span> : p.note ? <span className="text-ink-supporting"> — {p.note}</span> : null}
-                </li>
-              ))
+              project.participants.map((p) => {
+                const licensing = licensingNote(p.role ?? null, p.isLifeLicensed ?? null)
+                return (
+                  <li key={p.producerId} className="text-sm text-ink">
+                    <span className="font-medium">{p.name}</span>
+                    {p.role ? (
+                      <span className="text-ink-supporting"> — {roleLabel(p.role)}</span>
+                    ) : p.note ? (
+                      <span className="text-ink-supporting"> — {p.note}</span>
+                    ) : null}
+                    {/* The licensing fact is shown as a separate parenthetical,
+                        never folded into the responsibility label. */}
+                    {licensing && <span className="text-ink-muted"> ({licensing})</span>}
+                  </li>
+                )
+              })
             )}
           </ul>
         </div>
@@ -174,14 +184,32 @@ function ProjectCard({ project }: { project: MyProjectCard }) {
   )
 }
 
-/** Human label for a project participation role. */
+/** Human label for a project participation RESPONSIBILITY (not a job title or a
+ * routing assignment). */
 function roleLabel(role: string): string {
   switch (role) {
-    case 'owner': return 'Owner / operations manager'
+    case 'owner': return 'Project owner and operations manager'
     case 'operations_manager': return 'Operations manager'
     case 'senior_producer': return 'Senior producer'
     case 'operations': return 'Operations'
+    case 'underwriting_support': return 'Underwriting support'
     case 'outreach': return 'Outreach'
     default: return role.replace(/_/g, ' ')
   }
+}
+
+/**
+ * A small, derived licensing annotation shown beside a participant's
+ * responsibility. This is a QUALIFICATION fact, kept distinct from the
+ * responsibility label itself:
+ *   - life licensed held        -> "life licensed"
+ *   - underwriting support with licensing not established -> "licensing unconfirmed"
+ * Everyone else gets no annotation (absence of a license fact is not noteworthy
+ * for roles that do not turn on it).
+ */
+function licensingNote(role: string | null, isLifeLicensed: boolean | null): string | null {
+  if (isLifeLicensed === true) return 'life licensed'
+  // Reached only when the license is not affirmatively held (false or unknown).
+  if (role === 'underwriting_support') return 'licensing unconfirmed'
+  return null
 }

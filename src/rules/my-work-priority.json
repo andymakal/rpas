@@ -1,5 +1,5 @@
 {
-  "_comment": "Right Path MY WORK ordering decision. Adapted from IPF (bobpfromm/ipf-stewardship) src/rules/next-best-action.json — the established GoRules ZEN decision layer that owns ALL priority judgment. This decision classifies ONE activity group (a business activity the signed-in employee may act on) into a priority BAND, given independent presence facts the composition supplies. ZEN owns the ordering between bands; TypeScript owns normalization and never ranks. The ordering reflects ONLY established distinctions and invents none. CRITICAL IPF DISTINCTION (preserved): an IMMINENT TAGGED EXACT-TIME fixed commitment controls the day and outranks everything, including Today's Focus. A DATE-ONLY promised callback that has come due is DUE WORK, surfaced prominently, but it is NOT a fixed-time interruption and does NOT automatically outrank Today's Focus. Right Path records only date-only callbacks today (no exact-time commitments), so the exact-time band is defined for correctness and future use but does not fire yet. Order: (1) exact-time fixed commitment (outranks focus); (2) focus-elevated eligible work; (3) a due date-only callback on eligible work (due work, below focus); (4) owned/claimed eligible work; (5) unclaimed eligible shared work; (6) work the employee is not eligible for (visible for awareness, never routed). Focus NEVER disables a band — it only reorders — so every band still appears.",
+  "_comment": "Right Path MY WORK ordering decision. Adapted from IPF (bobpfromm/ipf-stewardship) src/rules/next-best-action.json — the established GoRules ZEN decision layer that owns ALL priority judgment. This decision classifies ONE activity group (a business activity the signed-in employee may act on) into a priority BAND, given independent presence facts the composition supplies. ZEN owns the ordering between bands; TypeScript owns normalization and never ranks. The ordering reflects ONLY established distinctions and invents none. CRITICAL IPF DISTINCTION (preserved): an IMMINENT TAGGED EXACT-TIME fixed commitment controls the day and outranks everything, including Today's Focus. A DATE-ONLY promised callback that has come due is DUE WORK, surfaced prominently, but it is NOT a fixed-time interruption and does NOT automatically outrank Today's Focus. Right Path records only date-only callbacks today (no exact-time commitments), so the exact-time band is defined for correctness and future use but does not fire yet. CAPABILITY DISTINCTION (added): a non-routable standing is not one undifferentiated 'ineligible'. 'isEligible' means ROUTABLY assigned (primary/support in scope) — bands 1-5. When not routable, 'canAssist' marks an OVERQUALIFIED, capable employee who is not routinely routed this work but MAY still assist/claim it (band 6, actionable). When neither routable nor assist-capable, the work is awareness-only and ranked last, split by WHY: 'licenseGap' true = a CONFIRMED missing required license (band 8, unlicensed); otherwise qualified-but-unassigned (band 7, unassigned). Order: (1) exact-time fixed commitment (outranks focus); (2) focus-elevated eligible work; (3) a due date-only callback on eligible work (due work, below focus); (4) owned/claimed eligible work; (5) unclaimed eligible shared work; (6) assist-capable overqualified work the employee may pick up; (7) qualified but not assigned (awareness); (8) missing a required license (awareness). Focus NEVER disables a band — it only reorders — so every band still appears.",
   "nodes": [
     {
       "id": "input",
@@ -17,10 +17,12 @@
         "hitPolicy": "first",
         "inputs": [
           { "id": "i1", "name": "Has imminent exact-time fixed commitment", "field": "hasExactTimeCommitment" },
-          { "id": "i2", "name": "Employee is eligible for this activity", "field": "isEligible" },
+          { "id": "i2", "name": "Employee is ROUTABLY eligible (primary/support in scope)", "field": "isEligible" },
           { "id": "i3", "name": "Elevated by Today's Focus", "field": "isFocusElevated" },
           { "id": "i4", "name": "Has a due date-only promised callback", "field": "hasDueCallback" },
-          { "id": "i5", "name": "Employee owns (claimed) work here", "field": "hasOwnedWork" }
+          { "id": "i5", "name": "Employee owns (claimed) work here", "field": "hasOwnedWork" },
+          { "id": "i6", "name": "Employee is overqualified and may ASSIST (not routed)", "field": "canAssist" },
+          { "id": "i7", "name": "Confirmed missing required license (gap)", "field": "licenseGap" }
         ],
         "outputs": [
           { "id": "o1", "name": "Priority band", "field": "band" },
@@ -36,6 +38,8 @@
             "i3": "",
             "i4": "",
             "i5": "",
+            "i6": "",
+            "i7": "",
             "o1": "\"exact_time_commitment\"",
             "o2": "1",
             "o3": "\"exact_time_commitment\""
@@ -48,6 +52,8 @@
             "i3": "true",
             "i4": "",
             "i5": "",
+            "i6": "",
+            "i7": "",
             "o1": "\"focus\"",
             "o2": "2",
             "o3": "\"focus_elevated\""
@@ -60,6 +66,8 @@
             "i3": "false",
             "i4": "true",
             "i5": "",
+            "i6": "",
+            "i7": "",
             "o1": "\"due_callback\"",
             "o2": "3",
             "o3": "\"due_callback\""
@@ -72,33 +80,67 @@
             "i3": "false",
             "i4": "false",
             "i5": "true",
+            "i6": "",
+            "i7": "",
             "o1": "\"owned\"",
             "o2": "4",
             "o3": "\"owned_work\""
           },
           {
             "_id": "r5",
-            "_description": "Unclaimed shared work the employee is eligible for: ordinary pickup work, shared by default.",
+            "_description": "Unclaimed shared work the employee is routably eligible for: ordinary pickup work, shared by default.",
             "i1": "",
             "i2": "true",
             "i3": "false",
             "i4": "false",
             "i5": "false",
+            "i6": "",
+            "i7": "",
             "o1": "\"shared\"",
             "o2": "5",
             "o3": "\"eligible_shared_work\""
           },
           {
             "_id": "r6",
-            "_description": "Work the employee is NOT eligible for. Visible for awareness (the activity still exists and matters), but ranked last and never routed to this employee.",
+            "_description": "Overqualified ASSIST work: the employee is NOT routably assigned (so it is not routed to them) but is capable and MAY pick it up to help. Actionable and claimable, ranked just below ordinary eligible shared work so routed workers lead. A qualified hand is never blocked from assisting.",
             "i1": "",
             "i2": "false",
             "i3": "",
             "i4": "",
             "i5": "",
-            "o1": "\"ineligible\"",
+            "i6": "true",
+            "i7": "",
+            "o1": "\"assist\"",
             "o2": "6",
-            "o3": "\"not_eligible\""
+            "o3": "\"assist_available\""
+          },
+          {
+            "_id": "r7",
+            "_description": "Qualified but NOT ASSIGNED to this activity (no routable or overqualified assignment, and no confirmed license gap). Shown for awareness only; not routed and not claimable. Management can assign them on the Team page.",
+            "i1": "",
+            "i2": "false",
+            "i3": "",
+            "i4": "",
+            "i5": "",
+            "i6": "false",
+            "i7": "false",
+            "o1": "\"unassigned\"",
+            "o2": "7",
+            "o3": "\"not_assigned\""
+          },
+          {
+            "_id": "r8",
+            "_description": "Missing a REQUIRED license this activity gates on (a confirmed qualification gap). Shown for awareness only; not routed and not claimable until the licensing fact is established. Distinct from merely unassigned.",
+            "i1": "",
+            "i2": "false",
+            "i3": "",
+            "i4": "",
+            "i5": "",
+            "i6": "false",
+            "i7": "true",
+            "o1": "\"unlicensed\"",
+            "o2": "8",
+            "o3": "\"not_licensed\""
           }
         ],
         "passThrough": true,

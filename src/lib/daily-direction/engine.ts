@@ -115,30 +115,29 @@ export function buildReason(
 ): string {
   switch (reasonCode) {
     case 'outreach_work': {
-      // Ordinary outreach is the next action. Right Path ranks none of
-      // ready-to-call, ready-to-email, or a due callback above the others, so
-      // the reason presents them as the outreach to pick up, WITHOUT claiming
-      // one comes first. A due callback is noted as due work, not promoted.
+      // State the available outreach as a plain count. No editorializing about
+      // which channel comes first (ZEN ranks none above the others), and no
+      // invented narrative. A due promised callback is noted as due work.
       const n = ctx.outreachCount
-      const base = `${n} ${n === 1 ? 'customer is' : 'customers are'} ready for outreach (calls and emails are equally ready).`
+      const base = `${n} ${n === 1 ? 'customer is' : 'customers are'} ready for outreach.`
       if (ctx.dueCallbackCount > 0) {
         const c = ctx.dueCallbackCount
-        return `${base} ${c} ${c === 1 ? 'is' : 'are'} a promised callback that has come due.`
+        return `${base} ${c} ${c === 1 ? 'is a promised callback' : 'are promised callbacks'} that ${c === 1 ? 'has' : 'have'} come due.`
       }
       return base
     }
     case 'research_needed_work': {
       const n = ctx.researchCount
-      return `No ordinary outreach is waiting. ${n} ${n === 1 ? 'item needs' : 'items need'} contact research (the exception path) before outreach can continue.`
+      return `${n} ${n === 1 ? 'customer needs' : 'customers need'} contact research before outreach can continue.`
     }
     case 'all_waiting': {
       const n = ctx.waitingCount
-      return `Nothing to push right now. ${n} ${n === 1 ? 'item is' : 'items are'} waiting on customers or carriers; they resurface when a reply, form, or carrier confirmation is due.`
+      return `${n} ${n === 1 ? 'item is' : 'items are'} waiting on a customer or carrier reply.`
     }
     case 'open_capacity':
-      return 'Nothing needs your attention on the Stewardship board right now, so you have open capacity.'
+      return 'The Stewardship board is clear. You have open capacity.'
     default:
-      return 'No specific direction; you have open capacity.'
+      return 'You have open capacity.'
   }
 }
 

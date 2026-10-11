@@ -24,8 +24,14 @@ export interface ProjectPerson {
   name: string
   /** Participation note, or the escalation tier note. */
   note: string | null
-  /** The participant's project responsibility (owner, operations_manager, ...). */
+  /** The participant's project responsibility (owner, operations_manager, ...).
+   * This is a PROJECT responsibility, kept distinct from the producer's job
+   * title, their licensing facts, and their routing/capability assignments. */
   role?: string | null
+  /** The producer's life-license FACT (a qualification, NOT a responsibility):
+   * true = affirmatively held, false = affirmatively not, null = unknown. Shown
+   * as a small annotation beside the responsibility, never merged into it. */
+  isLifeLicensed?: boolean | null
   /** Set for escalation contacts: 1 = first destination. */
   tier?: number
 }
@@ -72,7 +78,7 @@ const STAGE_LABEL: Record<WorkflowStage, string> = {
 /** The active (non-terminal) stages that can represent a bottleneck. */
 const ACTIVE_STAGES: WorkflowStage[] = ['stewardship', 'operations_prep', 'bob_evaluation']
 
-type ParticipantRow = { producer_id: string; note: string | null; role: string | null; producers: { first_name: string | null; last_name: string | null } }
+type ParticipantRow = { producer_id: string; note: string | null; role: string | null; producers: { first_name: string | null; last_name: string | null; is_life_licensed: boolean | null } }
 type EscalationRow = { producer_id: string; tier: number; note: string | null; producers: { first_name: string | null; last_name: string | null } }
 
 export async function getMyProjects(authUserId: string): Promise<MyProjectsState> {
@@ -111,7 +117,7 @@ export async function getMyProjects(authUserId: string): Promise<MyProjectsState
   const [{ data: allParticipants }, { data: allEscalation }] = await Promise.all([
     supabase
       .from('project_participants')
-      .select('project_id, producer_id, note, role, producers ( first_name, last_name )')
+      .select('project_id, producer_id, note, role, producers ( first_name, last_name, is_life_licensed )')
       .in('project_id', myProjectIds),
     supabase
       .from('project_escalation_contacts')
@@ -128,6 +134,7 @@ export async function getMyProjects(authUserId: string): Promise<MyProjectsState
       name: `${p.producers?.first_name ?? ''} ${p.producers?.last_name ?? ''}`.trim() || 'Team member',
       note: p.note,
       role: p.role,
+      isLifeLicensed: p.producers?.is_life_licensed ?? null,
     })
     participantsByProject.set(p.project_id, list)
   }

@@ -18,6 +18,7 @@
 
 import { ZenEngine } from '@gorules/zen-engine'
 import myWorkModel from '@/rules/my-work-priority.json'
+import { capabilityStatusExplanation } from '@/lib/capabilities/explanations'
 import type {
   ActivityFacts,
   ActivityBandVerdict,
@@ -109,8 +110,15 @@ export function buildActivityReason(
       }
       return `${n} ${n === 1 ? 'item is' : 'items are'} unclaimed and available to you to pick up.${othersNote}`
     }
-    case 'not_eligible':
-      return `You are not currently eligible to work ${ctx.label}. It is shown for awareness; it is not routed to you.`
+    // The three non-routable standings read from the SHARED capability
+    // explanations so My Work, the claim path, and future workflows use one
+    // consistent wording. ZEN owns the band + reason code; these only phrase it.
+    case 'assist_available':
+      return capabilityStatusExplanation('assist', ctx.label)
+    case 'not_assigned':
+      return capabilityStatusExplanation('unassigned', ctx.label)
+    case 'not_licensed':
+      return capabilityStatusExplanation('unlicensed', ctx.label)
     default:
       return `${ctx.label} work.`
   }

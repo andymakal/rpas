@@ -24,6 +24,8 @@ function facts(p: Partial<ActivityFacts>): ActivityFacts {
   return {
     hasExactTimeCommitment: false,
     isEligible: true,
+    canAssist: false,
+    licenseGap: false,
     isFocusElevated: false,
     hasDueCallback: false,
     hasOwnedWork: false,
@@ -67,14 +69,15 @@ test('ZEN: focus elevates eligible work above owned and shared', async () => {
   assert.equal(v.rank, 2)
 })
 
-test('ZEN: focus does NOT elevate ineligible work (focus never grants eligibility)', async () => {
+test('ZEN: focus does NOT elevate non-routable work (focus never grants eligibility)', async () => {
   const v = await evaluateActivityBand(
     facts({ isEligible: false, isFocusElevated: true, hasDueCallback: true }),
   )
-  // Ineligible wins regardless of focus or a due callback: neither makes you
-  // eligible.
-  assert.equal(v.band, 'ineligible')
-  assert.equal(v.rank, 6)
+  // A non-routable standing wins regardless of focus or a due callback: neither
+  // makes you routably eligible. With no assist/license-gap flag it is the
+  // plain unassigned awareness band.
+  assert.equal(v.band, 'unassigned')
+  assert.equal(v.rank, 7)
 })
 
 test('ZEN: owned eligible work (no focus, no due callback) ranks above unclaimed shared work', async () => {
@@ -87,21 +90,53 @@ test('ZEN: owned eligible work (no focus, no due callback) ranks above unclaimed
   assert.ok(owned.rank < shared.rank)
 })
 
-test('ZEN: ineligible work is still classified (visible, ranked last)', async () => {
-  const v = await evaluateActivityBand(facts({ isEligible: false }))
-  assert.equal(v.band, 'ineligible')
-  assert.equal(v.rank, 6)
-  assert.equal(v.reasonCode, 'not_eligible')
+test('ZEN: the three non-routable standings produce DISTINCT bands and reasons', async () => {
+  // Overqualified assist: not routed, but ACTIONABLE (pickable), ranked after
+  // ordinary eligible shared work.
+  const assist = await evaluateActivityBand(facts({ isEligible: false, canAssist: true }))
+  assert.equal(assist.band, 'assist')
+  assert.equal(assist.rank, 6)
+  assert.equal(assist.reasonCode, 'assist_available')
+
+  // Qualified but not assigned: awareness only, no confirmed license gap.
+  const unassigned = await evaluateActivityBand(
+    facts({ isEligible: false, canAssist: false, licenseGap: false }),
+  )
+  assert.equal(unassigned.band, 'unassigned')
+  assert.equal(unassigned.rank, 7)
+  assert.equal(unassigned.reasonCode, 'not_assigned')
+
+  // Confirmed missing license: awareness only, distinct from unassigned.
+  const unlicensed = await evaluateActivityBand(
+    facts({ isEligible: false, canAssist: false, licenseGap: true }),
+  )
+  assert.equal(unlicensed.band, 'unlicensed')
+  assert.equal(unlicensed.rank, 8)
+  assert.equal(unlicensed.reasonCode, 'not_licensed')
+
+  // The three are genuinely ordered distinctly: assist (actionable) first, then
+  // the two awareness bands.
+  assert.ok(assist.rank < unassigned.rank && unassigned.rank < unlicensed.rank)
 })
 
-test('ZEN rule exposes exactly the five independent presence facts (no ranked inputs)', async () => {
+test('ZEN: an assist-capable standing never collapses into an awareness band', async () => {
+  // Even if a (nonsensical) license gap were also flagged, canAssist wins: a
+  // capable, assigned-overqualified worker may still help.
+  const v = await evaluateActivityBand(facts({ isEligible: false, canAssist: true, licenseGap: true }))
+  assert.equal(v.band, 'assist')
+})
+
+test('ZEN rule exposes exactly the independent presence facts (no ranked inputs)', async () => {
   const model = (await import('@/rules/my-work-priority.json', { with: { type: 'json' } }))
     .default as { nodes: { content?: { inputs?: { field: string }[] } }[] }
   const table = model.nodes.find((n) => n.content?.inputs)
   const fields = (table?.content?.inputs ?? []).map((i) => i.field).sort()
   assert.deepEqual(
     fields,
-    ['hasDueCallback', 'hasExactTimeCommitment', 'hasOwnedWork', 'isEligible', 'isFocusElevated'].sort(),
+    [
+      'canAssist', 'hasDueCallback', 'hasExactTimeCommitment', 'hasOwnedWork',
+      'isEligible', 'isFocusElevated', 'licenseGap',
+    ].sort(),
   )
 })
 
@@ -120,10 +155,23 @@ test('reason: exact-time prose states the fixed appointment comes before focus',
   assert.match(r, /before Today's Focus/i)
 })
 
-test('reason: ineligible prose says shown for awareness, not routed', () => {
-  const r = buildActivityReason('not_eligible', reasonCtx({ label: 'Determination' }))
-  assert.match(r, /awareness/i)
-  assert.match(r, /not routed/i)
+test('reason: the three non-routable prose variants read distinctly (shared explanations)', () => {
+  const assist = buildActivityReason('assist_available', reasonCtx({ label: 'Determination' }))
+  assert.match(assist, /qualified/i)
+  assert.match(assist, /assist|pick it up/i)
+  assert.doesNotMatch(assist, /not routed to you\.?$/i) // assist is actionable, not awareness
+
+  const unassigned = buildActivityReason('not_assigned', reasonCtx({ label: 'Determination' }))
+  assert.match(unassigned, /not assigned to you/i)
+  assert.match(unassigned, /awareness/i)
+
+  const unlicensed = buildActivityReason('not_licensed', reasonCtx({ label: 'Determination' }))
+  assert.match(unlicensed, /license/i)
+  assert.match(unlicensed, /awareness/i)
+
+  // The three are genuinely different sentences.
+  assert.notEqual(assist, unassigned)
+  assert.notEqual(unassigned, unlicensed)
 })
 
 test('reason: shared prose counts AVAILABLE (unclaimed) work and flags teammate-claimed separately', () => {

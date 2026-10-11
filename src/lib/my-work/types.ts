@@ -15,7 +15,7 @@
  * eligible to act — but it never hides shared work behind assignment.
  */
 
-import type { WorkFunctionKey } from '@/lib/capabilities/work-functions'
+import type { CapabilityStatus, WorkFunctionKey } from '@/lib/capabilities/work-functions'
 
 /**
  * Where an activity's work comes from. The shared Stewardship board and each
@@ -69,7 +69,9 @@ export type PriorityBand =
   | 'due_callback'
   | 'owned'
   | 'shared'
-  | 'ineligible'
+  | 'assist'
+  | 'unassigned'
+  | 'unlicensed'
 
 /** The independent presence facts handed to the MY WORK ZEN decision. */
 export interface ActivityFacts {
@@ -80,8 +82,22 @@ export interface ActivityFacts {
    * the IPF exact-time vs date-only distinction holds.
    */
   hasExactTimeCommitment: boolean
-  /** The employee is routably eligible for this activity. */
+  /** The employee is ROUTABLY eligible (primary/support in scope) for this
+   * activity: this work is routinely routed to them. */
   isEligible: boolean
+  /**
+   * The employee is OVERQUALIFIED for this activity: capable but not routinely
+   * routed it. Not routed, but may still ASSIST (pick up/claim). Mutually
+   * exclusive with isEligible (routable already covers that case).
+   */
+  canAssist: boolean
+  /**
+   * A CONFIRMED missing required license for this activity (an affirmative
+   * qualification gap). Distinguishes 'unlicensed' from merely 'unassigned'
+   * when the employee is neither routable nor assist-capable. An unknown
+   * (unestablished) license is NOT a gap and leaves this false.
+   */
+  licenseGap: boolean
   /** Today's Focus currently elevates this activity (for this employee). */
   isFocusElevated: boolean
   /**
@@ -137,6 +153,13 @@ export interface ActivityGroup {
   dueCount: number
   /** Whether the employee is routably eligible for this activity. */
   isEligible: boolean
+  /**
+   * The employee's capability standing for this activity, driving how the UI
+   * presents a non-routable activity: 'routable' (routed + claimable), 'assist'
+   * (overqualified, may help), 'unassigned' (qualified but not assigned), or
+   * 'unlicensed' (confirmed license gap). Mirrors the ZEN band's distinction.
+   */
+  capabilityStatus: CapabilityStatus
   /** Whether Today's Focus currently elevates this activity for this employee. */
   isFocusElevated: boolean
   /** The sources (shared board, projects) that feed this activity. */

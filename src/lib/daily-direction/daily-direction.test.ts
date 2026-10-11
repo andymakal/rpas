@@ -168,16 +168,19 @@ test('decide: research-only board -> single research route; waiting-only -> wait
 
 // ── buildReason: no invented business rule ──────────────────────────────────
 
-test('reason: outreach prose does not rank calls over emails and invents no "fastest" claim', () => {
+test('reason: outreach prose is a plain count that invents no ranking or narrative', () => {
   const r = buildReason('outreach_work', {
     outreachCount: 60,
     dueCallbackCount: 0,
     researchCount: 0,
     waitingCount: 0,
   })
+  // A plain count of available outreach, no editorializing.
+  assert.match(r, /60 customers are ready for outreach/i)
+  // Still no invented priority between channels or a "fastest" claim.
   assert.doesNotMatch(r, /fastest/i)
   assert.doesNotMatch(r, /call .* before .* email|email .* before .* call/i)
-  assert.match(r, /equally ready/i)
+  assert.doesNotMatch(r, /equally/i)
 })
 
 test('reason: outreach prose notes due callbacks as due work, not a top priority', () => {

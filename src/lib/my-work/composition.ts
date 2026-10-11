@@ -32,7 +32,13 @@ import {
   loadWorkFunctions,
   resolveCapabilityProfile,
 } from '@/lib/capabilities/resolve'
-import { isEligibleFor, type WorkFunctionKey } from '@/lib/capabilities/work-functions'
+import {
+  classifyCapability,
+  isEligibleFor,
+  type CapabilityStatus,
+  type QualificationKey,
+  type WorkFunctionKey,
+} from '@/lib/capabilities/work-functions'
 import {
   getActiveFocus,
   focusElevatesActivity,
@@ -44,6 +50,7 @@ import type {
   ActivityGroup,
   FocusNote,
   MyWorkState,
+  PriorityBand,
   WorkSource,
 } from './types'
 
@@ -221,6 +228,39 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     return false
   }
 
+  // The required-qualification gate per activity, from the catalog (the single
+  // source of truth). Used to tell a confirmed license gap apart from merely
+  // being unassigned.
+  const requiredQualByActivity = new Map<WorkFunctionKey, QualificationKey | null>(
+    workFunctions.map((w) => [w.canonicalKey, w.requiredQualification]),
+  )
+
+  // Resolve the employee's capability STANDING for an activity across the scopes
+  // that matter to it (agency-wide plus every project the activity's work
+  // touches), returning the strongest standing found. This is what distinguishes
+  // routable / assist / unassigned / unlicensed — the three+ situations that
+  // must route differently — instead of one undifferentiated boolean. ZEN still
+  // owns the band; this only supplies the facts.
+  const RANK: Record<CapabilityStatus, number> = {
+    routable: 0,
+    assist: 1,
+    unassigned: 2,
+    unlicensed: 3,
+  }
+  const activityCapabilityStatus = (
+    activity: WorkFunctionKey,
+    scopeProjects: Set<string>,
+  ): CapabilityStatus => {
+    const required = requiredQualByActivity.get(activity) ?? null
+    // Always consider agency-wide (projectId null); add each relevant project.
+    let best = classifyCapability(profile, activity, required, null)
+    for (const pid of scopeProjects) {
+      const s = classifyCapability(profile, activity, required, pid)
+      if (RANK[s] < RANK[best]) best = s
+    }
+    return best
+  }
+
   // 3. Shared Stewardship board (the SAME read the board + Daily Direction use).
   // customer_id is selected so each item can be associated to the project(s) its
   // customer belongs to — the fix that lets a project focus elevate project work
@@ -394,10 +434,14 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       a.total += count
       a.projectIds.add(projectId)
       const eligible = itemEligible(key, projectSet)
-      // Project-stage work has no claim model yet, so eligible items are all
-      // available to pick up (none owned, none claimed-by-others); ineligible
-      // items are shown for awareness only. The review route is already scoped
-      // to this project.
+      // An overqualified (assist) employee is not routed this work but MAY pick
+      // it up to help, so its items are available to them even without a
+      // routable assignment. Unassigned / unlicensed items are awareness-only.
+      const status = activityCapabilityStatus(key, projectSet)
+      const canPickUp = eligible || status === 'assist'
+      // Project-stage work has no claim model yet, so pickable items are all
+      // available (none owned, none claimed-by-others); awareness-only items are
+      // shown for awareness. The review route is already scoped to this project.
       a.sources.push({
         kind: 'project',
         label: projectName,
@@ -405,14 +449,18 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         route: reviewRoute,
         projectId,
         ownedByMe: 0,
-        availableToMe: eligible ? count : 0,
+        availableToMe: canPickUp ? count : 0,
         claimedByOthers: 0,
-        notEligible: eligible ? 0 : count,
+        notEligible: canPickUp ? 0 : count,
       })
-      if (!eligible) return // ineligible: counts to total/awareness only
-      a.eligible += count
+      if (!canPickUp) return // awareness-only: counts to total/awareness only
       a.availableToMe += count
-      if (itemFocusElevated(key, projectSet)) a.focusEligible += count
+      // Only routable eligibility feeds the eligible-item count (which drives
+      // the ZEN isEligible fact); assist stays non-routable but pickable.
+      if (eligible) {
+        a.eligible += count
+        if (itemFocusElevated(key, projectSet)) a.focusEligible += count
+      }
     }
     addProjectActivity('operations_prep', prepCount)
     addProjectActivity('determination', determineCount)
@@ -435,11 +483,22 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     // eligible employee. (An ineligible, empty activity is simply not shown.)
     if (a.total === 0 && !(focusElevated && eligible)) continue
 
+    // The employee's capability STANDING for this activity, across the scopes it
+    // touches. This distinguishes the non-routable situations so each routes
+    // differently: 'assist' (overqualified) is actionable; 'unassigned' and
+    // 'unlicensed' are awareness-only, with distinct reasons. Routable work is
+    // already covered by isEligible.
+    const capabilityStatus = activityCapabilityStatus(a.workFunction, a.projectIds)
+
     const facts: ActivityFacts = {
       // Right Path records no exact-time commitments yet; the band exists so the
       // IPF distinction holds, but it is false today.
       hasExactTimeCommitment: false,
       isEligible: eligible,
+      // Overqualified-assist and a confirmed license gap are mutually exclusive
+      // with routable eligibility; they only steer the non-routable rows.
+      canAssist: capabilityStatus === 'assist',
+      licenseGap: capabilityStatus === 'unlicensed',
       isFocusElevated: focusElevated,
       hasDueCallback: a.dueEligible > 0,
       hasOwnedWork: a.owned > 0,
@@ -470,6 +529,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       notEligibleCount,
       dueCount: a.dueEligible,
       isEligible: eligible,
+      capabilityStatus,
       isFocusElevated: focusElevated,
       sources: a.sources,
     })
@@ -483,8 +543,10 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   })
 
   // The employee has nothing actionable when every surfaced activity is either
-  // ineligible or empty.
-  const quiet = activities.every((a) => a.band === 'ineligible' || a.totalCount === 0)
+  // awareness-only (unassigned / unlicensed) or empty. Assist-capable work is
+  // actionable (the employee may pick it up), so it does NOT count as quiet.
+  const AWARENESS_BANDS = new Set<PriorityBand>(['unassigned', 'unlicensed'])
+  const quiet = activities.every((a) => AWARENESS_BANDS.has(a.band) || a.totalCount === 0)
 
   const projectNameById = new Map<string, string>()
   for (const a of activities)

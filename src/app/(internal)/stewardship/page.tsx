@@ -15,9 +15,9 @@ export type AgencyOption = { id: string; name: string }
 export default async function StewardshipPage({
   searchParams,
 }: {
-  searchParams: Promise<{ project_id?: string; queue?: string }>
+  searchParams: Promise<{ project_id?: string; queue?: string; customer_id?: string }>
 }) {
-  const { project_id: projectId, queue: queueParam } = await searchParams
+  const { project_id: projectId, queue: queueParam, customer_id: customerId } = await searchParams
   const supabase = createAdminClient()
 
   // A `queue` param (used by the Assistant's links) opens that queue's list
@@ -84,6 +84,7 @@ export default async function StewardshipPage({
         agencies={agencyOptions}
         project={project}
         initialQueue={initialQueue}
+        initialCustomerId={customerId ?? null}
         actorTimeZone={actorTimeZone}
       />
     </div>

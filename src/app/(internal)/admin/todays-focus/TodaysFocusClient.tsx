@@ -4,10 +4,12 @@
  * Today's Focus management surface (Right Path, light workflow theme).
  *
  * Lets management elevate a project or a single activity for a bounded period.
- * The form enforces that a focus is temporary (an expiry is required and
- * defaulted to end of today); the API enforces the same server-side. Active
- * focus is listed with its end time and can be ended early. Setting focus feeds
- * the GoRules decision; it never disables other work.
+ * A focus is temporary by construction: management picks how long it lasts from
+ * a few plain durations (1 Day, 2 Days, 1 Week) and the end time is calculated
+ * automatically — no date/time picker. The API still enforces the temporariness
+ * invariants server-side (future, and within the max window). Active focus is
+ * listed with its end time and can be ended early. Setting focus feeds the
+ * GoRules decision; it never disables other work.
  */
 
 import { useState, useTransition } from 'react'
@@ -24,13 +26,29 @@ export type ActiveFocusRow = {
   expiresAt: string
 }
 
-/** Default expiry: end of the local day (so a focus is "today's" by default). */
-function endOfTodayLocalInput(): string {
-  const d = new Date()
-  d.setHours(23, 59, 0, 0)
-  // datetime-local wants YYYY-MM-DDTHH:mm in local time.
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+/**
+ * The duration choices for a focus. The end time is computed from the chosen
+ * duration at submit, so management never touches a date/time picker. 1 Day is
+ * the default (a focus is usually "today's"); 1 Week is the longest and stays
+ * well within the server's maximum window.
+ */
+const DURATION_OPTIONS: { days: number; label: string }[] = [
+  { days: 1, label: '1 Day' },
+  { days: 2, label: '2 Days' },
+  { days: 7, label: '1 Week' },
+]
+const DEFAULT_DURATION_DAYS = 1
+const MS_PER_DAY = 86_400_000
+
+/** The absolute end instant for a focus of the given whole-day duration. */
+function expiresAtFromDuration(days: number): string {
+  return new Date(Date.now() + days * MS_PER_DAY).toISOString()
+}
+
+/** A plain preview of when a focus of the given duration will end, so the
+ * calculated end time is visible before saving. */
+function describeDurationEnd(days: number): string {
+  return formatEnds(expiresAtFromDuration(days))
 }
 
 export function TodaysFocusClient({
@@ -49,7 +67,7 @@ export function TodaysFocusClient({
   const [activityId, setActivityId] = useState('')
   const [scopeProjectId, setScopeProjectId] = useState('') // optional project scope for an activity focus
   const [note, setNote] = useState('')
-  const [expiresAt, setExpiresAt] = useState(endOfTodayLocalInput())
+  const [durationDays, setDurationDays] = useState(DEFAULT_DURATION_DAYS)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   async function submit() {
@@ -57,8 +75,9 @@ export function TodaysFocusClient({
     const body: Record<string, unknown> = {
       scope,
       note: note.trim() || null,
-      // datetime-local is local time; convert to an ISO instant.
-      expires_at: expiresAt ? new Date(expiresAt).toISOString() : undefined,
+      // The end time is calculated from the chosen duration (TypeScript owns the
+      // time math); the server still validates it is future and within range.
+      expires_at: expiresAtFromDuration(durationDays),
     }
     if (scope === 'project') {
       if (!projectId) { setMsg({ ok: false, text: 'Choose a project to elevate.' }); return }
@@ -94,7 +113,8 @@ export function TodaysFocusClient({
         Elevate a project or a single activity so it is recommended more
         prominently. Focus influences recommendations for a limited time; it does
         not disable other work, and it never overrides a customer commitment or a
-        team member&apos;s eligibility. Every focus must have an end time.
+        team member&apos;s eligibility. Choose how long it lasts; the end time is
+        set automatically.
       </p>
 
       {/* Set a focus */}
@@ -152,15 +172,23 @@ export function TodaysFocusClient({
             </>
           )}
 
-          <label className="block">
-            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-supporting">Ends at (required)</span>
-            <input
-              type="datetime-local"
-              value={expiresAt}
-              onChange={(e) => setExpiresAt(e.target.value)}
-              className="mt-1 w-full rounded-lg border border-surface-border-strong bg-surface-card px-3 py-2 text-sm text-ink focus:border-brand-ring focus:outline-none"
-            />
-          </label>
+          <div className="block">
+            <span className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-supporting">How long</span>
+            <div className="mt-1 flex flex-wrap gap-2">
+              {DURATION_OPTIONS.map((d) => (
+                <WorkflowButton
+                  key={d.days}
+                  selected={durationDays === d.days}
+                  onClick={() => setDurationDays(d.days)}
+                >
+                  {d.label}
+                </WorkflowButton>
+              ))}
+            </div>
+            <p className="mt-1.5 text-xs text-ink-supporting">
+              Ends {describeDurationEnd(durationDays)}. The end time is set automatically.
+            </p>
+          </div>
 
           <label className="block sm:col-span-2">
             <span className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-supporting">Note (optional)</span>

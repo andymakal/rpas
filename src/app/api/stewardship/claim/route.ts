@@ -21,12 +21,14 @@ import type { WorkFunctionKey } from '@/lib/capabilities/work-functions'
  *   - ACTIONABLE ONLY: a decided/closed item (its customer_prereview has a
  *     decision) is no longer outreach work and cannot be claimed. Waiting-state
  *     items are likewise not claimable (no action to commit to).
- *   - ELIGIBILITY MATCHES THE ACTUAL ACTIVITY + PROJECT SCOPE: the item's queue
+ *   - CLAIMABILITY MATCHES THE ACTUAL ACTIVITY + PROJECT SCOPE: the item's queue
  *     determines its activity (ready-to-call / ready-to-email => outreach;
- *     research-needed => research), and the caller must hold a ROUTABLE
- *     (primary/support) capability for THAT activity. A project-scoped
- *     eligibility counts only when the item's customer belongs to that project;
- *     agency-wide eligibility always counts. 'overqualified' is not routable.
+ *     research-needed => research), and the caller must either hold a ROUTABLE
+ *     (primary/support) capability for THAT activity — routed work — OR be
+ *     'overqualified' for it, which confers ASSIST: a qualified employee may
+ *     pick the work up to help without being routinely assigned. A project-
+ *     scoped assignment counts only when the item's customer belongs to that
+ *     project; agency-wide always counts.
  *   - ALREADY-CLAIMED GUARD: idempotent no-op when the item is already the
  *     caller's; rejected when another producer holds it. The claim itself is a
  *     race-safe conditional UPDATE (claim only where still unclaimed).
@@ -64,12 +66,14 @@ async function resolveCaller() {
 }
 
 /**
- * Whether a producer holds a routable (primary/support) capability for the given
- * activity, honoring project scope: an agency-wide assignment (project_id null)
- * always qualifies; a project-scoped assignment qualifies only when the item's
- * customer belongs to that project.
+ * Whether a producer may ACT ON (claim) the given activity, honoring project
+ * scope. Routable (primary/support) assignments confer routed eligibility; an
+ * 'overqualified' assignment confers ASSIST — a qualified employee may pick up
+ * the work to help without being routinely assigned. Either permits a claim. An
+ * agency-wide assignment (project_id null) always applies; a project-scoped one
+ * applies only when the item's customer belongs to that project.
  */
-async function isEligibleForActivity(
+async function canClaimActivity(
   supabase: ReturnType<typeof createAdminClient>,
   producerId: string,
   activity: WorkFunctionKey,
@@ -79,10 +83,10 @@ async function isEligibleForActivity(
     .from('producer_work_functions')
     .select('project_id, assignment_type, work_functions!inner ( canonical_key )')
     .eq('producer_id', producerId)
-    .in('assignment_type', ['primary', 'support'])
+    .in('assignment_type', ['primary', 'support', 'overqualified'])
     .eq('work_functions.canonical_key', activity)
   for (const row of (data ?? []) as { project_id: string | null }[]) {
-    if (row.project_id === null) return true // agency-wide
+    if (row.project_id === null) return true // agency-wide (routable or assist)
     if (itemProjectIds.has(row.project_id)) return true // in-scope project
   }
   return false
@@ -148,11 +152,15 @@ export async function POST(request: NextRequest) {
     for (const m of (memberships ?? []) as { project_id: string }[]) itemProjectIds.add(m.project_id)
   }
 
-  // ELIGIBILITY must match the ACTUAL activity (outreach vs research) and scope.
-  if (!(await isEligibleForActivity(supabase, caller.producerId, activity, itemProjectIds))) {
+  // CLAIMABILITY must match the ACTUAL activity (outreach vs research) and scope.
+  // A routable (routed) OR an overqualified (assist) worker may claim; everyone
+  // else is refused with a reason that matches the My Work explanation.
+  if (!(await canClaimActivity(supabase, caller.producerId, activity, itemProjectIds))) {
     const label = activity === 'research' ? 'Research' : 'Outreach'
     return Response.json(
-      { error: `Only an eligible ${label} worker (Primary or Support, in scope) can claim this item.` },
+      {
+        error: `${label} is not assigned to you, so you cannot pick it up. Ask a manager to assign it to you on the Team page, or a routed or qualified worker can claim it.`,
+      },
       { status: 403 },
     )
   }

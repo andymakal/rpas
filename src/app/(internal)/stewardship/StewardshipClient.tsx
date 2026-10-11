@@ -162,6 +162,7 @@ export function StewardshipClient({
   agencies,
   project = null,
   initialQueue = null,
+  initialCustomerId = null,
   actorTimeZone = null,
 }: {
   agencies: AgencyOption[]
@@ -170,6 +171,10 @@ export function StewardshipClient({
   /** When set (via the ?queue= param, e.g. from the Assistant), the board opens
    * directly on this queue's list instead of the queue board. */
   initialQueue?: OutreachQueue | null
+  /** When set (via the ?customer_id= param, e.g. from a project work view), the
+   * board opens that one customer's outreach task directly once it loads, so a
+   * per-customer link lands on the actual task rather than the whole board. */
+  initialCustomerId?: string | null
   /** The signed-in employee's detected IANA timezone, used to judge date-only
    * callback due on the actor's calendar for the queue-list sort. */
   actorTimeZone?: string | null
@@ -204,6 +209,25 @@ export function StewardshipClient({
       setOpenQueue(queueParam as OutreachQueue)
     }
   }, [queueParam])
+
+  // Per-customer deep link: when a ?customer_id= param is present (a project
+  // work view opening a specific customer's task), open that customer's actual
+  // outreach task once the board has loaded. The board item carries the
+  // customer id, so we resolve the open stewardship_outreach row for that
+  // customer and open its task directly. Applied once per customer-id value so
+  // it never fights the worker's in-app navigation afterward.
+  const customerParam = searchParams.get('customer_id') ?? initialCustomerId
+  const lastAppliedCustomerParam = useRef<string | null>(null)
+  useEffect(() => {
+    if (!customerParam || items.length === 0) return
+    if (customerParam === lastAppliedCustomerParam.current) return
+    const match = items.find((it) => it.customer.id === customerParam)
+    if (match) {
+      lastAppliedCustomerParam.current = customerParam
+      setOpenQueue(null)
+      setOpenItemId(match.id)
+    }
+  }, [customerParam, items])
 
   const loadBoard = useCallback(async () => {
     setLoading(true)
