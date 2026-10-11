@@ -31,13 +31,18 @@ import type { AgencyOption } from './page'
 
 /**
  * Rank for sorting a queue list: a customer with a due promised callback
- * (callback-due reason, date on/before today on the business calendar) sorts to
+ * (callback-due reason, date on/before today on the ACTOR's calendar) sorts to
  * the top (0) so a customer the Assistant recommends by callback is immediately
  * visible within the destination queue. Everything else keeps its existing
- * order (1). Presentation only; no workflow state changes.
+ * order (1). Presentation only; no workflow state changes. The actor zone comes
+ * from the server (detected per employee); null falls back to the time module's
+ * last resort.
  */
-function dueCallbackRank(it: { call_reason: string | null; callback_date: string | null }): number {
-  return it.call_reason === 'callback-due' && isCallbackDue(it.callback_date) ? 0 : 1
+function dueCallbackRank(
+  it: { call_reason: string | null; callback_date: string | null },
+  actorTimeZone: string | null,
+): number {
+  return it.call_reason === 'callback-due' && isCallbackDue(it.callback_date, actorTimeZone) ? 0 : 1
 }
 
 const SA_SUBJECT = 'Right Path — servicing agent confirmation'
@@ -129,6 +134,7 @@ export function StewardshipClient({
   agencies,
   project = null,
   initialQueue = null,
+  actorTimeZone = null,
 }: {
   agencies: AgencyOption[]
   /** When set, the whole screen is scoped to this project. */
@@ -136,6 +142,9 @@ export function StewardshipClient({
   /** When set (via the ?queue= param, e.g. from the Assistant), the board opens
    * directly on this queue's list instead of the queue board. */
   initialQueue?: OutreachQueue | null
+  /** The signed-in employee's detected IANA timezone, used to judge date-only
+   * callback due on the actor's calendar for the queue-list sort. */
+  actorTimeZone?: string | null
 }) {
   const [items, setItems] = useState<BoardItem[]>([])
   const [counts, setCounts] = useState<Record<OutreachQueue, number>>(
@@ -201,7 +210,7 @@ export function StewardshipClient({
     // calendar, matching the Assistant.
     const queueItems = items
       .filter(i => i.queue === openQueue)
-      .sort((a, b) => dueCallbackRank(a) - dueCallbackRank(b))
+      .sort((a, b) => dueCallbackRank(a, actorTimeZone) - dueCallbackRank(b, actorTimeZone))
     return (
       <WorkflowPage>
         <QueueListHeader

@@ -1,38 +1,43 @@
 /**
- * Right Path business calendar (pure, no server/runtime deps).
+ * Date-only due judgment for Daily Direction, on the ACTOR's calendar.
  *
- * Date-only work (promised callbacks) is judged "due today" on Right Path's
- * business calendar, NOT the server's UTC/local clock, so the judgment is
- * stable wherever the code runs (server render or browser).
+ * Right Path operates across time zones (Andy in Eastern; Bob and Angie in
+ * Central), so there is NO single agency business timezone. A date-only
+ * promised callback is "due today" on the SIGNED-IN EMPLOYEE's calendar: the
+ * day their work is organized around. Each employee therefore sees their own
+ * "today" — Bob at 11pm Central still sees the Central day, not a server/UTC day
+ * and not a hardcoded zone.
  *
- * Timezone evidence (NOT inherited from IPF, whose default was America/Chicago):
- *   - Makal Financial Services is a Pennsylvania agency. The SML producer teams
- *     are seeded in US Eastern states, predominantly PA (sml_teams.region).
- *   - The customer book is overwhelmingly Eastern (PA, VA, CT, DE, NJ, RI;
- *     verified against the live development database).
- * The callback date is set by the operator on the agency's single operating
- * clock, so one business calendar is correct. US Eastern it is.
+ * All zone reasoning is delegated to the shared Right Path time module. This
+ * file no longer owns a timezone constant.
  */
-export const BUSINESS_TIME_ZONE = 'America/New_York'
+
+import { createTimeContext, actorToday, type TimeContext } from '@/lib/time'
 
 /**
- * Today's date on the business calendar as YYYY-MM-DD. DST-correct via Intl;
- * en-CA yields YYYY-MM-DD, which compares correctly against date-only strings.
+ * Today's date (YYYY-MM-DD) on the actor's calendar for a given actor zone and
+ * instant. actorTimeZone null/invalid falls back to the time module's documented
+ * last resort (never a hardcoded business zone).
  */
-export function businessToday(now: Date = new Date()): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: BUSINESS_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(now)
+export function actorBusinessToday(actorTimeZone: string | null, now: Date = new Date()): string {
+  const ctx = createTimeContext({ now, actorTimeZone })
+  return actorToday(ctx)
 }
 
 /**
  * Whether a date-only callback date (YYYY-MM-DD) is due on or before today on
- * the business calendar. Date-only in; no clock time is read or implied.
+ * the ACTOR's calendar. Date-only in; no clock time is read or implied. Accepts
+ * either a prepared TimeContext or an actor zone + instant.
  */
-export function isCallbackDue(callbackDate: string | null | undefined, now: Date = new Date()): boolean {
+export function isCallbackDue(
+  callbackDate: string | null | undefined,
+  ctxOrActorZone: TimeContext | string | null,
+  now: Date = new Date(),
+): boolean {
   if (!callbackDate) return false
-  return callbackDate <= businessToday(now)
+  const today =
+    typeof ctxOrActorZone === 'object' && ctxOrActorZone !== null
+      ? actorToday(ctxOrActorZone)
+      : actorBusinessToday(ctxOrActorZone, now)
+  return callbackDate <= today
 }

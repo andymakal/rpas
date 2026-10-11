@@ -4,6 +4,7 @@ import { getDailyDirection } from '@/lib/daily-direction/stewardship'
 import type { DailyDirectionState } from '@/lib/daily-direction/types'
 import { DailyDirectionBriefing } from '@/components/workflow/daily-direction'
 import { OUTREACH_QUEUES, type OutreachQueue } from '@/lib/stewardship/queues'
+import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { StewardshipClient } from './StewardshipClient'
 
 export const metadata: Metadata = { title: 'Stewardship' }
@@ -57,10 +58,16 @@ export default async function StewardshipPage({
   // gracefully to no briefing rather than breaking the page. The project-scoped
   // view keeps the Assistant on the unscoped board for now (the composition
   // reads the full open board); scoping it to a project is a later slice.
+  // The signed-in employee's detected timezone drives the actor-calendar "today"
+  // for date-only callback due work, so Andy (Eastern) and Bob/Angie (Central)
+  // each see their own day. Absent on the very first request (before the client
+  // sync writes the cookie); the time module then falls back to its last resort.
+  const actorTimeZone = await getActorTimeZone()
+
   let dailyDirection: DailyDirectionState | null = null
   if (!project) {
     try {
-      dailyDirection = await getDailyDirection()
+      dailyDirection = await getDailyDirection({ actorTimeZone })
     } catch (err) {
       console.error('Daily Direction briefing failed:', err)
     }
@@ -73,7 +80,12 @@ export default async function StewardshipPage({
           <DailyDirectionBriefing state={dailyDirection} />
         </div>
       )}
-      <StewardshipClient agencies={agencyOptions} project={project} initialQueue={initialQueue} />
+      <StewardshipClient
+        agencies={agencyOptions}
+        project={project}
+        initialQueue={initialQueue}
+        actorTimeZone={actorTimeZone}
+      />
     </div>
   )
 }

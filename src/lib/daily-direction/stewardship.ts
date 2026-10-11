@@ -15,11 +15,12 @@
  *     the SAME read the board route uses. No new table, column, or workflow
  *     state is introduced; existing Stewardship transitions are untouched.
  *   - A date-only promised callback (callback_date on an open ready-to-call
- *     item, due on or before today ON THE BUSINESS CALENDAR) is DUE WORK, never
+ *     item, due on or before today ON THE ACTOR'S CALENDAR) is DUE WORK, never
  *     an exact-time commitment and never a fixed-time interruption that
  *     automatically outranks everything. Right Path records no clock time for
- *     it, so none is invented or displayed, and the due test uses the business
- *     calendar, not the server's clock.
+ *     it, so none is invented or displayed. "Today" is the signed-in employee's
+ *     own day (Andy Eastern, Bob/Angie Central), via the shared time module —
+ *     never the server's clock and never a single hardcoded business zone.
  *   - READ-ONLY: evaluation never writes. It applies the board's follow-up
  *     routing rule in memory for counting but persists nothing; the board route
  *     remains the sole writer of that transition.
@@ -29,6 +30,7 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { QUEUE_META, OUTREACH_QUEUES, deriveFollowUpRouting, type OutreachQueue } from '@/lib/stewardship/queues'
+import { createTimeContext } from '@/lib/time'
 import { decideDailyDirection } from './engine'
 import { isCallbackDue } from './business-calendar'
 import type { DailyDirectionState, QueueCandidate, DueCallback } from './types'
@@ -56,6 +58,13 @@ type BoardRow = {
 export interface DailyDirectionOptions {
   /** Evaluation instant. Injected for testability; defaults to now. */
   now?: Date
+  /**
+   * The signed-in employee's detected IANA timezone (from the actor-timezone
+   * cookie). Drives the actor-calendar "today" for date-only callback due work,
+   * so each employee sees their own day. Null/absent falls back to the time
+   * module's documented last resort (never a hardcoded business zone).
+   */
+  actorTimeZone?: string | null
 }
 
 /**
@@ -68,6 +77,10 @@ export async function getDailyDirection(
   options: DailyDirectionOptions = {},
 ): Promise<DailyDirectionState> {
   const now = options.now ?? new Date()
+  // The actor clock drives the date-only "due today" judgment. Built once here
+  // and reused for every due test so a single employee's whole board is judged
+  // on one consistent clock.
+  const timeCtx = createTimeContext({ now, actorTimeZone: options.actorTimeZone })
   const supabase = createAdminClient()
 
   const { data, error } = await supabase
@@ -127,7 +140,7 @@ export async function getDailyDirection(
     .filter(
       (r) =>
         effectiveQueue(r) === 'ready-to-call' &&
-        isCallbackDue(r.callback_date, now),
+        isCallbackDue(r.callback_date, timeCtx),
     )
     .map((r) => {
       const c = r.customer_prereviews.customers

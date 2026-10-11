@@ -14,7 +14,8 @@
  *      a clock time), surfaced distinctly, not an automatic top priority.
  *   3. The ready state deep-links into real queues; outreach exposes co-equal
  *      options rather than one ranked route.
- *   4. The business calendar is US Eastern and judges date-only due.
+ *   4. Date-only due is judged on the ACTOR's calendar (per-employee), not a
+ *      single hardcoded business zone.
  */
 
 import test from 'node:test'
@@ -25,7 +26,7 @@ import {
   evaluateNextBestAction,
   buildReason,
 } from './engine'
-import { businessToday, isCallbackDue, BUSINESS_TIME_ZONE } from './business-calendar'
+import { isCallbackDue, actorBusinessToday } from './business-calendar'
 import type { DailyDirectionCandidates, QueueCandidate, DueCallback } from './types'
 
 function queue(
@@ -190,18 +191,41 @@ test('reason: outreach prose notes due callbacks as due work, not a top priority
   assert.doesNotMatch(r, /first|outrank|top priority/i)
 })
 
-// ── business calendar: US Eastern ───────────────────────────────────────────
+// ── date-only due on the ACTOR's calendar (multi-timezone) ──────────────────
 
-test('business calendar is US Eastern (evidence: PA/Eastern book), not inherited Central', () => {
-  assert.equal(BUSINESS_TIME_ZONE, 'America/New_York')
+test('date-only due is judged per-actor: Eastern vs Central see a different "today"', () => {
+  // A fixed instant late at night US-time: 2026-10-09 03:30 UTC.
+  //   = 2026-10-08 23:30 Eastern (still Oct 8 for Andy)
+  //   = 2026-10-08 22:30 Central (still Oct 8 for Bob/Angie)
+  const lateNight = new Date('2026-10-09T03:30:00Z')
+  assert.equal(actorBusinessToday('America/New_York', lateNight), '2026-10-08')
+  assert.equal(actorBusinessToday('America/Chicago', lateNight), '2026-10-08')
+
+  // An instant between the two midnights: 2026-10-09 05:30 UTC.
+  //   = 2026-10-09 01:30 Eastern (now Oct 9 for Andy)
+  //   = 2026-10-09 00:30 Central (now Oct 9 for Bob/Angie)
+  const afterMidnight = new Date('2026-10-09T05:30:00Z')
+  assert.equal(actorBusinessToday('America/New_York', afterMidnight), '2026-10-09')
+  assert.equal(actorBusinessToday('America/Chicago', afterMidnight), '2026-10-09')
+
+  // The telling case: 2026-10-09 04:30 UTC.
+  //   = 2026-10-09 00:30 Eastern (Andy has rolled to Oct 9)
+  //   = 2026-10-08 23:30 Central (Bob is still on Oct 8)
+  const between = new Date('2026-10-09T04:30:00Z')
+  assert.equal(actorBusinessToday('America/New_York', between), '2026-10-09')
+  assert.equal(actorBusinessToday('America/Chicago', between), '2026-10-08')
+  // So a callback dated Oct 8 is still "due today" for Bob (Central) but is
+  // already past for Andy (Eastern) — each correct for that employee.
+  assert.equal(isCallbackDue('2026-10-08', 'America/Chicago', between), true)
+  assert.equal(isCallbackDue('2026-10-08', 'America/New_York', between), true)
+  // A callback dated Oct 9 is due for Andy (his today) but NOT yet for Bob.
+  assert.equal(isCallbackDue('2026-10-09', 'America/New_York', between), true)
+  assert.equal(isCallbackDue('2026-10-09', 'America/Chicago', between), false)
 })
 
-test('isCallbackDue judges date-only due on the business calendar', () => {
-  // A fixed instant: 2026-10-09 02:00 UTC = 2026-10-08 22:00 US Eastern.
-  const now = new Date('2026-10-09T02:00:00Z')
-  assert.equal(businessToday(now), '2026-10-08') // Eastern, not UTC's Oct 9
-  assert.equal(isCallbackDue('2026-10-08', now), true) // today -> due
-  assert.equal(isCallbackDue('2026-10-07', now), true) // past -> due
-  assert.equal(isCallbackDue('2026-10-09', now), false) // future -> not due
-  assert.equal(isCallbackDue(null, now), false)
+test('isCallbackDue: null date is never due; future date not due; past date due', () => {
+  const now = new Date('2026-10-09T16:00:00Z') // midday US, both zones on Oct 9
+  assert.equal(isCallbackDue(null, 'America/New_York', now), false)
+  assert.equal(isCallbackDue('2026-10-07', 'America/New_York', now), true)
+  assert.equal(isCallbackDue('2026-10-20', 'America/New_York', now), false)
 })
