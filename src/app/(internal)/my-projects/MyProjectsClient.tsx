@@ -78,6 +78,7 @@ function ProjectCard({ project }: { project: MyProjectCard }) {
           </div>
           <p className="mt-1 text-sm text-ink-supporting">
             {project.projectType}
+            {project.owner ? <> · Owner / operations manager: {project.owner.name}</> : null}
             {project.myNote ? <> · You: {project.myNote}</> : null}
           </p>
         </div>
@@ -139,7 +140,7 @@ function ProjectCard({ project }: { project: MyProjectCard }) {
               project.participants.map((p) => (
                 <li key={p.producerId} className="text-sm text-ink">
                   <span className="font-medium">{p.name}</span>
-                  {p.note ? <span className="text-ink-supporting"> — {p.note}</span> : null}
+                  {p.role ? <span className="text-ink-supporting"> — {roleLabel(p.role)}</span> : p.note ? <span className="text-ink-supporting"> — {p.note}</span> : null}
                 </li>
               ))
             )}
@@ -171,4 +172,16 @@ function ProjectCard({ project }: { project: MyProjectCard }) {
       </div>
     </article>
   )
+}
+
+/** Human label for a project participation role. */
+function roleLabel(role: string): string {
+  switch (role) {
+    case 'owner': return 'Owner / operations manager'
+    case 'operations_manager': return 'Operations manager'
+    case 'senior_producer': return 'Senior producer'
+    case 'operations': return 'Operations'
+    case 'outreach': return 'Outreach'
+    default: return role.replace(/_/g, ' ')
+  }
 }

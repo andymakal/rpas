@@ -1,7 +1,7 @@
 import { NextRequest } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
+import { requireManagement } from '@/lib/capabilities/management'
 
 /**
  * Today's Focus API — temporary management direction fed to the GoRules Daily
@@ -38,8 +38,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = await requireInternalAdmin()
-  if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
+  // Only authorized management may set Today's Focus.
+  const mgmt = await requireManagement()
+  if (!mgmt.ok) return Response.json({ error: mgmt.error }, { status: mgmt.status })
 
   let body: {
     scope?: 'project' | 'activity'
@@ -87,10 +88,6 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  // Record who set the focus (auth user), for the created_by audit column.
-  const sessionClient = await createClient()
-  const { data: { user } } = await sessionClient.auth.getUser()
-
   const supabase = createAdminClient()
   const { data, error } = await supabase
     .from('todays_focus')
@@ -99,7 +96,8 @@ export async function POST(request: NextRequest) {
       project_id: scope === 'project' ? body.project_id : (body.project_id ?? null),
       work_function_id: scope === 'activity' ? body.work_function_id : null,
       note: body.note?.trim() || null,
-      created_by: user?.id ?? null,
+      // The authenticated management user who set the focus (audit).
+      created_by: mgmt.userId,
       expires_at: expires.toISOString(),
     })
     .select('id')
@@ -109,8 +107,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const auth = await requireInternalAdmin()
-  if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
+  // Only authorized management may end a focus early.
+  const mgmt = await requireManagement()
+  if (!mgmt.ok) return Response.json({ error: mgmt.error }, { status: mgmt.status })
 
   const id = new URL(request.url).searchParams.get('id')
   if (!id) return Response.json({ error: 'id is required' }, { status: 400 })

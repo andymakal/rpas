@@ -38,22 +38,38 @@ export interface WorkSource {
 /**
  * The priority band ZEN assigned to an activity group. Lower rank = higher
  * priority. These mirror the ordered bands in my-work-priority.json.
+ *
+ * The IPF distinction is preserved: an exact-time fixed commitment
+ * (exact_time_commitment) controls the day and outranks focus, while a
+ * date-only due callback (due_callback) is due work surfaced below focus.
  */
 export type PriorityBand =
-  | 'due_commitment'
+  | 'exact_time_commitment'
   | 'focus'
+  | 'due_callback'
   | 'owned'
   | 'shared'
   | 'ineligible'
 
 /** The independent presence facts handed to the MY WORK ZEN decision. */
 export interface ActivityFacts {
-  /** A promised callback for this activity has come due (customer commitment). */
-  hasDueCommitment: boolean
+  /**
+   * An IMMINENT TAGGED EXACT-TIME fixed commitment exists for this activity.
+   * This is the only commitment that outranks Today's Focus. Right Path records
+   * no exact-time commitments yet, so this is false today — but it is modeled so
+   * the IPF exact-time vs date-only distinction holds.
+   */
+  hasExactTimeCommitment: boolean
   /** The employee is routably eligible for this activity. */
   isEligible: boolean
   /** Today's Focus currently elevates this activity (for this employee). */
   isFocusElevated: boolean
+  /**
+   * A DATE-ONLY promised callback for this activity has come due. Due work,
+   * surfaced prominently, but NOT a fixed-time interruption: it does not outrank
+   * Today's Focus, and it carries no clock time.
+   */
+  hasDueCallback: boolean
   /** The employee owns (has claimed) at least one item in this activity. */
   hasOwnedWork: boolean
 }

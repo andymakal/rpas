@@ -29,11 +29,12 @@ import type { ActivityGroup, MyWorkState, PriorityBand } from '@/lib/my-work/typ
 
 /** The band's human section title and tag tone, driven by ZEN's band. */
 const BAND_META: Record<PriorityBand, { title: string; tone: OperationalTone }> = {
-  due_commitment: { title: 'Customer commitments due', tone: 'exception' },
-  focus:          { title: "Today's Focus", tone: 'reason' },
-  owned:          { title: 'Your claimed work', tone: 'info' },
-  shared:         { title: 'Shared work you can pick up', tone: 'info' },
-  ineligible:     { title: 'Elsewhere in the office', tone: 'info' },
+  exact_time_commitment: { title: 'Fixed appointments now', tone: 'exception' },
+  focus:                 { title: "Today's Focus", tone: 'reason' },
+  due_callback:          { title: 'Promised callbacks due', tone: 'exception' },
+  owned:                 { title: 'Your claimed work', tone: 'info' },
+  shared:                { title: 'Shared work you can pick up', tone: 'info' },
+  ineligible:            { title: 'Elsewhere in the office', tone: 'info' },
 }
 
 export function MyWorkClient({ state }: { state: MyWorkState }) {
@@ -202,7 +203,7 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
 function groupByBand(
   activities: ActivityGroup[],
 ): { band: PriorityBand; items: ActivityGroup[] }[] {
-  const order: PriorityBand[] = ['due_commitment', 'focus', 'owned', 'shared', 'ineligible']
+  const order: PriorityBand[] = ['exact_time_commitment', 'focus', 'due_callback', 'owned', 'shared', 'ineligible']
   const out: { band: PriorityBand; items: ActivityGroup[] }[] = []
   for (const band of order) {
     const items = activities.filter((a) => a.band === band)

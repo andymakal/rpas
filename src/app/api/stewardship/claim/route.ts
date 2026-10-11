@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { resolveProducerForUser } from '@/lib/capabilities/resolve'
+import type { OutreachQueue } from '@/lib/stewardship/queues'
+import type { WorkFunctionKey } from '@/lib/capabilities/work-functions'
 
 /**
  * POST /api/stewardship/claim   { outreach_id: string }
@@ -16,19 +18,31 @@ import { resolveProducerForUser } from '@/lib/capabilities/resolve'
  *     NULL at creation, so every item is visible and claimable by every eligible
  *     worker. Claiming is OPTIONAL and lightweight — a soft lease on the row —
  *     not routine assignment. The board is never filtered by the claim.
- *   - ELIGIBILITY GATE: the caller must hold a ROUTABLE (primary/support)
- *     capability on 'outreach'. 'overqualified' is not routable; a caller with
- *     no outreach assignment is rejected. (The research exception path is also
- *     claimable by an outreach-eligible worker in this first slice; the board's
- *     research items live under the same outreach-worker pool.)
+ *   - ACTIONABLE ONLY: a decided/closed item (its customer_prereview has a
+ *     decision) is no longer outreach work and cannot be claimed. Waiting-state
+ *     items are likewise not claimable (no action to commit to).
+ *   - ELIGIBILITY MATCHES THE ACTUAL ACTIVITY + PROJECT SCOPE: the item's queue
+ *     determines its activity (ready-to-call / ready-to-email => outreach;
+ *     research-needed => research), and the caller must hold a ROUTABLE
+ *     (primary/support) capability for THAT activity. A project-scoped
+ *     eligibility counts only when the item's customer belongs to that project;
+ *     agency-wide eligibility always counts. 'overqualified' is not routable.
  *   - ALREADY-CLAIMED GUARD: idempotent no-op when the item is already the
- *     caller's; rejected when another producer holds it. Implemented as a
- *     conditional UPDATE (claim only where currently unclaimed), which is
- *     race-safe at the row level without a server-side lock.
+ *     caller's; rejected when another producer holds it. The claim itself is a
+ *     race-safe conditional UPDATE (claim only where still unclaimed).
  *
  * This never changes workflow STATE (the queue/transition columns are
- * untouched); it only records/clears the optional commitment.
+ * untouched); it only records/clears the optional commitment, so a claim can
+ * never cause a customer obligation (e.g. a due callback) to be missed.
  */
+
+/** The actionable queues and the activity each maps to. Waiting queues are
+ * absent on purpose: they are not claimable work. */
+const QUEUE_ACTIVITY: Partial<Record<OutreachQueue, WorkFunctionKey>> = {
+  'ready-to-call': 'outreach',
+  'ready-to-email': 'outreach',
+  'research-needed': 'research',
+}
 
 async function resolveCaller() {
   const auth = await requireInternalAdmin()
@@ -49,19 +63,29 @@ async function resolveCaller() {
   return { ok: true as const, producerId: producer.id }
 }
 
-/** Whether a producer holds a routable (primary/support) outreach capability. */
-async function isOutreachEligible(
+/**
+ * Whether a producer holds a routable (primary/support) capability for the given
+ * activity, honoring project scope: an agency-wide assignment (project_id null)
+ * always qualifies; a project-scoped assignment qualifies only when the item's
+ * customer belongs to that project.
+ */
+async function isEligibleForActivity(
   supabase: ReturnType<typeof createAdminClient>,
   producerId: string,
+  activity: WorkFunctionKey,
+  itemProjectIds: Set<string>,
 ): Promise<boolean> {
   const { data } = await supabase
     .from('producer_work_functions')
-    .select('assignment_type, work_functions!inner ( canonical_key )')
+    .select('project_id, assignment_type, work_functions!inner ( canonical_key )')
     .eq('producer_id', producerId)
     .in('assignment_type', ['primary', 'support'])
-    .eq('work_functions.canonical_key', 'outreach')
-    .limit(1)
-  return (data?.length ?? 0) > 0
+    .eq('work_functions.canonical_key', activity)
+  for (const row of (data ?? []) as { project_id: string | null }[]) {
+    if (row.project_id === null) return true // agency-wide
+    if (itemProjectIds.has(row.project_id)) return true // in-scope project
+  }
+  return false
 }
 
 export async function POST(request: NextRequest) {
@@ -79,25 +103,63 @@ export async function POST(request: NextRequest) {
 
   const supabase = createAdminClient()
 
-  if (!(await isOutreachEligible(supabase, caller.producerId))) {
-    return Response.json(
-      { error: 'Only an eligible Outreach worker (Primary or Support) can claim this item.' },
-      { status: 403 },
-    )
-  }
-
-  // Read current claim state.
+  // Read the item with the facts needed to judge actionability + activity +
+  // project scope: its queue, claim state, and its customer (via prereview).
   const { data: row, error: readErr } = await supabase
     .from('stewardship_outreach')
-    .select('id, claimed_by_producer_id')
+    .select(`
+      id, queue, claimed_by_producer_id,
+      customer_prereviews!inner ( decision, customer_id )
+    `)
     .eq('id', outreachId)
     .maybeSingle()
   if (readErr) return Response.json({ error: readErr.message }, { status: 500 })
   if (!row) return Response.json({ error: 'Outreach item not found' }, { status: 404 })
 
+  const pre = (row as unknown as {
+    queue: OutreachQueue
+    claimed_by_producer_id: string | null
+    customer_prereviews: { decision: string | null; customer_id: string }
+  })
+
+  // ACTIONABLE ONLY: a decided pre-review is no longer outreach work; a
+  // non-actionable (waiting / unknown) queue has no action to commit to.
+  if (pre.customer_prereviews.decision != null) {
+    return Response.json(
+      { error: 'This work is already decided and is no longer claimable.' },
+      { status: 409 },
+    )
+  }
+  const activity = QUEUE_ACTIVITY[pre.queue]
+  if (!activity) {
+    return Response.json(
+      { error: 'This item is in a waiting state and is not actionable work to claim.' },
+      { status: 409 },
+    )
+  }
+
+  // The project(s) the item's customer belongs to, for project-scoped eligibility.
+  const itemProjectIds = new Set<string>()
+  {
+    const { data: memberships } = await supabase
+      .from('project_customers')
+      .select('project_id')
+      .eq('customer_id', pre.customer_prereviews.customer_id)
+    for (const m of (memberships ?? []) as { project_id: string }[]) itemProjectIds.add(m.project_id)
+  }
+
+  // ELIGIBILITY must match the ACTUAL activity (outreach vs research) and scope.
+  if (!(await isEligibleForActivity(supabase, caller.producerId, activity, itemProjectIds))) {
+    const label = activity === 'research' ? 'Research' : 'Outreach'
+    return Response.json(
+      { error: `Only an eligible ${label} worker (Primary or Support, in scope) can claim this item.` },
+      { status: 403 },
+    )
+  }
+
   // Already claimed: idempotent if mine, rejected if another's.
-  if (row.claimed_by_producer_id) {
-    if (row.claimed_by_producer_id === caller.producerId) {
+  if (pre.claimed_by_producer_id) {
+    if (pre.claimed_by_producer_id === caller.producerId) {
       return Response.json({ data: { outreach_id: outreachId, already_mine: true } })
     }
     return Response.json(

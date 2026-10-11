@@ -1,5 +1,5 @@
 {
-  "_comment": "Right Path MY WORK ordering decision. Adapted from IPF (bobpfromm/ipf-stewardship) src/rules/next-best-action.json — the established GoRules ZEN decision layer that owns ALL priority judgment. This decision classifies ONE activity group (a business activity the signed-in employee may act on) into a priority BAND, given independent presence facts the composition supplies. ZEN owns the ordering between bands; TypeScript owns normalization and never ranks. The ordering reflects ONLY established Right Path decisions and invents none: (a) a DUE customer commitment (a promised callback that has come due) outranks focus-based ordering — Today's Focus influences priority but never overrides a customer commitment; (b) within focus, management direction elevates ELIGIBLE work the employee can actually perform (focus never grants eligibility it lacks); (c) owned/claimed eligible work the employee committed to comes before unclaimed shared work; (d) unclaimed shared work the employee is eligible for is ordinary pickup work; (e) work the employee is NOT eligible for is visible but ranked last (shown for awareness, never routed to them). Focus NEVER disables a band — it only reorders — so ineligible and non-focus work still appear.",
+  "_comment": "Right Path MY WORK ordering decision. Adapted from IPF (bobpfromm/ipf-stewardship) src/rules/next-best-action.json — the established GoRules ZEN decision layer that owns ALL priority judgment. This decision classifies ONE activity group (a business activity the signed-in employee may act on) into a priority BAND, given independent presence facts the composition supplies. ZEN owns the ordering between bands; TypeScript owns normalization and never ranks. The ordering reflects ONLY established distinctions and invents none. CRITICAL IPF DISTINCTION (preserved): an IMMINENT TAGGED EXACT-TIME fixed commitment controls the day and outranks everything, including Today's Focus. A DATE-ONLY promised callback that has come due is DUE WORK, surfaced prominently, but it is NOT a fixed-time interruption and does NOT automatically outrank Today's Focus. Right Path records only date-only callbacks today (no exact-time commitments), so the exact-time band is defined for correctness and future use but does not fire yet. Order: (1) exact-time fixed commitment (outranks focus); (2) focus-elevated eligible work; (3) a due date-only callback on eligible work (due work, below focus); (4) owned/claimed eligible work; (5) unclaimed eligible shared work; (6) work the employee is not eligible for (visible for awareness, never routed). Focus NEVER disables a band — it only reorders — so every band still appears.",
   "nodes": [
     {
       "id": "input",
@@ -16,10 +16,11 @@
       "content": {
         "hitPolicy": "first",
         "inputs": [
-          { "id": "i1", "name": "Has a due customer commitment", "field": "hasDueCommitment" },
+          { "id": "i1", "name": "Has imminent exact-time fixed commitment", "field": "hasExactTimeCommitment" },
           { "id": "i2", "name": "Employee is eligible for this activity", "field": "isEligible" },
           { "id": "i3", "name": "Elevated by Today's Focus", "field": "isFocusElevated" },
-          { "id": "i4", "name": "Employee owns (claimed) work here", "field": "hasOwnedWork" }
+          { "id": "i4", "name": "Has a due date-only promised callback", "field": "hasDueCallback" },
+          { "id": "i5", "name": "Employee owns (claimed) work here", "field": "hasOwnedWork" }
         ],
         "outputs": [
           { "id": "o1", "name": "Priority band", "field": "band" },
@@ -29,57 +30,74 @@
         "rules": [
           {
             "_id": "r1",
-            "_description": "A due customer commitment outranks everything, including Today's Focus. A promised callback that has come due is a commitment to the customer; focus influences ordering but never overrides it. Surfaced only for activities the employee is eligible to act on.",
+            "_description": "An imminent tagged EXACT-TIME fixed commitment controls the day and outranks everything, including Today's Focus (the preserved IPF distinction). Surfaced only for activities the employee is eligible to act on. Right Path records no exact-time commitments yet, so this does not fire today, but the band is defined so the distinction holds.",
             "i1": "true",
             "i2": "true",
             "i3": "",
             "i4": "",
-            "o1": "\"due_commitment\"",
+            "i5": "",
+            "o1": "\"exact_time_commitment\"",
             "o2": "1",
-            "o3": "\"due_customer_commitment\""
+            "o3": "\"exact_time_commitment\""
           },
           {
             "_id": "r2",
-            "_description": "Focus-elevated AND eligible: management has directed attention here and the employee can actually perform it. Focus elevates only eligible work; it never grants eligibility.",
+            "_description": "Focus-elevated AND eligible: management has directed attention here and the employee can actually perform it. Focus elevates only eligible work; it never grants eligibility. Focus outranks a date-only due callback, because a date-only callback is due work, not a fixed-time interruption.",
             "i1": "",
             "i2": "true",
             "i3": "true",
             "i4": "",
+            "i5": "",
             "o1": "\"focus\"",
             "o2": "2",
             "o3": "\"focus_elevated\""
           },
           {
             "_id": "r3",
-            "_description": "Owned (claimed) eligible work the employee committed to, when not elevated by focus. Comes before unclaimed shared work.",
+            "_description": "A due DATE-ONLY promised callback on eligible work, when not focus-elevated. Due work surfaced prominently (a promised callback that has come due), but NOT a fixed-time interruption: it ranks below Today's Focus and carries no clock time.",
             "i1": "",
             "i2": "true",
             "i3": "false",
             "i4": "true",
-            "o1": "\"owned\"",
+            "i5": "",
+            "o1": "\"due_callback\"",
             "o2": "3",
-            "o3": "\"owned_work\""
+            "o3": "\"due_callback\""
           },
           {
             "_id": "r4",
+            "_description": "Owned (claimed) eligible work the employee committed to, when not focus-elevated and no due callback. Comes before unclaimed shared work.",
+            "i1": "",
+            "i2": "true",
+            "i3": "false",
+            "i4": "false",
+            "i5": "true",
+            "o1": "\"owned\"",
+            "o2": "4",
+            "o3": "\"owned_work\""
+          },
+          {
+            "_id": "r5",
             "_description": "Unclaimed shared work the employee is eligible for: ordinary pickup work, shared by default.",
             "i1": "",
             "i2": "true",
             "i3": "false",
             "i4": "false",
+            "i5": "false",
             "o1": "\"shared\"",
-            "o2": "4",
+            "o2": "5",
             "o3": "\"eligible_shared_work\""
           },
           {
-            "_id": "r5",
+            "_id": "r6",
             "_description": "Work the employee is NOT eligible for. Visible for awareness (the activity still exists and matters), but ranked last and never routed to this employee.",
             "i1": "",
             "i2": "false",
             "i3": "",
             "i4": "",
+            "i5": "",
             "o1": "\"ineligible\"",
-            "o2": "5",
+            "o2": "6",
             "o3": "\"not_eligible\""
           }
         ],

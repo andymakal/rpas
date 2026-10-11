@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { requireManagement } from '@/lib/capabilities/management'
 import { TodaysFocusClient, type FocusFormOption, type ActiveFocusRow } from './TodaysFocusClient'
 
 export const metadata: Metadata = { title: "Today's Focus" }
@@ -18,6 +19,12 @@ export default async function TodaysFocusPage() {
   const sessionClient = await createClient()
   const { data: { user } } = await sessionClient.auth.getUser()
   if (!user) redirect('/login')
+
+  // Today's Focus is management direction: gate the page to authorized
+  // management. A non-management internal user is sent back to their own work
+  // rather than shown the controls.
+  const mgmt = await requireManagement()
+  if (!mgmt.ok) redirect('/my-work')
 
   const supabase = createAdminClient()
   const [{ data: projects }, { data: workFunctions }, { data: active }] = await Promise.all([

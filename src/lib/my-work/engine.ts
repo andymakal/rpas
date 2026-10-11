@@ -73,12 +73,16 @@ export function buildActivityReason(
   ctx: { dueCount: number; ownedCount: number; sharedCount: number; label: string },
 ): string {
   switch (reasonCode) {
-    case 'due_customer_commitment': {
+    case 'exact_time_commitment': {
       const n = ctx.dueCount
-      return `${n} ${n === 1 ? 'customer commitment has' : 'customer commitments have'} come due. A promised callback outranks focus-based ordering.`
+      return `${n} ${n === 1 ? 'customer has' : 'customers have'} an exact-time commitment now. A fixed appointment controls the day and comes before Today's Focus.`
     }
     case 'focus_elevated':
       return `Management has elevated ${ctx.label} in Today's Focus, and you are eligible to work it.`
+    case 'due_callback': {
+      const n = ctx.dueCount
+      return `${n} promised ${n === 1 ? 'callback has' : 'callbacks have'} come due. Due work to pick up today; a date-only callback does not override Today's Focus and carries no set time.`
+    }
     case 'owned_work': {
       const n = ctx.ownedCount
       return `You have claimed ${n} ${n === 1 ? 'item' : 'items'} here. Owned work comes before unclaimed shared work.`
