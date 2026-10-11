@@ -261,6 +261,30 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     return best
   }
 
+  // Resolve how a ROUTABLE activity is routed to this employee: primary vs
+  // support. This reads the stored assignment type (producer_work_functions)
+  // directly, so it never invents a responsibility the employee does not hold.
+  // Across the scopes the activity touches (agency-wide plus every project its
+  // work belongs to), a PRIMARY assignment wins over a SUPPORT one, because the
+  // employee's primary accountability is the stronger framing to surface. Only
+  // routable assignments count here; 'overqualified' is assist, not routing.
+  // Returns 'none' when the employee has no routable assignment for the work.
+  const routedAssignmentFor = (
+    activity: WorkFunctionKey,
+    scopeProjects: Set<string>,
+  ): 'primary' | 'support' | 'none' => {
+    const applies = (projectId: string | null): boolean =>
+      projectId === null || scopeProjects.has(projectId)
+    let sawSupport = false
+    for (const e of profile.eligibilities) {
+      if (e.workFunction !== activity) continue
+      if (!applies(e.projectId)) continue
+      if (e.assignment === 'primary') return 'primary'
+      if (e.assignment === 'support') sawSupport = true
+    }
+    return sawSupport ? 'support' : 'none'
+  }
+
   // 3. Shared Stewardship board (the SAME read the board + Daily Direction use).
   // customer_id is selected so each item can be associated to the project(s) its
   // customer belongs to — the fix that lets a project focus elevate project work
@@ -530,6 +554,12 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       dueCount: a.dueEligible,
       isEligible: eligible,
       capabilityStatus,
+      // Only a routable activity carries a primary/support framing; the
+      // non-routable standings (assist/unassigned/unlicensed) are 'none'.
+      routedAs:
+        capabilityStatus === 'routable'
+          ? routedAssignmentFor(a.workFunction, a.projectIds)
+          : 'none',
       isFocusElevated: focusElevated,
       sources: a.sources,
     })

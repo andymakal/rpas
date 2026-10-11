@@ -18,6 +18,18 @@
 import type { CapabilityStatus, WorkFunctionKey } from '@/lib/capabilities/work-functions'
 
 /**
+ * How this activity is routed to the signed-in employee, when it is routable
+ * (capabilityStatus === 'routable'). It distinguishes a PRIMARY responsibility
+ * (the work this employee is chiefly accountable for) from SUPPORT work (work
+ * they are routed to assist with). 'none' is used for every non-routable
+ * standing (assist / unassigned / unlicensed), where primary-vs-support does
+ * not apply. This mirrors the stored producer_work_functions.assignment_type
+ * without inventing a new concept: it is the strongest routable assignment the
+ * employee holds for the activity across the scopes it touches.
+ */
+export type RoutedAs = 'primary' | 'support' | 'none'
+
+/**
  * Where an activity's work comes from. The shared Stewardship board and each
  * project are distinct sources; one activity (e.g. Outreach) can draw from more
  * than one, which is why sources are listed under the single activity.
@@ -160,6 +172,13 @@ export interface ActivityGroup {
    * 'unlicensed' (confirmed license gap). Mirrors the ZEN band's distinction.
    */
   capabilityStatus: CapabilityStatus
+  /**
+   * When routable, whether the activity is a PRIMARY responsibility or SUPPORT
+   * work for this employee; 'none' for every non-routable standing. Read from
+   * the stored assignment type, not inferred. Lets the Assistant separate the
+   * employee's primary responsibilities from the support work they help with.
+   */
+  routedAs: RoutedAs
   /** Whether Today's Focus currently elevates this activity for this employee. */
   isFocusElevated: boolean
   /** The sources (shared board, projects) that feed this activity. */

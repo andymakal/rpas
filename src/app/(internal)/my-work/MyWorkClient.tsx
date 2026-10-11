@@ -16,17 +16,23 @@
 
 import Link from 'next/link'
 import {
-  Sparkles, ArrowRight, Phone, Users, CheckCircle2, Lock,
+  Sparkles, ArrowRight, Phone, Users, CheckCircle2, Lock, Star, HandHelping,
 } from 'lucide-react'
 import {
   WorkflowPage,
   WorkflowHeader,
   OperationalTag,
+  AssistantPanel,
   type OperationalTone,
 } from '@/components/workflow'
 import { cn } from '@/lib/utils'
 import { capabilityStatusLabel } from '@/lib/capabilities/explanations'
 import type { ActivityGroup, MyWorkState, PriorityBand } from '@/lib/my-work/types'
+import {
+  deriveMyWorkDirection,
+  type DirectionRow,
+  type MyWorkDirection,
+} from '@/lib/my-work/direction'
 
 /** The band's human section title and tag tone, driven by ZEN's band. The three
  * non-routable bands are deliberately distinct sections, each saying something
@@ -66,12 +72,23 @@ export function MyWorkClient({ state }: { state: MyWorkState }) {
   // Group activities by ZEN band, preserving the rank order the composition set.
   const bands = groupByBand(state.activities)
 
+  // Derive the Daily Direction summary from the SAME ready state. This reads
+  // ZEN's already-decided ordering; it does not re-rank or add a data source.
+  const direction = deriveMyWorkDirection(state)
+
   return (
     <WorkflowPage>
       <WorkflowHeader
         primary="My Work"
         secondary={state.employeeName ?? undefined}
       />
+
+      {/* The Daily Direction Assistant: a system-state explanation of what
+          deserves attention next and why, with a direct link into the work.
+          This is the ASSISTANT, not Mentoring (coaching) — it tells the worker
+          what is next; it never teaches. The full activity inventory still
+          renders below; this leads with the single next best action. */}
+      <MyWorkAssistant direction={direction} />
 
       {/* Today's Focus banner: temporary management direction, shown as a
           distinct notice. It influences ordering below; it never hides work. */}
@@ -123,6 +140,141 @@ export function MyWorkClient({ state }: { state: MyWorkState }) {
         </div>
       )}
     </WorkflowPage>
+  )
+}
+
+/**
+ * The Daily Direction Assistant for My Work. Built on the shared AssistantPanel
+ * so it inherits the canonical teal Assistant identity (the treatment reserved
+ * for the Assistant, distinct from Mentoring coaching). It leads with the single
+ * Next Best Action and the deterministic reason, offers a direct link to the
+ * work, and then separates the employee's Primary responsibilities from the
+ * Support work they help with. It renders only the ready direction summary and
+ * makes no business judgment of its own.
+ */
+function MyWorkAssistant({ direction }: { direction: MyWorkDirection }) {
+  if (direction.quiet || !direction.nextAction) {
+    return (
+      <div className="[&>section]:gap-4 [&>section]:p-6 sm:[&>section]:p-7">
+        <AssistantPanel heading={<span className="text-2xl">You have open capacity</span>}>
+          <p className="-mt-2 flex items-center gap-2 text-sm leading-relaxed text-ink-secondary">
+            <CheckCircle2 className="size-5 text-status-confirmed" aria-hidden />
+            Nothing needs your attention right now. When work you are eligible for
+            arrives, I&apos;ll point you to the next thing to do.
+          </p>
+        </AssistantPanel>
+      </div>
+    )
+  }
+
+  const next = direction.nextAction
+
+  return (
+    <div className="[&>section]:gap-4 [&>section]:p-6 sm:[&>section]:p-7">
+      <AssistantPanel heading={<span className="text-2xl">{next.heading}</span>}>
+        {/* Why this is next: reused verbatim from the activity's ZEN-derived
+            reason, so the Assistant and the activity card never disagree. */}
+        <p className="-mt-2 max-w-prose text-sm leading-relaxed text-ink-secondary">
+          {next.reason}
+        </p>
+
+        {/* Direct access to the recommended work. */}
+        {next.route && (
+          <Link
+            href={next.route}
+            className="inline-flex w-fit items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand-hover"
+          >
+            {next.actionLabel}
+            {next.actionableCount > 0 && (
+              <span className="rounded-full bg-brand-foreground/20 px-1.5 text-xs">
+                {next.actionableCount}
+              </span>
+            )}
+            <ArrowRight className="size-4" aria-hidden />
+          </Link>
+        )}
+
+        {/* Primary responsibilities vs Support work: two distinct listings so
+            the worker sees what is chiefly theirs apart from what they help
+            with. Each row links straight into that activity's work. */}
+        {(direction.primary.length > 0 || direction.support.length > 0) && (
+          <div className="grid gap-4 border-t border-surface-border pt-4 sm:grid-cols-2">
+            <DirectionColumn
+              title="Your primary responsibilities"
+              icon={Star}
+              empty="No primary work needs you right now."
+              rows={direction.primary}
+            />
+            <DirectionColumn
+              title="Support you can help with"
+              icon={HandHelping}
+              empty="No support work right now."
+              rows={direction.support}
+            />
+          </div>
+        )}
+      </AssistantPanel>
+    </div>
+  )
+}
+
+/** One Primary / Support listing column inside the Assistant. */
+function DirectionColumn({
+  title, icon: Icon, empty, rows,
+}: {
+  title: string
+  icon: React.ComponentType<{ className?: string }>
+  empty: string
+  rows: DirectionRow[]
+}) {
+  return (
+    <div>
+      <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-supporting">
+        <Icon className="size-3.5" aria-hidden />
+        {title}
+      </p>
+      {rows.length === 0 ? (
+        <p className="mt-2 text-sm text-ink-muted">{empty}</p>
+      ) : (
+        <ul className="mt-2 space-y-1">
+          {rows.map((r) => {
+            const body = (
+              <>
+                <span className="flex min-w-0 items-center gap-2 text-ink">
+                  <span className="truncate">{r.label}</span>
+                  {r.dueCount > 0 && (
+                    <span className="inline-flex shrink-0 items-center gap-1 text-[11px] font-medium text-status-missing-strong">
+                      <Phone className="size-3" aria-hidden />
+                      {r.dueCount} due
+                    </span>
+                  )}
+                </span>
+                <span className="flex shrink-0 items-center gap-2">
+                  <span className="font-semibold text-brand-hover">{r.actionableCount}</span>
+                  {r.route && <ArrowRight className="size-4 text-ink-muted" aria-hidden />}
+                </span>
+              </>
+            )
+            return (
+              <li key={r.workFunction}>
+                {r.route ? (
+                  <Link
+                    href={r.route}
+                    className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm hover:bg-brand-wash"
+                  >
+                    {body}
+                  </Link>
+                ) : (
+                  <div className="flex items-center justify-between gap-3 px-2 py-1.5 text-sm">
+                    {body}
+                  </div>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
   )
 }
 
