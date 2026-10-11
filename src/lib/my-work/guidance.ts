@@ -103,7 +103,20 @@ export function outreachChannelMode(sourceLabel: string): WorkMode | null {
   return null
 }
 
-/** Convenience: the guidance for an activity, always defined for every key. */
+/**
+ * A neutral fallback for an activity that has no catalog guidance yet (for
+ * example, a work function added before its description is written). It carries
+ * no description, no work mode, and no note, so callers degrade gracefully:
+ * cards render without an extra guidance line, and the work-mode grouping simply
+ * does not place the activity in a quiet/calls group.
+ */
+const EMPTY_GUIDANCE: ActivityGuidance = { whatItIs: '', workMode: null, note: null }
+
+/**
+ * Convenience: the guidance for an activity. Defined for every catalogued work
+ * function; an unknown key returns the neutral EMPTY_GUIDANCE rather than
+ * undefined, so no caller has to guard against a missing entry.
+ */
 export function activityGuidance(key: WorkFunctionKey): ActivityGuidance {
-  return ACTIVITY_GUIDANCE[key]
+  return ACTIVITY_GUIDANCE[key] ?? EMPTY_GUIDANCE
 }

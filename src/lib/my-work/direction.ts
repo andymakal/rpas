@@ -18,6 +18,7 @@
  */
 
 import type { ActivityGroup, MyWorkState, PriorityBand } from './types'
+import { activityGuidance, outreachChannelMode, type WorkMode } from './guidance'
 
 /**
  * The bands that represent ACTIONABLE work the employee can act on right now.
@@ -170,6 +171,14 @@ export interface MyWorkDirection {
   /** SUPPORT work the employee is routed to assist with, actionable, in rank
    * order. Kept distinct from primary so the Assistant separates the two. */
   support: DirectionRow[]
+  /**
+   * The actionable work grouped by HOW it is done: quiet focus work vs live
+   * phone outreach, each with its own counts and direct links. Outreach is split
+   * per channel (emails -> quiet, calls -> phone outreach). Empty when quiet.
+   * This is a practical presentation of the same ZEN-ordered work; it introduces
+   * no new priority and forces no order between the groups.
+   */
+  workModeGroups: WorkModeGroup[]
 }
 
 function toRow(a: ActivityGroup): DirectionRow {
@@ -196,7 +205,7 @@ export function deriveMyWorkDirection(state: MyWorkState): MyWorkDirection {
   const actionable = state.activities.filter(isActionable)
 
   if (actionable.length === 0) {
-    return { quiet: true, nextAction: null, primary: [], support: [] }
+    return { quiet: true, nextAction: null, primary: [], support: [], workModeGroups: [] }
   }
 
   // The highest-priority rank present among actionable work (lower rank = higher
@@ -234,5 +243,121 @@ export function deriveMyWorkDirection(state: MyWorkState): MyWorkDirection {
     .filter((a) => a.routedAs === 'support' || a.band === 'assist')
     .map(toRow)
 
-  return { quiet: false, nextAction, primary, support }
+  // Group the SAME actionable work by HOW it is done — quiet focus work vs live
+  // phone outreach — so the Assistant can direct the day practically. This is a
+  // presentation of kinds of work, not a new priority: ZEN rank order is
+  // preserved within each group and no cross-group ranking is invented.
+  const workModeGroups = buildWorkModeGroups(actionable)
+
+  return { quiet: false, nextAction, primary, support, workModeGroups }
+}
+
+// ---------------------------------------------------------------------------
+// Work-mode grouping (quiet focus work vs live phone outreach).
+// ---------------------------------------------------------------------------
+
+/** One actionable item inside a work-mode group. For a single-mode activity it
+ * is the activity itself; for Outreach it is ONE channel (email or calls), so
+ * the two channels can sit in different groups with their own counts/links. */
+export interface WorkModeItem {
+  /** The activity this item belongs to (for keys and labels). */
+  workFunction: ActivityGroup['workFunction']
+  /** Human label: the activity, or the channel for a split Outreach item
+   * (e.g. "Outreach — emails", "Outreach — calls"). */
+  label: string
+  /** Items the employee can act on in this item right now (owned + available).
+   * For an Outreach channel this is the per-channel source count the employee
+   * can act on; for a single-mode activity it is the activity's actionable
+   * count. */
+  actionableCount: number
+  /** ZEN band, carried so the group can preserve rank order and the UI can tag
+   * due/owned work consistently with the activity cards. */
+  band: PriorityBand
+  /** ZEN rank, used only to order WITHIN a group (never across groups). */
+  rank: number
+  /** Direct link to this specific work (the channel's queue, or the activity's
+   * actionable source). Reused verbatim from the WorkSource route. */
+  route: string | null
+}
+
+/** The two kinds of effort the Assistant separates. 'quiet' is heads-down work
+ * (emails, research, operations prep); 'calls' is live phone outreach during
+ * appropriate calling hours. Both are offered as available choices — the
+ * grouping informs, it does not force an order. */
+export interface WorkModeGroup {
+  mode: WorkMode
+  items: WorkModeItem[]
+  /** Total actionable across the group's items (sum of actionableCount). */
+  totalActionable: number
+}
+
+/** Build the quiet / calls groups from the actionable activities. Outreach is
+ * split per channel using its own WorkSource rows (ready-to-email -> quiet,
+ * ready-to-call -> calls); every other actionable activity uses its single
+ * work mode from the shared guidance. Rank order is preserved within a group. */
+export function buildWorkModeGroups(actionable: ActivityGroup[]): WorkModeGroup[] {
+  const quiet: WorkModeItem[] = []
+  const calls: WorkModeItem[] = []
+
+  for (const a of actionable) {
+    if (a.workFunction === 'outreach') {
+      // Split Outreach into its channels using the per-channel sources, so the
+      // ready-to-email count lands in quiet and the ready-to-call count lands in
+      // live phone outreach — reusing the counts and routes the composition set.
+      for (const s of a.sources) {
+        const mode = outreachChannelMode(s.label)
+        if (!mode) continue
+        const actionableCount = s.ownedByMe + s.availableToMe
+        if (actionableCount <= 0) continue
+        const item: WorkModeItem = {
+          workFunction: a.workFunction,
+          label: mode === 'calls' ? 'Outreach — calls' : 'Outreach — emails',
+          actionableCount,
+          band: a.band,
+          rank: a.rank,
+          route: s.route,
+        }
+        ;(mode === 'calls' ? calls : quiet).push(item)
+      }
+      continue
+    }
+
+    // Single-mode activities: use the activity's guidance work mode. Only quiet
+    // modes exist among the non-outreach activities today; a 'calls' single-mode
+    // activity would route here too if one is ever added. An activity with no
+    // catalog guidance (e.g. a future work function not yet described) simply
+    // does not join a work-mode group rather than causing a failure.
+    const mode = activityGuidance(a.workFunction)?.workMode ?? null
+    if (!mode) continue
+    const actionableCount = actionableCountOf(a)
+    if (actionableCount <= 0) continue
+    const item: WorkModeItem = {
+      workFunction: a.workFunction,
+      label: a.label,
+      actionableCount,
+      band: a.band,
+      rank: a.rank,
+      route: primaryRouteFor(a),
+    }
+    ;(mode === 'calls' ? calls : quiet).push(item)
+  }
+
+  // Preserve ZEN rank order within each group (lower rank first); the activities
+  // arrived rank-ordered, and the per-channel split keeps that order.
+  const byRank = (x: WorkModeItem, y: WorkModeItem) => x.rank - y.rank
+  quiet.sort(byRank)
+  calls.sort(byRank)
+
+  const groups: WorkModeGroup[] = []
+  if (quiet.length > 0) {
+    groups.push({ mode: 'quiet', items: quiet, totalActionable: sumActionable(quiet) })
+  }
+  if (calls.length > 0) {
+    groups.push({ mode: 'calls', items: calls, totalActionable: sumActionable(calls) })
+  }
+  return groups
+}
+
+function sumActionable(items: WorkModeItem[]): number {
+  return items.reduce((n, i) => n + i.actionableCount, 0)
 }

@@ -38,6 +38,7 @@ import {
   deriveMyWorkDirection,
   type DirectionRow,
   type MyWorkDirection,
+  type WorkModeGroup,
 } from '@/lib/my-work/direction'
 
 /** The band's human section title and tag tone, driven by ZEN's band. The three
@@ -252,6 +253,18 @@ function MyWorkAssistant({ direction }: { direction: MyWorkDirection }) {
           </>
         )}
 
+        {/* Practical daily direction: the same actionable work grouped by HOW
+            it is done — quiet focus work vs live phone outreach — so a worker
+            can match work to the time they have. Each item links straight to its
+            queue. This informs; it forces no order and overrides no priority. */}
+        {direction.workModeGroups.length > 0 && (
+          <div className="grid gap-3 border-t border-surface-border pt-4 sm:grid-cols-2">
+            {direction.workModeGroups.map((g) => (
+              <WorkModeGroupCard key={g.mode} group={g} />
+            ))}
+          </div>
+        )}
+
         {/* Primary responsibilities vs Support work: two distinct listings so
             the worker sees what is chiefly theirs apart from what they help
             with. Each row links straight into that activity's work. */}
@@ -272,6 +285,56 @@ function MyWorkAssistant({ direction }: { direction: MyWorkDirection }) {
           </div>
         )}
       </AssistantPanel>
+    </div>
+  )
+}
+
+/** One work-mode group inside the Assistant: quiet focus work or live phone
+ * outreach. Shows the practice note once for the group, then each item with its
+ * actionable count and a direct link. The two groups are peers (no order
+ * between them), so the worker chooses what fits their time. */
+function WorkModeGroupCard({ group }: { group: WorkModeGroup }) {
+  const isCalls = group.mode === 'calls'
+  const Icon = isCalls ? Phone : Sparkles
+  const title = isCalls ? 'Live phone outreach' : 'Quiet focus work'
+  return (
+    <div className="rounded-xl border border-brand-subtle bg-brand-wash p-4">
+      <p className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+        <Icon className="size-4 text-brand-hover" aria-hidden />
+        {title}
+      </p>
+      <p className="mt-0.5 text-xs leading-relaxed text-ink-supporting">
+        {WORK_MODE_NOTE[group.mode]}
+      </p>
+      <ul className="mt-2 space-y-1">
+        {group.items.map((item) => {
+          const body = (
+            <>
+              <span className="truncate text-ink">{item.label}</span>
+              <span className="flex shrink-0 items-center gap-2">
+                <span className="font-semibold text-brand-hover">{item.actionableCount}</span>
+                {item.route && <ArrowRight className="size-4 text-ink-muted" aria-hidden />}
+              </span>
+            </>
+          )
+          return (
+            <li key={`${item.workFunction}-${item.label}`}>
+              {item.route ? (
+                <Link
+                  href={item.route}
+                  className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm hover:bg-surface-card"
+                >
+                  {body}
+                </Link>
+              ) : (
+                <div className="flex items-center justify-between gap-3 px-2 py-1.5 text-sm">
+                  {body}
+                </div>
+              )}
+            </li>
+          )
+        })}
+      </ul>
     </div>
   )
 }
@@ -375,10 +438,13 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
           </p>
           {/* What this kind of work is — descriptive guidance, always true,
               never a priority judgment (ZEN owns the band and the reason above).
-              Helps the worker recognize what the activity actually involves. */}
-          <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-supporting">
-            {guidance.whatItIs}
-          </p>
+              Helps the worker recognize what the activity actually involves.
+              Omitted when an activity has no catalog guidance. */}
+          {guidance.whatItIs && (
+            <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-supporting">
+              {guidance.whatItIs}
+            </p>
+          )}
           {/* Work-mode cue: for a single-mode activity (research, operations
               prep) say whether it suits quiet time or calling hours. Outreach
               spans both channels, so its cue is shown per source below. */}
