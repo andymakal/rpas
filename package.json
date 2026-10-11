@@ -10,11 +10,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "test:dd": "node --test-reporter=spec scripts/run-dd-tests.mjs",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",
+    "@gorules/zen-engine": "2.0.1",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.105.4",
     "class-variance-authority": "^0.7.1",
