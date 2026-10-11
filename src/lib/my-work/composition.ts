@@ -76,6 +76,74 @@ const STEWARDSHIP_ACTIVITY: Partial<Record<OutreachQueue, WorkFunctionKey>> = {
   'research-needed': 'research',
 }
 
+/**
+ * How one shared-board item counts toward THIS employee's My Work tally. Pure
+ * and exported so the two settled rules below are directly testable without a
+ * live board read:
+ *
+ *   1. Overqualified-ASSIST employees see shared work they can PICK UP. Assist
+ *      is pickable (consistent with the claim path, where canActOn('assist') is
+ *      true), so an assist-capable item is actionable — owned/available/
+ *      claimed-by-others — not awareness-only. Only truly non-actionable
+ *      standings (unassigned / unlicensed) are awareness ('notEligible'). Assist
+ *      never feeds routable eligibility, so GoRules priorities are unchanged
+ *      (the ZEN isEligible fact is driven only by routable work).
+ *   2. A due callback is counted as MY due work only when it is mine to act on —
+ *      owned by me or unclaimed. A due callback already claimed by ANOTHER
+ *      employee is that teammate's commitment and is never my due callback.
+ */
+export type BoardItemBucket =
+  | 'owned'
+  | 'available'
+  | 'claimedByOthers'
+  | 'notEligible'
+
+export interface BoardItemClassification {
+  bucket: BoardItemBucket
+  /** Feeds the routable eligible-item count (and thus the ZEN isEligible fact). */
+  routableEligible: boolean
+  /** Counts as a due callback FOR THIS EMPLOYEE (owned-by-me or unclaimed). */
+  countsAsMyDueCallback: boolean
+}
+
+export function classifyBoardItem(input: {
+  /** The employee is ROUTABLY eligible (primary/support) for this item. */
+  routableEligible: boolean
+  /** The employee is overqualified (assist) for this item. */
+  assistCapable: boolean
+  /** Who has claimed the item: this employee, another, or no one (null). */
+  claimedBy: 'me' | 'other' | null
+  /** Whether the item is a due date-only promised callback. */
+  isDueCallback: boolean
+}): BoardItemClassification {
+  const canPickUp = input.routableEligible || input.assistCapable
+  if (!canPickUp) {
+    // Unassigned / unlicensed: shown for awareness only.
+    return { bucket: 'notEligible', routableEligible: false, countsAsMyDueCallback: false }
+  }
+  if (input.claimedBy === 'me') {
+    return {
+      bucket: 'owned',
+      routableEligible: input.routableEligible,
+      countsAsMyDueCallback: input.isDueCallback,
+    }
+  }
+  if (input.claimedBy === 'other') {
+    // A teammate's claim: never available to me, and never MY due callback.
+    return {
+      bucket: 'claimedByOthers',
+      routableEligible: input.routableEligible,
+      countsAsMyDueCallback: false,
+    }
+  }
+  // Unclaimed and pickable by me.
+  return {
+    bucket: 'available',
+    routableEligible: input.routableEligible,
+    countsAsMyDueCallback: input.isDueCallback,
+  }
+}
+
 /** Short queue label for a per-queue shared-board source (so the email-only
  * queue reads as such and links to the right queue). */
 const QUEUE_LABEL: Record<OutreachQueue, string> = {
@@ -359,28 +427,49 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     t.total += 1
     a.total += 1
 
-    const eligible = itemEligible(activity, itemProjects)
-    if (!eligible) {
+    // Classify this item for THIS employee. Assist-capable items are pickable
+    // (consistent with the claim path); only unassigned/unlicensed are
+    // awareness-only. A due callback counts as mine only when owned-by-me or
+    // unclaimed — a teammate's claimed commitment is never my due callback. The
+    // item's standing is judged against its OWN projects.
+    const rawClaimedBy = r.claimed_by_producer_id
+    const cls = classifyBoardItem({
+      routableEligible: itemEligible(activity, itemProjects),
+      assistCapable: activityCapabilityStatus(activity, itemProjects) === 'assist',
+      claimedBy: rawClaimedBy == null ? null : rawClaimedBy === myProducerId ? 'me' : 'other',
+      isDueCallback: q === 'ready-to-call' && isCallbackDue(r.callback_date, timeCtx),
+    })
+
+    if (cls.bucket === 'notEligible') {
       t.notEligible += 1
       perQueue.set(q, t)
-      continue // ineligible items count toward total/awareness only
+      continue // unassigned / unlicensed: awareness only
     }
-    a.eligible += 1
-    if (itemFocusElevated(activity, itemProjects)) a.focusEligible += 1
-    if (q === 'ready-to-call' && isCallbackDue(r.callback_date, timeCtx)) a.dueEligible += 1
 
-    const claimedBy = r.claimed_by_producer_id
-    if (claimedBy && claimedBy === myProducerId) {
-      a.owned += 1
-      t.ownedByMe += 1
-    } else if (claimedBy) {
-      // Eligible to me, but ANOTHER employee has claimed it — never counted as
-      // available/unclaimed work.
-      a.claimedByOthers += 1
-      t.claimedByOthers += 1
-    } else {
-      a.availableToMe += 1
-      t.availableToMe += 1
+    // Only ROUTABLE eligibility feeds the eligible-item count that drives the
+    // ZEN isEligible fact; assist stays non-routable but pickable, so it never
+    // becomes routed work (the GoRules priorities are unchanged).
+    if (cls.routableEligible) {
+      a.eligible += 1
+      if (itemFocusElevated(activity, itemProjects)) a.focusEligible += 1
+    }
+    if (cls.countsAsMyDueCallback) a.dueEligible += 1
+
+    switch (cls.bucket) {
+      case 'owned':
+        a.owned += 1
+        t.ownedByMe += 1
+        break
+      case 'claimedByOthers':
+        // Pickable by me, but ANOTHER employee has claimed it — never counted as
+        // available/unclaimed work.
+        a.claimedByOthers += 1
+        t.claimedByOthers += 1
+        break
+      case 'available':
+        a.availableToMe += 1
+        t.availableToMe += 1
+        break
     }
     perQueue.set(q, t)
   }

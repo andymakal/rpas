@@ -18,6 +18,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 
 import { evaluateActivityBand, buildActivityReason } from './engine'
+import { classifyBoardItem } from './composition'
 import type { ActivityFacts } from './types'
 
 function facts(p: Partial<ActivityFacts>): ActivityFacts {
@@ -138,6 +139,91 @@ test('ZEN rule exposes exactly the independent presence facts (no ranked inputs)
       'isEligible', 'isFocusElevated', 'licenseGap',
     ].sort(),
   )
+})
+
+// ── classifyBoardItem: assist visibility + due-callback claim exclusion ─────
+
+test('board item: an OVERQUALIFIED (assist) employee sees unclaimed shared work as pickable', () => {
+  // Not routable, but assist-capable: the item is available to pick up, exactly
+  // as the claim path permits — never awareness-only.
+  const c = classifyBoardItem({
+    routableEligible: false,
+    assistCapable: true,
+    claimedBy: null,
+    isDueCallback: false,
+  })
+  assert.equal(c.bucket, 'available')
+  // Assist never feeds routable eligibility, so GoRules priorities are unchanged.
+  assert.equal(c.routableEligible, false)
+})
+
+test('board item: an assist employee can OWN shared work they have claimed', () => {
+  const c = classifyBoardItem({
+    routableEligible: false,
+    assistCapable: true,
+    claimedBy: 'me',
+    isDueCallback: false,
+  })
+  assert.equal(c.bucket, 'owned')
+})
+
+test('board item: unassigned / unlicensed (neither routable nor assist) is awareness-only', () => {
+  const c = classifyBoardItem({
+    routableEligible: false,
+    assistCapable: false,
+    claimedBy: null,
+    isDueCallback: true,
+  })
+  assert.equal(c.bucket, 'notEligible')
+  // Not pickable, so not routable and not my due callback either.
+  assert.equal(c.routableEligible, false)
+  assert.equal(c.countsAsMyDueCallback, false)
+})
+
+test('board item: a routable employee still sees routable work (unchanged behavior)', () => {
+  const c = classifyBoardItem({
+    routableEligible: true,
+    assistCapable: false,
+    claimedBy: null,
+    isDueCallback: false,
+  })
+  assert.equal(c.bucket, 'available')
+  assert.equal(c.routableEligible, true)
+})
+
+test('board item: a due callback claimed by ANOTHER employee is NOT my due callback', () => {
+  const c = classifyBoardItem({
+    routableEligible: true,
+    assistCapable: false,
+    claimedBy: 'other',
+    isDueCallback: true,
+  })
+  assert.equal(c.bucket, 'claimedByOthers')
+  // The teammate's commitment is never counted as my due work.
+  assert.equal(c.countsAsMyDueCallback, false)
+})
+
+test('board item: a due callback counts as mine when I OWN it or it is UNCLAIMED', () => {
+  const owned = classifyBoardItem({
+    routableEligible: true, assistCapable: false, claimedBy: 'me', isDueCallback: true,
+  })
+  assert.equal(owned.bucket, 'owned')
+  assert.equal(owned.countsAsMyDueCallback, true)
+
+  const unclaimed = classifyBoardItem({
+    routableEligible: true, assistCapable: false, claimedBy: null, isDueCallback: true,
+  })
+  assert.equal(unclaimed.bucket, 'available')
+  assert.equal(unclaimed.countsAsMyDueCallback, true)
+})
+
+test('board item: an assist employee can pick up a due callback as their own due work', () => {
+  // Assist-capable + unclaimed + due: pickable AND counts as my due work.
+  const c = classifyBoardItem({
+    routableEligible: false, assistCapable: true, claimedBy: null, isDueCallback: true,
+  })
+  assert.equal(c.bucket, 'available')
+  assert.equal(c.countsAsMyDueCallback, true)
 })
 
 function reasonCtx(p: Partial<{ dueCount: number; ownedCount: number; availableCount: number; claimedByOthersCount: number; label: string }>) {
