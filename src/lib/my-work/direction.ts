@@ -36,14 +36,25 @@ const ACTIONABLE_BANDS: ReadonlySet<PriorityBand> = new Set<PriorityBand>([
 ])
 
 /**
+ * How many items in this activity the employee can act on right now: the items
+ * they own plus the unclaimed items available to them. A due callback is a
+ * SUBSET of these (an owned or available ready-to-call item that happens to be
+ * due), so dueCount is NOT added here — doing so would count those items twice.
+ * dueCount is surfaced separately as a highlight within this total.
+ */
+function actionableCountOf(a: ActivityGroup): number {
+  return a.ownedCount + a.availableCount
+}
+
+/**
  * Whether an activity is actionable for THIS employee right now: an actionable
- * band with at least one item this employee can act on (owned, available to
- * pick up, or a due callback). An activity with only teammate-claimed or
- * not-eligible items is not something to recommend.
+ * band with at least one item this employee can act on (owned or available to
+ * pick up). An activity with only teammate-claimed or not-eligible items is not
+ * something to recommend.
  */
 function isActionable(a: ActivityGroup): boolean {
   if (!ACTIONABLE_BANDS.has(a.band)) return false
-  return a.ownedCount + a.availableCount + a.dueCount > 0
+  return actionableCountOf(a) > 0
 }
 
 /** The single destination the Assistant should offer for an activity: the first
@@ -113,29 +124,45 @@ export interface DirectionRow {
   route: string | null
 }
 
+/** One recommended next-action option. When several activities share the top
+ * ZEN rank they are equally appropriate, so each is presented as its own option
+ * with no invented ordering between them. */
+export interface NextActionOption {
+  workFunction: ActivityGroup['workFunction']
+  label: string
+  band: PriorityBand
+  /** The deterministic reason, reused verbatim from the activity's own
+   * ZEN-derived reason so the Assistant and the activity card never disagree. */
+  reason: string
+  heading: string
+  actionLabel: string
+  route: string | null
+  actionableCount: number
+  dueCount: number
+}
+
 /**
  * The single Daily Direction summary for My Work. 'quiet' mirrors MyWorkState:
- * nothing actionable right now. When not quiet, nextAction is the top-ranked
- * actionable activity (ZEN's #1), with its reason and a direct route; primary
- * and support list the employee's actionable responsibilities split by how the
- * work is routed to them.
+ * nothing actionable right now. When not quiet, nextAction describes what to do
+ * next; primary and support list the employee's actionable responsibilities
+ * split by how the work is routed to them.
  */
 export interface MyWorkDirection {
   /** True when the employee has no actionable work right now (open capacity). */
   quiet: boolean
-  /** The recommended next action, or null when quiet. */
+  /**
+   * The recommended next action, or null when quiet. GoRules ZEN owns the
+   * priority: the options are EVERY actionable activity sharing the highest ZEN
+   * rank. Usually that is one activity (a single recommendation). When more than
+   * one activity ties at the top rank, they are equally appropriate — `tied` is
+   * true and all co-equal options are presented WITHOUT a ranking, rather than
+   * promoting the first catalog entry as the unique winner.
+   */
   nextAction: {
-    workFunction: ActivityGroup['workFunction']
-    label: string
-    band: PriorityBand
-    /** The deterministic reason, reused verbatim from the activity's own
-     * ZEN-derived reason so the Assistant and the activity card never disagree. */
-    reason: string
-    heading: string
-    actionLabel: string
-    route: string | null
-    actionableCount: number
-    dueCount: number
+    /** True when several activities share the top rank (co-equal choices). */
+    tied: boolean
+    /** The co-equal top-rank options; a single element in the common case. */
+    options: NextActionOption[]
   } | null
   /** The employee's PRIMARY responsibilities that currently have actionable
    * work, highest priority first (ZEN rank order preserved). */
@@ -149,7 +176,9 @@ function toRow(a: ActivityGroup): DirectionRow {
   return {
     workFunction: a.workFunction,
     label: a.label,
-    actionableCount: a.ownedCount + a.availableCount + a.dueCount,
+    // owned + available only; due callbacks are a subset of these, not an
+    // addition, so they are never double-counted.
+    actionableCount: actionableCountOf(a),
     dueCount: a.dueCount,
     band: a.band,
     route: primaryRouteFor(a),
@@ -161,25 +190,38 @@ function toRow(a: ActivityGroup): DirectionRow {
  * ordered activities by rank; this reads that order, it does not re-rank.
  */
 export function deriveMyWorkDirection(state: MyWorkState): MyWorkDirection {
-  // activities arrive already sorted by ZEN rank then catalog order, so the
-  // first actionable one IS the next best action — no re-ranking here.
+  // activities arrive already sorted by ZEN rank then catalog order. The next
+  // best action is driven by the ZEN RANK only; this reads that rank and never
+  // re-ranks within it.
   const actionable = state.activities.filter(isActionable)
 
   if (actionable.length === 0) {
     return { quiet: true, nextAction: null, primary: [], support: [] }
   }
 
-  const top = actionable[0]
+  // The highest-priority rank present among actionable work (lower rank = higher
+  // priority). Every activity at this rank is EQUALLY appropriate: ZEN assigned
+  // them the same priority, so there is no winner among them. Presenting the
+  // first catalog entry as "the" recommendation would invent a ranking ZEN did
+  // not make, so all top-rank activities are offered as co-equal options.
+  const topRank = Math.min(...actionable.map((a) => a.rank))
+  const topActivities = actionable.filter((a) => a.rank === topRank)
+
+  const toOption = (a: ActivityGroup): NextActionOption => ({
+    workFunction: a.workFunction,
+    label: a.label,
+    band: a.band,
+    reason: a.reason,
+    heading: nextActionHeading(a),
+    actionLabel: actionVerb(a),
+    route: primaryRouteFor(a),
+    actionableCount: actionableCountOf(a),
+    dueCount: a.dueCount,
+  })
+
   const nextAction = {
-    workFunction: top.workFunction,
-    label: top.label,
-    band: top.band,
-    reason: top.reason,
-    heading: nextActionHeading(top),
-    actionLabel: actionVerb(top),
-    route: primaryRouteFor(top),
-    actionableCount: top.ownedCount + top.availableCount + top.dueCount,
-    dueCount: top.dueCount,
+    tied: topActivities.length > 1,
+    options: topActivities.map(toOption),
   }
 
   // Split the actionable activities by how they are routed to the employee.

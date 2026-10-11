@@ -167,31 +167,83 @@ function MyWorkAssistant({ direction }: { direction: MyWorkDirection }) {
     )
   }
 
-  const next = direction.nextAction
+  const { tied, options } = direction.nextAction
+  // The single recommendation case: exactly one activity holds the top ZEN
+  // rank. When several tie, no single heading can claim to be "the" next action
+  // without inventing a ranking ZEN did not make, so a neutral heading
+  // introduces the co-equal choices below.
+  const single = !tied ? options[0] : null
 
   return (
     <div className="[&>section]:gap-4 [&>section]:p-6 sm:[&>section]:p-7">
-      <AssistantPanel heading={<span className="text-2xl">{next.heading}</span>}>
-        {/* Why this is next: reused verbatim from the activity's ZEN-derived
-            reason, so the Assistant and the activity card never disagree. */}
-        <p className="-mt-2 max-w-prose text-sm leading-relaxed text-ink-secondary">
-          {next.reason}
-        </p>
+      <AssistantPanel
+        heading={
+          <span className="text-2xl">
+            {single
+              ? single.heading
+              : 'A few things are equally worth starting'}
+          </span>
+        }
+      >
+        {single ? (
+          <>
+            {/* Why this is next: reused verbatim from the activity's ZEN-derived
+                reason, so the Assistant and the activity card never disagree. */}
+            <p className="-mt-2 max-w-prose text-sm leading-relaxed text-ink-secondary">
+              {single.reason}
+            </p>
 
-        {/* Direct access to the recommended work. */}
-        {next.route && (
-          <Link
-            href={next.route}
-            className="inline-flex w-fit items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand-hover"
-          >
-            {next.actionLabel}
-            {next.actionableCount > 0 && (
-              <span className="rounded-full bg-brand-foreground/20 px-1.5 text-xs">
-                {next.actionableCount}
-              </span>
+            {/* Direct access to the recommended work. */}
+            {single.route && (
+              <Link
+                href={single.route}
+                className="inline-flex w-fit items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand-hover"
+              >
+                {single.actionLabel}
+                {single.actionableCount > 0 && (
+                  <span className="rounded-full bg-brand-foreground/20 px-1.5 text-xs">
+                    {single.actionableCount}
+                  </span>
+                )}
+                <ArrowRight className="size-4" aria-hidden />
+              </Link>
             )}
-            <ArrowRight className="size-4" aria-hidden />
-          </Link>
+          </>
+        ) : (
+          <>
+            {/* Several activities share the top ZEN priority. They are presented
+                as co-equal choices with NO ordering between them: ZEN ranked
+                them the same, so the Assistant invents no winner. */}
+            <p className="-mt-2 max-w-prose text-sm leading-relaxed text-ink-secondary">
+              These are at the same priority right now. Any one is a good place to
+              start.
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {options.map((o) => (
+                <div
+                  key={o.workFunction}
+                  className="flex flex-col gap-2 rounded-xl border border-brand-subtle bg-brand-wash p-4"
+                >
+                  <p className="text-sm font-semibold text-ink">{o.heading}</p>
+                  <p className="text-sm leading-relaxed text-ink-secondary">{o.reason}</p>
+                  {o.route && (
+                    <Link
+                      href={o.route}
+                      className="mt-auto inline-flex w-fit items-center gap-2 rounded-lg bg-brand px-3 py-1.5 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand-hover"
+                    >
+                      {o.actionLabel}
+                      {o.actionableCount > 0 && (
+                        <span className="rounded-full bg-brand-foreground/20 px-1.5 text-xs">
+                          {o.actionableCount}
+                        </span>
+                      )}
+                      <ArrowRight className="size-4" aria-hidden />
+                    </Link>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
         )}
 
         {/* Primary responsibilities vs Support work: two distinct listings so

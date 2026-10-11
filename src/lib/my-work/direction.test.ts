@@ -78,7 +78,7 @@ function state(activities: ActivityGroup[]): MyWorkState {
   }
 }
 
-test('direction: next action is the top-ranked actionable activity (no re-ranking)', () => {
+test('direction: next action is the single top-ranked actionable activity (no re-ranking)', () => {
   const d = deriveMyWorkDirection(
     state([
       activity({ band: 'focus', rank: 2, label: 'Outreach', availableCount: 3, reason: 'focus reason' }),
@@ -86,20 +86,57 @@ test('direction: next action is the top-ranked actionable activity (no re-rankin
     ]),
   )
   assert.equal(d.quiet, false)
-  assert.equal(d.nextAction?.label, 'Outreach')
-  assert.equal(d.nextAction?.band, 'focus')
+  // A clear top rank: a single, non-tied recommendation.
+  assert.equal(d.nextAction?.tied, false)
+  assert.equal(d.nextAction?.options.length, 1)
+  assert.equal(d.nextAction?.options[0].label, 'Outreach')
+  assert.equal(d.nextAction?.options[0].band, 'focus')
   // Reason is reused verbatim from the activity.
-  assert.equal(d.nextAction?.reason, 'focus reason')
+  assert.equal(d.nextAction?.options[0].reason, 'focus reason')
+})
+
+test('direction: activities tied at the top ZEN rank are co-equal options, no invented winner', () => {
+  // Two different activities share rank 5 (equal ZEN priority). The derivation
+  // must NOT present the first catalog entry as THE recommendation.
+  const d = deriveMyWorkDirection(
+    state([
+      activity({ workFunction: 'outreach', band: 'shared', rank: 5, label: 'Outreach', availableCount: 2 }),
+      activity({ workFunction: 'research', band: 'shared', rank: 5, label: 'Research', availableCount: 4 }),
+      // A lower-priority activity (higher rank) must not appear among the top options.
+      activity({ workFunction: 'office_support', band: 'assist', rank: 6, label: 'Office support', availableCount: 1 }),
+    ]),
+  )
+  assert.equal(d.nextAction?.tied, true)
+  assert.deepEqual(
+    (d.nextAction?.options ?? []).map((o) => o.label).sort(),
+    ['Outreach', 'Research'],
+  )
+  // The rank-6 activity is not promoted into the top-rank options.
+  assert.ok(!(d.nextAction?.options ?? []).some((o) => o.label === 'Office support'))
 })
 
 test('direction: a due date-only callback surfaces its due count on the next action', () => {
   const d = deriveMyWorkDirection(
     state([activity({ band: 'due_callback', rank: 3, label: 'Outreach', availableCount: 2, dueCount: 2 })]),
   )
-  assert.equal(d.nextAction?.dueCount, 2)
+  const opt = d.nextAction?.options[0]
+  assert.equal(opt?.dueCount, 2)
   // No invented clock time anywhere in the heading/label.
-  assert.doesNotMatch(d.nextAction?.heading ?? '', /\d{1,2}:\d{2}/)
-  assert.doesNotMatch(d.nextAction?.actionLabel ?? '', /\d{1,2}:\d{2}/)
+  assert.doesNotMatch(opt?.heading ?? '', /\d{1,2}:\d{2}/)
+  assert.doesNotMatch(opt?.actionLabel ?? '', /\d{1,2}:\d{2}/)
+})
+
+test('direction: due callbacks are a SUBSET of actionable work, never double-counted', () => {
+  // 1 owned + 2 available = 3 actionable; dueCount is a highlight within those
+  // (a due item is itself owned or available), so it must NOT be added again.
+  const d = deriveMyWorkDirection(
+    state([activity({ band: 'due_callback', rank: 3, label: 'Outreach', ownedCount: 1, availableCount: 2, dueCount: 2 })]),
+  )
+  assert.equal(d.nextAction?.options[0].actionableCount, 3)
+  assert.equal(d.nextAction?.options[0].dueCount, 2)
+  // The Primary/Support row for the same activity uses the same corrected total.
+  const row = [...d.primary, ...d.support].find((r) => r.label === 'Outreach')
+  assert.equal(row?.actionableCount, 3)
 })
 
 test('direction: awareness-only standings are never recommended and never quiet-breaking', () => {
@@ -139,19 +176,20 @@ test('direction: Primary and Support are split by the stored routing (routedAs)'
   assert.deepEqual(d.support.map((r) => r.label).sort(), ['Determination', 'Research'])
 })
 
-test('direction: actionableCount counts owned + available + due only', () => {
+test('direction: actionableCount counts owned + available only (due is a subset)', () => {
   const d = deriveMyWorkDirection(
     state([
       activity({ band: 'owned', rank: 4, ownedCount: 2, availableCount: 1, dueCount: 1, claimedByOthersCount: 3 }),
     ]),
   )
-  // 2 owned + 1 available + 1 due = 4; the 3 teammate-claimed are excluded.
-  assert.equal(d.nextAction?.actionableCount, 4)
+  // 2 owned + 1 available = 3; the due item is already one of those, and the 3
+  // teammate-claimed are excluded. The due count is NOT added on top.
+  assert.equal(d.nextAction?.options[0].actionableCount, 3)
 })
 
 test('direction: a direct route is taken from an actionable source', () => {
   const d = deriveMyWorkDirection(
     state([activity({ band: 'shared', rank: 5, workFunction: 'outreach', availableCount: 2 })]),
   )
-  assert.equal(d.nextAction?.route, '/stewardship?wf=outreach')
+  assert.equal(d.nextAction?.options[0].route, '/stewardship?wf=outreach')
 })
