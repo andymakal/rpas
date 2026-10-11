@@ -80,8 +80,15 @@ A bare `customers ( ... )` select throws "more than one relationship found".
 - `cases.internal_status` is a TEXT FK to `stage_translations`. Never render it
   directly; always display `stage_translations.agency_label`.
 - Tier (1/2/3) is derived from `stage_translations`, never stored.
-- GDC is never stored; compute `annual_premium × products.gdc_multiplier` at
-  query time.
+- GDC has two distinct meanings; keep them separate. Actual Allstate production
+  credit is stored: the GDC import (`/admin/gdc-import`) parses the Allstate
+  compensation report into `gdc_records` (`production_credit`, `policy_count`,
+  `app_date`, `process_date`, per agency), and the scorecard sums
+  `production_credit` for the YTD/quarter GDC figures. Separately,
+  `products.gdc_multiplier` drives a computed/estimated GDC used as a projection
+  basis; that estimate is derived at query time, not stored. When wording or
+  code touches GDC, be explicit about which one you mean — imported actuals
+  (`gdc_records`) versus a multiplier-based estimate.
 - `is_test = false` on every user-facing query; test records never surface.
 - Recommendations inform; a human decides consequential business outcomes. No
   automatic terminal state (lost/closed) is set by the system.
