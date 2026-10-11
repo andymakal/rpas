@@ -41,10 +41,11 @@ export interface QueueCandidate {
 }
 
 /**
- * A customer we promised to call back on or before today (date-only
- * callback_date on an open ready-to-call item). This is surfaced as a due
- * PRIORITY, not an exact-time commitment: Right Path records only a date, so
- * there is no specific clock time and it must never be presented as one.
+ * A customer we promised to call back on or before today, judged on the
+ * business calendar (not the server clock). This is DATE-ONLY due work: Right
+ * Path records a date with no clock time, so it is surfaced as due action work,
+ * never as a fixed-time commitment that interrupts or automatically outranks
+ * everything. A specific clock time must never be invented or displayed for it.
  */
 export interface DueCallback {
   /** The stewardship_outreach row id (opens that customer's call task). */
@@ -79,18 +80,24 @@ export type NextActionKind =
   | 'ready_to_call'
   | 'ready_to_email'
   | 'research_needed'
-  | 'action'
   | 'waiting'
   | 'none'
 
-/** The normalized facts handed to the Next Best Action ZEN decision. */
+/**
+ * The normalized facts handed to the Next Best Action ZEN decision. These are
+ * independent PRESENCE signals: the composition reports what work exists and
+ * ZEN alone decides the priority order between them. No TypeScript picks a
+ * "top" queue, so no priority ordering is duplicated outside the rule.
+ */
 export interface NextBestActionFacts {
-  /** A promised callback is due on or before today. */
+  /** A promised callback is DUE (date-only, on or before today on the business calendar). */
   hasCallbackDue: boolean
-  /** At least one action queue currently has work. */
-  hasActionWork: boolean
-  /** The top action queue by priority, or 'none' when there is no action work. */
-  topActionQueue: OutreachQueue | 'none'
+  /** Ready-to-call work exists. */
+  hasReadyToCall: boolean
+  /** Ready-to-email work exists. */
+  hasReadyToEmail: boolean
+  /** Research-needed (exception) work exists. */
+  hasResearchNeeded: boolean
   /** At least one waiting queue currently has work. */
   hasWaitingWork: boolean
 }

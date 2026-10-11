@@ -15,9 +15,14 @@
  *     the SAME read the board route uses. No new table, column, or workflow
  *     state is introduced; existing Stewardship transitions are untouched.
  *   - A date-only promised callback (callback_date on an open ready-to-call
- *     item, due on or before today on the server's local calendar day) is a
- *     due-callback PRIORITY, never an exact-time commitment. Right Path records
- *     no clock time for it, so none is invented or displayed.
+ *     item, due on or before today ON THE BUSINESS CALENDAR) is DUE WORK, never
+ *     an exact-time commitment and never a fixed-time interruption that
+ *     automatically outranks everything. Right Path records no clock time for
+ *     it, so none is invented or displayed, and the due test uses the business
+ *     calendar, not the server's clock.
+ *   - READ-ONLY: evaluation never writes. It applies the board's follow-up
+ *     routing rule in memory for counting but persists nothing; the board route
+ *     remains the sole writer of that transition.
  *   - No employee capabilities / ownership and no producer appointments are
  *     modeled: Right Path does not record them yet, so they are not invented.
  */
@@ -27,22 +32,37 @@ import { QUEUE_META, OUTREACH_QUEUES, deriveFollowUpRouting, type OutreachQueue 
 import { decideDailyDirection } from './engine'
 import type { DailyDirectionState, QueueCandidate, DueCallback } from './types'
 
-/** The Stewardship board route. The board is client-navigated, so the Assistant
- * links to the board surface itself; a `queue` hint is carried for future
- * deep-linking without changing the existing board behavior. */
+/** The Stewardship board route. The board opens the matching queue list when it
+ * receives a `queue` param, so the Assistant links straight into that queue. */
 const STEWARDSHIP_ROUTE = '/stewardship'
 
 function routeForQueue(queue: OutreachQueue): string {
   return `${STEWARDSHIP_ROUTE}?queue=${encodeURIComponent(queue)}`
 }
 
-/** Today's date on the server's local calendar, as YYYY-MM-DD, for comparing
- * against the date-only callback_date. Date-only in, date-only out. */
-function todayDateString(now: Date): string {
-  const y = now.getFullYear()
-  const m = String(now.getMonth() + 1).padStart(2, '0')
-  const d = String(now.getDate()).padStart(2, '0')
-  return `${y}-${m}-${d}`
+/**
+ * The business calendar used to judge date-only work. Right Path (Makal
+ * Financial) operates on US Central time, which is also the IPF default
+ * business calendar. Date-only callback dates are compared against "today" on
+ * THIS calendar, never the server's UTC/local clock, so a callback promised for
+ * a given calendar day is due on that day for the agency regardless of where
+ * the server runs.
+ */
+const BUSINESS_TIME_ZONE = 'America/Chicago'
+
+/**
+ * Today's date on the business calendar as YYYY-MM-DD, for comparing against the
+ * date-only callback_date. DST-correct via Intl; date-only in, date-only out.
+ */
+function businessToday(now: Date): string {
+  // en-CA formats as YYYY-MM-DD, which sorts/compares correctly against the
+  // date-only callback_date strings.
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: BUSINESS_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(now)
 }
 
 type BoardRow = {
@@ -74,25 +94,6 @@ export async function getDailyDirection(
   const now = options.now ?? new Date()
   const supabase = createAdminClient()
 
-  // Deterministic follow-up routing, same as the board read: promote overdue
-  // waiting-for-response items to Ready to Call (no-response) and persist the
-  // move, so the Assistant sees the same board the operator will.
-  const { data: waiting } = await supabase
-    .from('stewardship_outreach')
-    .select('id, follow_up_due')
-    .eq('queue', 'waiting-for-response')
-    .not('follow_up_due', 'is', null)
-    .lte('follow_up_due', now.toISOString())
-  for (const w of (waiting ?? []) as { id: string; follow_up_due: string | null }[]) {
-    const patch = deriveFollowUpRouting(
-      { queue: 'waiting-for-response', follow_up_due: w.follow_up_due },
-      now,
-    )
-    if (patch) {
-      await supabase.from('stewardship_outreach').update(patch).eq('id', w.id)
-    }
-  }
-
   const { data, error } = await supabase
     .from('stewardship_outreach')
     .select(`
@@ -114,11 +115,26 @@ export async function getDailyDirection(
     (r) => r.customer_prereviews?.decision == null,
   )
 
-  // Per-queue counts across all open items.
+  // READ-ONLY follow-up routing. The board route persists the promotion of
+  // overdue waiting-for-response items to Ready to Call; Daily Direction only
+  // EVALUATES, so it applies the SAME deterministic rule (deriveFollowUpRouting)
+  // in memory to decide which queue each row counts in, and writes nothing. The
+  // operator opening the board is what durably moves the row. Computing the
+  // effective queue here keeps the Assistant consistent with the board the
+  // operator will see, without duplicating the board's write.
+  const effectiveQueue = (r: BoardRow): OutreachQueue => {
+    const patch = deriveFollowUpRouting(
+      { queue: r.queue, follow_up_due: r.follow_up_due },
+      now,
+    )
+    return (patch?.queue as OutreachQueue | undefined) ?? r.queue
+  }
+
+  // Per-queue counts across all open items, by effective (read-only) queue.
   const counts = Object.fromEntries(
     OUTREACH_QUEUES.map((q) => [q, 0]),
   ) as Record<OutreachQueue, number>
-  for (const r of rows) counts[r.queue] += 1
+  for (const r of rows) counts[effectiveQueue(r)] += 1
 
   const queues: QueueCandidate[] = OUTREACH_QUEUES.filter((q) => counts[q] > 0).map((q) => ({
     queue: q,
@@ -129,12 +145,13 @@ export async function getDailyDirection(
   }))
 
   // Due callbacks: an open ready-to-call item with a date-only callback_date on
-  // or before today. Surfaced as a priority, never an exact-time commitment.
-  const today = todayDateString(now)
+  // or before today ON THE BUSINESS CALENDAR. This is date-only due work, never
+  // an exact-time commitment: no clock time is read, invented, or displayed.
+  const today = businessToday(now)
   const dueCallbacks: DueCallback[] = rows
     .filter(
       (r) =>
-        r.queue === 'ready-to-call' &&
+        effectiveQueue(r) === 'ready-to-call' &&
         r.callback_date != null &&
         r.callback_date <= today,
     )

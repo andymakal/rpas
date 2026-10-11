@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getDailyDirection } from '@/lib/daily-direction/stewardship'
 import type { DailyDirectionState } from '@/lib/daily-direction/types'
 import { DailyDirectionBriefing } from '@/components/workflow/daily-direction'
+import { OUTREACH_QUEUES, type OutreachQueue } from '@/lib/stewardship/queues'
 import { StewardshipClient } from './StewardshipClient'
 
 export const metadata: Metadata = { title: 'Stewardship' }
@@ -13,10 +14,18 @@ export type AgencyOption = { id: string; name: string }
 export default async function StewardshipPage({
   searchParams,
 }: {
-  searchParams: Promise<{ project_id?: string }>
+  searchParams: Promise<{ project_id?: string; queue?: string }>
 }) {
-  const { project_id: projectId } = await searchParams
+  const { project_id: projectId, queue: queueParam } = await searchParams
   const supabase = createAdminClient()
+
+  // A `queue` param (used by the Assistant's links) opens that queue's list
+  // directly on load. Validate it against the known queues; an unknown value is
+  // ignored and the board opens normally.
+  const initialQueue: OutreachQueue | null =
+    queueParam && (OUTREACH_QUEUES as readonly string[]).includes(queueParam)
+      ? (queueParam as OutreachQueue)
+      : null
 
   const { data: agencies } = await supabase
     .from('agencies')
@@ -64,7 +73,7 @@ export default async function StewardshipPage({
           <DailyDirectionBriefing state={dailyDirection} />
         </div>
       )}
-      <StewardshipClient agencies={agencyOptions} project={project} />
+      <StewardshipClient agencies={agencyOptions} project={project} initialQueue={initialQueue} />
     </div>
   )
 }

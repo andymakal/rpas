@@ -157,8 +157,6 @@ function nextActionHeading(state: DailyDirectionState): string {
         : `Send ${state.actionCount} servicing-agent emails`
     case 'research_needed':
       return 'Research missing contact information'
-    case 'action':
-      return 'Work the next action queue'
     case 'waiting':
       return 'Nothing to push right now'
     case 'none':

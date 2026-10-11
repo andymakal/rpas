@@ -1,5 +1,5 @@
 {
-  "_comment": "Right Path Daily Direction / Next Best Action decision. Adapted from IPF (bobpfromm/ipf-stewardship) src/rules/next-best-action.json, which is the established GoRules ZEN decision layer. This is a first-slice adaptation to the facts Right Path actually records today: the shared Stewardship outreach board. Right Path does not yet record employee capabilities, producer appointments, or exact-time commitments, so the owned/support and exact-time-commitment inputs of the IPF rule are intentionally not present here (they must not be invented). As Right Path gains those records, add the corresponding inputs/rows to converge on the full IPF rule rather than branching in TypeScript. ZEN owns the priority ordering; TypeScript only normalizes facts and renders prose. Date-only callbacks are surfaced as a due-callback PRIORITY, never as an exact-time commitment.",
+  "_comment": "Right Path Daily Direction / Next Best Action decision. Adapted from IPF (bobpfromm/ipf-stewardship) src/rules/next-best-action.json, the established GoRules ZEN decision layer. ZEN owns ALL priority ordering: the composition passes only the independent presence of each kind of work and lets these ordered rows decide which wins. No priority is encoded in TypeScript. The ordering reflects only established Right Path distinctions and invents none: a promised callback that is DUE is due action work surfaced distinctly; ready-to-call and ready-to-email are both ordinary outreach action work with NO preference between them (the board groups them together and no business rule ranks calls over emails); research-needed is explicitly the exception path on the board, so it comes after ordinary action work; waiting states come last; an empty board is open capacity. A date-only callback is DUE WORK, not a fixed-time interruption, so it does not automatically outrank all other work.",
   "nodes": [
     {
       "id": "input",
@@ -16,10 +16,11 @@
       "content": {
         "hitPolicy": "first",
         "inputs": [
-          { "id": "i1", "name": "Callback due today", "field": "hasCallbackDue" },
-          { "id": "i2", "name": "Action work available", "field": "hasActionWork" },
-          { "id": "i3", "name": "Top action queue", "field": "topActionQueue" },
-          { "id": "i4", "name": "Waiting work exists", "field": "hasWaitingWork" }
+          { "id": "i1", "name": "Callback due", "field": "hasCallbackDue" },
+          { "id": "i2", "name": "Ready to call", "field": "hasReadyToCall" },
+          { "id": "i3", "name": "Ready to email", "field": "hasReadyToEmail" },
+          { "id": "i4", "name": "Research needed", "field": "hasResearchNeeded" },
+          { "id": "i5", "name": "Waiting work", "field": "hasWaitingWork" }
         ],
         "outputs": [
           { "id": "o1", "name": "Next action kind", "field": "nextActionKind" },
@@ -28,71 +29,67 @@
         "rules": [
           {
             "_id": "r1",
-            "_description": "A customer we promised to call back today controls the day: a kept commitment outranks ordinary queue work. Date-only callback, surfaced as a priority, not an exact-time reminder.",
+            "_description": "A customer we promised a callback that is now due is due action work and is surfaced first among action work (a kept commitment that has come due). Date-only: due work, not a fixed-time interruption.",
             "i1": "true",
             "i2": "",
             "i3": "",
             "i4": "",
+            "i5": "",
             "o1": "\"callback_due\"",
-            "o2": "\"callback_due_today\""
+            "o2": "\"callback_due\""
           },
           {
             "_id": "r2",
-            "_description": "No callback is due. Ready-to-call work is the next action when it is the top action queue: a reached call moves a customer forward fastest.",
+            "_description": "Ordinary outreach action work: ready-to-call. Ready-to-call and ready-to-email are peers (no business rule ranks one above the other); when both are present either row matching first is immaterial because both resolve to ordinary outreach. Ready-to-call is listed first only so a single kind can be named, not as a preference.",
             "i1": "false",
             "i2": "true",
-            "i3": "\"ready-to-call\"",
+            "i3": "",
             "i4": "",
+            "i5": "",
             "o1": "\"ready_to_call\"",
-            "o2": "\"ready_to_call_work\""
+            "o2": "\"outreach_work\""
           },
           {
             "_id": "r3",
-            "_description": "Ready-to-email work is the next action when it is the top action queue.",
+            "_description": "Ordinary outreach action work: ready-to-email, when there is no ready-to-call work. Same tier as ready-to-call.",
             "i1": "false",
-            "i2": "true",
-            "i3": "\"ready-to-email\"",
+            "i2": "false",
+            "i3": "true",
             "i4": "",
+            "i5": "",
             "o1": "\"ready_to_email\"",
-            "o2": "\"ready_to_email_work\""
+            "o2": "\"outreach_work\""
           },
           {
             "_id": "r4",
-            "_description": "Research-needed is exception work: it is the next action only when it is the top action queue (no ready-to-call or ready-to-email work remains).",
+            "_description": "Research-needed is the explicit EXCEPTION path on the board, so it comes after ordinary outreach action work: it is the next action only when no ordinary outreach remains.",
             "i1": "false",
-            "i2": "true",
-            "i3": "\"research-needed\"",
-            "i4": "",
+            "i2": "false",
+            "i3": "false",
+            "i4": "true",
+            "i5": "",
             "o1": "\"research_needed\"",
             "o2": "\"research_needed_work\""
           },
           {
             "_id": "r5",
-            "_description": "Any other action work available: do it.",
-            "i1": "false",
-            "i2": "true",
-            "i3": "",
-            "i4": "",
-            "o1": "\"action\"",
-            "o2": "\"action_work\""
-          },
-          {
-            "_id": "r6",
             "_description": "No action work, but items are waiting on customers or carriers: nothing to push right now, work is in flight.",
             "i1": "false",
             "i2": "false",
-            "i3": "",
-            "i4": "true",
+            "i3": "false",
+            "i4": "false",
+            "i5": "true",
             "o1": "\"waiting\"",
             "o2": "\"all_waiting\""
           },
           {
-            "_id": "r7",
+            "_id": "r6",
             "_description": "Nothing needs attention: open capacity.",
             "i1": "false",
             "i2": "false",
-            "i3": "",
+            "i3": "false",
             "i4": "false",
+            "i5": "false",
             "o1": "\"none\"",
             "o2": "\"open_capacity\""
           }

@@ -90,27 +90,9 @@ export async function evaluateNextBestAction(
 // Normalization (TypeScript, no IO)
 // ---------------------------------------------------------------------------
 
-/**
- * The priority order among ACTION queues used ONLY to name the single top
- * action queue as one `topActionQueue` fact. This is candidate SELECTION, not
- * the priority DECISION: ZEN rows r2-r5 own the actual ordering and decide the
- * nextActionKind + reasonCode from the named queue. This list deliberately
- * mirrors that ordering and must not diverge from it. Waiting queues are never
- * named here as a top action queue.
- */
-const ACTION_QUEUE_PRECEDENCE: OutreachQueue[] = [
-  'ready-to-call',
-  'ready-to-email',
-  'research-needed',
-]
-
-function pickTopActionQueue(queues: QueueCandidate[]): QueueCandidate | null {
-  const action = queues.filter((q) => q.kind === 'action' && q.count > 0)
-  for (const key of ACTION_QUEUE_PRECEDENCE) {
-    const match = action.find((q) => q.queue === key)
-    if (match) return match
-  }
-  return action[0] ?? null
+/** Find a queue candidate by key, or null when it has no open work. */
+function queueByKey(queues: QueueCandidate[], key: OutreachQueue): QueueCandidate | null {
+  return queues.find((q) => q.queue === key && q.count > 0) ?? null
 }
 
 // ---------------------------------------------------------------------------
@@ -127,34 +109,29 @@ export function buildReason(
   ctx: {
     dueCallbackCount: number
     firstDueCallbackName: string | null
-    topActionQueueLabel: string | null
-    topActionQueueCount: number
+    recommendedLabel: string | null
+    recommendedCount: number
     waitingCount: number
   },
 ): string {
   switch (reasonCode) {
-    case 'callback_due_today': {
+    case 'callback_due': {
       if (ctx.dueCallbackCount === 1) {
         const who = ctx.firstDueCallbackName ?? 'a customer'
-        return `You promised ${who} a callback that is due. A kept commitment comes before ordinary queue work.`
+        return `You promised ${who} a callback that is now due. A kept commitment that has come due is the action work to pick up first.`
       }
-      return `${ctx.dueCallbackCount} customers are due the callback you promised. Kept commitments come before ordinary queue work.`
+      return `${ctx.dueCallbackCount} customers are due the callback you promised. A promised callback that has come due is the action work to pick up first.`
     }
-    case 'ready_to_call_work': {
-      const n = ctx.topActionQueueCount
-      return `${n} ${n === 1 ? 'customer is' : 'customers are'} ready to call. A reached call moves a customer forward fastest, so that is where your attention is most useful.`
-    }
-    case 'ready_to_email_work': {
-      const n = ctx.topActionQueueCount
-      return `${n} ${n === 1 ? 'customer is' : 'customers are'} ready for the initial servicing-agent email. That is the next useful work.`
+    case 'outreach_work': {
+      // ZEN decided ordinary outreach is the next action. The reason states the
+      // recommended queue and its count without ranking calls against emails.
+      const label = ctx.recommendedLabel ?? 'Outreach'
+      const n = ctx.recommendedCount
+      return `${n} ${n === 1 ? 'customer is' : 'customers are'} in ${label}. That is the next outreach work to pick up.`
     }
     case 'research_needed_work': {
-      const n = ctx.topActionQueueCount
-      return `No call or email work is waiting. ${n} ${n === 1 ? 'item needs' : 'items need'} contact research before outreach can continue.`
-    }
-    case 'action_work': {
-      const label = ctx.topActionQueueLabel ?? 'Action work'
-      return `${label} is the next action work that needs attention.`
+      const n = ctx.recommendedCount
+      return `No ordinary outreach is waiting. ${n} ${n === 1 ? 'item needs' : 'items need'} contact research (the exception path) before outreach can continue.`
     }
     case 'all_waiting': {
       const n = ctx.waitingCount
@@ -179,54 +156,69 @@ export function buildReason(
 export async function decideDailyDirection(
   candidates: DailyDirectionCandidates,
 ): Promise<DailyDirectionState> {
-  const topAction = pickTopActionQueue(candidates.queues)
+  const readyToCall = queueByKey(candidates.queues, 'ready-to-call')
+  const readyToEmail = queueByKey(candidates.queues, 'ready-to-email')
+  const researchNeeded = queueByKey(candidates.queues, 'research-needed')
   const waitingQueues = candidates.queues.filter((q) => q.kind === 'waiting' && q.count > 0)
-  const hasActionWork = topAction != null
-  const hasWaitingWork = waitingQueues.length > 0
-  const hasCallbackDue = candidates.dueCallbacks.length > 0
+  const waitingCount = waitingQueues.reduce((sum, q) => sum + q.count, 0)
 
+  // Independent presence facts: the composition reports WHAT work exists; ZEN
+  // alone decides which comes first. No TypeScript ordering here.
   const facts: NextBestActionFacts = {
-    hasCallbackDue,
-    hasActionWork,
-    topActionQueue: topAction?.queue ?? 'none',
-    hasWaitingWork,
+    hasCallbackDue: candidates.dueCallbacks.length > 0,
+    hasReadyToCall: readyToCall != null,
+    hasReadyToEmail: readyToEmail != null,
+    hasResearchNeeded: researchNeeded != null,
+    hasWaitingWork: waitingQueues.length > 0,
   }
 
   const verdict = await evaluateNextBestAction(facts)
 
-  const waitingCount = waitingQueues.reduce((sum, q) => sum + q.count, 0)
-  const reason = buildReason(verdict.reasonCode, {
-    dueCallbackCount: candidates.dueCallbacks.length,
-    firstDueCallbackName: candidates.dueCallbacks[0]?.personName ?? null,
-    topActionQueueLabel: topAction?.label ?? null,
-    topActionQueueCount: topAction?.count ?? 0,
-    waitingCount,
-  })
-
-  // Resolve the route + action count for the recommended next action.
+  // Resolve the route + count + label for whatever ZEN chose. This is a pure
+  // lookup of the already-decided verdict, not a second priority decision.
   let route: string | null = null
   let actionCount = 0
+  let recommendedLabel: string | null = null
   switch (verdict.nextActionKind) {
     case 'callback_due':
-      route = candidates.dueCallbacks[0]?.route ?? null
+      // Date-only due callbacks open the Ready to Call queue (where they live).
+      route = candidates.dueCallbacks[0]?.route ?? readyToCall?.route ?? null
       actionCount = candidates.dueCallbacks.length
+      recommendedLabel = QUEUE_META['ready-to-call'].label
       break
     case 'ready_to_call':
+      route = readyToCall?.route ?? null
+      actionCount = readyToCall?.count ?? 0
+      recommendedLabel = readyToCall?.label ?? null
+      break
     case 'ready_to_email':
+      route = readyToEmail?.route ?? null
+      actionCount = readyToEmail?.count ?? 0
+      recommendedLabel = readyToEmail?.label ?? null
+      break
     case 'research_needed':
-    case 'action':
-      route = topAction?.route ?? null
-      actionCount = topAction?.count ?? 0
+      route = researchNeeded?.route ?? null
+      actionCount = researchNeeded?.count ?? 0
+      recommendedLabel = researchNeeded?.label ?? null
       break
     case 'waiting':
       route = waitingQueues[0]?.route ?? null
       actionCount = waitingCount
+      recommendedLabel = waitingQueues[0]?.label ?? null
       break
     case 'none':
       route = null
       actionCount = 0
       break
   }
+
+  const reason = buildReason(verdict.reasonCode, {
+    dueCallbackCount: candidates.dueCallbacks.length,
+    firstDueCallbackName: candidates.dueCallbacks[0]?.personName ?? null,
+    recommendedLabel,
+    recommendedCount: actionCount,
+    waitingCount,
+  })
 
   const availableWork: AvailableWorkItem[] = candidates.queues
     .filter((q) => q.count > 0)

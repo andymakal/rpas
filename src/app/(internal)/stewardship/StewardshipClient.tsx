@@ -115,17 +115,21 @@ function currency(n: number | null) {
 export function StewardshipClient({
   agencies,
   project = null,
+  initialQueue = null,
 }: {
   agencies: AgencyOption[]
   /** When set, the whole screen is scoped to this project. */
   project?: { id: string; name: string } | null
+  /** When set (via the ?queue= param, e.g. from the Assistant), the board opens
+   * directly on this queue's list instead of the queue board. */
+  initialQueue?: OutreachQueue | null
 }) {
   const [items, setItems] = useState<BoardItem[]>([])
   const [counts, setCounts] = useState<Record<OutreachQueue, number>>(
     Object.fromEntries(OUTREACH_QUEUES.map(q => [q, 0])) as Record<OutreachQueue, number>,
   )
   const [loading, setLoading] = useState(true)
-  const [openQueue, setOpenQueue] = useState<OutreachQueue | null>(null)
+  const [openQueue, setOpenQueue] = useState<OutreachQueue | null>(initialQueue)
   const [openItemId, setOpenItemId] = useState<string | null>(null)
 
   const loadBoard = useCallback(async () => {
