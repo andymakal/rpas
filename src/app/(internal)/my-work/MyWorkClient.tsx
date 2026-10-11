@@ -17,6 +17,7 @@
 import Link from 'next/link'
 import {
   Sparkles, ArrowRight, Phone, Mail, Users, CheckCircle2, Lock, Star, HandHelping,
+  NotebookPen, AlertCircle,
 } from 'lucide-react'
 import {
   WorkflowPage,
@@ -229,7 +230,7 @@ function MyWorkAssistant({ direction }: { direction: MyWorkDirection }) {
               {options.map((o) => (
                 <div
                   key={o.workFunction}
-                  className="flex flex-col gap-2 rounded-xl border border-brand-subtle bg-brand-wash p-4"
+                  className="flex flex-col gap-2 rounded-xl border border-surface-border bg-surface-card p-4"
                 >
                   <p className="text-sm font-semibold text-ink">{o.heading}</p>
                   <p className="text-sm leading-relaxed text-ink-secondary">{o.reason}</p>
@@ -258,10 +259,15 @@ function MyWorkAssistant({ direction }: { direction: MyWorkDirection }) {
             can match work to the time they have. Each item links straight to its
             queue. This informs; it forces no order and overrides no priority. */}
         {direction.workModeGroups.length > 0 && (
-          <div className="grid gap-3 border-t border-surface-border pt-4 sm:grid-cols-2">
-            {direction.workModeGroups.map((g) => (
-              <WorkModeGroupCard key={g.mode} group={g} />
-            ))}
+          <div className="space-y-2 border-t border-surface-border pt-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-supporting">
+              Ways to work right now
+            </p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {direction.workModeGroups.map((g) => (
+                <WorkModeGroupCard key={g.mode} group={g} />
+              ))}
+            </div>
           </div>
         )}
 
@@ -289,30 +295,60 @@ function MyWorkAssistant({ direction }: { direction: MyWorkDirection }) {
   )
 }
 
-/** One work-mode group inside the Assistant: quiet focus work or live phone
- * outreach. Shows the practice note once for the group, then each item with its
- * actionable count and a direct link. The two groups are peers (no order
- * between them), so the worker chooses what fits their time. */
+/** The bands that represent a GENUINE customer commitment or exception, which
+ * must stand out. These are the only items the work-mode listing escalates
+ * visually; everything else is routine work and stays calm, so emphasis never
+ * implies urgency GoRules has not established. */
+const COMMITMENT_BANDS = new Set<PriorityBand>(['exact_time_commitment', 'due_callback'])
+
+/**
+ * One work-mode group inside the Assistant: quiet focus work or live phone
+ * outreach. The two are peers (no order between them), so a worker picks what
+ * fits their time. Visual hierarchy follows the IPF Home reference, expressed in
+ * Right Path tokens: live phone outreach carries a restrained brand left-accent
+ * (the more active mode), quiet focus work is a recessive neutral surface, and
+ * the full teal fill stays reserved for the single recommended action above.
+ */
 function WorkModeGroupCard({ group }: { group: WorkModeGroup }) {
   const isCalls = group.mode === 'calls'
-  const Icon = isCalls ? Phone : Sparkles
+  const Icon = isCalls ? Phone : NotebookPen
   const title = isCalls ? 'Live phone outreach' : 'Quiet focus work'
   return (
-    <div className="rounded-xl border border-brand-subtle bg-brand-wash p-4">
+    <div
+      className={cn(
+        'rounded-xl border border-l-4 p-4',
+        // Calls = active mode: subtle brand accent. Quiet = recessive neutral.
+        isCalls
+          ? 'border-surface-border border-l-brand-ring bg-surface-card'
+          : 'border-surface-border border-l-surface-border-strong bg-surface-muted',
+      )}
+    >
       <p className="flex items-center gap-1.5 text-sm font-semibold text-ink">
-        <Icon className="size-4 text-brand-hover" aria-hidden />
+        <Icon className={cn('size-4', isCalls ? 'text-brand-hover' : 'text-ink-supporting')} aria-hidden />
         {title}
       </p>
       <p className="mt-0.5 text-xs leading-relaxed text-ink-supporting">
         {WORK_MODE_NOTE[group.mode]}
       </p>
-      <ul className="mt-2 space-y-1">
+      <ul className="mt-2.5 space-y-1">
         {group.items.map((item) => {
+          // A genuine commitment/exception stands out (amber exception tone +
+          // icon); routine work stays calm. Color never carries meaning alone.
+          const isCommitment = COMMITMENT_BANDS.has(item.band)
           const body = (
             <>
-              <span className="truncate text-ink">{item.label}</span>
+              <span className="flex min-w-0 items-center gap-1.5">
+                {isCommitment && (
+                  <AlertCircle className="size-3.5 shrink-0 text-tag-exception-text" aria-hidden />
+                )}
+                <span className={cn('truncate', isCommitment ? 'font-medium text-ink' : 'text-ink-secondary')}>
+                  {item.label}
+                </span>
+              </span>
               <span className="flex shrink-0 items-center gap-2">
-                <span className="font-semibold text-brand-hover">{item.actionableCount}</span>
+                <span className={cn('font-semibold', isCommitment ? 'text-tag-exception-text' : 'text-ink')}>
+                  {item.actionableCount}
+                </span>
                 {item.route && <ArrowRight className="size-4 text-ink-muted" aria-hidden />}
               </span>
             </>
@@ -322,7 +358,10 @@ function WorkModeGroupCard({ group }: { group: WorkModeGroup }) {
               {item.route ? (
                 <Link
                   href={item.route}
-                  className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm hover:bg-surface-card"
+                  className={cn(
+                    'flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm transition-colors',
+                    isCommitment ? 'bg-tag-exception-fill hover:bg-tag-exception-fill/70' : 'hover:bg-surface-muted',
+                  )}
                 >
                   {body}
                 </Link>
@@ -407,11 +446,19 @@ const AWARENESS_BANDS = new Set<PriorityBand>(['unassigned', 'unlicensed'])
 function ActivityCard({ activity }: { activity: ActivityGroup }) {
   const awarenessOnly = AWARENESS_BANDS.has(activity.band)
   const guidance = activityGuidance(activity.workFunction)
+  // Three visual tiers so emphasis matches meaning, never implying urgency ZEN
+  // did not set: a genuine commitment/exception stands out (amber left-accent),
+  // routine actionable work is a neutral card, and awareness-only work recedes.
+  const isCommitment = COMMITMENT_BANDS.has(activity.band)
   return (
     <article
       className={cn(
         'rounded-2xl border bg-surface-card p-5',
-        awarenessOnly ? 'border-surface-border opacity-90' : 'border-brand-subtle',
+        isCommitment
+          ? 'border-l-4 border-surface-border border-l-tag-exception-border'
+          : awarenessOnly
+            ? 'border-surface-border opacity-90'
+            : 'border-surface-border',
       )}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -453,9 +500,15 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
           )}
         </div>
 
-        {/* Count summary: total, with owned/shared split so sharing is visible. */}
+        {/* Count summary: total, with owned/shared split so sharing is visible.
+            The number is a strong neutral by default; it takes the brand accent
+            only for a genuine commitment/exception, so teal signals emphasis
+            rather than coating every card. */}
         <div className="shrink-0 text-right">
-          <p className="text-3xl font-semibold leading-none text-brand-hover">{activity.totalCount}</p>
+          <p className={cn(
+            'text-3xl font-semibold leading-none',
+            isCommitment ? 'text-tag-exception-text' : 'text-ink',
+          )}>{activity.totalCount}</p>
           {/* Distinct claim states for THIS employee: never conflate another
               teammate's claimed work with free shared work. */}
           <p className="mt-1 text-xs text-ink-supporting">
