@@ -1,0 +1,104 @@
+{
+  "_comment": "Right Path MY WORK ordering decision. Adapted from IPF (bobpfromm/ipf-stewardship) src/rules/next-best-action.json — the established GoRules ZEN decision layer that owns ALL priority judgment. This decision classifies ONE activity group (a business activity the signed-in employee may act on) into a priority BAND, given independent presence facts the composition supplies. ZEN owns the ordering between bands; TypeScript owns normalization and never ranks. The ordering reflects ONLY established Right Path decisions and invents none: (a) a DUE customer commitment (a promised callback that has come due) outranks focus-based ordering — Today's Focus influences priority but never overrides a customer commitment; (b) within focus, management direction elevates ELIGIBLE work the employee can actually perform (focus never grants eligibility it lacks); (c) owned/claimed eligible work the employee committed to comes before unclaimed shared work; (d) unclaimed shared work the employee is eligible for is ordinary pickup work; (e) work the employee is NOT eligible for is visible but ranked last (shown for awareness, never routed to them). Focus NEVER disables a band — it only reorders — so ineligible and non-focus work still appear.",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "inputNode",
+      "name": "Activity group facts",
+      "position": { "x": 0, "y": 150 },
+      "content": {}
+    },
+    {
+      "id": "my-work-band-table",
+      "type": "decisionTableNode",
+      "name": "Activity priority band",
+      "position": { "x": 300, "y": 150 },
+      "content": {
+        "hitPolicy": "first",
+        "inputs": [
+          { "id": "i1", "name": "Has a due customer commitment", "field": "hasDueCommitment" },
+          { "id": "i2", "name": "Employee is eligible for this activity", "field": "isEligible" },
+          { "id": "i3", "name": "Elevated by Today's Focus", "field": "isFocusElevated" },
+          { "id": "i4", "name": "Employee owns (claimed) work here", "field": "hasOwnedWork" }
+        ],
+        "outputs": [
+          { "id": "o1", "name": "Priority band", "field": "band" },
+          { "id": "o2", "name": "Band rank (lower = higher priority)", "field": "rank" },
+          { "id": "o3", "name": "Reason code", "field": "reasonCode" }
+        ],
+        "rules": [
+          {
+            "_id": "r1",
+            "_description": "A due customer commitment outranks everything, including Today's Focus. A promised callback that has come due is a commitment to the customer; focus influences ordering but never overrides it. Surfaced only for activities the employee is eligible to act on.",
+            "i1": "true",
+            "i2": "true",
+            "i3": "",
+            "i4": "",
+            "o1": "\"due_commitment\"",
+            "o2": "1",
+            "o3": "\"due_customer_commitment\""
+          },
+          {
+            "_id": "r2",
+            "_description": "Focus-elevated AND eligible: management has directed attention here and the employee can actually perform it. Focus elevates only eligible work; it never grants eligibility.",
+            "i1": "",
+            "i2": "true",
+            "i3": "true",
+            "i4": "",
+            "o1": "\"focus\"",
+            "o2": "2",
+            "o3": "\"focus_elevated\""
+          },
+          {
+            "_id": "r3",
+            "_description": "Owned (claimed) eligible work the employee committed to, when not elevated by focus. Comes before unclaimed shared work.",
+            "i1": "",
+            "i2": "true",
+            "i3": "false",
+            "i4": "true",
+            "o1": "\"owned\"",
+            "o2": "3",
+            "o3": "\"owned_work\""
+          },
+          {
+            "_id": "r4",
+            "_description": "Unclaimed shared work the employee is eligible for: ordinary pickup work, shared by default.",
+            "i1": "",
+            "i2": "true",
+            "i3": "false",
+            "i4": "false",
+            "o1": "\"shared\"",
+            "o2": "4",
+            "o3": "\"eligible_shared_work\""
+          },
+          {
+            "_id": "r5",
+            "_description": "Work the employee is NOT eligible for. Visible for awareness (the activity still exists and matters), but ranked last and never routed to this employee.",
+            "i1": "",
+            "i2": "false",
+            "i3": "",
+            "i4": "",
+            "o1": "\"ineligible\"",
+            "o2": "5",
+            "o3": "\"not_eligible\""
+          }
+        ],
+        "passThrough": true,
+        "inputField": null,
+        "outputPath": null,
+        "executionMode": "single"
+      }
+    },
+    {
+      "id": "output",
+      "type": "outputNode",
+      "name": "Response",
+      "position": { "x": 600, "y": 150 },
+      "content": {}
+    }
+  ],
+  "edges": [
+    { "id": "e1", "sourceId": "input", "targetId": "my-work-band-table", "sourceHandle": null, "type": "edge" },
+    { "id": "e2", "sourceId": "my-work-band-table", "targetId": "output", "sourceHandle": null, "type": "edge" }
+  ]
+}

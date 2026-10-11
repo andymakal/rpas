@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import {
   Mail, Phone, Search, Inbox, FileText, Building2, Check, ExternalLink,
-  Clock, CircleAlert, Play, PenLine, MailX,
+  Clock, CircleAlert, Play, PenLine, MailX, Hand, UserCheck,
 } from 'lucide-react'
 import {
   WorkflowPage, WorkflowHeader,
@@ -75,6 +75,11 @@ type BoardItem = {
   carrier_correction: string | null
   prereview_id: string
   customer: Customer
+  // Optional soft-lease claim (shared by default; the board is never filtered
+  // by it). Reused from the IPF queue-owned-until-claimed model.
+  claimed_by_producer_id?: string | null
+  claimed_by_name?: string | null
+  is_mine?: boolean
 }
 
 type Holding = {
@@ -153,6 +158,11 @@ export function StewardshipClient({
   const [loading, setLoading] = useState(true)
   const [openQueue, setOpenQueue] = useState<OutreachQueue | null>(initialQueue)
   const [openItemId, setOpenItemId] = useState<string | null>(null)
+  // Claiming (optional soft lease) is only shown on the actionable outreach
+  // queues. claimBusy tracks the row currently being claimed/released; claimMsg
+  // surfaces an eligibility/conflict message from the claim endpoint.
+  const [claimBusy, setClaimBusy] = useState<string | null>(null)
+  const [claimMsg, setClaimMsg] = useState<string | null>(null)
 
   // Respond to the ?queue= param changing WHILE on this page. The Assistant's
   // links (which share this page) are client-side navigations that do not
@@ -191,6 +201,24 @@ export function StewardshipClient({
 
   useEffect(() => { void loadBoard() }, [loadBoard])
 
+  const claim = useCallback(async (outreachId: string, release: boolean) => {
+    setClaimBusy(outreachId); setClaimMsg(null)
+    try {
+      const res = await fetch('/api/stewardship/claim', {
+        method: release ? 'DELETE' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ outreach_id: outreachId }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setClaimMsg(json.error ?? 'Could not update the claim.'); return }
+      await loadBoard()
+    } catch {
+      setClaimMsg('Network error.')
+    } finally {
+      setClaimBusy(null)
+    }
+  }, [loadBoard])
+
   if (openItemId) {
     return (
       <StewardshipTask
@@ -220,6 +248,11 @@ export function StewardshipClient({
           blurb={meta.blurb}
           onBack={() => setOpenQueue(null)}
         />
+        {claimMsg && (
+          <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {claimMsg}
+          </p>
+        )}
         <div className="mt-5 space-y-3">
           {queueItems.length === 0 ? (
             <QueueEmptyState>No customers in this queue.</QueueEmptyState>
@@ -229,7 +262,17 @@ export function StewardshipClient({
                 key={it.id}
                 name={fullName(it.customer)}
                 detail={queueDetail(it)}
-                trailing={queueTag(it)}
+                trailing={
+                  <div className="flex items-center gap-2">
+                    {queueTag(it)}
+                    <ClaimControl
+                      item={it}
+                      busy={claimBusy === it.id}
+                      onClaim={() => claim(it.id, false)}
+                      onRelease={() => claim(it.id, true)}
+                    />
+                  </div>
+                }
                 onOpen={() => setOpenItemId(it.id)}
               />
             ))
@@ -299,6 +342,67 @@ function queueTag(it: BoardItem) {
     return <OperationalTag tone="reason">Callback due</OperationalTag>
   }
   return null
+}
+
+/**
+ * The optional claim control for a shared outreach item (ported from the IPF
+ * queue-owned-until-claimed model). Work is shared by default, so an unclaimed
+ * item offers Claim; the holder sees "Yours" with a Release; another worker's
+ * claim is shown read-only. Clicks do not open the item (stopPropagation), so
+ * claiming is distinct from opening the customer work.
+ */
+function ClaimControl({
+  item, busy, onClaim, onRelease,
+}: {
+  item: BoardItem
+  busy: boolean
+  onClaim: () => void
+  onRelease: () => void
+}) {
+  const stop = (e: React.MouseEvent) => e.stopPropagation()
+
+  if (item.is_mine) {
+    return (
+      <span className="inline-flex items-center gap-2" onClick={stop}>
+        <span className="inline-flex items-center gap-1 rounded-full border border-tag-info-border bg-tag-info-fill px-2.5 py-1 text-xs font-semibold text-tag-info-text">
+          <UserCheck className="size-3.5" aria-hidden /> Yours
+        </span>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onRelease}
+          className="text-xs font-medium text-ink-supporting underline-offset-2 hover:text-ink-secondary hover:underline disabled:opacity-50"
+        >
+          {busy ? '…' : 'Release'}
+        </button>
+      </span>
+    )
+  }
+
+  if (item.claimed_by_producer_id) {
+    return (
+      <span
+        className="inline-flex items-center gap-1 rounded-full border border-surface-border bg-surface-muted px-2.5 py-1 text-xs text-ink-supporting"
+        onClick={stop}
+        title={`Claimed by ${item.claimed_by_name ?? 'another team member'}`}
+      >
+        <UserCheck className="size-3.5" aria-hidden />
+        {item.claimed_by_name ?? 'Claimed'}
+      </span>
+    )
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={(e) => { stop(e); onClaim() }}
+      className="inline-flex items-center gap-1.5 rounded-full border border-brand-ring bg-brand-wash px-3 py-1 text-xs font-semibold text-brand-hover hover:bg-brand-subtle hover:text-brand-foreground disabled:opacity-50"
+    >
+      <Hand className="size-3.5" aria-hidden />
+      {busy ? 'Claiming…' : 'Claim'}
+    </button>
+  )
 }
 
 function callReasonLabel(r: string): string {

@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
+import { resolveProducerForUser } from '@/lib/capabilities/resolve'
 import { QUEUE_META, deriveFollowUpRouting, type OutreachQueue } from '@/lib/stewardship/queues'
 
 /**
@@ -69,12 +71,20 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // Resolve the caller's producer so the board can mark which shared items are
+  // theirs (is_mine) and surface who holds each optional claim. The board is
+  // never FILTERED by the claim — this is presentation only.
+  const sessionClient = await createClient()
+  const { data: { user } } = await sessionClient.auth.getUser()
+  const myProducer = user ? await resolveProducerForUser(user.id) : null
+  const myProducerId = myProducer?.id ?? null
+
   let query = supabase
     .from('stewardship_outreach')
     .select(`
       id, prereview_id, queue, call_reason, research_reason, last_call_outcome,
       callback_date, email_sent_at, follow_up_due, form_received_at, submitted_at, carrier_correction,
-      updated_at,
+      updated_at, claimed_by_producer_id,
       customer_prereviews!inner (
         id, customer_id, source_agency_id, decision,
         customers!inner ( id, first_name, last_name, email, phone )
@@ -104,6 +114,7 @@ export async function GET(request: NextRequest) {
     form_received_at: string | null
     submitted_at: string | null
     carrier_correction: string | null
+    claimed_by_producer_id: string | null
     customer_prereviews: {
       id: string
       decision: string | null
@@ -121,6 +132,22 @@ export async function GET(request: NextRequest) {
     return true
   })
 
+  // Resolve display names for any producers that hold a claim on these rows, so
+  // the queue list can show "Claimed by <name>" without a per-row query.
+  const claimantIds = Array.from(
+    new Set(rows.map(r => r.claimed_by_producer_id).filter((v): v is string => !!v)),
+  )
+  const nameByProducerId = new Map<string, string>()
+  if (claimantIds.length > 0) {
+    const { data: claimants } = await supabase
+      .from('producers')
+      .select('id, first_name, last_name')
+      .in('id', claimantIds)
+    for (const p of (claimants ?? []) as { id: string; first_name: string | null; last_name: string | null }[]) {
+      nameByProducerId.set(p.id, `${p.first_name ?? ''} ${p.last_name ?? ''}`.trim())
+    }
+  }
+
   const items = rows.map(r => ({
     id: r.id,
     queue: r.queue,
@@ -135,6 +162,11 @@ export async function GET(request: NextRequest) {
     carrier_correction: r.carrier_correction,
     prereview_id: r.customer_prereviews.id,
     customer: r.customer_prereviews.customers,
+    // Optional soft-lease claim (shared by default). is_mine lets the list mark
+    // the caller's own commitments; the board is never filtered by this.
+    claimed_by_producer_id: r.claimed_by_producer_id,
+    claimed_by_name: r.claimed_by_producer_id ? (nameByProducerId.get(r.claimed_by_producer_id) ?? null) : null,
+    is_mine: !!r.claimed_by_producer_id && r.claimed_by_producer_id === myProducerId,
   }))
 
   const counts = Object.fromEntries(
@@ -142,5 +174,5 @@ export async function GET(request: NextRequest) {
   ) as Record<OutreachQueue, number>
   for (const it of items) counts[it.queue] += 1
 
-  return Response.json({ data: { items, counts } })
+  return Response.json({ data: { items, counts, my_producer_id: myProducerId } })
 }

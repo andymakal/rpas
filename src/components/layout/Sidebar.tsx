@@ -28,11 +28,15 @@ import {
   BarChart2,
   LayoutList,
   FolderGit2,
+  ListTodo,
+  Sparkles,
 } from 'lucide-react'
 import { NotificationBell } from '@/components/layout/NotificationBell'
 
 const navItems = [
   { href: '/dashboard',              icon: LayoutDashboard, label: 'Dashboard'        },
+  { href: '/my-work',                icon: ListTodo,        label: 'My Work'          },
+  { href: '/my-projects',            icon: FolderGit2,      label: 'My Projects'      },
   { href: '/triage',                 icon: Inbox,           label: 'Triage'           },
   { href: '/referrals',              icon: GitMerge,        label: 'Referrals'        },
   { href: '/spiff',                  icon: DollarSign,      label: 'SPIFF'            },
@@ -46,6 +50,7 @@ const navItems = [
   { href: '/projects',               icon: FolderGit2,      label: 'Projects'         },
   { href: '/customers',               icon: Users,           label: 'Customers'        },
   { href: '/team',                   icon: Users,           label: 'Team'             },
+  { href: '/admin/todays-focus',      icon: Sparkles,        label: "Today's Focus"    },
   { href: '/admin/scorecard',         icon: LayoutList,      label: 'Scorecard'        },
   { href: '/admin/gdc-import',       icon: Upload,          label: 'GDC Import'       },
   { href: '/admin/policy-import',    icon: FileSpreadsheet, label: 'Policy Import'    },
