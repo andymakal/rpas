@@ -83,23 +83,34 @@ comment on column public.project_participants.role is
 
 
 -- =============================================================================
--- 3. REMOVE TITLE-INFERRED CAPABILITY ASSIGNMENTS
--- Keep ONLY Bob -> determination (settled). Remove every other assignment the
--- first-slice seed created from titles. Scoped precisely to the seeded
--- (producer, capability) pairs so it cannot touch any assignment a human later
--- makes through the Team editor on another environment; a no-op if already gone.
+-- 3. REMOVE TITLE-INFERRED CAPABILITY ASSIGNMENTS (provably seed-origin only)
+-- The first-slice seed created a set of agency-wide capability assignments from
+-- job titles. Those must be removed, but a corrective migration must NEVER
+-- delete an assignment that did NOT come from its own seed (a human assignment
+-- via the Team editor, or an evidence-based assignment from a later migration),
+-- and must never silently change an assignment_type.
+--
+-- Provenance is therefore the gate: this removes a row ONLY when it is both a
+-- known title-inferred (producer, capability) pair AND marked
+-- source = 'migration_seed'. Any row a human/other migration created carries
+-- source = 'manual' (the column default) and is left completely untouched —
+-- even for the very same (producer, capability) pair and whatever its
+-- assignment_type. On a fresh replay, section 8 of 20261021000001 now seeds only
+-- Bob -> determination (also 'migration_seed', and deliberately excluded below),
+-- so there are no title-inferred seed rows to remove and this is a clean no-op;
+-- it also no-ops in any environment that never ran the historical seed or whose
+-- producers differ.
+--
+-- (The source column itself is added by 20261021000001 for a fresh replay, and
+-- backfilled on the already-applied development database by
+-- 20261024000001_capability_source_provenance so this guard has a column to
+-- read. If the column is somehow absent, this block is skipped rather than
+-- failing.)
 -- =============================================================================
--- Remove ONLY the exact title-inferred agency-wide assignments the first-slice
--- seed (20261021000001 section 8) created. Scoping to those precise (producer,
--- capability) pairs — rather than deleting every agency-wide assignment — means
--- a replay can never wipe a legitimate assignment a human (or a later migration)
--- made, and the step is a clean no-op in an environment that never had the seed
--- or whose producers differ. Bob -> determination is deliberately NOT listed,
--- because it is a settled assignment that must be kept.
 do $$
 declare
-  -- the exact seeded pairs (producer id, canonical_key), excluding the kept
-  -- Bob -> determination row.
+  -- the exact title-inferred seeded pairs (producer id, canonical_key),
+  -- excluding the kept Bob -> determination row.
   seeded constant text[][] := array[
     -- Gabe (7a8ffc03)
     ['7a8ffc03-a89a-4dfc-96d9-2cb552ca6036', 'outreach'],
@@ -122,14 +133,30 @@ declare
     ['280f5f81-939c-4b29-b73c-97cf05f4411d', 'office_support']
   ];
   pair text[];
+  has_source boolean;
 begin
+  select exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'producer_work_functions'
+      and column_name = 'source'
+  ) into has_source;
+
+  if not has_source then
+    -- No provenance column: we cannot prove origin, so we must NOT delete
+    -- anything (deleting blind is exactly the destructive behavior being fixed).
+    return;
+  end if;
+
   foreach pair slice 1 in array seeded loop
     delete from public.producer_work_functions pwf
     using public.work_functions wf
     where pwf.work_function_id = wf.id
       and pwf.project_id is null
       and pwf.producer_id = pair[1]::uuid
-      and wf.canonical_key = pair[2];
+      and wf.canonical_key = pair[2]
+      -- PROVENANCE GATE: only ever remove a row this migration chain seeded.
+      and pwf.source = 'migration_seed';
   end loop;
 end
 $$;

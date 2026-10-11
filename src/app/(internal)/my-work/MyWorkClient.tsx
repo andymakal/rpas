@@ -154,38 +154,72 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
         {/* Count summary: total, with owned/shared split so sharing is visible. */}
         <div className="shrink-0 text-right">
           <p className="text-3xl font-semibold leading-none text-brand-hover">{activity.totalCount}</p>
+          {/* Distinct claim states for THIS employee: never conflate another
+              teammate's claimed work with free shared work. */}
           <p className="mt-1 text-xs text-ink-supporting">
             {activity.ownedCount > 0 && `${activity.ownedCount} yours · `}
-            {activity.sharedCount} shared
+            {activity.availableCount} available
+            {activity.claimedByOthersCount > 0 && ` · ${activity.claimedByOthersCount} with teammates`}
+            {activity.notEligibleCount > 0 && ` · ${activity.notEligibleCount} not yours`}
           </p>
         </div>
       </div>
 
       {/* Sources: each business activity appears once, with its sources listed
-          beneath it, so the same activity across projects is not duplicated. */}
+          beneath it, so the same activity across projects is not duplicated.
+          A source link opens the employee's ELIGIBLE work in that source — the
+          project-scoped subset when they are eligible for only part of a queue. */}
       {activity.sources.length > 0 && (
         <ul className="mt-4 space-y-1.5 border-t border-surface-border pt-3">
-          {activity.sources.map((s, i) => (
-            <li key={`${s.kind}-${s.projectId ?? 'shared'}-${i}`}>
-              <Link
-                href={s.route}
-                className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm hover:bg-brand-wash"
-              >
-                <span className="flex items-center gap-2 text-ink">
-                  {s.kind === 'stewardship' ? (
-                    <Users className="size-4 text-ink-supporting" aria-hidden />
-                  ) : (
-                    <ArrowRight className="size-4 text-ink-supporting" aria-hidden />
-                  )}
-                  {s.label}
-                </span>
-                <span className="flex items-center gap-2">
-                  <span className="font-semibold text-ink-secondary">{s.count}</span>
-                  <ArrowRight className="size-4 text-ink-muted" aria-hidden />
-                </span>
-              </Link>
-            </li>
-          ))}
+          {activity.sources.map((s, i) => {
+            // What the worker can act on in this source right now.
+            const actionable = s.ownedByMe + s.availableToMe
+            return (
+              <li key={`${s.kind}-${s.projectId ?? 'shared'}-${i}`}>
+                <Link
+                  href={s.route}
+                  className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm hover:bg-brand-wash"
+                >
+                  <span className="flex min-w-0 items-center gap-2 text-ink">
+                    {s.kind === 'stewardship' ? (
+                      <Users className="size-4 shrink-0 text-ink-supporting" aria-hidden />
+                    ) : (
+                      <ArrowRight className="size-4 shrink-0 text-ink-supporting" aria-hidden />
+                    )}
+                    <span className="truncate">{s.label}</span>
+                    {s.projectId && (
+                      <span className="shrink-0 rounded-full bg-brand-wash px-1.5 text-[11px] font-medium text-brand-hover">
+                        your project
+                      </span>
+                    )}
+                  </span>
+                  <span className="flex shrink-0 items-center gap-2">
+                    {/* Lead with what the worker can act on; show the full queue
+                        count only as context so the shared board stays visible. */}
+                    <span className="font-semibold text-ink-secondary">
+                      {actionable > 0 ? actionable : s.count}
+                      {actionable > 0 && actionable !== s.count && (
+                        <span className="font-normal text-ink-muted"> / {s.count}</span>
+                      )}
+                    </span>
+                    <ArrowRight className="size-4 text-ink-muted" aria-hidden />
+                  </span>
+                </Link>
+                {/* Per-source claim breakdown, only when there is something to
+                    distinguish beyond the simple count. */}
+                {(s.ownedByMe > 0 || s.claimedByOthers > 0 || (s.notEligible > 0 && !ineligible)) && (
+                  <p className="px-2 pb-0.5 text-[11px] text-ink-muted">
+                    {[
+                      s.ownedByMe > 0 ? `${s.ownedByMe} yours` : null,
+                      s.availableToMe > 0 ? `${s.availableToMe} available` : null,
+                      s.claimedByOthers > 0 ? `${s.claimedByOthers} with teammates` : null,
+                      s.notEligible > 0 && !ineligible ? `${s.notEligible} not yours` : null,
+                    ].filter(Boolean).join(' · ')}
+                  </p>
+                )}
+              </li>
+            )
+          })}
         </ul>
       )}
 

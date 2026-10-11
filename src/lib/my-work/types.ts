@@ -25,14 +25,34 @@ import type { WorkFunctionKey } from '@/lib/capabilities/work-functions'
 export interface WorkSource {
   /** 'stewardship' for the shared board, 'project' for a project workflow. */
   kind: 'stewardship' | 'project'
-  /** Human label for the source, e.g. "Shared Stewardship board" or a project name. */
+  /** Human label for the source, e.g. "Shared Stewardship board — Ready to Call". */
   label: string
-  /** Open item count from this source for this activity. */
+  /** Total open item count in this source (the whole shared queue / project stage). */
   count: number
-  /** Route that opens this source's work for this activity (the real customer work). */
+  /**
+   * Route that opens the EMPLOYEE'S ELIGIBLE work in this source — not the whole
+   * queue when they are eligible for only part of it. For a shared-board source
+   * the employee is eligible for only via a project, the route carries that
+   * project scope (?queue=…&project_id=…) so it opens exactly their eligible
+   * subset; for agency-wide eligibility it opens the whole queue. The ordinary
+   * shared board remains fully visible via its own navigation; this link just
+   * takes the worker straight to what they can act on.
+   */
   route: string
-  /** The project id when kind = 'project'; null for the shared board. */
+  /** The project id when the link/source is project-scoped; null otherwise. */
   projectId: string | null
+  /**
+   * Claim-state breakdown for THIS employee within this source. These never
+   * overlap: an item is exactly one of ownedByMe, availableToMe, claimedByOthers
+   * (for items the employee is eligible for), or notEligible.
+   */
+  ownedByMe: number
+  /** Eligible to this employee AND currently unclaimed (available to pick up). */
+  availableToMe: number
+  /** Eligible to this employee but already claimed by ANOTHER employee. */
+  claimedByOthers: number
+  /** Items in this source the employee is NOT eligible to perform. */
+  notEligible: number
 }
 
 /**
@@ -96,13 +116,24 @@ export interface ActivityGroup {
   reasonCode: string
   /** Short deterministic human reason for the band. */
   reason: string
-  /** Total open items across all sources for this activity. */
+  /** Total open items across all sources for this activity (recorded once). */
   totalCount: number
   /** How many of those the signed-in employee has claimed (owned). */
   ownedCount: number
-  /** How many are unclaimed/shared right now. */
-  sharedCount: number
-  /** How many are a due customer commitment. */
+  /**
+   * How many are unclaimed AND available to this employee (eligible + unclaimed).
+   * This is work the employee can pick up right now; it excludes items claimed
+   * by someone else.
+   */
+  availableCount: number
+  /**
+   * How many eligible items are already claimed by ANOTHER employee. Shown so a
+   * worker never mistakes someone else's commitment for free shared work.
+   */
+  claimedByOthersCount: number
+  /** How many items the employee is NOT eligible to perform (for awareness). */
+  notEligibleCount: number
+  /** How many are a due date-only promised callback (eligible to this employee). */
   dueCount: number
   /** Whether the employee is routably eligible for this activity. */
   isEligible: boolean

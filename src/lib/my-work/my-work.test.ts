@@ -105,34 +105,44 @@ test('ZEN rule exposes exactly the five independent presence facts (no ranked in
   )
 })
 
+function reasonCtx(p: Partial<{ dueCount: number; ownedCount: number; availableCount: number; claimedByOthersCount: number; label: string }>) {
+  return { dueCount: 0, ownedCount: 0, availableCount: 0, claimedByOthersCount: 0, label: 'Outreach', ...p }
+}
+
 test('reason: due-callback prose states it does not override focus and invents no clock time', () => {
-  const r = buildActivityReason('due_callback', {
-    dueCount: 2,
-    ownedCount: 0,
-    sharedCount: 0,
-    label: 'Outreach',
-  })
+  const r = buildActivityReason('due_callback', reasonCtx({ dueCount: 2 }))
   assert.match(r, /does not override Today's Focus/i)
   assert.doesNotMatch(r, /\d{1,2}:\d{2}/)
 })
 
 test('reason: exact-time prose states the fixed appointment comes before focus', () => {
-  const r = buildActivityReason('exact_time_commitment', {
-    dueCount: 1,
-    ownedCount: 0,
-    sharedCount: 0,
-    label: 'Outreach',
-  })
+  const r = buildActivityReason('exact_time_commitment', reasonCtx({ dueCount: 1 }))
   assert.match(r, /before Today's Focus/i)
 })
 
 test('reason: ineligible prose says shown for awareness, not routed', () => {
-  const r = buildActivityReason('not_eligible', {
-    dueCount: 0,
-    ownedCount: 0,
-    sharedCount: 0,
-    label: 'Determination',
-  })
+  const r = buildActivityReason('not_eligible', reasonCtx({ label: 'Determination' }))
   assert.match(r, /awareness/i)
   assert.match(r, /not routed/i)
+})
+
+test('reason: shared prose counts AVAILABLE (unclaimed) work and flags teammate-claimed separately', () => {
+  // 3 available to me, 2 already claimed by teammates: the prose must count only
+  // the 3 available and never describe the 2 as unclaimed/available.
+  const r = buildActivityReason('eligible_shared_work', reasonCtx({ availableCount: 3, claimedByOthersCount: 2 }))
+  assert.match(r, /3 items are unclaimed and available to you/i)
+  assert.match(r, /2 are already claimed by a teammate/i)
+  assert.doesNotMatch(r, /5 (items|are)/i) // never conflate available + others
+})
+
+test('reason: shared prose with zero available but teammate-claimed says no unclaimed work for you', () => {
+  const r = buildActivityReason('eligible_shared_work', reasonCtx({ availableCount: 0, claimedByOthersCount: 4 }))
+  assert.match(r, /no unclaimed work for you/i)
+  assert.match(r, /4 are already claimed by a teammate/i)
+})
+
+test('reason: owned prose notes teammate-claimed items without calling them shared', () => {
+  const r = buildActivityReason('owned_work', reasonCtx({ ownedCount: 1, availableCount: 0, claimedByOthersCount: 1 }))
+  assert.match(r, /claimed 1 item/i)
+  assert.match(r, /1 is already claimed by a teammate/i)
 })

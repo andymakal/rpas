@@ -70,8 +70,23 @@ export async function evaluateActivityBand(
  */
 export function buildActivityReason(
   reasonCode: string,
-  ctx: { dueCount: number; ownedCount: number; sharedCount: number; label: string },
+  ctx: {
+    dueCount: number
+    ownedCount: number
+    /** Unclaimed items the employee is eligible to pick up. */
+    availableCount: number
+    /** Eligible items already claimed by another employee. */
+    claimedByOthersCount: number
+    label: string
+  },
 ): string {
+  // A short note about work others already hold, appended where it clarifies
+  // that not every eligible item is free to pick up.
+  const othersNote =
+    ctx.claimedByOthersCount > 0
+      ? ` ${ctx.claimedByOthersCount} ${ctx.claimedByOthersCount === 1 ? 'is' : 'are'} already claimed by a teammate.`
+      : ''
+
   switch (reasonCode) {
     case 'exact_time_commitment': {
       const n = ctx.dueCount
@@ -85,11 +100,14 @@ export function buildActivityReason(
     }
     case 'owned_work': {
       const n = ctx.ownedCount
-      return `You have claimed ${n} ${n === 1 ? 'item' : 'items'} here. Owned work comes before unclaimed shared work.`
+      return `You have claimed ${n} ${n === 1 ? 'item' : 'items'} here. Owned work comes before unclaimed shared work.${othersNote}`
     }
     case 'eligible_shared_work': {
-      const n = ctx.sharedCount
-      return `${n} ${n === 1 ? 'item is' : 'items are'} unclaimed and shared. You are eligible to pick any of them up.`
+      const n = ctx.availableCount
+      if (n === 0 && ctx.claimedByOthersCount > 0) {
+        return `No unclaimed work for you right now.${othersNote}`
+      }
+      return `${n} ${n === 1 ? 'item is' : 'items are'} unclaimed and available to you to pick up.${othersNote}`
     }
     case 'not_eligible':
       return `You are not currently eligible to work ${ctx.label}. It is shown for awareness; it is not routed to you.`

@@ -49,8 +49,12 @@ import type {
 
 const STEWARDSHIP_ROUTE = '/stewardship'
 
-function stewardshipRoute(queue: OutreachQueue): string {
-  return `${STEWARDSHIP_ROUTE}?queue=${encodeURIComponent(queue)}`
+function stewardshipRoute(queue: OutreachQueue, projectId?: string | null): string {
+  const base = `${STEWARDSHIP_ROUTE}?queue=${encodeURIComponent(queue)}`
+  // When the link is project-scoped (the employee is eligible for only that
+  // project's items), carry the project id so the board opens exactly that
+  // subset of the queue — not the whole shared queue.
+  return projectId ? `${base}&project_id=${encodeURIComponent(projectId)}` : base
 }
 
 /**
@@ -122,6 +126,10 @@ interface Accum {
   focusEligible: number
   dueEligible: number
   owned: number
+  /** Eligible to me AND unclaimed (available to pick up right now). */
+  availableToMe: number
+  /** Eligible to me but claimed by ANOTHER employee. */
+  claimedByOthers: number
   /**
    * Every project this activity's work belongs to (union across items). Used
    * ONLY for display (the sources already name their project) and for deciding
@@ -177,9 +185,26 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       focusEligible: 0,
       dueEligible: 0,
       owned: 0,
+      availableToMe: 0,
+      claimedByOthers: 0,
       projectIds: new Set<string>(),
     })
   }
+
+  // The projects this employee holds a project-scoped (routable) eligibility in,
+  // per activity. Used to build an eligible-scoped deep link when the employee
+  // is NOT agency-wide eligible: the link carries the project scope so it opens
+  // exactly the subset they can act on, not the whole queue.
+  const scopedProjectsFor = (activity: WorkFunctionKey): Set<string> => {
+    const out = new Set<string>()
+    for (const e of profile.eligibilities) {
+      if (e.workFunction !== activity) continue
+      if (e.assignment !== 'primary' && e.assignment !== 'support') continue
+      if (e.projectId) out.add(e.projectId)
+    }
+    return out
+  }
+  const agencyWideEligible = (activity: WorkFunctionKey): boolean => isEligibleFor(profile, activity)
 
   // Per-item eligibility + focus helpers. An item's project set decides which
   // project-scoped eligibilities/focuses apply to it; agency-wide ones always
@@ -245,8 +270,17 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   // each source links to the RIGHT queue (ready-to-call vs ready-to-email),
   // never always to calls. Research is its own activity. For every item we judge
   // eligibility and focus against the item's OWN projects, so a project-scoped
-  // focus/eligibility only ever counts items that belong to that project.
-  const perQueueTotal = new Map<OutreachQueue, number>()
+  // focus/eligibility only ever counts items that belong to that project. We also
+  // record the per-queue claim breakdown for THIS employee (owned / available /
+  // claimed-by-others / not-eligible) so the source can be stated precisely.
+  interface QueueTally {
+    total: number
+    ownedByMe: number
+    availableToMe: number
+    claimedByOthers: number
+    notEligible: number
+  }
+  const perQueue = new Map<OutreachQueue, QueueTally>()
   for (const r of openRows) {
     const q = effectiveQueue(r)
     const activity = STEWARDSHIP_ACTIVITY[q]
@@ -257,32 +291,69 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     const itemProjects = projectsByCustomer.get(r.customer_prereviews.customer_id) ?? new Set<string>()
     for (const pid of itemProjects) a.projectIds.add(pid)
 
+    const t = perQueue.get(q) ?? { total: 0, ownedByMe: 0, availableToMe: 0, claimedByOthers: 0, notEligible: 0 }
+    t.total += 1
     a.total += 1
-    perQueueTotal.set(q, (perQueueTotal.get(q) ?? 0) + 1)
 
     const eligible = itemEligible(activity, itemProjects)
-    if (!eligible) continue // ineligible items count toward total only
+    if (!eligible) {
+      t.notEligible += 1
+      perQueue.set(q, t)
+      continue // ineligible items count toward total/awareness only
+    }
     a.eligible += 1
     if (itemFocusElevated(activity, itemProjects)) a.focusEligible += 1
     if (q === 'ready-to-call' && isCallbackDue(r.callback_date, timeCtx)) a.dueEligible += 1
-    if (r.claimed_by_producer_id && r.claimed_by_producer_id === myProducerId) a.owned += 1
+
+    const claimedBy = r.claimed_by_producer_id
+    if (claimedBy && claimedBy === myProducerId) {
+      a.owned += 1
+      t.ownedByMe += 1
+    } else if (claimedBy) {
+      // Eligible to me, but ANOTHER employee has claimed it — never counted as
+      // available/unclaimed work.
+      a.claimedByOthers += 1
+      t.claimedByOthers += 1
+    } else {
+      a.availableToMe += 1
+      t.availableToMe += 1
+    }
+    perQueue.set(q, t)
   }
 
-  // One source per contributing queue (so each links to the correct queue,
-  // including the email-only queue). The activity still appears once; sources
-  // list beneath it. Source counts are the total board counts (what a worker
-  // sees in that queue), independent of this employee's eligibility.
-  for (const [q, total] of perQueueTotal) {
+  // One source per contributing queue. Each links to the EMPLOYEE'S ELIGIBLE
+  // work in that queue: agency-wide eligibility opens the whole queue; otherwise
+  // the link carries the employee's eligible project scope so it opens only
+  // their subset (not the whole queue). The source still shows the full queue
+  // count for board visibility, plus the per-employee claim breakdown.
+  for (const [q, t] of perQueue) {
     const activity = STEWARDSHIP_ACTIVITY[q]
     if (!activity) continue
     const a = acc.get(activity)
-    if (!a || total === 0) continue
+    if (!a || t.total === 0) continue
+
+    // Decide the eligible-scoped route. If the employee can act on only part of
+    // the queue via project scope, link to that project's items in the queue.
+    const scopedProjects = scopedProjectsFor(activity)
+    const eligibleViaProjectOnly = !agencyWideEligible(activity) && scopedProjects.size > 0
+    // Pick the single project scope that actually overlaps this activity's work
+    // (its own projectIds). With one project today there is exactly one; if more
+    // ever apply, the first overlapping scope is used for the direct link and
+    // the breakdown still reflects all eligible items.
+    const linkProjectId = eligibleViaProjectOnly
+      ? ([...scopedProjects].find((pid) => a.projectIds.has(pid)) ?? null)
+      : null
+
     a.sources.push({
       kind: 'stewardship',
       label: `Shared Stewardship board — ${QUEUE_LABEL[q]}`,
-      count: total,
-      route: stewardshipRoute(q),
-      projectId: null,
+      count: t.total,
+      route: linkProjectId ? stewardshipRoute(q, linkProjectId) : stewardshipRoute(q),
+      projectId: linkProjectId,
+      ownedByMe: t.ownedByMe,
+      availableToMe: t.availableToMe,
+      claimedByOthers: t.claimedByOthers,
+      notEligible: t.notEligible,
     })
   }
 
@@ -322,11 +393,26 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       if (!a) return
       a.total += count
       a.projectIds.add(projectId)
-      a.sources.push({ kind: 'project', label: projectName, count, route: reviewRoute, projectId })
-      if (!itemEligible(key, projectSet)) return // ineligible: counts to total only
+      const eligible = itemEligible(key, projectSet)
+      // Project-stage work has no claim model yet, so eligible items are all
+      // available to pick up (none owned, none claimed-by-others); ineligible
+      // items are shown for awareness only. The review route is already scoped
+      // to this project.
+      a.sources.push({
+        kind: 'project',
+        label: projectName,
+        count,
+        route: reviewRoute,
+        projectId,
+        ownedByMe: 0,
+        availableToMe: eligible ? count : 0,
+        claimedByOthers: 0,
+        notEligible: eligible ? 0 : count,
+      })
+      if (!eligible) return // ineligible: counts to total/awareness only
       a.eligible += count
+      a.availableToMe += count
       if (itemFocusElevated(key, projectSet)) a.focusEligible += count
-      // No date-only callbacks and no claim model on project-stage work yet.
     }
     addProjectActivity('operations_prep', prepCount)
     addProjectActivity('determination', determineCount)
@@ -359,9 +445,10 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       hasOwnedWork: a.owned > 0,
     }
     const verdict = await evaluateActivityBand(facts)
-    // Counts shown reflect the whole activity (recorded once); owned/shared are
-    // the eligible portion the worker can act on.
-    const sharedCount = Math.max(a.eligible - a.owned, 0)
+    // Counts shown reflect the whole activity (recorded once). The claim-state
+    // breakdown is this employee's: owned, available-to-me (unclaimed+eligible),
+    // claimed-by-others (eligible but someone else's), and not-eligible.
+    const notEligibleCount = Math.max(a.total - a.eligible, 0)
     activities.push({
       workFunction: a.workFunction,
       label: a.label,
@@ -372,12 +459,15 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       reason: buildActivityReason(verdict.reasonCode, {
         dueCount: a.dueEligible,
         ownedCount: a.owned,
-        sharedCount,
+        availableCount: a.availableToMe,
+        claimedByOthersCount: a.claimedByOthers,
         label: a.label,
       }),
       totalCount: a.total,
       ownedCount: a.owned,
-      sharedCount,
+      availableCount: a.availableToMe,
+      claimedByOthersCount: a.claimedByOthers,
+      notEligibleCount,
       dueCount: a.dueEligible,
       isEligible: eligible,
       isFocusElevated: focusElevated,

@@ -49,8 +49,10 @@ declare
   p_bob   uuid := '55c0e564-35d1-4bcc-888d-8edaa4e2fdf7'; -- 1035 determinations
 begin
   -- (producer, capability canonical_key, assignment_type) backed by evidence.
-  insert into public.producer_work_functions (producer_id, work_function_id, assignment_type, project_id)
-  select p.id, wf.id, v.assignment_type, null
+  -- These are legitimate assignments (source = 'manual'), NOT a demonstration
+  -- seed, so the corrective migration's provenance gate never removes them.
+  insert into public.producer_work_functions (producer_id, work_function_id, assignment_type, project_id, source)
+  select p.id, wf.id, v.assignment_type, null, 'manual'
   from (values
     -- Dulce and Gabe perform customer outreach and calls.
     (p_gabe,  'outreach',        'primary'),

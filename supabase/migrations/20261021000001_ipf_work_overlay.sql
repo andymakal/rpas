@@ -173,6 +173,13 @@ create table if not exists public.producer_work_functions (
   -- project only (participation exception). on delete cascade so removing a
   -- project cleans up its scoped assignments.
   project_id       uuid references public.projects (id) on delete cascade,
+  -- Provenance of the row, so a corrective migration can safely remove ONLY the
+  -- rows it itself seeded without ever touching a legitimately-created
+  -- assignment. 'migration_seed' = created by a migration's demonstration seed;
+  -- 'manual' (default) = created by a human (Team editor) or an evidence-based
+  -- migration. Only 'migration_seed' rows are eligible for migration cleanup.
+  source           text not null default 'manual'
+    check (source in ('migration_seed', 'manual')),
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now()
 );
@@ -428,8 +435,8 @@ begin
   -- assignment, and only when both the producer and the capability exist. The
   -- evidence-based assignments live in the forward correction migration, not
   -- here, so a replay of this file never re-creates the title-inferred rows.
-  insert into public.producer_work_functions (producer_id, work_function_id, assignment_type, project_id)
-  select p_bob, wf_determine, 'primary', null
+  insert into public.producer_work_functions (producer_id, work_function_id, assignment_type, project_id, source)
+  select p_bob, wf_determine, 'primary', null, 'migration_seed'
   where wf_determine is not null
   on conflict do nothing;
 
