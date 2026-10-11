@@ -16,7 +16,7 @@
 
 import Link from 'next/link'
 import {
-  Sparkles, ArrowRight, Phone, Users, CheckCircle2, Lock, Star, HandHelping,
+  Sparkles, ArrowRight, Phone, Mail, Users, CheckCircle2, Lock, Star, HandHelping,
 } from 'lucide-react'
 import {
   WorkflowPage,
@@ -27,6 +27,12 @@ import {
 } from '@/components/workflow'
 import { cn } from '@/lib/utils'
 import { capabilityStatusLabel } from '@/lib/capabilities/explanations'
+import {
+  activityGuidance,
+  outreachChannelMode,
+  WORK_MODE_NOTE,
+  type WorkMode,
+} from '@/lib/my-work/guidance'
 import type { ActivityGroup, MyWorkState, PriorityBand } from '@/lib/my-work/types'
 import {
   deriveMyWorkDirection,
@@ -337,6 +343,7 @@ const AWARENESS_BANDS = new Set<PriorityBand>(['unassigned', 'unlicensed'])
 /** One activity group card: the activity, its counts, reason, sources, claim. */
 function ActivityCard({ activity }: { activity: ActivityGroup }) {
   const awarenessOnly = AWARENESS_BANDS.has(activity.band)
+  const guidance = activityGuidance(activity.workFunction)
   return (
     <article
       className={cn(
@@ -366,6 +373,18 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
           <p className="mt-1.5 max-w-prose text-sm leading-relaxed text-ink-secondary">
             {activity.reason}
           </p>
+          {/* What this kind of work is — descriptive guidance, always true,
+              never a priority judgment (ZEN owns the band and the reason above).
+              Helps the worker recognize what the activity actually involves. */}
+          <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-supporting">
+            {guidance.whatItIs}
+          </p>
+          {/* Work-mode cue: for a single-mode activity (research, operations
+              prep) say whether it suits quiet time or calling hours. Outreach
+              spans both channels, so its cue is shown per source below. */}
+          {guidance.note && guidance.workMode && (
+            <WorkModeNote mode={guidance.workMode} className="mt-2" />
+          )}
         </div>
 
         {/* Count summary: total, with owned/shared split so sharing is visible. */}
@@ -391,6 +410,12 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
           {activity.sources.map((s, i) => {
             // What the worker can act on in this source right now.
             const actionable = s.ownedByMe + s.availableToMe
+            // For Outreach, the two channels carry different work modes: emails
+            // are quiet work, calls are live phone outreach. Shown per source so
+            // the split the composition already makes (ready-to-email vs
+            // ready-to-call) also reads as "quiet vs calling hours".
+            const channelMode =
+              activity.workFunction === 'outreach' ? outreachChannelMode(s.label) : null
             return (
               <li key={`${s.kind}-${s.projectId ?? 'shared'}-${i}`}>
                 <Link
@@ -422,6 +447,18 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
                     <ArrowRight className="size-4 text-ink-muted" aria-hidden />
                   </span>
                 </Link>
+                {/* Outreach channel cue: emails are quiet work, calls belong in
+                    calling hours. Descriptive practice, not a schedule. */}
+                {channelMode && (
+                  <p className="flex items-center gap-1.5 px-2 pb-0.5 text-xs text-ink-supporting">
+                    {channelMode === 'calls' ? (
+                      <Phone className="size-3.5 shrink-0" aria-hidden />
+                    ) : (
+                      <Mail className="size-3.5 shrink-0" aria-hidden />
+                    )}
+                    {WORK_MODE_NOTE[channelMode]}
+                  </p>
+                )}
                 {/* Per-source claim breakdown, only when there is something to
                     distinguish beyond the simple count. */}
                 {(s.ownedByMe > 0 || s.claimedByOthers > 0 || (s.notEligible > 0 && !awarenessOnly)) && (
@@ -449,6 +486,19 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
         </p>
       )}
     </article>
+  )
+}
+
+/** A compact work-mode cue: quiet focus work vs live phone-call work. Purely
+ * descriptive practice guidance (no schedule, no deadline); it pairs an icon
+ * with text so the mode never relies on color alone. */
+function WorkModeNote({ mode, className }: { mode: WorkMode; className?: string }) {
+  const Icon = mode === 'calls' ? Phone : CheckCircle2
+  return (
+    <p className={cn('flex items-center gap-1.5 text-xs text-ink-supporting', className)}>
+      <Icon className="size-3.5 shrink-0" aria-hidden />
+      {WORK_MODE_NOTE[mode]}
+    </p>
   )
 }
 
