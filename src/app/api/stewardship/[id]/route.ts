@@ -148,9 +148,12 @@ export async function GET(
  *   - research-found email/phone persists the actual contact value on the
  *     customer (field-level, never overwriting the other fact);
  *   - form-sent stamps sa_form_sent_at on the request policies;
- *   - carrier-confirmed sets sa_status = 'confirmed' on the request policies and
- *     ENDS outreach by deleting the stewardship_outreach row, leaving the open
- *     customer_prereview for the later documentation layer.
+ *   - carrier-confirmed sets sa_status = 'confirmed' on the ONE named request
+ *     policy (never the others), then ends outreach by deleting the
+ *     stewardship_outreach row ONLY when every request policy is confirmed. While
+ *     any request policy still needs access, the item stays in waiting-for-carrier
+ *     and remains actionable. The open customer_prereview is left for the later
+ *     documentation layer.
  */
 export async function PATCH(
   request: NextRequest,
@@ -245,48 +248,97 @@ export async function PATCH(
     }
   }
 
-  // carrier-confirmed: confirm servicing access on the request policies, then
-  // END outreach by removing the operational row. The open customer_prereview
-  // remains (decision still null) and is picked up by the documentation layer.
-  // "Out of outreach" is thus derivable: no stewardship_outreach row exists.
-  if (result.saStatus === 'confirmed') {
+  // carrier-confirmed: confirm servicing access on the ONE named request policy,
+  // then end outreach only once EVERY request policy is confirmed. The open
+  // customer_prereview remains (decision still null) for the documentation
+  // layer. "Out of outreach" stays derivable: no stewardship_outreach row.
+  if (result.confirmPolicyId) {
+    // The policy must belong to THIS outreach's request set (a confirmation can
+    // only apply to a policy actually in the servicing request). This also
+    // guards against confirming a policy from a different customer/outreach.
     const { data: links } = await supabase
       .from('stewardship_outreach_policies')
       .select('policy_id')
       .eq('outreach_id', id)
-    const policyIds = (links ?? []).map((l: { policy_id: string }) => l.policy_id)
+    const requestPolicyIds = (links ?? []).map((l: { policy_id: string }) => l.policy_id)
+    if (!requestPolicyIds.includes(result.confirmPolicyId)) {
+      return Response.json(
+        { error: 'That policy is not part of this servicing request.' },
+        { status: 409 },
+      )
+    }
 
-    // The servicing-status update is the point of carrier confirmation. The
-    // outreach row must NOT be deleted unless that update actually succeeds —
-    // otherwise the work would vanish while the policies stayed unconfirmed.
-    // Order the writes so the required update happens first and is checked
-    // before the delete.
-    if (policyIds.length > 0) {
-      const { error: saErr } = await supabase
-        .from('service_policies')
-        .update({ sa_status: 'confirmed' })
-        .in('id', policyIds)
-      if (saErr) {
-        console.error('stewardship carrier-confirm sa_status update error:', saErr)
-        return Response.json(
-          { error: 'Could not update servicing status; the item was left in Waiting for Carrier.' },
-          { status: 500 },
-        )
+    // Confirm exactly this one policy. Scoped by id AND customer_id so a stray
+    // id can never confirm another customer's policy. The other request
+    // policies are left untouched — their statuses are independent.
+    const { error: saErr } = await supabase
+      .from('service_policies')
+      .update({ sa_status: 'confirmed' })
+      .eq('id', result.confirmPolicyId)
+      .eq('customer_id', customerId)
+    if (saErr) {
+      console.error('stewardship carrier-confirm sa_status update error:', saErr)
+      return Response.json(
+        { error: 'Could not update servicing status; the item was left in Waiting for Carrier.' },
+        { status: 500 },
+      )
+    }
+
+    // Persist the outreach patch (clears any standing correction note). Keep the
+    // item in waiting-for-carrier; it stays actionable for the remaining
+    // policies. Done before deciding completion so a correction note never
+    // lingers on a still-open item.
+    if (Object.keys(result.patch).length > 0) {
+      const { error: updErr } = await supabase
+        .from('stewardship_outreach')
+        .update(result.patch)
+        .eq('id', id)
+      if (updErr) {
+        console.error('stewardship carrier-confirm patch error:', updErr)
+        return Response.json({ error: updErr.message }, { status: 500 })
       }
     }
 
-    // Servicing status is confirmed (or there were no request policies to
-    // update). Now end outreach. Deleting cascades stewardship_outreach_policies;
-    // the open customer_prereview is untouched for the documentation layer.
-    const { error: delErr } = await supabase
-      .from('stewardship_outreach')
-      .delete()
-      .eq('id', id)
-    if (delErr) {
-      console.error('stewardship carrier-confirm delete error:', delErr)
-      return Response.json({ error: delErr.message }, { status: 500 })
+    // Re-read the request policies' live statuses to decide completion. Outreach
+    // is finished only when every request policy — term and permanent alike — is
+    // confirmed. (The 1035 review advances to operations prep independently once
+    // the permanent policies are confirmed; it does not wait on term policies.)
+    const { data: statusRows, error: statusErr } = await supabase
+      .from('service_policies')
+      .select('id, sa_status')
+      .in('id', requestPolicyIds)
+    if (statusErr) {
+      console.error('stewardship carrier-confirm status re-read error:', statusErr)
+      return Response.json({ error: statusErr.message }, { status: 500 })
     }
-    return Response.json({ data: null, completed_outreach: true })
+    const allConfirmed =
+      requestPolicyIds.length > 0 &&
+      (statusRows ?? []).length === requestPolicyIds.length &&
+      (statusRows ?? []).every((p: { sa_status: string | null }) => p.sa_status === 'confirmed')
+
+    if (allConfirmed) {
+      // Every request policy is confirmed — the servicing outreach work is done.
+      // Deleting cascades stewardship_outreach_policies; the open
+      // customer_prereview is untouched for the documentation layer.
+      const { error: delErr } = await supabase
+        .from('stewardship_outreach')
+        .delete()
+        .eq('id', id)
+      if (delErr) {
+        console.error('stewardship carrier-confirm delete error:', delErr)
+        return Response.json({ error: delErr.message }, { status: 500 })
+      }
+      return Response.json({ data: null, completed_outreach: true })
+    }
+
+    // Still have policies awaiting confirmation — return the (still-open) row so
+    // the task screen refreshes with the updated per-policy statuses.
+    const { data: stillOpen } = await supabase
+      .from('stewardship_outreach')
+      .select(OUTREACH_COLUMNS)
+      .eq('id', id)
+      .single()
+    return Response.json({ data: stillOpen, completed_outreach: false })
   }
 
   // Normal case: persist the outreach patch.

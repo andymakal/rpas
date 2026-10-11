@@ -10,8 +10,12 @@
  *     explicit human-recorded value; the system never closes an item on its own.
  *   - Calls are to customers, not carriers.
  *   - Carrier confirmation does NOT create a review; it confirms servicing
- *     access (service_policies.sa_status = 'confirmed') and moves the customer
- *     out of outreach toward documentation/readiness.
+ *     access (service_policies.sa_status = 'confirmed') PER POLICY. Each policy
+ *     keeps its own status; confirming one never changes another. Outreach stays
+ *     actionable while any request policy still needs access, and ends only once
+ *     every request policy is confirmed. (Separately, the 1035 review advances to
+ *     operations prep as soon as the permanent policies are confirmed — term
+ *     policies are still pursued in outreach but never block that advancement.)
  */
 
 export type OutreachQueue =
@@ -114,7 +118,12 @@ export type OutreachAction =
   | { type: 'form-received' }        // signed form came back (before submit)
   | { type: 'submit-to-carrier' }
   | { type: 'carrier-correction'; note: string }
-  | { type: 'carrier-confirmed' }
+  // Carrier confirmation is PER POLICY: the carrier confirms the servicing agent
+  // on one policy at a time, so each confirmation names the policy it applies
+  // to. Confirming one policy never changes another. Outreach ends only once
+  // every request policy is confirmed — that completion is decided by the route
+  // after it re-reads the request policies' statuses, not here.
+  | { type: 'carrier-confirmed'; policy_id: string }
 
 export interface OutreachState {
   queue: OutreachQueue
@@ -141,10 +150,14 @@ export type OutreachPatch = Partial<OutreachState>
 /** The result of applying an action: the outreach patch plus optional side effects. */
 export interface TransitionResult {
   patch: OutreachPatch
-  /** When set, service_policies in the request should move to this sa_status. */
-  saStatus?: 'confirmed'
-  /** When true, carrier confirmation means outreach is complete (prereview advances). */
-  completesOutreach?: boolean
+  /**
+   * When set, this ONE request policy should move to sa_status = 'confirmed'.
+   * Carrier confirmation is per policy; the route confirms exactly this policy
+   * and never touches the others. Whether the outreach then ends is decided by
+   * the route after re-reading every request policy's status — not here, because
+   * the pure transition cannot see the other policies' current statuses.
+   */
+  confirmPolicyId?: string
   error?: string
 }
 
@@ -314,12 +327,17 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
       if (state.queue !== 'waiting-for-carrier') {
         return { patch: {}, error: `Cannot confirm the carrier from ${state.queue}` }
       }
-      // Carrier confirmation confirms servicing access and ends outreach. It
-      // does NOT create a review. The customer moves toward documentation.
+      if (!action.policy_id) {
+        return { patch: {}, error: 'A policy_id is required: carrier confirmation is recorded per policy' }
+      }
+      // Confirm servicing access for THIS one policy. Clear any standing
+      // correction note (a confirmation resolves it). The item stays in
+      // waiting-for-carrier and remains actionable; the route ends outreach only
+      // once every request policy is confirmed. Confirmation does NOT create a
+      // review. No automatic close.
       return {
         patch: { carrier_correction: null },
-        saStatus: 'confirmed',
-        completesOutreach: true,
+        confirmPolicyId: action.policy_id,
       }
     }
   }
