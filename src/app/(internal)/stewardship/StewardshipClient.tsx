@@ -45,17 +45,38 @@ function dueCallbackRank(
   return it.call_reason === 'callback-due' && isCallbackDue(it.callback_date, actorTimeZone) ? 0 : 1
 }
 
-const SA_SUBJECT = 'Right Path — servicing agent confirmation'
+const SA_SUBJECT = 'Confirming the servicing agent on your Allstate / Everlake life policies'
+
+/**
+ * The servicing-agent outreach email. These are legacy Allstate / Everlake /
+ * Lincoln Benefit Life policies, so the correspondence speaks in the servicing
+ * voice the customer recognizes (Allstate Financial Services), not an internal
+ * "Right Path" label the customer has never heard.
+ *
+ * Honesty about the attachment: a mailto cannot carry a file, so the body must
+ * never claim the form is already attached. It tells the customer the
+ * authorization form is enclosed by the sender, and the UI makes attaching it a
+ * required, explicit step before the worker records the email as sent. Nothing
+ * here sends mail or marks it sent — the worker always does both.
+ */
 function saEmailBody(firstName: string): string {
   return [
     `Hi ${firstName},`,
     '',
-    'This is your Right Path servicing agent. We are confirming the servicing agent on your life',
-    'policies so we can keep helping you. Please review and sign the attached servicing-agent form.',
-    'Reply here with any questions.',
+    'I\'m reaching out from Allstate Financial Services about your life insurance',
+    'policies. We\'re confirming that we\'re listed as the servicing agent on your',
+    'coverage so we can continue to help you with questions, reviews, and any',
+    'changes you need.',
+    '',
+    'A servicing-agent authorization form is enclosed with this message. Please',
+    'review it, sign where indicated, and send it back to me. One form can cover',
+    'more than one of your policies.',
+    '',
+    'If anything looks unfamiliar or you have questions, just reply here and I\'ll',
+    'walk you through it.',
     '',
     'Thank you,',
-    'Right Path',
+    'Allstate Financial Services',
   ].join('\n')
 }
 
@@ -292,7 +313,7 @@ export function StewardshipClient({
       ) : (
         <WorkflowHeader
           primary="Stewardship"
-          secondary="Capture outreach — confirm servicing access on each customer's permanent policies."
+          secondary="Capture outreach — confirm servicing access on each customer's policies."
         />
       )}
 
@@ -626,22 +647,28 @@ function TaskAction({
       return (
         <ActionPanel heading={`Email ${name}`}>
           {noteBox}
-          {/* Established Right Path behavior: open the prepared email in the
-              team member's own Outlook via a mailto link. Launching Outlook is
-              not proof the email was sent — the worker confirms explicitly. */}
+          {/* Open the prepared email in the worker's own Outlook via mailto.
+              Launching Outlook is not proof the email was sent — the worker
+              confirms explicitly below. */}
           <a
             href={buildMailto(detail.customer.email, SA_SUBJECT, saEmailBody(detail.customer.first_name))}
             className="block"
           >
             <PrimaryAction icon={ExternalLink} label="Open prepared email in Outlook" />
           </a>
+          {/* The authorization form is an explicit, required step: the prepared
+              email says a form is enclosed, but a mailto cannot attach one, so
+              the worker must attach the approved servicing-agent authorization
+              form in Outlook before sending. This is prominent because it
+              changes what the worker must do. */}
+          <FormAttachmentDirective request={request} />
           <WorkflowButton
             icon={Check}
             selected
             disabled={busy}
             onClick={() => act({ type: 'email-sent' }, 'Email sent. Moved to Waiting for Response.')}
           >
-            Email sent
+            Form attached and email sent
           </WorkflowButton>
           <WorkflowButton
             icon={MailX}
@@ -651,10 +678,10 @@ function TaskAction({
           >
             Email bounced
           </WorkflowButton>
-          <FormCoverage request={request} />
           <NextNote>
-            Sending moves {detail.customer.first_name} to Waiting for Response. A bounce routes to Ready to
-            Call when a phone is on file, or Research Needed when it is not. Nothing is auto-closed.
+            Attach the signed-ready authorization form in Outlook, then send. Recording it as sent moves
+            {' '}{detail.customer.first_name} to Waiting for Response. A bounce routes to Ready to Call when a
+            phone is on file, or Research Needed when it is not. Nothing is sent or closed automatically.
           </NextNote>
         </ActionPanel>
       )
@@ -783,12 +810,12 @@ function CallAction({
 
       {outcome === 'reached' && (
         <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-          <FormCoverage request={request} />
+          <FormAttachmentDirective request={request} />
           <WorkflowButton icon={FileText} selected disabled={busy}
             onClick={() => act({ type: 'form-sent' }, 'Form sent. Moved to Waiting for Form.')}>
-            Send the form
+            Form attached and sent
           </WorkflowButton>
-          <NextNote>Reached and form sent moves this customer to Waiting for Form. Nothing is auto-closed.</NextNote>
+          <NextNote>Attach the authorization form, send it, then record it here. Reached and form sent moves this customer to Waiting for Form. Nothing is auto-closed.</NextNote>
         </div>
       )}
 
@@ -1063,7 +1090,7 @@ function HoldingsContext({ request, context }: { request: Holding[]; context: Ho
         <p className="text-xs font-semibold uppercase tracking-wide text-slate-600">In this servicing request</p>
         <div className="mt-2 space-y-2">
           {request.length === 0
-            ? <p className="text-sm italic text-slate-400">No permanent policies in the request.</p>
+            ? <p className="text-sm italic text-slate-400">No policies in the request.</p>
             : request.map(h => <HoldingRow key={h.id} h={h} />)}
         </div>
       </div>
@@ -1109,6 +1136,42 @@ function FormCoverage({ request }: { request: Holding[] }) {
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+/**
+ * The required "attach the authorization form" step for the servicing-agent
+ * outreach. The prepared email says a form is enclosed; a mailto cannot attach
+ * one, so the worker must attach the approved servicing-agent authorization
+ * form in Outlook before sending. Right Path does not yet carry the carrier's
+ * form inside the app, so this is stated plainly rather than pretending the
+ * system supplies it. High-contrast amber because it changes what the worker
+ * must do (per the workflow contrast standard — operational, not incidental).
+ */
+function FormAttachmentDirective({ request }: { request: Holding[] }) {
+  return (
+    <div className="space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-4">
+      <p className="flex items-start gap-2 text-base font-semibold text-amber-900">
+        <PenLine className="mt-0.5 size-4 shrink-0" aria-hidden />
+        Attach the servicing-agent authorization form in Outlook before you send.
+      </p>
+      <p className="text-sm text-amber-900">
+        The email states a form is enclosed, but it is not attached automatically. Attach the approved
+        authorization form for the carrier on this account. If you do not have the correct form, obtain it
+        before sending — do not send without it.
+      </p>
+      {request.length > 0 && (
+        <div className="space-y-1.5 rounded-lg border border-amber-200 bg-white/70 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-amber-900">One form covers</p>
+          {request.map(h => (
+            <div key={h.id} className="flex items-center gap-2 text-base text-slate-900">
+              <span className="font-mono">{h.policy_number}</span>
+              <span className="text-sm text-slate-600">{h.product_type ?? 'Policy'}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

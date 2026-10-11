@@ -3,7 +3,6 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { assertProjectActive } from '@/lib/projects/guard'
 import { initialQueue } from '@/lib/stewardship/queues'
-import { isPermanent } from '@/lib/policies/product-type'
 
 /**
  * POST /api/stewardship/start
@@ -21,26 +20,30 @@ import { isPermanent } from '@/lib/policies/product-type'
  *   { project_id: string }
  *   - project_id: start capture for the project population. The customers are
  *     exactly the project_customers for that project; this does not create a
- *     new workflow, it feeds the same capture flow scoped to the project. The
- *     SOURCE COHORT is the project's own qualifying policies, taken from
- *     project_matches for the project's runs (policy_id not null), NOT the
- *     customer's whole agency book. Only the policies the project matched enter
- *     the servicing request, so a new project's request is never broadened to
- *     unrelated permanent policies that merely share the agency book. Customers
- *     that already have OPEN stewardship work are reused (skipped), never
- *     duplicated.
+ *     new workflow, it feeds the same capture flow scoped to the project.
  *
- * Request-policy membership (agency path) is established from the SOURCE COHORT:
- * the permanent policies that belong to the selected agency book
- * (service_policies.agency_id = that agency) AND to the customer. Only those
- * enter the servicing request. Other policies the customer holds outside this
- * book remain visible as relationship context and are NOT added to the request.
- * A customer with no policy in the source cohort is NOT started.
+ * Request-policy membership — capture EVERY known policy of the customer.
+ * A servicing-agent authorization is pursued for every policy Right Path knows
+ * the customer holds: permanent AND term, including policies that did not meet
+ * the project's original selection criteria. The project identifies WHICH
+ * customers to work; it must not artificially narrow WHICH of their policies we
+ * capture. Each captured policy carries its own sa_status, so confirmed access
+ * is distinguished from access still to be established per policy. The
+ * permanent-vs-term distinction does NOT gate capture here — it only governs
+ * 1035 evaluation blocking downstream (missing access on a permanent policy
+ * blocks evaluation; a term policy does not block, yet we still pursue its
+ * access). A customer with no known policy at all is NOT started.
+ *
+ *   - Project path: every known non-test policy the customer holds.
+ *   - Agency path: every known non-test policy the customer holds in the
+ *     selected agency book (service_policies.agency_id = that agency), the book
+ *     being the origin of the work.
  *
  * Returns { data: { started, skipped, skipped_no_cohort_policy } }.
  */
-// Permanent-vs-term classification is shared with the 1035 project workflow via
-// @/lib/policies/product-type so the two always agree.
+// Permanent-vs-term no longer filters capture here: every known policy is
+// captured for servicing. The distinction lives in the 1035 read model, which
+// gates evaluation on permanent policies only.
 
 export async function POST(request: NextRequest) {
   const auth = await requireInternalAdmin()
@@ -150,67 +153,28 @@ export async function POST(request: NextRequest) {
     .is('decision', null)
   const alreadyOpen = new Set((openPrereviews ?? []).map((r: { customer_id: string }) => r.customer_id))
 
-  // Source cohort: the policies that define each customer's servicing request.
-  //   - Project path: the project's OWN qualifying policies, taken from
-  //     project_matches for the project's runs (policy_id not null). This is the
-  //     evidence the project itself produced, so the request is never broadened
-  //     to unrelated permanent policies that merely share the agency book.
-  //   - Agency path: the permanent policies in the SELECTED AGENCY BOOK held by
-  //     the customer (service_policies.agency_id = that agency).
-  // Either way the result is a per-customer list of candidate request policies.
+  // Source cohort: EVERY known non-test policy the customer holds. We capture
+  // all of them for servicing-agent authorization — term and permanent alike,
+  // including policies outside the project's original selection criteria.
+  //   - Project path: all of the customer's known policies (no project_matches
+  //     narrowing — the project chose the customers, not the policy subset).
+  //   - Agency path: the customer's known policies within the selected agency
+  //     book (service_policies.agency_id = that agency), the book being the
+  //     origin of the work.
   const cohortByCustomer = new Map<string, { id: string; product_type: string | null }[]>()
 
-  if (projectId) {
-    // Resolve the project's runs, then the matched policies for this population.
-    const { data: projRuns } = await supabase
-      .from('project_runs')
-      .select('id')
-      .eq('project_id', projectId)
-    const runIds = (projRuns ?? []).map((r: { id: string }) => r.id)
-
-    if (runIds.length) {
-      const { data: matches } = await supabase
-        .from('project_matches')
-        .select('customer_id, policy_id')
-        .in('run_id', runIds)
-        .in('customer_id', customerIds)
-        .not('policy_id', 'is', null)
-
-      // Resolve product_type for the matched policies so the permanent-policy
-      // filter below still applies uniformly across both paths.
-      const matchPolicyIds = Array.from(new Set(
-        (matches ?? []).map((m: { policy_id: string | null }) => m.policy_id).filter((p): p is string => !!p),
-      ))
-      const productTypeById = new Map<string, string | null>()
-      if (matchPolicyIds.length) {
-        const { data: pols } = await supabase
-          .from('service_policies')
-          .select('id, product_type')
-          .in('id', matchPolicyIds)
-        for (const p of (pols ?? []) as { id: string; product_type: string | null }[]) {
-          productTypeById.set(p.id, p.product_type)
-        }
-      }
-
-      // Dedupe per (customer, policy): a policy can match in several runs.
-      const seen = new Set<string>()
-      for (const m of (matches ?? []) as { customer_id: string; policy_id: string }[]) {
-        const key = `${m.customer_id}:${m.policy_id}`
-        if (seen.has(key)) continue
-        seen.add(key)
-        const list = cohortByCustomer.get(m.customer_id) ?? []
-        list.push({ id: m.policy_id, product_type: productTypeById.get(m.policy_id) ?? null })
-        cohortByCustomer.set(m.customer_id, list)
-      }
-    }
-  } else {
-    // Agency book cohort: policies in the selected agency held by the customer.
-    const { data: cohortPolicies } = await supabase
+  {
+    let cohortQuery = supabase
       .from('service_policies')
       .select('id, customer_id, product_type')
-      .eq('agency_id', agencyId as string)
       .in('customer_id', customerIds)
       .eq('is_test', false)
+    // The agency path keeps the book boundary (where the work originated); the
+    // project path takes every known policy of the customer.
+    if (!projectId) {
+      cohortQuery = cohortQuery.eq('agency_id', agencyId as string)
+    }
+    const { data: cohortPolicies } = await cohortQuery
     for (const p of (cohortPolicies ?? []) as { id: string; customer_id: string; product_type: string | null }[]) {
       const list = cohortByCustomer.get(p.customer_id) ?? []
       list.push({ id: p.id, product_type: p.product_type })
@@ -225,10 +189,12 @@ export async function POST(request: NextRequest) {
   for (const c of targets) {
     if (alreadyOpen.has(c.id)) { skipped++; continue }
 
-    // Request membership = permanent policies in the source cohort for this
-    // customer. A customer with no cohort policy is not started at all.
+    // Request membership = EVERY known policy in the source cohort for this
+    // customer (term and permanent). A customer with no known policy at all is
+    // not started. isPermanent is used only to describe the request, not to
+    // filter it.
     const cohort = cohortByCustomer.get(c.id) ?? []
-    const requestPolicies = cohort.filter(p => isPermanent(p.product_type))
+    const requestPolicies = cohort
     if (requestPolicies.length === 0) { skippedNoCohortPolicy++; continue }
 
     // 1. Create the open pre-review work item.
