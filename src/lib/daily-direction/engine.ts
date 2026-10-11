@@ -107,30 +107,28 @@ function queueByKey(queues: QueueCandidate[], key: OutreachQueue): QueueCandidat
 export function buildReason(
   reasonCode: string,
   ctx: {
+    outreachCount: number
     dueCallbackCount: number
-    firstDueCallbackName: string | null
-    recommendedLabel: string | null
-    recommendedCount: number
+    researchCount: number
     waitingCount: number
   },
 ): string {
   switch (reasonCode) {
-    case 'callback_due': {
-      if (ctx.dueCallbackCount === 1) {
-        const who = ctx.firstDueCallbackName ?? 'a customer'
-        return `You promised ${who} a callback that is now due. A kept commitment that has come due is the action work to pick up first.`
-      }
-      return `${ctx.dueCallbackCount} customers are due the callback you promised. A promised callback that has come due is the action work to pick up first.`
-    }
     case 'outreach_work': {
-      // ZEN decided ordinary outreach is the next action. The reason states the
-      // recommended queue and its count without ranking calls against emails.
-      const label = ctx.recommendedLabel ?? 'Outreach'
-      const n = ctx.recommendedCount
-      return `${n} ${n === 1 ? 'customer is' : 'customers are'} in ${label}. That is the next outreach work to pick up.`
+      // Ordinary outreach is the next action. Right Path ranks none of
+      // ready-to-call, ready-to-email, or a due callback above the others, so
+      // the reason presents them as the outreach to pick up, WITHOUT claiming
+      // one comes first. A due callback is noted as due work, not promoted.
+      const n = ctx.outreachCount
+      const base = `${n} ${n === 1 ? 'customer is' : 'customers are'} ready for outreach (calls and emails are equally ready).`
+      if (ctx.dueCallbackCount > 0) {
+        const c = ctx.dueCallbackCount
+        return `${base} ${c} ${c === 1 ? 'is' : 'are'} a promised callback that has come due.`
+      }
+      return base
     }
     case 'research_needed_work': {
-      const n = ctx.recommendedCount
+      const n = ctx.researchCount
       return `No ordinary outreach is waiting. ${n} ${n === 1 ? 'item needs' : 'items need'} contact research (the exception path) before outreach can continue.`
     }
     case 'all_waiting': {
@@ -161,50 +159,66 @@ export async function decideDailyDirection(
   const researchNeeded = queueByKey(candidates.queues, 'research-needed')
   const waitingQueues = candidates.queues.filter((q) => q.kind === 'waiting' && q.count > 0)
   const waitingCount = waitingQueues.reduce((sum, q) => sum + q.count, 0)
+  const hasDueCallback = candidates.dueCallbacks.length > 0
+
+  // The equally-eligible outreach destinations. A due callback is ordinary
+  // outreach that happens to be due; it lives in Ready to Call, so the presence
+  // of either ready-to-call work or a due callback means the call queue is an
+  // option. None of these is ranked above the others.
+  const outreachOptions: AvailableWorkItem[] = []
+  const callQueueRoute = readyToCall?.route ?? candidates.dueCallbacks[0]?.route ?? null
+  if ((readyToCall || hasDueCallback) && callQueueRoute) {
+    // Count: open ready-to-call items (due callbacks are a subset of the call
+    // queue, already included in that count; they are highlighted separately).
+    const callCount = readyToCall?.count ?? 0
+    outreachOptions.push({
+      queue: 'ready-to-call',
+      label: QUEUE_META['ready-to-call'].label,
+      count: callCount,
+      kind: 'action',
+      route: callQueueRoute,
+    })
+  }
+  if (readyToEmail) {
+    outreachOptions.push({
+      queue: 'ready-to-email',
+      label: readyToEmail.label,
+      count: readyToEmail.count,
+      kind: 'action',
+      route: readyToEmail.route,
+    })
+  }
+  const hasOutreachWork = outreachOptions.length > 0
 
   // Independent presence facts: the composition reports WHAT work exists; ZEN
-  // alone decides which comes first. No TypeScript ordering here.
+  // alone decides which comes first. Ready-to-call, ready-to-email, and due
+  // callbacks are collapsed into one outreach fact precisely because Right Path
+  // ranks none of them above the others.
   const facts: NextBestActionFacts = {
-    hasCallbackDue: candidates.dueCallbacks.length > 0,
-    hasReadyToCall: readyToCall != null,
-    hasReadyToEmail: readyToEmail != null,
+    hasOutreachWork,
     hasResearchNeeded: researchNeeded != null,
     hasWaitingWork: waitingQueues.length > 0,
   }
 
   const verdict = await evaluateNextBestAction(facts)
 
-  // Resolve the route + count + label for whatever ZEN chose. This is a pure
-  // lookup of the already-decided verdict, not a second priority decision.
+  // Resolve a SINGLE-destination route only for verdicts that genuinely have
+  // one. 'outreach' has several equally eligible destinations (outreachOptions),
+  // so it deliberately exposes NO single route; the UI shows the options.
   let route: string | null = null
   let actionCount = 0
-  let recommendedLabel: string | null = null
   switch (verdict.nextActionKind) {
-    case 'callback_due':
-      // Date-only due callbacks open the Ready to Call queue (where they live).
-      route = candidates.dueCallbacks[0]?.route ?? readyToCall?.route ?? null
-      actionCount = candidates.dueCallbacks.length
-      recommendedLabel = QUEUE_META['ready-to-call'].label
-      break
-    case 'ready_to_call':
-      route = readyToCall?.route ?? null
-      actionCount = readyToCall?.count ?? 0
-      recommendedLabel = readyToCall?.label ?? null
-      break
-    case 'ready_to_email':
-      route = readyToEmail?.route ?? null
-      actionCount = readyToEmail?.count ?? 0
-      recommendedLabel = readyToEmail?.label ?? null
+    case 'outreach':
+      route = null
+      actionCount = 0
       break
     case 'research_needed':
       route = researchNeeded?.route ?? null
       actionCount = researchNeeded?.count ?? 0
-      recommendedLabel = researchNeeded?.label ?? null
       break
     case 'waiting':
       route = waitingQueues[0]?.route ?? null
       actionCount = waitingCount
-      recommendedLabel = waitingQueues[0]?.label ?? null
       break
     case 'none':
       route = null
@@ -212,11 +226,11 @@ export async function decideDailyDirection(
       break
   }
 
+  const outreachCount = outreachOptions.reduce((sum, o) => sum + o.count, 0)
   const reason = buildReason(verdict.reasonCode, {
+    outreachCount,
     dueCallbackCount: candidates.dueCallbacks.length,
-    firstDueCallbackName: candidates.dueCallbacks[0]?.personName ?? null,
-    recommendedLabel,
-    recommendedCount: actionCount,
+    researchCount: researchNeeded?.count ?? 0,
     waitingCount,
   })
 
@@ -236,6 +250,7 @@ export async function decideDailyDirection(
     reason,
     route,
     actionCount,
+    outreachOptions: verdict.nextActionKind === 'outreach' ? outreachOptions : [],
     dueCallbacks: candidates.dueCallbacks,
     availableWork,
     quiet: verdict.nextActionKind === 'none',

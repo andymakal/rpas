@@ -37,7 +37,12 @@ export function DailyDirectionBriefing({
   state: DailyDirectionState
   className?: string
 }) {
-  const hasAction = state.route != null && state.nextActionKind !== 'none'
+  // A single-destination verdict (research_needed / waiting) exposes one route.
+  // The 'outreach' verdict deliberately exposes NO single route: calls, emails,
+  // and due callbacks are equally eligible, so the UI offers them as co-equal
+  // choices instead of a ranked "the next action" button.
+  const singleRoute = state.route != null && state.nextActionKind !== 'none'
+  const isOutreach = state.nextActionKind === 'outreach'
 
   return (
     <section
@@ -58,7 +63,7 @@ export function DailyDirectionBriefing({
         </p>
       </div>
 
-      {/* The single Next Best Action heading + deterministic reason. */}
+      {/* The Next Best Action heading + deterministic reason. */}
       <h2 className="mt-3 text-xl font-semibold leading-snug tracking-tight text-ink">
         {nextActionHeading(state)}
       </h2>
@@ -66,7 +71,8 @@ export function DailyDirectionBriefing({
         {state.reason}
       </p>
 
-      {hasAction && (
+      {/* Single-destination verdicts (research / waiting) get one CTA. */}
+      {singleRoute && !isOutreach && (
         <Link
           href={state.route as string}
           className="mt-4 inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand-hover"
@@ -76,8 +82,27 @@ export function DailyDirectionBriefing({
         </Link>
       )}
 
-      {/* Due date-only callbacks, surfaced distinctly as a kept-commitment
-          priority. No time of day is shown or implied. */}
+      {/* Outreach: equally-eligible options, presented side by side with no
+          ranking. Each opens its own queue. */}
+      {isOutreach && state.outreachOptions.length > 0 && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {state.outreachOptions.map((o) => (
+            <Link
+              key={o.queue}
+              href={o.route}
+              className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand-hover"
+            >
+              Open {o.label}
+              <span className="rounded-full bg-brand-foreground/20 px-1.5 text-xs">{o.count}</span>
+              <ArrowRight className="size-4" aria-hidden />
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {/* Due date-only callbacks, surfaced distinctly as due work. No time of
+          day is shown or implied. Each links into the Ready to Call queue where
+          that customer is worked, so the recommendation is directly reachable. */}
       {state.dueCallbacks.length > 0 && (
         <div className="mt-5 rounded-xl border border-brand-subtle bg-brand-wash p-4">
           <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-brand-hover">
@@ -86,11 +111,16 @@ export function DailyDirectionBriefing({
           </p>
           <ul className="mt-2 space-y-1.5">
             {state.dueCallbacks.map((cb) => (
-              <li key={cb.id} className="flex items-baseline justify-between gap-3 text-sm">
-                <span className="font-medium text-ink">{cb.personName}</span>
-                <span className="shrink-0 text-ink-supporting">
-                  Promised {formatCallbackDate(cb.callbackDate)}
-                </span>
+              <li key={cb.id}>
+                <Link
+                  href={cb.route}
+                  className="flex items-baseline justify-between gap-3 rounded-lg px-2 py-1 text-sm hover:bg-surface-card"
+                >
+                  <span className="font-medium text-ink">{cb.personName}</span>
+                  <span className="shrink-0 text-ink-supporting">
+                    Promised {formatCallbackDate(cb.callbackDate)}
+                  </span>
+                </Link>
               </li>
             ))}
           </ul>
@@ -145,16 +175,9 @@ export function DailyDirectionBriefing({
 /** The action-first heading for the recommended next action. */
 function nextActionHeading(state: DailyDirectionState): string {
   switch (state.nextActionKind) {
-    case 'callback_due':
-      return state.actionCount === 1
-        ? 'Return a promised callback'
-        : `Return ${state.actionCount} promised callbacks`
-    case 'ready_to_call':
-      return state.actionCount === 1 ? 'Make one call' : `Make ${state.actionCount} calls`
-    case 'ready_to_email':
-      return state.actionCount === 1
-        ? 'Send one servicing-agent email'
-        : `Send ${state.actionCount} servicing-agent emails`
+    case 'outreach':
+      // Equally-eligible outreach: do not name one channel as "the" action.
+      return 'Outreach is ready'
     case 'research_needed':
       return 'Research missing contact information'
     case 'waiting':
@@ -164,15 +187,10 @@ function nextActionHeading(state: DailyDirectionState): string {
   }
 }
 
-/** The CTA label linking into the recommended queue. */
+/** The CTA label for a SINGLE-destination verdict (research / waiting). The
+ * outreach verdict renders its own co-equal option buttons, not this CTA. */
 function ctaLabel(state: DailyDirectionState): string {
   switch (state.nextActionKind) {
-    case 'callback_due':
-      return 'Open Ready to Call'
-    case 'ready_to_call':
-      return 'Open Ready to Call'
-    case 'ready_to_email':
-      return 'Open Ready to Email'
     case 'research_needed':
       return 'Open Research Needed'
     case 'waiting':

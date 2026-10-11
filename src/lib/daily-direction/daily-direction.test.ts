@@ -5,14 +5,16 @@
  * real TypeScript engine and the real GoRules ZEN rule are exercised (no copy of
  * the logic, no new test-framework dependency). Run with: npm run test:dd
  *
- * These lock in the four corrected behaviors:
- *   1. Priority lives entirely in GoRules; the engine passes independent
- *      presence facts and ZEN alone orders them. No call-over-email preference
- *      is invented (ready-to-call and ready-to-email are peers).
- *   2. A date-only due callback is DUE ACTION WORK surfaced first among action
- *      work, carrying only a date (never a clock time), and does not depend on a
- *      fixed-time interrupt model.
- *   3. The ready state links into the matching queue (route carries ?queue=).
+ * These lock in the corrected behaviors:
+ *   1. Priority lives entirely in GoRules and reflects only established Right
+ *      Path distinctions. Ready-to-call, ready-to-email, and a due callback are
+ *      EQUALLY ELIGIBLE outreach (no call-over-email bias, no automatic
+ *      callback-first). Research is the exception path; waiting is last.
+ *   2. A date-only due callback is due outreach work carrying only a date (never
+ *      a clock time), surfaced distinctly, not an automatic top priority.
+ *   3. The ready state deep-links into real queues; outreach exposes co-equal
+ *      options rather than one ranked route.
+ *   4. The business calendar is US Eastern and judges date-only due.
  */
 
 import test from 'node:test'
@@ -23,6 +25,7 @@ import {
   evaluateNextBestAction,
   buildReason,
 } from './engine'
+import { businessToday, isCallbackDue, BUSINESS_TIME_ZONE } from './business-calendar'
 import type { DailyDirectionCandidates, QueueCandidate, DueCallback } from './types'
 
 function queue(
@@ -37,51 +40,21 @@ function callback(id: string, name: string, date: string): DueCallback {
   return { id, personName: name, callbackDate: date, route: '/stewardship?queue=ready-to-call' }
 }
 
-// ── ZEN decision table: priority lives in the rule ──────────────────────────
+// ── ZEN decision table: priority reflects only established distinctions ──────
 
-test('ZEN: a due callback is the first action work', async () => {
+test('ZEN: any ordinary outreach (call/email/callback) yields one neutral outreach verdict', async () => {
   const v = await evaluateNextBestAction({
-    hasCallbackDue: true,
-    hasReadyToCall: true,
-    hasReadyToEmail: true,
+    hasOutreachWork: true,
     hasResearchNeeded: true,
     hasWaitingWork: true,
   })
-  assert.equal(v.nextActionKind, 'callback_due')
-  assert.equal(v.reasonCode, 'callback_due')
-})
-
-test('ZEN: ready-to-email wins when there is no call work (no call-over-email bias beyond naming)', async () => {
-  const v = await evaluateNextBestAction({
-    hasCallbackDue: false,
-    hasReadyToCall: false,
-    hasReadyToEmail: true,
-    hasResearchNeeded: true,
-    hasWaitingWork: true,
-  })
-  // Email outranks research (exception path) and waiting.
-  assert.equal(v.nextActionKind, 'ready_to_email')
+  assert.equal(v.nextActionKind, 'outreach')
   assert.equal(v.reasonCode, 'outreach_work')
 })
 
-test('ZEN: ordinary outreach (call or email) both report the same outreach_work reason', async () => {
-  const call = await evaluateNextBestAction({
-    hasCallbackDue: false,
-    hasReadyToCall: true,
-    hasReadyToEmail: true,
-    hasResearchNeeded: false,
-    hasWaitingWork: false,
-  })
-  // Both call and email are the same tier: the reasonCode is the neutral
-  // outreach_work, not a call-specific or email-specific preference.
-  assert.equal(call.reasonCode, 'outreach_work')
-})
-
-test('ZEN: research-needed only wins after ordinary outreach is exhausted', async () => {
+test('ZEN: research-needed (exception) only wins once ordinary outreach is exhausted', async () => {
   const v = await evaluateNextBestAction({
-    hasCallbackDue: false,
-    hasReadyToCall: false,
-    hasReadyToEmail: false,
+    hasOutreachWork: false,
     hasResearchNeeded: true,
     hasWaitingWork: true,
   })
@@ -90,18 +63,14 @@ test('ZEN: research-needed only wins after ordinary outreach is exhausted', asyn
 
 test('ZEN: all-waiting yields waiting; empty board yields open capacity', async () => {
   const waiting = await evaluateNextBestAction({
-    hasCallbackDue: false,
-    hasReadyToCall: false,
-    hasReadyToEmail: false,
+    hasOutreachWork: false,
     hasResearchNeeded: false,
     hasWaitingWork: true,
   })
   assert.equal(waiting.nextActionKind, 'waiting')
 
   const empty = await evaluateNextBestAction({
-    hasCallbackDue: false,
-    hasReadyToCall: false,
-    hasReadyToEmail: false,
+    hasOutreachWork: false,
     hasResearchNeeded: false,
     hasWaitingWork: false,
   })
@@ -109,95 +78,130 @@ test('ZEN: all-waiting yields waiting; empty board yields open capacity', async 
   assert.equal(empty.reasonCode, 'open_capacity')
 })
 
-// ── decideDailyDirection: normalization + ready state ───────────────────────
-
-test('decide: outreach work is recommended and the route deep-links into its queue', async () => {
-  const candidates: DailyDirectionCandidates = {
-    dueCallbacks: [],
-    queues: [
-      queue('research-needed', 13, 'action'),
-      queue('ready-to-email', 1, 'action'),
-      queue('ready-to-call', 57, 'action'),
-    ],
+// The ZEN rule must NOT expose any input that lets it (or a reader) rank calls
+// over emails or callbacks over other outreach: the only outreach fact is the
+// collapsed hasOutreachWork.
+test('ZEN rule exposes no call/email/callback ranking inputs', async () => {
+  const model = (await import('@/rules/next-best-action.json', { with: { type: 'json' } })).default as {
+    nodes: { content?: { inputs?: { field: string }[] } }[]
   }
-  const state = await decideDailyDirection(candidates)
-  // ZEN names ready-to-call first among present outreach; the point is the route
-  // deep-links into the actual queue, not back to the board.
-  assert.equal(state.nextActionKind, 'ready_to_call')
-  assert.equal(state.route, '/stewardship?queue=ready-to-call')
-  assert.ok((state.route ?? '').includes('?queue='))
-  assert.equal(state.availableWork.length, 3)
-  // Every board row carries a deep link into its own queue.
-  for (const w of state.availableWork) {
-    assert.equal(w.route, `/stewardship?queue=${w.queue}`)
+  const table = model.nodes.find((n) => n.content?.inputs)
+  const fields = (table?.content?.inputs ?? []).map((i) => i.field)
+  assert.ok(fields.includes('hasOutreachWork'))
+  for (const banned of ['hasReadyToCall', 'hasReadyToEmail', 'hasCallbackDue', 'topActionQueue']) {
+    assert.ok(!fields.includes(banned), `rule must not rank on ${banned}`)
   }
 })
 
-test('decide: a due date-only callback is first action work and carries no clock time', async () => {
+// ── decideDailyDirection: equally-eligible outreach + deep links ────────────
+
+test('decide: call + email present -> outreach verdict with TWO co-equal options, no single route', async () => {
   const candidates: DailyDirectionCandidates = {
-    dueCallbacks: [callback('a', 'Jo Sample', '2026-10-09')],
-    queues: [queue('ready-to-call', 57, 'action')],
+    dueCallbacks: [],
+    queues: [
+      queue('ready-to-call', 57, 'action'),
+      queue('ready-to-email', 3, 'action'),
+    ],
   }
   const state = await decideDailyDirection(candidates)
-  assert.equal(state.nextActionKind, 'callback_due')
+  assert.equal(state.nextActionKind, 'outreach')
+  // No single ranked destination for outreach.
+  assert.equal(state.route, null)
+  // Both channels are offered as co-equal options, each deep-linking its queue.
+  assert.equal(state.outreachOptions.length, 2)
+  const byQueue = Object.fromEntries(state.outreachOptions.map((o) => [o.queue, o]))
+  assert.equal(byQueue['ready-to-call'].route, '/stewardship?queue=ready-to-call')
+  assert.equal(byQueue['ready-to-email'].route, '/stewardship?queue=ready-to-email')
+})
+
+test('decide: only email present -> outreach verdict, email is the sole option (no invented call tier)', async () => {
+  const state = await decideDailyDirection({
+    dueCallbacks: [],
+    queues: [queue('ready-to-email', 3, 'action')],
+  })
+  assert.equal(state.nextActionKind, 'outreach')
+  assert.equal(state.outreachOptions.length, 1)
+  assert.equal(state.outreachOptions[0].queue, 'ready-to-email')
+})
+
+test('decide: a due date-only callback is outreach (not auto-top) and carries no clock time', async () => {
+  const candidates: DailyDirectionCandidates = {
+    dueCallbacks: [callback('a', 'Jo Sample', '2026-10-09')],
+    queues: [
+      queue('ready-to-call', 57, 'action'),
+      queue('ready-to-email', 3, 'action'),
+    ],
+  }
+  const state = await decideDailyDirection(candidates)
+  // Still just outreach — the callback does not promote itself above emails.
+  assert.equal(state.nextActionKind, 'outreach')
+  // Email remains an equally-eligible option alongside the call queue.
+  assert.ok(state.outreachOptions.some((o) => o.queue === 'ready-to-email'))
+  assert.ok(state.outreachOptions.some((o) => o.queue === 'ready-to-call'))
+  // The callback is surfaced distinctly, date-only, with a deep link.
   assert.equal(state.dueCallbacks.length, 1)
-  // Date-only: a date is exposed, never a clock time.
   assert.equal(state.dueCallbacks[0].callbackDate, '2026-10-09')
   assert.ok(!('callbackAt' in state.dueCallbacks[0]))
-  assert.ok(!('callbackTime' in state.dueCallbacks[0]))
-  // The callback opens the Ready to Call queue (where it lives).
-  assert.equal(state.route, '/stewardship?queue=ready-to-call')
-  // Reason names the customer; frames it as due action work, not a timed alarm.
-  assert.match(state.reason, /Jo Sample/)
+  assert.equal(state.dueCallbacks[0].route, '/stewardship?queue=ready-to-call')
   assert.doesNotMatch(state.reason, /\d{1,2}:\d{2}/)
 })
 
-test('decide: a waiting-only board recommends waiting, not an action', async () => {
-  const candidates: DailyDirectionCandidates = {
+test('decide: research-only board -> single research route; waiting-only -> waiting; empty -> quiet', async () => {
+  const research = await decideDailyDirection({
     dueCallbacks: [],
-    queues: [
-      queue('waiting-for-response', 4, 'waiting'),
-      queue('waiting-for-carrier', 2, 'waiting'),
-    ],
-  }
-  const state = await decideDailyDirection(candidates)
-  assert.equal(state.nextActionKind, 'waiting')
-  assert.equal(state.actionCount, 6)
-  assert.equal(state.quiet, false)
+    queues: [queue('research-needed', 13, 'action')],
+  })
+  assert.equal(research.nextActionKind, 'research_needed')
+  assert.equal(research.route, '/stewardship?queue=research-needed')
+
+  const waiting = await decideDailyDirection({
+    dueCallbacks: [],
+    queues: [queue('waiting-for-response', 4, 'waiting')],
+  })
+  assert.equal(waiting.nextActionKind, 'waiting')
+
+  const empty = await decideDailyDirection({ dueCallbacks: [], queues: [] })
+  assert.equal(empty.nextActionKind, 'none')
+  assert.equal(empty.quiet, true)
 })
 
-test('decide: an empty board is quiet (open capacity)', async () => {
-  const state = await decideDailyDirection({ dueCallbacks: [], queues: [] })
-  assert.equal(state.nextActionKind, 'none')
-  assert.equal(state.quiet, true)
-  assert.equal(state.route, null)
-  assert.equal(state.availableWork.length, 0)
-})
+// ── buildReason: no invented business rule ──────────────────────────────────
 
-// ── buildReason: deterministic prose, no invented business rule ─────────────
-
-test('reason: outreach prose states the queue and count without ranking calls over emails', () => {
+test('reason: outreach prose does not rank calls over emails and invents no "fastest" claim', () => {
   const r = buildReason('outreach_work', {
+    outreachCount: 60,
     dueCallbackCount: 0,
-    firstDueCallbackName: null,
-    recommendedLabel: 'Ready to Email',
-    recommendedCount: 3,
+    researchCount: 0,
     waitingCount: 0,
   })
-  assert.match(r, /Ready to Email/)
-  assert.match(r, /3 customers/)
-  // Must NOT claim calls move customers forward fastest or otherwise invent a
-  // call-over-email preference.
   assert.doesNotMatch(r, /fastest/i)
+  assert.doesNotMatch(r, /call .* before .* email|email .* before .* call/i)
+  assert.match(r, /equally ready/i)
 })
 
-test('reason: plural callback phrasing when more than one is due', () => {
-  const r = buildReason('callback_due', {
-    dueCallbackCount: 3,
-    firstDueCallbackName: 'Jo Sample',
-    recommendedLabel: 'Ready to Call',
-    recommendedCount: 3,
+test('reason: outreach prose notes due callbacks as due work, not a top priority', () => {
+  const r = buildReason('outreach_work', {
+    outreachCount: 60,
+    dueCallbackCount: 2,
+    researchCount: 0,
     waitingCount: 0,
   })
-  assert.match(r, /3 customers/)
+  assert.match(r, /promised callback/i)
+  assert.doesNotMatch(r, /first|outrank|top priority/i)
+})
+
+// ── business calendar: US Eastern ───────────────────────────────────────────
+
+test('business calendar is US Eastern (evidence: PA/Eastern book), not inherited Central', () => {
+  assert.equal(BUSINESS_TIME_ZONE, 'America/New_York')
+})
+
+test('isCallbackDue judges date-only due on the business calendar', () => {
+  // A fixed instant: 2026-10-09 02:00 UTC = 2026-10-08 22:00 US Eastern.
+  const now = new Date('2026-10-09T02:00:00Z')
+  assert.equal(businessToday(now), '2026-10-08') // Eastern, not UTC's Oct 9
+  assert.equal(isCallbackDue('2026-10-08', now), true) // today -> due
+  assert.equal(isCallbackDue('2026-10-07', now), true) // past -> due
+  assert.equal(isCallbackDue('2026-10-09', now), false) // future -> not due
+  assert.equal(isCallbackDue(null, now), false)
 })

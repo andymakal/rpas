@@ -30,6 +30,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { QUEUE_META, OUTREACH_QUEUES, deriveFollowUpRouting, type OutreachQueue } from '@/lib/stewardship/queues'
 import { decideDailyDirection } from './engine'
+import { isCallbackDue } from './business-calendar'
 import type { DailyDirectionState, QueueCandidate, DueCallback } from './types'
 
 /** The Stewardship board route. The board opens the matching queue list when it
@@ -38,31 +39,6 @@ const STEWARDSHIP_ROUTE = '/stewardship'
 
 function routeForQueue(queue: OutreachQueue): string {
   return `${STEWARDSHIP_ROUTE}?queue=${encodeURIComponent(queue)}`
-}
-
-/**
- * The business calendar used to judge date-only work. Right Path (Makal
- * Financial) operates on US Central time, which is also the IPF default
- * business calendar. Date-only callback dates are compared against "today" on
- * THIS calendar, never the server's UTC/local clock, so a callback promised for
- * a given calendar day is due on that day for the agency regardless of where
- * the server runs.
- */
-const BUSINESS_TIME_ZONE = 'America/Chicago'
-
-/**
- * Today's date on the business calendar as YYYY-MM-DD, for comparing against the
- * date-only callback_date. DST-correct via Intl; date-only in, date-only out.
- */
-function businessToday(now: Date): string {
-  // en-CA formats as YYYY-MM-DD, which sorts/compares correctly against the
-  // date-only callback_date strings.
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: BUSINESS_TIME_ZONE,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(now)
 }
 
 type BoardRow = {
@@ -147,13 +123,11 @@ export async function getDailyDirection(
   // Due callbacks: an open ready-to-call item with a date-only callback_date on
   // or before today ON THE BUSINESS CALENDAR. This is date-only due work, never
   // an exact-time commitment: no clock time is read, invented, or displayed.
-  const today = businessToday(now)
   const dueCallbacks: DueCallback[] = rows
     .filter(
       (r) =>
         effectiveQueue(r) === 'ready-to-call' &&
-        r.callback_date != null &&
-        r.callback_date <= today,
+        isCallbackDue(r.callback_date, now),
     )
     .map((r) => {
       const c = r.customer_prereviews.customers

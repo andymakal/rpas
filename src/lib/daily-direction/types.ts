@@ -74,11 +74,14 @@ export interface DailyDirectionCandidates {
 // Shared assistant state (the single serializable result)
 // ---------------------------------------------------------------------------
 
-/** The kind of the single Next Best Action ZEN decided. */
+/**
+ * The kind of Next Best Action ZEN decided. 'outreach' is the single
+ * equally-eligible outreach tier (ready-to-call, ready-to-email, and due
+ * promised callbacks together); ZEN does not rank within it, so there is no
+ * call-specific or email-specific or callback-specific verdict.
+ */
 export type NextActionKind =
-  | 'callback_due'
-  | 'ready_to_call'
-  | 'ready_to_email'
+  | 'outreach'
   | 'research_needed'
   | 'waiting'
   | 'none'
@@ -88,14 +91,16 @@ export type NextActionKind =
  * independent PRESENCE signals: the composition reports what work exists and
  * ZEN alone decides the priority order between them. No TypeScript picks a
  * "top" queue, so no priority ordering is duplicated outside the rule.
+ *
+ * Ready-to-call, ready-to-email, and a due promised callback are all ordinary
+ * outreach and are collapsed into one `hasOutreachWork` fact BECAUSE they are
+ * equally eligible: reporting them separately would let the rule (or any
+ * reader) infer a ranking that Right Path has not established. Research-needed
+ * is the board's explicit exception path and is reported separately.
  */
 export interface NextBestActionFacts {
-  /** A promised callback is DUE (date-only, on or before today on the business calendar). */
-  hasCallbackDue: boolean
-  /** Ready-to-call work exists. */
-  hasReadyToCall: boolean
-  /** Ready-to-email work exists. */
-  hasReadyToEmail: boolean
+  /** Any ordinary outreach exists: ready-to-call, ready-to-email, or a due callback. */
+  hasOutreachWork: boolean
   /** Research-needed (exception) work exists. */
   hasResearchNeeded: boolean
   /** At least one waiting queue currently has work. */
@@ -126,16 +131,31 @@ export interface AvailableWorkItem {
  * component resolves it and passes it straight to the client Assistant.
  */
 export interface DailyDirectionState {
-  /** The kind of the single Next Best Action. */
+  /** The kind of the Next Best Action ZEN decided. */
   nextActionKind: NextActionKind
   /** The machine-readable reason key ZEN produced. */
   reasonCode: string
   /** A short deterministic human-readable reason for the recommendation. */
   reason: string
-  /** The route to open for the Next Best Action, when one is knowable. */
+  /**
+   * The route for a SINGLE-destination recommendation (research_needed,
+   * waiting). Null for the 'outreach' verdict, which has several equally
+   * eligible destinations (see outreachOptions) and for 'none'. The UI must not
+   * synthesize a single preferred route for outreach.
+   */
   route: string | null
-  /** How many items the recommended next action covers (queue count, or 1 for a callback). */
+  /**
+   * How many items the recommended next action covers, for a single-destination
+   * verdict. 0 for 'outreach' (use outreachOptions) and 'none'.
+   */
   actionCount: number
+  /**
+   * The equally-eligible outreach destinations for the 'outreach' verdict:
+   * ready-to-call, ready-to-email, and (when due callbacks exist) the callback
+   * queue, each with its count and route, presented WITHOUT ranking. Empty for
+   * non-outreach verdicts. The UI shows these as co-equal choices.
+   */
+  outreachOptions: AvailableWorkItem[]
   /** The due callbacks surfaced on the board (date-only), oldest promise first. */
   dueCallbacks: DueCallback[]
   /** The full scannable board breakdown (action + waiting), for the briefing. */

@@ -9,7 +9,8 @@
  * refresh. The look reuses the shared workflow component layer.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import {
   Mail, Phone, Search, Inbox, FileText, Building2, Check, ExternalLink,
   Clock, CircleAlert, Play, PenLine, MailX,
@@ -24,8 +25,20 @@ import {
   QUEUE_META, OUTREACH_QUEUES,
   type OutreachQueue, type CallOutcome,
 } from '@/lib/stewardship/queues'
+import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildMailto } from '@/lib/templates'
 import type { AgencyOption } from './page'
+
+/**
+ * Rank for sorting a queue list: a customer with a due promised callback
+ * (callback-due reason, date on/before today on the business calendar) sorts to
+ * the top (0) so a customer the Assistant recommends by callback is immediately
+ * visible within the destination queue. Everything else keeps its existing
+ * order (1). Presentation only; no workflow state changes.
+ */
+function dueCallbackRank(it: { call_reason: string | null; callback_date: string | null }): number {
+  return it.call_reason === 'callback-due' && isCallbackDue(it.callback_date) ? 0 : 1
+}
 
 const SA_SUBJECT = 'Right Path — servicing agent confirmation'
 function saEmailBody(firstName: string): string {
@@ -132,6 +145,24 @@ export function StewardshipClient({
   const [openQueue, setOpenQueue] = useState<OutreachQueue | null>(initialQueue)
   const [openItemId, setOpenItemId] = useState<string | null>(null)
 
+  // Respond to the ?queue= param changing WHILE on this page. The Assistant's
+  // links (which share this page) are client-side navigations that do not
+  // remount this component, so initialQueue alone would not react to them. We
+  // watch the live param and open the matching queue list when it changes to a
+  // valid queue. We track the last-applied value so this only fires on an
+  // actual param change, never fighting the user's in-app queue navigation.
+  const searchParams = useSearchParams()
+  const queueParam = searchParams.get('queue')
+  const lastAppliedQueueParam = useRef<string | null>(initialQueue)
+  useEffect(() => {
+    if (queueParam === lastAppliedQueueParam.current) return
+    lastAppliedQueueParam.current = queueParam
+    if (queueParam && (OUTREACH_QUEUES as readonly string[]).includes(queueParam)) {
+      setOpenItemId(null)
+      setOpenQueue(queueParam as OutreachQueue)
+    }
+  }, [queueParam])
+
   const loadBoard = useCallback(async () => {
     setLoading(true)
     try {
@@ -162,7 +193,15 @@ export function StewardshipClient({
 
   if (openQueue) {
     const meta = QUEUE_META[openQueue]
-    const queueItems = items.filter(i => i.queue === openQueue)
+    // Due callbacks (a customer we promised to call back on or before today)
+    // are surfaced at the TOP of the list, so a customer the Assistant
+    // recommends by callback is immediately visible and reachable within the
+    // destination queue. This is a presentation sort only; it changes no
+    // workflow state and no queue placement. "Today" is judged on the business
+    // calendar, matching the Assistant.
+    const queueItems = items
+      .filter(i => i.queue === openQueue)
+      .sort((a, b) => dueCallbackRank(a) - dueCallbackRank(b))
     return (
       <WorkflowPage>
         <QueueListHeader
