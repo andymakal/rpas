@@ -37,6 +37,7 @@ export type QualificationKey =
 export type WorkFunctionKey =
   | 'outreach'
   | 'research'
+  | 'contact_review'
   | 'operations_prep'
   | 'determination'
   | 'office_support'

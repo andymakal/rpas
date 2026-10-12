@@ -234,7 +234,7 @@ export function TaskShell({
 /** A column heading for grouping context blocks on the left of a task screen. */
 export function ContextLabel({ children }: { children: ReactNode }) {
   return (
-    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-supporting">{children}</p>
+    <p className="text-sm font-semibold uppercase tracking-[0.08em] text-ink-supporting">{children}</p>
   )
 }
 
@@ -328,6 +328,10 @@ export function WorkflowButton({
       onClick={onClick}
       disabled={disabled}
       className={cn(
+        // A workflow action is read and clicked, so it carries a comfortable
+        // readable size (>=16px) and target height regardless of the shadcn
+        // Button's small default. [&_svg] keeps the icon proportionate.
+        'h-11 gap-2 px-4 text-base [&_svg]:size-5',
         selected
           // Selected / active: solid Right Path teal, from the brand token.
           ? 'border-transparent bg-brand text-brand-foreground hover:bg-brand-hover'
@@ -350,7 +354,7 @@ export function NextNote({ children }: { children: ReactNode }) {
   // "What happens next" is operational: it tells the worker the resulting
   // state. Keep it readable (slate-600), never pale gray.
   return (
-    <p className="flex items-start gap-1.5 text-sm text-ink-supporting">
+    <p className="flex items-start gap-1.5 text-base leading-relaxed text-ink-supporting">
       <span className="mt-0.5 shrink-0" aria-hidden>{'\u2192'}</span>
       <span>{children}</span>
     </p>
@@ -411,7 +415,7 @@ export function ExternalActionConfirm({
         'flex flex-wrap items-center gap-3 rounded-xl border p-3 transition-colors',
         launched ? 'border-surface-border bg-surface-card' : 'border-dashed border-surface-border bg-surface-muted',
       )}>
-        <span className="text-sm text-ink-supporting">
+        <span className="text-base text-ink-supporting">
           {launched ? 'Done in the external tool?' : 'After you open it and finish there, confirm here.'}
         </span>
         <Button

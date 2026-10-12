@@ -70,26 +70,26 @@ export function ContextHeader({
               {'\u2190'} {backLabel}
             </Button>
           ) : eyebrow != null ? (
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{eyebrow}</p>
+            <p className="text-sm font-medium uppercase tracking-wide text-ink-supporting">{eyebrow}</p>
           ) : null}
-          <h2 className="text-lg font-semibold text-ink">{title}</h2>
+          <h2 className="text-xl font-semibold text-ink">{title}</h2>
           {location && (
-            <p className="mt-0.5 flex items-center gap-1 text-xs text-slate-500">
-              <MapPin className="size-3" aria-hidden /> {location}
+            <p className="mt-0.5 flex items-center gap-1 text-sm text-ink-supporting">
+              <MapPin className="size-3.5" aria-hidden /> {location}
             </p>
           )}
         </div>
         {escapeHatch}
       </div>
 
-      <dl className="grid gap-x-4 gap-y-2 text-sm sm:grid-cols-3">
+      <dl className="grid gap-x-4 gap-y-3 text-base sm:grid-cols-3">
         {fields.map(f => (
           <div key={f.label} className="min-w-0">
             {/* Field labels identify operational values; keep them readable
                 (slate-600), never pale gray. Only empty values fall back to
                 muted slate-400. */}
-            <dt className="text-[11px] uppercase tracking-wide text-ink-supporting">{f.label}</dt>
-            <dd className="mt-0.5 flex items-center gap-1.5">
+            <dt className="text-sm uppercase tracking-wide text-ink-supporting">{f.label}</dt>
+            <dd className="mt-1 flex items-center gap-1.5">
               <FieldStatusDot tone={f.statusTone} icon={f.statusIcon} label={f.statusLabel} />
               <span className={cn('truncate', f.empty ? 'italic text-ink-muted' : 'text-ink')}>
                 {f.value}
@@ -124,7 +124,7 @@ const KEY_DOT: Record<FieldStatusTone, string> = {
 
 export function VerificationKey() {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-surface-divider pt-2.5 text-[11px] text-ink-supporting">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-surface-divider pt-2.5 text-sm text-ink-supporting">
       <span className="font-medium uppercase tracking-wide text-ink-supporting">Key</span>
       {VERIFICATION_KEY.map(k => (
         <span key={k.tone} className="inline-flex items-center gap-1.5">
@@ -195,7 +195,7 @@ export function AssistantPanel({
         <span className="flex size-10 items-center justify-center rounded-full bg-brand text-brand-foreground">
           <Sparkles className="size-5" aria-hidden />
         </span>
-        <p className="text-sm font-semibold uppercase tracking-[0.1em] text-brand-hover">{label}</p>
+        <p className="text-base font-semibold uppercase tracking-[0.1em] text-brand-hover">{label}</p>
       </div>
 
       <h2 className="text-4xl font-semibold leading-tight tracking-tight text-ink">{heading}</h2>

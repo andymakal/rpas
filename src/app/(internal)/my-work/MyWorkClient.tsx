@@ -104,21 +104,21 @@ export function MyWorkClient({ state }: { state: MyWorkState }) {
           aria-label="Today's Focus"
           className="rounded-2xl border border-brand-subtle bg-brand-wash p-5"
         >
-          <p className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.1em] text-brand-hover">
+          <p className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.1em] text-brand-hover">
             <Sparkles className="size-4" aria-hidden /> Today&apos;s Focus
           </p>
           <ul className="mt-2 space-y-1.5">
             {state.focusNotes.map((f) => (
-              <li key={f.id} className="text-sm text-ink">
+              <li key={f.id} className="text-base text-ink">
                 <span className="font-semibold">{f.label}</span>
-                {f.note ? <span className="text-ink-secondary"> — {f.note}</span> : null}
+                {f.note ? <span className="text-ink-secondary">: {f.note}</span> : null}
                 <span className="ml-2 text-ink-supporting">
                   (until {formatExpiry(f.expiresAt)})
                 </span>
               </li>
             ))}
           </ul>
-          <p className="mt-2 text-xs text-ink-supporting">
+          <p className="mt-2 text-sm text-ink-supporting">
             Focus reorders your work for a limited time. It never overrides a
             customer commitment and never hides other work.
           </p>
@@ -190,7 +190,7 @@ function MyWorkAssistant({
         {commitments.length > 0 && <CommitmentsNotice commitments={commitments} />}
 
         {nothingToStart ? (
-          <p className="-mt-2 flex items-center gap-2 text-sm leading-relaxed text-ink-secondary">
+          <p className="-mt-2 flex items-center gap-2 text-lg leading-relaxed text-ink-secondary">
             <CheckCircle2 className="size-5 text-status-confirmed" aria-hidden />
             Nothing is waiting for you to start right now. You have open capacity.
           </p>
@@ -231,14 +231,14 @@ function MyWorkAssistant({
             {/* Quiet Work reveal: its activities, counts, and direct actions. */}
             {view === 'quiet' && quiet && (
               <div className="rounded-xl border border-surface-border bg-surface-muted p-4">
-                <p className="flex items-center gap-1.5 text-sm font-semibold text-ink">
+                <p className="flex items-center gap-1.5 text-base font-semibold text-ink">
                   <NotebookPen className="size-4 text-ink-supporting" aria-hidden />
                   Quiet work available to you
                 </p>
-                <p className="mt-0.5 text-xs leading-relaxed text-ink-supporting">
+                <p className="mt-1 text-base leading-relaxed text-ink-supporting">
                   {WORK_MODE_NOTE.quiet}
                 </p>
-                <ul className="mt-2.5 space-y-1">
+                <ul className="mt-3 space-y-1">
                   {quiet.items.map((item) => (
                     <WorkModeItemRow key={`${item.workFunction}-${item.label}`} item={item} />
                   ))}
@@ -279,8 +279,8 @@ function CommitmentsNotice({ commitments }: { commitments: ActivityGroup[] }) {
       aria-label="Commitments needing attention"
       className="-mt-2 rounded-xl border border-l-4 border-surface-border border-l-tag-exception-border bg-tag-exception-fill/50 p-4"
     >
-      <p className="flex items-center gap-1.5 text-sm font-semibold text-tag-exception-text">
-        <AlertCircle className="size-4" aria-hidden />
+      <p className="flex items-center gap-1.5 text-base font-semibold text-tag-exception-text">
+        <AlertCircle className="size-5" aria-hidden />
         Needs attention now
       </p>
       <ul className="mt-2 space-y-1">
@@ -301,12 +301,12 @@ function CommitmentsNotice({ commitments }: { commitments: ActivityGroup[] }) {
               {route ? (
                 <Link
                   href={route}
-                  className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm hover:bg-tag-exception-fill"
+                  className="flex items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-base hover:bg-tag-exception-fill"
                 >
                   {body}
                 </Link>
               ) : (
-                <div className="flex items-center justify-between gap-3 px-2 py-1.5 text-sm">{body}</div>
+                <div className="flex items-center justify-between gap-3 px-2.5 py-2 text-base">{body}</div>
               )}
             </li>
           )
@@ -359,11 +359,11 @@ function StartChoice({
         </span>
       </div>
       {/* Assistant copy (WHAT this choice is). */}
-      <p className="mt-3 text-sm leading-relaxed text-ink-secondary">{subtitle}</p>
+      <p className="mt-3 text-base leading-relaxed text-ink-secondary">{subtitle}</p>
       {/* Mentor coaching (HOW to approach it) — purple, only when Mentoring is
           on. Kept visually and semantically distinct from the Assistant copy. */}
       {mentorNote && <MentorNote className="mt-2">{mentorNote}</MentorNote>}
-      <span className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-brand-hover">
+      <span className="mt-3 inline-flex items-center gap-1.5 text-base font-medium text-brand-hover">
         {isCalls ? 'Open the call queue' : selected ? 'Hide quiet work' : 'Show quiet work'}
         <ArrowRight className="size-4" aria-hidden />
       </span>
@@ -404,7 +404,7 @@ function WorkModeItemRow({ item }: { item: WorkModeGroup['items'][number] }) {
   const body = (
     <>
       <span className="flex min-w-0 items-center gap-1.5">
-        {isCommitment && <AlertCircle className="size-3.5 shrink-0 text-tag-exception-text" aria-hidden />}
+        {isCommitment && <AlertCircle className="size-4 shrink-0 text-tag-exception-text" aria-hidden />}
         <span className={cn('truncate', isCommitment ? 'font-medium text-ink' : 'text-ink-secondary')}>
           {item.label}
         </span>
@@ -422,12 +422,12 @@ function WorkModeItemRow({ item }: { item: WorkModeGroup['items'][number] }) {
       {item.route ? (
         <Link
           href={item.route}
-          className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-surface-card"
+          className="flex items-center justify-between gap-3 rounded-lg px-2.5 py-2.5 text-base transition-colors hover:bg-surface-card"
         >
           {body}
         </Link>
       ) : (
-        <div className="flex items-center justify-between gap-3 px-2 py-1.5 text-sm">{body}</div>
+        <div className="flex items-center justify-between gap-3 px-2.5 py-2.5 text-base">{body}</div>
       )}
     </li>
   )
@@ -449,7 +449,7 @@ function FullInventory({ state }: { state: MyWorkState }) {
     <div className="space-y-8">
       {bands.map(({ band, items }) => (
         <section key={band} aria-label={BAND_META[band].title} className="space-y-3">
-          <h2 className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-supporting">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.1em] text-ink-supporting">
             {BAND_META[band].title}
           </h2>
           <div className="space-y-3">
@@ -511,7 +511,7 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
               <OperationalTag tone="info">You can assist</OperationalTag>
             )}
           </div>
-          <p className="mt-1.5 max-w-prose text-sm leading-relaxed text-ink-secondary">
+          <p className="mt-1.5 max-w-prose text-base leading-relaxed text-ink-secondary">
             {activity.reason}
           </p>
           {/* What this kind of work is — descriptive guidance, always true,
@@ -519,7 +519,7 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
               Helps the worker recognize what the activity actually involves.
               Omitted when an activity has no catalog guidance. */}
           {guidance.whatItIs && (
-            <p className="mt-1 max-w-prose text-sm leading-relaxed text-ink-supporting">
+            <p className="mt-1 max-w-prose text-base leading-relaxed text-ink-supporting">
               {guidance.whatItIs}
             </p>
           )}
@@ -570,7 +570,7 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
               <li key={`${s.kind}-${s.projectId ?? 'shared'}-${i}`}>
                 <Link
                   href={s.route}
-                  className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm hover:bg-brand-wash"
+                  className="flex items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-base hover:bg-brand-wash"
                 >
                   <span className="flex min-w-0 items-center gap-2 text-ink">
                     {s.kind === 'stewardship' ? (
@@ -580,7 +580,7 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
                     )}
                     <span className="truncate">{s.label}</span>
                     {s.projectId && (
-                      <span className="shrink-0 rounded-full bg-brand-wash px-1.5 text-[11px] font-medium text-brand-hover">
+                      <span className="shrink-0 rounded-full bg-brand-wash px-2 py-0.5 text-xs font-medium text-brand-hover">
                         your project
                       </span>
                     )}

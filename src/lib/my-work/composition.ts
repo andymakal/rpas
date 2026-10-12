@@ -28,6 +28,7 @@ import { QUEUE_META, deriveFollowUpRouting, type OutreachQueue } from '@/lib/ste
 import { createTimeContext } from '@/lib/time'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
+import { buildContactReview, summarizeContactReview } from '@/lib/projects/contact-review'
 import {
   loadWorkFunctions,
   resolveCapabilityProfile,
@@ -531,6 +532,14 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     const prepCount = summary.by.operations_prep
     const determineCount = summary.by.bob_evaluation
     const reviewRoute = `/projects/${projectId}/review`
+    // Contact Review is its own continuous workflow (not a 1035 stage), so it
+    // carries its OWN route and its OWN live count: the project customers still
+    // missing a usable email or phone, each counted once — the same read model
+    // the Contact Review surface uses, so My Work and the surface never disagree.
+    const contactReviewRoute = `/projects/${projectId}/contact-review`
+    const contactReviewCount = summarizeContactReview(
+      await buildContactReview(supabase, projectId),
+    ).total
 
     // These project activities are inherently scoped to this project, so
     // eligibility and focus are judged against THIS project only (never
@@ -540,6 +549,10 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     const addProjectActivity = (
       key: WorkFunctionKey,
       count: number,
+      // The source route for this activity. 1035-stage work opens the review
+      // workflow; Contact Review opens its own continuous workflow. Defaults to
+      // the review route so the existing callers are unchanged.
+      route: string = reviewRoute,
     ) => {
       if (count <= 0) return
       const a = acc.get(key)
@@ -554,12 +567,12 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       const canPickUp = eligible || status === 'assist'
       // Project-stage work has no claim model yet, so pickable items are all
       // available (none owned, none claimed-by-others); awareness-only items are
-      // shown for awareness. The review route is already scoped to this project.
+      // shown for awareness. The route is already scoped to this project.
       a.sources.push({
         kind: 'project',
         label: projectName,
         count,
-        route: reviewRoute,
+        route,
         projectId,
         ownedByMe: 0,
         availableToMe: canPickUp ? count : 0,
@@ -577,6 +590,11 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     }
     addProjectActivity('operations_prep', prepCount)
     addProjectActivity('determination', determineCount)
+    // Contact Review: a quiet-work activity routed to its own continuous
+    // workflow. Eligibility mirrors Contact Research (migration
+    // 20261027000001), so an employee who can do research sees it here and
+    // opens it straight from My Work — no navigating through Projects.
+    addProjectActivity('contact_review', contactReviewCount, contactReviewRoute)
   }
 
   // 5. Decide each activity's priority band via ZEN. An activity is included

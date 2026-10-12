@@ -740,7 +740,7 @@ function TaskAction({
             <PrimaryAction icon={ExternalLink} label="Open inbox in Outlook" />
           </a>
           <div className="space-y-2 border-t border-slate-100 pt-4">
-            <p className="text-sm font-medium text-slate-700">When the customer engages</p>
+            <p className="text-base font-semibold text-slate-700">When the customer engages</p>
             <WorkflowButton icon={FileText} disabled={busy}
               onClick={() => act({ type: 'form-sent' }, 'Form sent. Moved to Waiting for Form.')}>
               Form sent to customer
@@ -792,7 +792,7 @@ function CallAction({
     <ActionPanel heading={`Call ${fullName(detail.customer)}`}>
       {noteBox}
       {detail.call_reason && (
-        <OperationalTag tone="reason" className="text-sm">
+        <OperationalTag tone="reason">
           <CircleAlert className="mr-1.5 size-4" aria-hidden /> {callReasonLabel(detail.call_reason)}
         </OperationalTag>
       )}
@@ -807,7 +807,7 @@ function CallAction({
         <PrimaryAction icon={Phone} label="No phone on file" disabled />
       )}
       <div className="border-t border-slate-100 pt-4">
-        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-600">Record the call outcome</p>
+        <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-600">Record the call outcome</p>
         <div className="flex flex-wrap gap-2">
           {OUTCOMES.map(o => (
             <WorkflowButton
@@ -994,7 +994,7 @@ function ResearchAction({
       {/* Found an email — capture the actual value; it is written to the
           customer record before routing to Ready to Email. */}
       <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-4">
-        <label htmlFor="found-email" className="text-sm font-medium text-slate-800">Found an email</label>
+        <label htmlFor="found-email" className="text-base font-medium text-slate-800">Found an email</label>
         <input id="found-email" type="email" value={emailVal} onChange={e => setEmailVal(e.target.value)}
           placeholder="name@example.com"
           className="w-full rounded-lg border border-slate-300 px-3 py-2 text-base text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-200" />
@@ -1006,7 +1006,7 @@ function ResearchAction({
 
       {/* Found a phone — same, routes to Ready to Call. */}
       <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-4">
-        <label htmlFor="found-phone" className="text-sm font-medium text-slate-800">Found a phone, no email</label>
+        <label htmlFor="found-phone" className="text-base font-medium text-slate-800">Found a phone, no email</label>
         <input id="found-phone" type="tel" value={phoneVal} onChange={e => setPhoneVal(e.target.value)}
           placeholder="215-555-0100"
           className="w-full rounded-lg border border-slate-300 px-3 py-2 text-base text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-200" />

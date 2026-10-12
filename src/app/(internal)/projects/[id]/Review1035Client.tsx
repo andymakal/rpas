@@ -212,7 +212,7 @@ export function Review1035Client({ projectId }: { projectId: string }) {
           backLabel="All steps"
         />
         {onBoard && (
-          <p className="rounded-xl border border-surface-border bg-surface-muted/50 px-4 py-3 text-sm text-ink-secondary">
+          <p className="rounded-xl border border-surface-border bg-surface-muted/50 px-4 py-3 text-base text-ink-secondary">
             Establishing servicing access is worked on the shared Stewardship board.
             Opening a customer takes you straight to their outreach task there.
           </p>
@@ -259,9 +259,9 @@ export function Review1035Client({ projectId }: { projectId: string }) {
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <ClipboardCheck className="size-5 text-teal-700" aria-hidden />
-          <h2 className="text-lg font-semibold text-ink">Review workflow</h2>
+          <h2 className="text-xl font-semibold text-ink">Review workflow</h2>
         </div>
-        <p className="text-sm text-ink-supporting">
+        <p className="text-base text-ink-supporting">
           {total.toLocaleString()} customer{total === 1 ? '' : 's'}
         </p>
       </div>
@@ -283,8 +283,8 @@ export function Review1035Client({ projectId }: { projectId: string }) {
               <CircleUser className="size-5" aria-hidden />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block text-base font-semibold text-ink">Contact Review</span>
-              <span className="block text-sm text-ink-supporting">
+              <span className="block text-lg font-semibold text-ink">Contact Review</span>
+              <span className="block text-base text-ink-supporting">
                 Look customers up in eAgent and complete missing email or phone information.
               </span>
             </span>
@@ -462,12 +462,12 @@ function CustomerRow({
         <div className="flex items-start gap-3">
           <CircleUser className="mt-0.5 size-5 text-ink-supporting" aria-hidden />
           <div>
-            <p className="text-base font-semibold text-ink">{name}</p>
-            <p className="text-sm text-ink-supporting">{STAGE_LABEL[row.stage]}</p>
+            <p className="text-xl font-semibold text-ink">{name}</p>
+            <p className="text-base text-ink-supporting">{STAGE_LABEL[row.stage]}</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-xs font-semibold uppercase tracking-[0.06em] text-ink-supporting">Next:</span>
+          <span className="text-sm font-semibold uppercase tracking-[0.06em] text-ink-supporting">Next:</span>
           <OperationalTag tone={TURN_TONE[row.whose_turn]} className="px-3 py-1 text-base">
             {row.whose_turn}
           </OperationalTag>
@@ -481,11 +481,11 @@ function CustomerRow({
             {row.step2_satisfied
               ? <ShieldCheck className="size-4 text-status-confirmed-foreground" aria-hidden />
               : <ShieldAlert className="size-4 text-tag-blocked-text" aria-hidden />}
-            <p className="text-sm font-semibold text-ink">Step 2 · Servicing access</p>
+            <p className="text-base font-semibold text-ink">Step 2 · Servicing access</p>
           </div>
-          <p className="mt-2 text-sm text-ink-secondary">
+          <p className="mt-2 text-base text-ink-secondary">
             {row.permanent_count === 0
-              ? 'No permanent policies on file — no servicing access to establish.'
+              ? 'No permanent policies on file, so there is no servicing access to establish.'
               : row.step2_satisfied
                 ? `All ${row.permanent_count} permanent ${row.permanent_count === 1 ? 'policy is' : 'policies are'} confirmed.`
                 : `${row.unconfirmed_permanent_count} of ${row.permanent_count} permanent ${row.permanent_count === 1 ? 'policy is' : 'policies are'} not confirmed.`}
@@ -493,7 +493,7 @@ function CustomerRow({
           {!row.step2_satisfied && (
             <Link
               href={`/stewardship?project_id=${projectId}`}
-              className="mt-3 inline-flex h-9 items-center gap-2 rounded-lg bg-brand px-3 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand-hover"
+              className="mt-3 inline-flex h-11 items-center gap-2 rounded-lg bg-brand px-4 text-base font-semibold text-brand-foreground transition-colors hover:bg-brand-hover"
             >
               <Play className="size-4" aria-hidden />
               Work Stewardship
@@ -516,15 +516,15 @@ function CustomerRow({
         {/* Step 3 — documents (per policy) + readiness + determination */}
         <div className="rounded-xl border border-surface-border bg-surface-muted/40 p-4">
           <p className="text-base font-semibold text-ink">Step 3 · Prepare &amp; evaluate</p>
-          <p className="mt-1 text-sm text-ink-secondary">
+          <p className="mt-1 text-base text-ink-secondary">
             For each permanent policy, upload the Carrier Statement and the Reprojection, or mark one
             unavailable. Every required document must be addressed before the customer is ready for
             producer evaluation.
           </p>
 
           {row.permanent_count === 0 ? (
-            <p className="mt-3 text-sm text-ink-secondary">
-              No permanent policies to evaluate — no Step 3 documents required.
+            <p className="mt-3 text-base text-ink-secondary">
+              No permanent policies to evaluate, so no Step 3 documents are required.
             </p>
           ) : (
             <div className="mt-3 space-y-3">
@@ -543,7 +543,7 @@ function CustomerRow({
           )}
 
           {!row.step2_satisfied && (
-            <p className="mt-3 text-sm text-ink-supporting">
+            <p className="mt-3 text-base text-ink-supporting">
               Documents can be collected once servicing access is established.
             </p>
           )}
@@ -577,7 +577,7 @@ function CustomerRow({
                 )}
               </div>
               {row.prep_status !== 'ready_for_evaluation' && !row.prep_gate_satisfied && (
-                <p className="text-sm text-ink-secondary">
+                <p className="text-base text-ink-secondary">
                   Upload or mark unavailable each policy&apos;s Carrier Statement and Reprojection to continue.
                 </p>
               )}

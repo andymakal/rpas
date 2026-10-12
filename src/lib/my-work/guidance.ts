@@ -71,6 +71,12 @@ export const ACTIVITY_GUIDANCE: Record<WorkFunctionKey, ActivityGuidance> = {
     workMode: 'quiet',
     note: WORK_MODE_NOTE.quiet,
   },
+  contact_review: {
+    whatItIs:
+      'Completing contact information missing from the import: look the customer up in eAgent, then fill in a missing email or phone. Each save writes straight to the customer record.',
+    workMode: 'quiet',
+    note: WORK_MODE_NOTE.quiet,
+  },
   operations_prep: {
     whatItIs:
       'Collecting each policy’s carrier statement and reprojection and preparing the customer for evaluation, so a determination can be made.',

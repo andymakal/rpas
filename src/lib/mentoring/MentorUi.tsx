@@ -59,11 +59,11 @@ export function MentorNote({ children, className }: { children: ReactNode; class
   return (
     <p
       className={cn(
-        'flex items-start gap-1.5 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1.5 text-xs leading-relaxed text-purple-700',
+        'flex items-start gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-base leading-relaxed text-purple-700',
         className,
       )}
     >
-      <GraduationCap className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+      <GraduationCap className="mt-0.5 size-4 shrink-0" aria-hidden />
       <span>{children}</span>
     </p>
   )

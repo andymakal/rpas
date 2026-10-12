@@ -27,6 +27,8 @@ import {
   ContextHeader, type ContextField, SlimTaskHeader, AssistantPanel,
   QueueListHeader, CustomerQueueCard, QueueEmptyState, OperationalTag,
 } from '@/components/workflow'
+import { useMentoring } from '@/lib/mentoring/MentoringProvider'
+import { MentorNote } from '@/lib/mentoring/MentorUi'
 
 type ContactReviewCustomer = {
   customer_id: string
@@ -56,6 +58,11 @@ function gapDetail(c: ContactReviewCustomer): string {
 }
 
 export function ContactReviewClient({ projectId }: { projectId: string }) {
+  // Mentoring is the app-wide "how to do it" coaching layer, toggled in the
+  // shared header. Read it here only to decide whether to show coaching notes;
+  // the Assistant content is unchanged either way. Kept distinct from the
+  // Assistant, consistent with My Work and Stewardship.
+  const { mentoring } = useMentoring()
   const [rows, setRows] = useState<ContactReviewCustomer[]>([])
   const [summary, setSummary] = useState<Summary | null>(null)
   const [loading, setLoading] = useState(true)
@@ -181,6 +188,15 @@ export function ContactReviewClient({ projectId }: { projectId: string }) {
             onClick={() => setOpenId(remaining[0].customer_id)}
           />
         )}
+        {/* Mentoring (HOW), separate from the Assistant (WHAT): only when the
+            shared Mentoring toggle is on. */}
+        {mentoring && (
+          <MentorNote>
+            In eAgent Quick Search, a middle initial or a nickname can hide a match. If the full
+            name finds nothing, try the last name alone, then confirm the date of birth before you
+            copy any email or phone back here.
+          </MentorNote>
+        )}
       </AssistantPanel>
 
       <QueueListHeader
@@ -194,7 +210,7 @@ export function ContactReviewClient({ projectId }: { projectId: string }) {
         <QueueEmptyState>
           {total === 0
             ? 'Every customer in this project already has a usable email and phone.'
-            : 'All caught up for this session — every customer has been handled.'}
+            : 'All caught up for this session. Every customer has been handled.'}
         </QueueEmptyState>
       ) : (
         <div className="space-y-3">
@@ -232,6 +248,7 @@ function ContactReviewTask({
   onSkipped: () => void
 }) {
   const name = fullName(customer)
+  const { mentoring } = useMentoring()
 
   // Inputs start from the stored values so existing information is preserved
   // unless the worker changes it. Email and phone are edited independently.
@@ -311,30 +328,30 @@ function ContactReviewTask({
       action={
         <ActionPanel heading={`Complete contact for ${name}`}>
           {/* Why this is here — a prominent, high-contrast operational reason. */}
-          <div className="flex items-center gap-2 rounded-xl border border-status-missing-border bg-status-missing-soft p-4 text-base text-status-missing-strong">
-            <UserRound className="size-5" aria-hidden /> {gapDetail(customer)} — look this customer up in eAgent.
+          <div className="flex items-center gap-2 rounded-xl border border-status-missing-border bg-status-missing-soft p-4 text-lg text-status-missing-strong">
+            <UserRound className="size-5 shrink-0" aria-hidden /> {gapDetail(customer)}. Look this customer up in eAgent.
           </div>
 
           {/* Step 1: copy the name for eAgent Quick Search. */}
-          <div className="space-y-2 rounded-xl border border-surface-border bg-surface-muted/40 p-4">
-            <p className="text-sm font-medium text-ink-secondary">1. Search eAgent</p>
+          <div className="space-y-2.5 rounded-xl border border-surface-border bg-surface-muted/40 p-4">
+            <p className="text-base font-semibold text-ink-secondary">1. Search eAgent</p>
             <div className="flex flex-wrap items-center gap-3">
-              <span className="text-lg font-semibold text-ink">{name}</span>
+              <span className="text-xl font-semibold text-ink">{name}</span>
               <WorkflowButton icon={copied ? Check : Copy} selected={copied} onClick={copyName}>
                 {copied ? 'Name copied' : 'Copy Name'}
               </WorkflowButton>
             </div>
-            <p className="text-sm text-ink-supporting">
+            <p className="text-base text-ink-supporting">
               Paste the name into eAgent Quick Search, then type what you find below.
             </p>
           </div>
 
           {/* Step 2: enter / correct email and phone independently. */}
           <div className="space-y-4 rounded-xl border border-surface-border bg-surface-card p-4">
-            <p className="text-sm font-medium text-ink-secondary">2. Enter what eAgent shows</p>
+            <p className="text-base font-semibold text-ink-secondary">2. Enter what eAgent shows</p>
 
             <div className="space-y-1.5">
-              <label htmlFor="cr-email" className="flex items-center gap-1.5 text-sm font-medium text-ink-secondary">
+              <label htmlFor="cr-email" className="flex items-center gap-1.5 text-base font-medium text-ink-secondary">
                 <Mail className="size-4" aria-hidden /> Email
               </label>
               <input
@@ -343,12 +360,12 @@ function ContactReviewTask({
                 value={email}
                 onChange={e => setEmail(e.target.value)}
                 placeholder="name@example.com"
-                className="w-full rounded-lg border border-surface-border-strong px-3 py-2 text-base text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-wash"
+                className="w-full rounded-lg border border-surface-border-strong px-3 py-2.5 text-lg text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-wash"
               />
             </div>
 
             <div className="space-y-1.5">
-              <label htmlFor="cr-phone" className="flex items-center gap-1.5 text-sm font-medium text-ink-secondary">
+              <label htmlFor="cr-phone" className="flex items-center gap-1.5 text-base font-medium text-ink-secondary">
                 <Phone className="size-4" aria-hidden /> Phone
               </label>
               <input
@@ -357,13 +374,13 @@ function ContactReviewTask({
                 value={phone}
                 onChange={e => setPhone(e.target.value)}
                 placeholder="215-555-0100"
-                className="w-full rounded-lg border border-surface-border-strong px-3 py-2 text-base text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-wash"
+                className="w-full rounded-lg border border-surface-border-strong px-3 py-2.5 text-lg text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-wash"
               />
             </div>
           </div>
 
           {saveError && (
-            <p className="rounded-lg border border-tag-blocked-border bg-tag-blocked-fill px-3 py-2 text-sm text-tag-blocked-text">
+            <p className="rounded-lg border border-tag-blocked-border bg-tag-blocked-fill px-3 py-2 text-base text-tag-blocked-text">
               {saveError}
             </p>
           )}
@@ -388,6 +405,15 @@ function ContactReviewTask({
               ? ` ${remainingCount} more after this one.`
               : ' This is the last one in the list.'}
           </NextNote>
+
+          {/* Mentoring (HOW), consistent with the list view and the other
+              workflows: shown only when the shared Mentoring toggle is on. */}
+          {mentoring && (
+            <MentorNote>
+              Enter one usable method and move on; you do not need both. A phone with no email is
+              still progress. Only overwrite a value in eAgent when you are confident it is wrong.
+            </MentorNote>
+          )}
         </ActionPanel>
       }
       context={

@@ -27,7 +27,7 @@ export function QueueSection({
 }) {
   return (
     <section className="space-y-2.5">
-      <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-ink-supporting">{label}</h2>
+      <h2 className="text-sm font-semibold uppercase tracking-[0.08em] text-ink-supporting">{label}</h2>
       <div className="divide-y divide-surface-divider overflow-hidden rounded-2xl border border-surface-border bg-surface-card">
         {children}
       </div>
@@ -80,7 +80,7 @@ export function QueueRow({
 
       <span className="min-w-0 flex-1">
         <span className="block text-lg font-semibold leading-tight text-ink">{label}</span>
-        {tag && <span className="mt-1 block text-[15px] text-ink-supporting">{tag}</span>}
+        {tag && <span className="mt-1 block text-base text-ink-supporting">{tag}</span>}
       </span>
 
       <span className={cn(
@@ -119,7 +119,7 @@ export function QueueListHeader({
         <button
           type="button"
           onClick={onBack}
-          className="-ml-1 text-sm font-medium text-slate-500 hover:text-slate-800"
+          className="-ml-1 text-base font-medium text-ink-supporting hover:text-ink"
         >
           {'\u2190'} {backLabel}
         </button>

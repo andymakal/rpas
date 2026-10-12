@@ -54,7 +54,7 @@ export function DailyDirectionBriefing({
     <div className={cn('[&>section]:gap-4 [&>section]:p-5 sm:[&>section]:p-6', className)}>
       <AssistantPanel heading={<span className="text-2xl">{nextActionHeading(state)}</span>}>
       {/* The deterministic reason: a plain statement of available work. */}
-      <p className="-mt-2 max-w-prose text-sm leading-relaxed text-ink-secondary">
+      <p className="-mt-2 max-w-prose text-lg leading-relaxed text-ink-secondary">
         {state.reason}
       </p>
 
@@ -62,7 +62,7 @@ export function DailyDirectionBriefing({
       {singleRoute && !isOutreach && (
         <Link
           href={state.route as string}
-          className="inline-flex w-fit items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand-hover"
+          className="inline-flex w-fit items-center gap-2 rounded-lg bg-brand px-5 py-2.5 text-base font-semibold text-brand-foreground transition-colors hover:bg-brand-hover"
         >
           {ctaLabel(state)}
           <ArrowRight className="size-4" aria-hidden />
@@ -77,10 +77,10 @@ export function DailyDirectionBriefing({
             <Link
               key={o.queue}
               href={o.route}
-              className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand-hover"
+              className="inline-flex items-center gap-2 rounded-lg bg-brand px-5 py-2.5 text-base font-semibold text-brand-foreground transition-colors hover:bg-brand-hover"
             >
               Open {o.label}
-              <span className="rounded-full bg-brand-foreground/20 px-1.5 text-xs">{o.count}</span>
+              <span className="rounded-full bg-brand-foreground/20 px-2 text-sm">{o.count}</span>
               <ArrowRight className="size-4" aria-hidden />
             </Link>
           ))}
@@ -92,8 +92,8 @@ export function DailyDirectionBriefing({
           that customer is worked, so the recommendation is directly reachable. */}
       {state.dueCallbacks.length > 0 && (
         <div className="rounded-xl border border-brand-subtle bg-brand-wash p-4">
-          <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-brand-hover">
-            <Phone className="size-3.5" aria-hidden />
+          <p className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-brand-hover">
+            <Phone className="size-4" aria-hidden />
             Promised callbacks due
           </p>
           <ul className="mt-2 space-y-1.5">
@@ -101,7 +101,7 @@ export function DailyDirectionBriefing({
               <li key={cb.id}>
                 <Link
                   href={cb.route}
-                  className="flex items-baseline justify-between gap-3 rounded-lg px-2 py-1 text-sm hover:bg-surface-card"
+                  className="flex items-baseline justify-between gap-3 rounded-lg px-2 py-1.5 text-base hover:bg-surface-card"
                 >
                   <span className="font-medium text-ink">{cb.personName}</span>
                   <span className="shrink-0 text-ink-supporting">
@@ -118,7 +118,7 @@ export function DailyDirectionBriefing({
           decision, presented as rows that link into each queue. */}
       {state.availableWork.length > 0 ? (
         <div className="border-t border-surface-border pt-4">
-          <p className="text-xs font-semibold uppercase tracking-wide text-ink-supporting">
+          <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">
             On the board
           </p>
           <ul className="mt-2 space-y-1">
@@ -126,12 +126,12 @@ export function DailyDirectionBriefing({
               <li key={w.queue}>
                 <Link
                   href={w.route}
-                  className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-sm hover:bg-brand-wash"
+                  className="flex items-center justify-between gap-3 rounded-lg px-2 py-2 text-base hover:bg-brand-wash"
                 >
                   <span className="flex items-center gap-2">
                     <span className="text-ink">{w.label}</span>
                     {w.kind === 'waiting' && (
-                      <span className="text-[11px] uppercase tracking-wide text-ink-muted">
+                      <span className="text-xs uppercase tracking-wide text-ink-muted">
                         waiting
                       </span>
                     )}
@@ -150,8 +150,8 @@ export function DailyDirectionBriefing({
           </ul>
         </div>
       ) : (
-        <div className="flex items-center gap-2 border-t border-surface-border pt-4 text-sm text-ink-supporting">
-          <CheckCircle2 className="size-4 text-status-confirmed" aria-hidden />
+        <div className="flex items-center gap-2 border-t border-surface-border pt-4 text-base text-ink-supporting">
+          <CheckCircle2 className="size-5 text-status-confirmed" aria-hidden />
           The Stewardship board is clear.
         </div>
       )}

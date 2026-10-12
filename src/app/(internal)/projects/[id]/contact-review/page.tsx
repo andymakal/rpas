@@ -49,14 +49,14 @@ export default async function ProjectContactReviewPage({
       <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
         <Link
           href="/my-work"
-          className="-ml-1 inline-flex items-center gap-1.5 text-sm font-medium text-brand-hover transition-colors hover:text-brand"
+          className="-ml-1 inline-flex items-center gap-1.5 text-base font-medium text-brand-hover transition-colors hover:text-brand"
         >
           <ArrowLeft className="size-4" aria-hidden />
           Back to My Work
         </Link>
         <Link
           href={`/projects/${project.id}/review`}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-supporting transition-colors hover:text-ink"
+          className="inline-flex items-center gap-1.5 text-base font-medium text-ink-supporting transition-colors hover:text-ink"
         >
           Back to the 1035 workflow
         </Link>
