@@ -47,38 +47,37 @@ function dueCallbackRank(
   return it.call_reason === 'callback-due' && isCallbackDue(it.callback_date, actorTimeZone) ? 0 : 1
 }
 
-const SA_SUBJECT = 'Confirming the servicing agent on your Allstate / Everlake life policies'
+const SA_SUBJECT = 'Regarding Your Life Insurance Policy'
 
 /**
- * The servicing-agent outreach email. These are legacy Allstate / Everlake /
- * Lincoln Benefit Life policies, so the correspondence speaks in the servicing
- * voice the customer recognizes (Allstate Financial Services), not an internal
- * "Right Path" label the customer has never heard.
+ * The servicing-agent outreach email (approved version).
  *
- * Honesty about the attachment: a mailto cannot carry a file, so the body must
- * never claim the form is already attached. It tells the customer the
- * authorization form is enclosed by the sender, and the UI makes attaching it a
- * required, explicit step before the worker records the email as sent. Nothing
- * here sends mail or marks it sent — the worker always does both.
+ * Formatting: each paragraph is a single line with no manual line breaks inside
+ * it, so Outlook wraps the text naturally. Paragraphs are separated by one blank
+ * line. The customer's first name personalizes the greeting.
+ *
+ * Honesty about the attachment: a mailto cannot carry a file, so the body never
+ * claims the form is already attached. It tells the customer the authorization
+ * form is attached by the sender, and the UI makes attaching it a required,
+ * explicit step before the worker records the email as sent. Nothing here sends
+ * mail or marks it sent — the worker always does both. No closing or signature:
+ * Outlook supplies the standard signature.
  */
 function saEmailBody(firstName: string): string {
   return [
     `Hi ${firstName},`,
     '',
-    'I\'m reaching out from Allstate Financial Services about your life insurance',
-    'policies. We\'re confirming that we\'re listed as the servicing agent on your',
-    'coverage so we can continue to help you with questions, reviews, and any',
-    'changes you need.',
+    'We\'re reaching out regarding your life insurance policy.',
     '',
-    'A servicing-agent authorization form is enclosed with this message. Please',
-    'review it, sign where indicated, and send it back to me. One form can cover',
-    'more than one of your policies.',
+    'When Allstate\'s life insurance business transitioned to Everlake, our office lost access to policies unless we were specifically listed as the servicing agent. We are not currently listed as the servicing agent on your policy.',
     '',
-    'If anything looks unfamiliar or you have questions, just reply here and I\'ll',
-    'walk you through it.',
+    'We\'d like to restore that access so we can continue helping you with questions or servicing needs.',
     '',
-    'Thank you,',
-    'Allstate Financial Services',
+    'We\'ve attached a servicing-agent authorization form and completed as much of it as possible. Signing this form does not change your policy or coverage. It simply allows us to access your policy information and assist you when needed.',
+    '',
+    'To restore access, please print the form, sign it in ink (a wet signature is required), and scan and email it back to us or return it by mail. If you have additional policies, there\'s space on the form to include them.',
+    '',
+    'We\'re systematically restoring access to these policies. If you have any questions or specific concerns about yours right now, please let us know. We\'d be happy to discuss them with you.',
   ].join('\n')
 }
 
@@ -683,7 +682,7 @@ function TaskAction({
             <PrimaryAction icon={ExternalLink} label="Open prepared email in Outlook" />
           </a>
           {/* The authorization form is an explicit, required step: the prepared
-              email says a form is enclosed, but a mailto cannot attach one, so
+              email says a form is attached, but a mailto cannot attach one, so
               the worker must attach the approved servicing-agent authorization
               form in Outlook before sending. This is prominent because it
               changes what the worker must do. */}
@@ -1230,7 +1229,7 @@ function FormCoverage({ request }: { request: Holding[] }) {
 
 /**
  * The required "attach the authorization form" step for the servicing-agent
- * outreach. The prepared email says a form is enclosed; a mailto cannot attach
+ * outreach. The prepared email says a form is attached; a mailto cannot attach
  * one, so the worker must attach the approved servicing-agent authorization
  * form in Outlook before sending. Right Path does not yet carry the carrier's
  * form inside the app, so this is stated plainly rather than pretending the
@@ -1245,7 +1244,7 @@ function FormAttachmentDirective({ request }: { request: Holding[] }) {
         Attach the servicing-agent authorization form in Outlook before you send.
       </p>
       <p className="text-sm text-amber-900">
-        The email states a form is enclosed, but it is not attached automatically. Attach the approved
+        The email states a form is attached, but it is not attached automatically. Attach the approved
         authorization form for the carrier on this account. If you do not have the correct form, obtain it
         before sending — do not send without it.
       </p>
