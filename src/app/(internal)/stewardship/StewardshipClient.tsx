@@ -663,7 +663,7 @@ function TaskAction({
   const name = fullName(detail.customer)
 
   const noteBox = note && (
-    <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-base text-emerald-800">
+    <div className="flex items-center gap-2 rounded-xl border border-status-confirmed-border bg-status-confirmed-soft p-4 text-base text-status-confirmed-strong">
       <Check className="size-5" aria-hidden /> {note}
     </div>
   )
@@ -792,9 +792,9 @@ function CallAction({
     <ActionPanel heading={`Call ${fullName(detail.customer)}`}>
       {noteBox}
       {detail.call_reason && (
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-800">
-          <CircleAlert className="size-3.5" aria-hidden /> {callReasonLabel(detail.call_reason)}
-        </span>
+        <OperationalTag tone="reason" className="text-sm">
+          <CircleAlert className="mr-1.5 size-4" aria-hidden /> {callReasonLabel(detail.call_reason)}
+        </OperationalTag>
       )}
       {/* Established call behavior: a tel: link dials via the team member's
           configured phone (RingCentral). Launching the dialer is not proof the
@@ -987,7 +987,7 @@ function ResearchAction({
   return (
     <ActionPanel heading={`Find contact for ${fullName(detail.customer)}`}>
       {noteBox}
-      <div className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-4 text-base text-rose-800">
+      <div className="flex items-center gap-2 rounded-xl border border-status-missing-border bg-status-missing-soft p-4 text-base text-status-missing-strong">
         <Search className="size-5" aria-hidden /> Usable contact information is missing or has failed.
       </div>
 

@@ -14,42 +14,13 @@ import { GraduationCap } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMentoring } from './MentoringProvider'
 
-/** The persistent Mentoring on/off control. Reads/writes the shared context, so
- * it can live in the app chrome and stay in sync with coaching notes on pages.
- * `variant='sidebar'` suits the dark sidebar footer; `variant='pill'` is the
- * light standalone pill. */
-export function MentorToggle({ variant = 'pill' }: { variant?: 'pill' | 'sidebar' }) {
+/** The persistent Mentoring on/off control, shown in the shared top header.
+ * Reads/writes the shared context so it stays in sync with the coaching notes
+ * pages render. A light pill carrying the purple Mentor identity. The `variant`
+ * prop is kept for future placements; today only the header pill is used. */
+export function MentorToggle({ variant = 'pill' }: { variant?: 'pill' }) {
   const { mentoring, setMentoring } = useMentoring()
-
-  if (variant === 'sidebar') {
-    return (
-      <button
-        type="button"
-        role="switch"
-        aria-checked={mentoring}
-        onClick={() => setMentoring(!mentoring)}
-        className={cn(
-          'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
-          mentoring
-            ? 'bg-purple-500/15 text-purple-200'
-            : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200',
-        )}
-        title={mentoring ? 'Mentoring is on — coaching tips are shown' : 'Mentoring is off'}
-      >
-        <GraduationCap className="size-4 shrink-0" aria-hidden />
-        <span className="flex-1 text-left">Mentor</span>
-        <span
-          className={cn(
-            'inline-flex h-4 w-7 items-center rounded-full p-0.5 transition-colors',
-            mentoring ? 'bg-purple-500' : 'bg-slate-700',
-          )}
-          aria-hidden
-        >
-          <span className={cn('size-3 rounded-full bg-white transition-transform', mentoring && 'translate-x-3')} />
-        </span>
-      </button>
-    )
-  }
+  void variant
 
   return (
     <button
@@ -57,6 +28,7 @@ export function MentorToggle({ variant = 'pill' }: { variant?: 'pill' | 'sidebar
       role="switch"
       aria-checked={mentoring}
       onClick={() => setMentoring(!mentoring)}
+      title={mentoring ? 'Mentoring is on — coaching tips are shown' : 'Mentoring is off'}
       className={cn(
         'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition-colors',
         mentoring
