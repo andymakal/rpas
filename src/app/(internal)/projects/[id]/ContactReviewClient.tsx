@@ -25,10 +25,13 @@ import {
 import {
   TaskShell, ActionPanel, PrimaryAction, WorkflowButton, NextNote,
   ContextHeader, type ContextField, SlimTaskHeader, AssistantPanel,
-  QueueListHeader, CustomerQueueCard, QueueEmptyState, OperationalTag,
+  QueueListHeader, CustomerQueueCard, QueueEmptyState,
 } from '@/components/workflow'
 import { useMentoring } from '@/lib/mentoring/MentoringProvider'
 import { MentorNote } from '@/lib/mentoring/MentorUi'
+import {
+  normalizeEmailInput, normalizePhoneInput, type ContactFieldResult,
+} from '@/lib/contact-input'
 
 type ContactReviewCustomer = {
   customer_id: string
@@ -219,11 +222,6 @@ export function ContactReviewClient({ projectId }: { projectId: string }) {
               key={c.customer_id}
               name={fullName(c)}
               detail={gapDetail(c)}
-              trailing={
-                <OperationalTag tone={!c.has_email && !c.has_phone ? 'blocked' : 'reason'} className="px-3 py-1 text-sm">
-                  {!c.has_email && !c.has_phone ? 'No contact' : 'Needs one'}
-                </OperationalTag>
-              }
               onOpen={() => setOpenId(c.customer_id)}
             />
           ))}
@@ -254,6 +252,10 @@ function ContactReviewTask({
   // unless the worker changes it. Email and phone are edited independently.
   const [email, setEmail] = useState(customer.email ?? '')
   const [phone, setPhone] = useState(customer.phone ?? '')
+  // Per-field normalization result, recomputed when the worker leaves a field.
+  // null means "not yet evaluated" (unchanged from the stored value).
+  const [emailResult, setEmailResult] = useState<ContactFieldResult | null>(null)
+  const [phoneResult, setPhoneResult] = useState<ContactFieldResult | null>(null)
   const [copied, setCopied] = useState(false)
   const [busy, setBusy] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -268,18 +270,56 @@ function ContactReviewTask({
     copyTimer.current = setTimeout(() => setCopied(false), 2000)
   }, [name])
 
-  // Which fields the worker actually changed. Only changed fields are sent, so
-  // an untouched field is never written and its stored value is preserved.
+  // Normalize on blur so pasted values are cleaned in place: the field shows
+  // the canonical value, and an invalid number/address surfaces a message
+  // rather than being quietly saved. Empty clears the field (allowed).
+  const handleEmailBlur = useCallback(() => {
+    const r = normalizeEmailInput(email)
+    setEmailResult(r)
+    if (r.status === 'valid') setEmail(r.value ?? '')
+    else if (r.status === 'empty') setEmail('')
+  }, [email])
+
+  const handlePhoneBlur = useCallback(() => {
+    const r = normalizePhoneInput(phone)
+    setPhoneResult(r)
+    if (r.status === 'valid') setPhone(r.value ?? '')
+    else if (r.status === 'empty') setPhone('')
+  }, [phone])
+
+  // The canonical value each field would save, derived from the latest text so
+  // Save works even if the worker never blurred (e.g. pressed Enter / clicked
+  // straight through). This is the single source of truth for both the change
+  // check and the request body.
+  const emailEval = useMemo(() => normalizeEmailInput(email), [email])
+  const phoneEval = useMemo(() => normalizePhoneInput(phone), [phone])
+
+  // Which fields the worker actually changed. Compare on the raw typed text vs.
+  // the stored value (trimmed) so any edit, including fixing formatting, is a
+  // change, but an untouched field is never sent and its stored value is kept.
+  // Only changed fields are written; the normalized candidate is what we send.
   const emailChanged = email.trim() !== (customer.email ?? '').trim()
   const phoneChanged = phone.trim() !== (customer.phone ?? '').trim()
   const hasChanges = emailChanged || phoneChanged
 
+  // A changed field with content must be valid before it can be saved. An
+  // empty changed field is a valid "clear", so only non-empty invalids block.
+  const emailBlocks = emailChanged && emailEval.status === 'invalid'
+  const phoneBlocks = phoneChanged && phoneEval.status === 'invalid'
+
   const save = useCallback(async () => {
     if (!hasChanges) return
+    // Re-evaluate at save time and surface any validity message, so a worker
+    // who never blurred still sees why an invalid value is refused. An invalid
+    // changed field blocks the save entirely; nothing is written.
+    if (emailChanged) setEmailResult(emailEval)
+    if (phoneChanged) setPhoneResult(phoneEval)
+    if (emailBlocks || phoneBlocks) return
     setBusy(true); setSaveError(null)
-    const body: { email?: string; phone?: string } = {}
-    if (emailChanged) body.email = email.trim()
-    if (phoneChanged) body.phone = phone.trim()
+    const body: { email?: string | null; phone?: string | null } = {}
+    // Send the normalized canonical value; empty clears the field to null.
+    if (emailChanged) body.email = emailEval.value
+    if (phoneChanged) body.phone = phoneEval.value
     try {
       const res = await fetch(`/api/projects/${projectId}/contact-review/${customer.customer_id}`, {
         method: 'PATCH',
@@ -298,7 +338,7 @@ function ContactReviewTask({
     } finally {
       setBusy(false)
     }
-  }, [hasChanges, emailChanged, phoneChanged, email, phone, projectId, customer.customer_id, onSaved])
+  }, [hasChanges, emailChanged, phoneChanged, emailBlocks, phoneBlocks, emailEval, phoneEval, projectId, customer.customer_id, onSaved])
 
   const emailStatus = usable(customer.email)
   const phoneStatus = usable(customer.phone)
@@ -358,10 +398,19 @@ function ContactReviewTask({
                 id="cr-email"
                 type="email"
                 value={email}
-                onChange={e => setEmail(e.target.value)}
+                onChange={e => { setEmail(e.target.value); if (emailResult) setEmailResult(null) }}
+                onBlur={handleEmailBlur}
                 placeholder="name@example.com"
-                className="w-full rounded-lg border border-surface-border-strong px-3 py-2.5 text-lg text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-wash"
+                aria-invalid={emailResult?.status === 'invalid' || undefined}
+                className={`w-full rounded-lg border px-3 py-2.5 text-lg text-ink focus:outline-none focus:ring-2 ${
+                  emailResult?.status === 'invalid'
+                    ? 'border-status-missing-border focus:border-status-missing-border focus:ring-status-missing-soft'
+                    : 'border-surface-border-strong focus:border-brand-ring focus:ring-brand-wash'
+                }`}
               />
+              {emailResult?.status === 'invalid' && emailResult.reason && (
+                <p className="text-base text-status-missing-strong">{emailResult.reason}</p>
+              )}
             </div>
 
             <div className="space-y-1.5">
@@ -372,10 +421,19 @@ function ContactReviewTask({
                 id="cr-phone"
                 type="tel"
                 value={phone}
-                onChange={e => setPhone(e.target.value)}
+                onChange={e => { setPhone(e.target.value); if (phoneResult) setPhoneResult(null) }}
+                onBlur={handlePhoneBlur}
                 placeholder="215-555-0100"
-                className="w-full rounded-lg border border-surface-border-strong px-3 py-2.5 text-lg text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-wash"
+                aria-invalid={phoneResult?.status === 'invalid' || undefined}
+                className={`w-full rounded-lg border px-3 py-2.5 text-lg text-ink focus:outline-none focus:ring-2 ${
+                  phoneResult?.status === 'invalid'
+                    ? 'border-status-missing-border focus:border-status-missing-border focus:ring-status-missing-soft'
+                    : 'border-surface-border-strong focus:border-brand-ring focus:ring-brand-wash'
+                }`}
               />
+              {phoneResult?.status === 'invalid' && phoneResult.reason && (
+                <p className="text-base text-status-missing-strong">{phoneResult.reason}</p>
+              )}
             </div>
           </div>
 

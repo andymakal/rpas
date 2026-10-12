@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { assertProjectActive } from '@/lib/projects/guard'
+import { normalizeEmailInput, normalizePhoneInput } from '@/lib/contact-input'
 
 /**
  * PATCH /api/projects/[id]/contact-review/[customerId]
@@ -46,14 +47,26 @@ export async function PATCH(
 
   // Build a field-level patch of ONLY the fields explicitly present. An omitted
   // field is never written, so the stored value is preserved untouched.
+  //
+  // Each present field is run through the shared contact-input normalization so
+  // the rules the form applies are enforced here too and invalid formatting
+  // cannot bypass the UI. An empty value clears the field to NULL; an invalid
+  // value (e.g. a phone that is not an unambiguous 10 US digits) is rejected
+  // with 400 and nothing is written.
   const patch: { email?: string | null; phone?: string | null } = {}
   if (Object.prototype.hasOwnProperty.call(body, 'email')) {
-    const v = typeof body.email === 'string' ? body.email.trim() : body.email
-    patch.email = v ? v : null
+    const r = normalizeEmailInput(typeof body.email === 'string' ? body.email : null)
+    if (r.status === 'invalid') {
+      return Response.json({ error: r.reason ?? 'Invalid email address.' }, { status: 400 })
+    }
+    patch.email = r.value // valid canonical value, or null when empty
   }
   if (Object.prototype.hasOwnProperty.call(body, 'phone')) {
-    const v = typeof body.phone === 'string' ? body.phone.trim() : body.phone
-    patch.phone = v ? v : null
+    const r = normalizePhoneInput(typeof body.phone === 'string' ? body.phone : null)
+    if (r.status === 'invalid') {
+      return Response.json({ error: r.reason ?? 'Invalid phone number.' }, { status: 400 })
+    }
+    patch.phone = r.value // valid canonical value, or null when empty
   }
 
   if (Object.keys(patch).length === 0) {
