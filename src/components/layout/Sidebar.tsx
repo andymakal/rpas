@@ -1,9 +1,11 @@
 'use client'
 
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
-import { createClient } from '@/lib/supabase/client'
+import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
+import { useSidebarCollapse } from '@/components/layout/SidebarCollapseProvider'
+import { isWorkflowRoute } from '@/components/layout/workflow-routes'
+import { useSignOut } from '@/components/layout/use-sign-out'
 import {
   LayoutDashboard,
   GitMerge,
@@ -63,19 +65,21 @@ const navItems = [
 
 export function Sidebar({ userEmail }: { userEmail: string }) {
   const pathname = usePathname()
-  const router = useRouter()
-  const supabase = createClient()
+  const handleSignOut = useSignOut()
+  const { collapsed } = useSidebarCollapse()
 
-  async function handleSignOut() {
-    await supabase.auth.signOut()
-    router.push('/login')
-    router.refresh()
-  }
+  // Collapse is a Bob-only workflow affordance. On Andy's dark routes the
+  // sidebar always renders expanded exactly as before, regardless of the stored
+  // preference, so those pages are unchanged.
+  const isCollapsed = collapsed && isWorkflowRoute(pathname)
 
   return (
-    <aside style={{ width: '14rem', flexShrink: 0, display: 'flex', flexDirection: 'column', height: '100%' }} className="border-r border-slate-800 bg-slate-900">
+    <aside
+      style={{ width: isCollapsed ? '4rem' : '14rem', flexShrink: 0, display: 'flex', flexDirection: 'column', height: '100%' }}
+      className="border-r border-slate-800 bg-slate-900 transition-[width] duration-200"
+    >
       {/* Logo */}
-      <div className="flex items-center justify-between px-4 py-4 border-b border-slate-800">
+      <div className={cn('flex items-center border-b border-slate-800 px-4 py-4', isCollapsed ? 'justify-center' : 'justify-between')}>
         <div className="flex items-center gap-3">
           <div
             className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
@@ -83,23 +87,28 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
           >
             <span className="text-white text-xs font-bold">RP</span>
           </div>
-          <div>
-            <p className="text-white text-sm font-semibold leading-tight">Right Path</p>
-            <p className="text-slate-500 text-xs leading-tight">Agency System</p>
-          </div>
+          {!isCollapsed && (
+            <div>
+              <p className="text-white text-sm font-semibold leading-tight">Right Path</p>
+              <p className="text-slate-500 text-xs leading-tight">Agency System</p>
+            </div>
+          )}
         </div>
-        <NotificationBell />
+        {!isCollapsed && <NotificationBell />}
       </div>
 
       {/* Log Referral CTA */}
-      <div className="px-3 pt-3 pb-2">
+      <div className={cn('pt-3 pb-2', isCollapsed ? 'px-2' : 'px-3')}>
         <Link
           href="/referrals/new"
-          className="flex items-center justify-center gap-2 w-full rounded-lg py-2 text-sm font-medium text-white transition-opacity hover:opacity-90"
+          title={isCollapsed ? 'Log Referral' : undefined}
+          className={cn(
+            'flex items-center justify-center gap-2 w-full rounded-lg py-2 text-sm font-medium text-white transition-opacity hover:opacity-90',
+          )}
           style={{ backgroundColor: '#1F3864' }}
         >
-          <Plus className="w-4 h-4" />
-          Log Referral
+          <Plus className="w-4 h-4 shrink-0" />
+          {!isCollapsed && 'Log Referral'}
         </Link>
       </div>
 
@@ -113,15 +122,17 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
             <Link
               key={href}
               href={href}
+              title={isCollapsed ? label : undefined}
               className={cn(
                 'flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors',
+                isCollapsed && 'justify-center',
                 active
                   ? 'bg-slate-800 text-white font-medium'
                   : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200'
               )}
             >
               <Icon className="w-4 h-4 shrink-0" />
-              {label}
+              {!isCollapsed && label}
             </Link>
           )
         })}
@@ -129,20 +140,28 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
 
       {/* Footer */}
       <div className="px-2 py-3 border-t border-slate-800">
-        <p className="px-3 pb-1.5 text-xs text-slate-600 truncate">{userEmail}</p>
+        {!isCollapsed && <p className="px-3 pb-1.5 text-xs text-slate-600 truncate">{userEmail}</p>}
         <Link
           href="/settings/password"
-          className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition-colors"
+          title={isCollapsed ? 'Change Password' : undefined}
+          className={cn(
+            'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition-colors',
+            isCollapsed && 'justify-center',
+          )}
         >
           <KeyRound className="w-4 h-4 shrink-0" />
-          Change Password
+          {!isCollapsed && 'Change Password'}
         </Link>
         <button
           onClick={handleSignOut}
-          className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition-colors"
+          title={isCollapsed ? 'Sign out' : undefined}
+          className={cn(
+            'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition-colors',
+            isCollapsed && 'justify-center',
+          )}
         >
           <LogOut className="w-4 h-4 shrink-0" />
-          Sign out
+          {!isCollapsed && 'Sign out'}
         </button>
       </div>
     </aside>

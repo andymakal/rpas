@@ -184,3 +184,8 @@ Kiro steering under `.kiro/steering/`; on `main`, this section is the reference.
 - Confirm which branch you are on and respect its deploy behavior: `main` is
   production, `development` is the shared testing line. Do not deploy or modify
   production as a side effect of ordinary work.
+- Completed, verified work is committed and pushed to the shared `development`
+  branch and its preview automatically, without pausing for approval; only
+  `main`/production actions require explicit authorization. The full default
+  lives in Kiro steering (`.kiro/steering/delivery-workflow.md`); keep the two
+  in step.
