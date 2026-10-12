@@ -64,6 +64,13 @@
   --text-supporting: oklch(0.446 0.043 257.281); /* slate-600 */
   --text-muted:      oklch(0.704 0.04 256.788);  /* slate-400, incidental only */
 
+  /* Page-heading ink: the clean dark-teal workflow heading treatment (the
+   * single page <h1>). Matches IPF's page-title color (--ds-primary #0b5b54),
+   * a deep muted teal that reads as "dark bold teal", distinct from the
+   * near-black primary task text. Used by WorkflowHeader so every light-theme
+   * page heading renders identically. */
+  --text-heading:    oklch(0.421 0.062 183.2); /* deep teal, ~#0b5b54 */
+
   /* ── Status / operational tone palette ──────────────────────────────────
    * Semantic status colors used by OperationalTag, FieldStatusDot, the
    * verification key, and confirmation panels. Anchored to the Tailwind shades
@@ -149,6 +156,7 @@
   --color-ink-secondary: var(--text-secondary);
   --color-ink-supporting: var(--text-supporting);
   --color-ink-muted: var(--text-muted);
+  --color-ink-heading: var(--text-heading);
   /* Status tones */
   --color-status-confirmed: var(--status-confirmed);
   --color-status-confirmed-fill: var(--status-confirmed-fill);

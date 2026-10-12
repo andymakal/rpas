@@ -85,10 +85,7 @@ export function MyWorkClient({ state }: { state: MyWorkState }) {
 
   return (
     <WorkflowPage>
-      <WorkflowHeader
-        primary="My Work"
-        secondary={state.employeeName ?? undefined}
-      />
+      <WorkflowHeader primary="My Work" />
 
       {/* The Assistant: on arrival it helps the worker START, not explains the
           system. It shows any genuine time-specific commitments first, then asks

@@ -31,21 +31,29 @@ export function MentorToggle({ variant = 'pill' }: { variant?: 'pill' }) {
       title={mentoring ? 'Mentoring is on — coaching tips are shown' : 'Mentoring is off'}
       className={cn(
         'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition-colors',
+        // Match IPF's Mentoring indicator exactly:
+        //   ON  = dark purple fill, white text.
+        //   OFF = pale purple fill, purple border + purple text.
         mentoring
-          ? 'border-purple-200 bg-purple-50 text-purple-700'
-          : 'border-surface-border bg-surface-card text-ink-supporting hover:border-purple-200 hover:text-purple-700',
+          ? 'border-purple-600 bg-purple-600 text-white'
+          : 'border-purple-300 bg-purple-50 text-purple-700',
       )}
     >
       <GraduationCap className="size-3.5" aria-hidden />
-      Mentor {mentoring ? 'on' : 'off'}
+      Mentoring {mentoring ? 'on' : 'off'}
       <span
         className={cn(
           'ml-0.5 inline-flex h-3.5 w-6 items-center rounded-full p-0.5 transition-colors',
-          mentoring ? 'bg-purple-500' : 'bg-surface-border-strong',
+          mentoring ? 'bg-white/40' : 'bg-purple-300',
         )}
         aria-hidden
       >
-        <span className={cn('size-2.5 rounded-full bg-white transition-transform', mentoring && 'translate-x-2.5')} />
+        <span
+          className={cn(
+            'size-2.5 rounded-full transition-transform',
+            mentoring ? 'translate-x-2.5 bg-white' : 'bg-purple-600',
+          )}
+        />
       </span>
     </button>
   )

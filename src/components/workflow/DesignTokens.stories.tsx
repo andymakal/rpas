@@ -29,6 +29,7 @@ import { ArrowRight } from 'lucide-react'
  *   --text-secondary   → text-ink-secondary                     (slate-700)
  *   --text-supporting  → text-ink-supporting                    (slate-600)
  *   --text-muted       → text-ink-muted                         (slate-400)
+ *   --text-heading     → text-ink-heading                       (dark bold teal page heading)
  *   --status-*         → status dots/fills (emerald / amber / rose)
  *   --tag-*            → OperationalTag tones (reason/exception/blocked/info)
  *   --font-workflow    → font-workflow                          (sans stack)
@@ -73,6 +74,7 @@ export const Tokens: Story = {
             <Swatch cls="bg-brand-wash" name="Brand wash" token="--brand-wash / bg-brand-wash" note="Hover/selected wash. teal-50." />
             <Swatch cls="bg-brand-ring" name="Brand ring" token="--brand-ring / border-brand-ring" note="Hover border/ring. teal-300." />
             <Swatch cls="bg-brand-icon" name="Brand icon" token="--brand-icon / text-brand-icon" note="Icon on subtle fill. teal-700." />
+            <Swatch cls="bg-ink-heading" name="Heading ink" token="--text-heading / text-ink-heading" note="Dark bold teal page heading (WorkflowHeader)." />
           </div>
         </section>
 
@@ -111,8 +113,8 @@ export const Tokens: Story = {
           <ContextLabel>Typography</ContextLabel>
           <div className="space-y-3 rounded-xl border border-surface-border bg-surface-card p-5 font-workflow">
             <p className="text-ink-supporting text-sm">font-workflow — modern sans-serif, no serif in workflow UI.</p>
-            <p className="text-4xl font-semibold tracking-tight text-ink">Heading 4xl semibold</p>
-            <p className="text-2xl font-semibold text-ink">Heading 2xl semibold</p>
+            <p className="text-4xl font-extrabold tracking-tight text-ink-heading">Page heading — dark bold teal (text-ink-heading)</p>
+            <p className="text-2xl font-semibold text-ink">Entity heading 2xl semibold (text-ink)</p>
             <p className="text-lg text-ink-secondary">Body large</p>
             <p className="text-base text-ink-secondary">Body base</p>
             <p className="font-mono text-base text-ink">POL-4471190 (mono for identifiers)</p>

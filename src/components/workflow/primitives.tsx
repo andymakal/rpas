@@ -98,8 +98,11 @@ export function WorkflowPage({
 }
 
 /**
- * The prominent page heading. Renders "Primary — secondary" when a secondary
- * part is supplied (e.g. "1035 Workflow — Today's work").
+ * The prominent page heading. Renders in the clean sans workflow font (inherited
+ * from WorkflowSurface) with the dark bold teal heading treatment
+ * (`text-ink-heading`, extrabold), matching the IPF page-title style. Renders
+ * "Primary — secondary" when a secondary part is supplied (e.g. "1035 Workflow —
+ * Today's work"); the secondary reads as muted supporting text beside it.
  */
 export function WorkflowHeader({
   primary,
@@ -110,7 +113,7 @@ export function WorkflowHeader({
 }) {
   return (
     <header>
-      <h1 className="text-3xl font-semibold tracking-tight text-ink sm:text-4xl">
+      <h1 className="text-3xl font-extrabold tracking-tight text-ink-heading sm:text-4xl">
         {primary}
         {secondary != null && (
           <>
