@@ -30,7 +30,8 @@ import {
 import { useMentoring } from '@/lib/mentoring/MentoringProvider'
 import { MentorNote } from '@/lib/mentoring/MentorUi'
 import {
-  normalizeEmailInput, normalizePhoneInput, type ContactFieldResult,
+  normalizeEmailInput, normalizePhoneInput, formatPhoneAsTyped,
+  type ContactFieldResult,
 } from '@/lib/contact-input'
 
 type ContactReviewCustomer = {
@@ -251,7 +252,9 @@ function ContactReviewTask({
   // Inputs start from the stored values so existing information is preserved
   // unless the worker changes it. Email and phone are edited independently.
   const [email, setEmail] = useState(customer.email ?? '')
-  const [phone, setPhone] = useState(customer.phone ?? '')
+  // Editable phone always displays in the (XXX) XXX-XXXX standard, including
+  // the initial stored value, via the shared formatter.
+  const [phone, setPhone] = useState(formatPhoneAsTyped(customer.phone ?? ''))
   // Per-field normalization result, recomputed when the worker leaves a field.
   // null means "not yet evaluated" (unchanged from the stored value).
   const [emailResult, setEmailResult] = useState<ContactFieldResult | null>(null)
@@ -421,7 +424,7 @@ function ContactReviewTask({
                 id="cr-phone"
                 type="tel"
                 value={phone}
-                onChange={e => { setPhone(e.target.value); if (phoneResult) setPhoneResult(null) }}
+                onChange={e => { setPhone(formatPhoneAsTyped(e.target.value)); if (phoneResult) setPhoneResult(null) }}
                 onBlur={handlePhoneBlur}
                 placeholder="215-555-0100"
                 aria-invalid={phoneResult?.status === 'invalid' || undefined}

@@ -91,7 +91,43 @@ export function normalizePhoneInput(raw: string | null | undefined): ContactFiel
     )
   }
 
-  return valid(`(${national.slice(0, 3)}) ${national.slice(3, 6)}-${national.slice(6)}`)
+  return valid(formatPhoneDisplay(national))
+}
+
+/**
+ * The IPF phone display standard: `(XXX) XXX-XXXX`.
+ *
+ * This is the single source of truth for how a US phone number is shown
+ * anywhere in Right Path. Give it any stored or raw value; it strips to digits,
+ * drops a leading country code of 1, and formats the 10 national digits. A
+ * value that is not reducible to 10 digits is formatted progressively (as far
+ * as the digits allow) so it is still readable, and an empty input renders as
+ * an em-free placeholder the caller supplies (default empty string).
+ *
+ *   "8148087526"      → "(814) 808-7526"
+ *   "(814) 808-7526"  → "(814) 808-7526"  (idempotent)
+ *   "18148087526"     → "(814) 808-7526"  (country code dropped)
+ *   "814808"          → "(814) 808"       (partial, still readable)
+ */
+export function formatPhoneDisplay(raw: string | null | undefined): string {
+  if (!raw) return ''
+  let digits = raw.replace(/\D/g, '')
+  if (digits.length === 11 && digits.startsWith('1')) digits = digits.slice(1)
+  digits = digits.slice(0, 10)
+  if (digits.length === 0) return ''
+  if (digits.length < 4) return `(${digits}`
+  if (digits.length < 7) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+}
+
+/**
+ * Progressive formatter for an EDITABLE phone field: call it on every keystroke
+ * so the value an operator sees and edits is always in the `(XXX) XXX-XXXX`
+ * standard as they type. Identical formatting to formatPhoneDisplay, exposed
+ * under an intention-revealing name for input onChange handlers.
+ */
+export function formatPhoneAsTyped(raw: string): string {
+  return formatPhoneDisplay(raw)
 }
 
 // ── Email ──────────────────────────────────────────────────────────────────

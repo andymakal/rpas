@@ -1,6 +1,10 @@
-export function formatPhone(v: string): string {
-  const digits = v.replace(/\D/g, '').slice(0, 10)
-  if (digits.length < 4) return digits
-  if (digits.length < 7) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`
-  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
-}
+/**
+ * Phone display formatting.
+ *
+ * The implementation now lives in the shared contact-input standard
+ * (`./contact-input`) so there is exactly one phone formatter in the app.
+ * This module re-exports it under the historical `formatPhone` name so existing
+ * imports keep working; new code can import `formatPhoneDisplay` /
+ * `formatPhoneAsTyped` from `./contact-input` directly.
+ */
+export { formatPhoneDisplay as formatPhone } from './contact-input'
