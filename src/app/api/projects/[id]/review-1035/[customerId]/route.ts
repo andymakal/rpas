@@ -66,15 +66,21 @@ export async function PATCH(
       return Response.json({ error: "prep_status must be 'preparing' or 'ready_for_evaluation'" }, { status: 400 })
     }
     if (next === 'ready_for_evaluation') {
-      // Step 2 is the only hard gate for the handoff to Bob: all known permanent
-      // policies must have confirmed servicing access. Document completeness is
-      // deliberately NOT required — supplemental permanent policies may still be
-      // missing a statement/reprojection, and that must not block advancement.
-      // Bob decides which policies are exchange candidates and whether to
-      // combine them.
+      // Gate 1 — Step 2: all known permanent policies must have confirmed
+      // servicing access.
       if (!wf.step2_satisfied) {
         return Response.json(
           { error: 'Servicing access (Step 2) is not established for all permanent policies; complete Stewardship first.' },
+          { status: 409 },
+        )
+      }
+      // Gate 2 — document readiness: every permanent policy's Carrier Statement
+      // and Reprojection must each be ADDRESSED — uploaded OR explicitly skipped
+      // as unavailable. This mirrors the UI and is enforced here against live
+      // state so the handoff can never bypass the requirement from the client.
+      if (!wf.prep_gate_satisfied) {
+        return Response.json(
+          { error: 'Every permanent policy needs its Carrier Statement and Reprojection uploaded or marked unavailable before the customer is ready for producer evaluation.' },
           { status: 409 },
         )
       }

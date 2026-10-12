@@ -1,8 +1,11 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
+import { ArrowLeft } from 'lucide-react'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getDailyDirection } from '@/lib/daily-direction/stewardship'
 import type { DailyDirectionState } from '@/lib/daily-direction/types'
 import { DailyDirectionBriefing } from '@/components/workflow/daily-direction'
+import { WORKFLOW_MAX_WIDTH } from '@/components/workflow'
 import { OUTREACH_QUEUES, type OutreachQueue } from '@/lib/stewardship/queues'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { StewardshipClient } from './StewardshipClient'
@@ -74,12 +77,22 @@ export default async function StewardshipPage({
   }
 
   return (
-    <div className="min-h-full bg-slate-50 p-8">
-      {dailyDirection && (
-        <div className="mx-auto mb-6 w-full max-w-[var(--ds-page-width-standard,72rem)]">
-          <DailyDirectionBriefing state={dailyDirection} />
+    <div className="min-h-full bg-workflow-surface">
+      {/* Top band: back-to-My-Work + the Assistant, in the SAME 1360px workflow
+          column the board below uses, on the shared workflow surface (not a raw
+          slate background or a narrower 72rem container). */}
+      <div className="px-6 pt-8 sm:px-10">
+        <div className={`mx-auto w-full ${WORKFLOW_MAX_WIDTH} space-y-6`}>
+          <Link
+            href="/my-work"
+            className="-ml-1 inline-flex items-center gap-1.5 text-sm font-medium text-brand-hover transition-colors hover:text-brand"
+          >
+            <ArrowLeft className="size-4" aria-hidden />
+            Back to My Work
+          </Link>
+          {dailyDirection && <DailyDirectionBriefing state={dailyDirection} />}
         </div>
-      )}
+      </div>
       <StewardshipClient
         agencies={agencyOptions}
         project={project}

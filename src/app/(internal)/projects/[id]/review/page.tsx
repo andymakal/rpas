@@ -50,13 +50,21 @@ export default async function ProjectReviewPage({
 
   return (
     <WorkflowPage>
-      <Link
-        href={`/projects/${project.id}`}
-        className="-ml-1 inline-flex items-center gap-1.5 text-sm font-medium text-ink-supporting transition-colors hover:text-ink"
-      >
-        <ArrowLeft className="size-4" aria-hidden />
-        Back to project
-      </Link>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+        <Link
+          href="/my-work"
+          className="-ml-1 inline-flex items-center gap-1.5 text-sm font-medium text-brand-hover transition-colors hover:text-brand"
+        >
+          <ArrowLeft className="size-4" aria-hidden />
+          Back to My Work
+        </Link>
+        <Link
+          href={`/projects/${project.id}`}
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-supporting transition-colors hover:text-ink"
+        >
+          Back to project
+        </Link>
+      </div>
 
       <WorkflowHeader primary={project.name} secondary="1035 Exchange Review · Steps 2 & 3" />
 

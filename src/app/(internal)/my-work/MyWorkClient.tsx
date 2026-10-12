@@ -14,12 +14,14 @@
  * review), so a recommendation is always directly reachable.
  */
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
 import {
   Sparkles, ArrowRight, Phone, Mail, Users, CheckCircle2, Lock,
-  NotebookPen, AlertCircle, ListChecks, ChevronRight, GraduationCap,
+  NotebookPen, AlertCircle, ListChecks, ChevronRight,
 } from 'lucide-react'
+import { useMentoring } from '@/lib/mentoring/MentoringProvider'
+import { MentorNote } from '@/lib/mentoring/MentorUi'
 import {
   WorkflowPage,
   WorkflowHeader,
@@ -137,90 +139,6 @@ function groupFor(direction: MyWorkDirection, mode: WorkMode): WorkModeGroup | u
  * ready-to-call source route; falls back to the shared board's call queue. */
 const CALL_QUEUE_ROUTE = '/stewardship?queue=ready-to-call'
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Mentoring — IPF's small purple contextual coaching, with a persistent on/off.
-//
-// Distinct from the Assistant on purpose (IPF doctrine, kept here): the teal
-// Assistant explains WHAT needs doing; the Mentor explains HOW to approach it.
-// Mentoring is a thin presentation layer — turning it off removes the guidance
-// entirely and changes nothing about the Assistant, the counts, or the workflow.
-// The preference persists per browser (no server preference exists); default off
-// so the Assistant stays uncluttered until a worker opts into coaching.
-// ─────────────────────────────────────────────────────────────────────────────
-
-const MENTORING_STORAGE_KEY = 'rpas.myWork.mentoring'
-
-/** Persistent on/off for Mentoring, stored per browser. Starts off and reads the
- * saved preference after mount (so SSR and first paint agree, then hydrate). */
-function useMentoring(): [boolean, (on: boolean) => void] {
-  const [on, setOn] = useState(false)
-  useEffect(() => {
-    try {
-      setOn(window.localStorage.getItem(MENTORING_STORAGE_KEY) === 'on')
-    } catch {
-      // localStorage unavailable (private mode / blocked): Mentoring stays off.
-    }
-  }, [])
-  const update = (next: boolean) => {
-    setOn(next)
-    try {
-      window.localStorage.setItem(MENTORING_STORAGE_KEY, next ? 'on' : 'off')
-    } catch {
-      // Non-fatal: the toggle still works for this session.
-    }
-  }
-  return [on, update]
-}
-
-/** The persistent Mentoring on/off control. A small, self-contained switch (no
- * new shared primitive needed) carrying the purple Mentor identity so it reads
- * as coaching, not an operational Assistant control. */
-function MentorToggle({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      onClick={() => onChange(!on)}
-      className={cn(
-        'inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold transition-colors',
-        on
-          ? 'border-purple-200 bg-purple-50 text-purple-700'
-          : 'border-surface-border bg-surface-card text-ink-supporting hover:border-purple-200 hover:text-purple-700',
-      )}
-    >
-      <GraduationCap className="size-3.5" aria-hidden />
-      Mentor {on ? 'on' : 'off'}
-      <span
-        className={cn(
-          'ml-0.5 inline-flex h-3.5 w-6 items-center rounded-full p-0.5 transition-colors',
-          on ? 'bg-purple-500' : 'bg-surface-border-strong',
-        )}
-        aria-hidden
-      >
-        <span className={cn('size-2.5 rounded-full bg-white transition-transform', on && 'translate-x-2.5')} />
-      </span>
-    </button>
-  )
-}
-
-/** One line of Mentor guidance: small purple contextual coaching on HOW to
- * approach the work. Rendered only when Mentoring is on; pairs an icon with the
- * text so it never relies on color alone. */
-function MentorNote({ children, className }: { children: React.ReactNode; className?: string }) {
-  return (
-    <p
-      className={cn(
-        'flex items-start gap-1.5 rounded-lg border border-purple-200 bg-purple-50 px-2.5 py-1.5 text-xs leading-relaxed text-purple-700',
-        className,
-      )}
-    >
-      <GraduationCap className="mt-0.5 size-3.5 shrink-0" aria-hidden />
-      <span>{children}</span>
-    </p>
-  )
-}
-
 /**
  * The My Work Assistant: an action-first starting point, not a system readout.
  *
@@ -244,9 +162,11 @@ function MyWorkAssistant({
   // Outbound Calls is a direct link, so it needs no expanded state.
   const [view, setView] = useState<'choose' | 'quiet' | 'all'>('choose')
 
-  // Mentoring (coaching on HOW to work) is a separate, persistent on/off layer.
-  // It never changes the Assistant, the counts, or the workflow.
-  const [mentoring, setMentoring] = useMentoring()
+  // Mentoring (coaching on HOW to work) is a separate, app-wide on/off layer.
+  // The toggle lives in the shared sidebar; here we only READ it to decide
+  // whether to show coaching notes. It never changes the Assistant, the counts,
+  // or the workflow.
+  const { mentoring } = useMentoring()
 
   // Genuine time-specific commitments needing attention now (fixed appointments,
   // promised callbacks). These are the only things surfaced before the question.
@@ -263,11 +183,8 @@ function MyWorkAssistant({
   return (
     <div className="[&>section]:gap-6 [&>section]:p-6 sm:[&>section]:p-7">
       <AssistantPanel heading={<span className="text-2xl">What would you like to work on?</span>}>
-        {/* Mentoring on/off: a persistent, self-contained control. The Assistant
-            above is unchanged whether it is on or off; only coaching toggles. */}
-        <div className="-mt-2 flex justify-end">
-          <MentorToggle on={mentoring} onChange={setMentoring} />
-        </div>
+        {/* Mentoring is toggled app-wide from the sidebar; when on, the coaching
+            notes below appear. The Assistant itself is unchanged either way. */}
 
         {/* 1. Commitments first — the only thing shown before the question. */}
         {commitments.length > 0 && <CommitmentsNotice commitments={commitments} />}

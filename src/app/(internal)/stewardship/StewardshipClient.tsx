@@ -365,7 +365,7 @@ export function StewardshipClient({
         ))}
       </div>
 
-      {loading && <p className="mt-4 text-sm text-slate-500">Loading board…</p>}
+      {loading && <p className="mt-4 text-sm text-ink-supporting">Loading board…</p>}
     </WorkflowPage>
   )
 }
@@ -501,9 +501,9 @@ function StartCapture({ agencies, onStarted }: { agencies: AgencyOption[]; onSta
   }
 
   return (
-    <section className="rounded-2xl border border-teal-100 bg-white p-5">
-      <h2 className="text-base font-semibold text-slate-900">Start capture for a book</h2>
-      <p className="mt-1 text-sm text-slate-600">
+    <section className="rounded-2xl border border-brand-subtle bg-surface-card p-5">
+      <h2 className="text-base font-semibold text-ink">Start capture for a book</h2>
+      <p className="mt-1 text-sm text-ink-secondary">
         Creates a stewardship work item for each customer in the selected agency that is not already
         in progress. Each item routes to Ready to Email, Ready to Call, or Research Needed based on
         the contact information on file.
@@ -512,7 +512,7 @@ function StartCapture({ agencies, onStarted }: { agencies: AgencyOption[]; onSta
         <select
           value={agencyId}
           onChange={e => setAgencyId(e.target.value)}
-          className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-900 focus:border-teal-500 focus:outline-none focus:ring-2 focus:ring-teal-200"
+          className="rounded-lg border border-surface-border-strong bg-surface-card px-3 py-2 text-sm text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-ring/40"
         >
           <option value="">Select an agency / book…</option>
           {agencies.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
@@ -520,7 +520,7 @@ function StartCapture({ agencies, onStarted }: { agencies: AgencyOption[]; onSta
         <WorkflowButton icon={Play} selected disabled={!agencyId || busy} onClick={start}>
           {busy ? 'Starting…' : 'Start capture'}
         </WorkflowButton>
-        {result && <span className="text-sm font-medium text-slate-700">{result}</span>}
+        {result && <span className="text-sm font-medium text-ink-secondary">{result}</span>}
       </div>
     </section>
   )
@@ -561,9 +561,9 @@ function StartProjectCapture({ project, onStarted }: { project: { id: string; na
   }
 
   return (
-    <section className="rounded-2xl border border-teal-100 bg-white p-5">
-      <h2 className="text-base font-semibold text-slate-900">Work this project</h2>
-      <p className="mt-1 text-sm text-slate-600">
+    <section className="rounded-2xl border border-brand-subtle bg-surface-card p-5">
+      <h2 className="text-base font-semibold text-ink">Work this project</h2>
+      <p className="mt-1 text-sm text-ink-secondary">
         Starts a stewardship work item for each customer in this project that is not already in
         progress. Customers with open stewardship work are reused, not duplicated. Each new item
         routes to Ready to Email, Ready to Call, or Research Needed based on the contact information
@@ -573,7 +573,7 @@ function StartProjectCapture({ project, onStarted }: { project: { id: string; na
         <WorkflowButton icon={Play} selected disabled={busy} onClick={start}>
           {busy ? 'Working…' : 'Work project'}
         </WorkflowButton>
-        {result && <span className="text-sm font-medium text-slate-700">{result}</span>}
+        {result && <span className="text-sm font-medium text-ink-secondary">{result}</span>}
       </div>
     </section>
   )

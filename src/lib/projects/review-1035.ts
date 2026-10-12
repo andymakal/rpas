@@ -105,6 +105,16 @@ export type PolicyAccess = {
   has_carrier_statement: boolean
   has_reprojection: boolean
   documents_complete: boolean
+  // Step 3 — explicit SKIPS: operations marked a required document unavailable
+  // for THIS policy (durable, reversible; NOT a received document). From
+  // project_customer_document_skips.
+  carrier_statement_skipped: boolean
+  reprojection_skipped: boolean
+  // A required document is ADDRESSED when it is uploaded OR explicitly skipped.
+  // Both must be addressed for the policy to be ready for the handoff gate.
+  carrier_statement_addressed: boolean
+  reprojection_addressed: boolean
+  documents_addressed: boolean
 }
 
 export type CustomerWorkflow = {
@@ -125,6 +135,13 @@ export type CustomerWorkflow = {
   has_carrier_statement: boolean
   has_reprojection: boolean
   documents_complete: boolean
+  // Step 3 — HANDOFF GATE: every permanent policy's carrier statement AND
+  // reprojection must each be ADDRESSED (uploaded OR explicitly skipped) before
+  // operations can mark the customer ready for producer evaluation. Unlike
+  // documents_complete (informational: uploaded-only), this counts skips too and
+  // is the hard gate the server enforces. Zero permanent policies reads as
+  // satisfied (nothing to prepare).
+  prep_gate_satisfied: boolean
   // Step 3 — determination/prep state (from project_customer_reviews)
   prep_status: PrepStatus
   determination: Determination | null
@@ -234,10 +251,15 @@ export async function buildProjectWorkflow(
         coverage_status: p.coverage_status,
         sa_status: p.sa_status,
         permanent: isPermanent(p.product_type),
-        // Filled in during assembly from docsByPolicy.
+        // Filled in during assembly from docsByPolicy / skipsByPolicy.
         has_carrier_statement: false,
         has_reprojection: false,
         documents_complete: false,
+        carrier_statement_skipped: false,
+        reprojection_skipped: false,
+        carrier_statement_addressed: false,
+        reprojection_addressed: false,
+        documents_addressed: false,
       })
       policiesByCustomer.set(p.customer_id, list)
     }
@@ -258,6 +280,30 @@ export async function buildProjectWorkflow(
       const set = docsByPolicy.get(d.policy_id) ?? new Set<string>()
       set.add(d.document_type)
       docsByPolicy.set(d.policy_id, set)
+    }
+  }
+
+  // 4b. Explicit document SKIPS for THIS project, grouped by POLICY + type. A
+  // skip is a durable "unavailable" marker (project_customer_document_skips),
+  // the same grain as a real document. A (policy, type) is ADDRESSED when a
+  // document exists OR a skip exists.
+  const skipsByPolicy = new Map<string, Set<string>>()
+  {
+    const { data, error } = await supabase
+      .from('project_customer_document_skips')
+      .select('policy_id, document_type')
+      .eq('project_id', projectId)
+    // Tolerate the table not yet existing (migration not applied on a given
+    // environment): no skips simply means nothing is marked unavailable, so the
+    // read model and the gate degrade to "documents must be uploaded". Any other
+    // error is non-fatal here for the same reason.
+    if (!error) {
+      for (const s of (data ?? []) as { policy_id: string | null; document_type: string }[]) {
+        if (!s.policy_id) continue
+        const set = skipsByPolicy.get(s.policy_id) ?? new Set<string>()
+        set.add(s.document_type)
+        skipsByPolicy.set(s.policy_id, set)
+      }
     }
   }
 
@@ -283,9 +329,17 @@ export async function buildProjectWorkflow(
     // evaluated set that gates readiness.
     for (const p of allPolicies) {
       const set = docsByPolicy.get(p.id) ?? new Set<string>()
+      const skips = skipsByPolicy.get(p.id) ?? new Set<string>()
       p.has_carrier_statement = set.has('carrier_statement')
       p.has_reprojection = set.has('reprojection')
       p.documents_complete = p.has_carrier_statement && p.has_reprojection
+      // A skip only counts as "skipped" when there is no real document for that
+      // type (an upload supersedes a skip for gating/display).
+      p.carrier_statement_skipped = !p.has_carrier_statement && skips.has('carrier_statement')
+      p.reprojection_skipped = !p.has_reprojection && skips.has('reprojection')
+      p.carrier_statement_addressed = p.has_carrier_statement || p.carrier_statement_skipped
+      p.reprojection_addressed = p.has_reprojection || p.reprojection_skipped
+      p.documents_addressed = p.carrier_statement_addressed && p.reprojection_addressed
     }
     const permanent = allPolicies.filter(p => p.permanent)
     const unconfirmed = permanent.filter(p => p.sa_status !== 'confirmed')
@@ -308,6 +362,14 @@ export async function buildProjectWorkflow(
       ? true
       : permanent.every(p => p.documents_complete)
 
+    // Handoff gate: every permanent policy's two required documents must each be
+    // ADDRESSED (uploaded OR explicitly skipped). This is the hard requirement
+    // for marking the customer ready for producer evaluation. Zero permanent
+    // policies reads as satisfied (nothing to prepare), matching Step 2.
+    const prepGateSatisfied = permanent.length === 0
+      ? true
+      : permanent.every(p => p.documents_addressed)
+
     const review = reviewByCustomer.get(cid)
     const prepStatus: PrepStatus = review?.prep_status ?? 'preparing'
     const determination = review?.determination ?? null
@@ -329,6 +391,7 @@ export async function buildProjectWorkflow(
       has_carrier_statement: hasCarrier,
       has_reprojection: hasReproj,
       documents_complete: documentsComplete,
+      prep_gate_satisfied: prepGateSatisfied,
       prep_status: prepStatus,
       determination,
       determined_at: review?.determined_at ?? null,

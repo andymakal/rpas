@@ -32,6 +32,7 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { NotificationBell } from '@/components/layout/NotificationBell'
+import { MentorToggle } from '@/lib/mentoring/MentorUi'
 
 const navItems = [
   { href: '/dashboard',              icon: LayoutDashboard, label: 'Dashboard'        },
@@ -129,7 +130,11 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
 
       {/* Footer */}
       <div className="px-2 py-3 border-t border-slate-800">
-        <p className="px-3 pb-1.5 text-xs text-slate-600 truncate">{userEmail}</p>
+        {/* Persistent Mentoring on/off, available on every internal page. The
+            Assistant (what to do) is unaffected; this only toggles the separate
+            purple coaching layer. */}
+        <MentorToggle variant="sidebar" />
+        <p className="px-3 pb-1.5 pt-1 text-xs text-slate-600 truncate">{userEmail}</p>
         <Link
           href="/settings/password"
           className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-slate-400 hover:bg-slate-800/60 hover:text-slate-200 transition-colors"

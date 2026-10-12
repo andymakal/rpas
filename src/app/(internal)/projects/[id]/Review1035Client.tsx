@@ -16,7 +16,7 @@ import { useRouter } from 'next/navigation'
 import {
   ShieldCheck, ShieldAlert, FileText, FileCheck2, Play, Check, X,
   CircleUser, ClipboardCheck, Loader2, ShieldQuestion, Wrench, UserCheck,
-  Send, CheckCircle2, ChevronLeft,
+  Send, CheckCircle2, ChevronLeft, Upload, ArrowLeft,
 } from 'lucide-react'
 import {
   OperationalTag, type OperationalTone, NextNote,
@@ -37,6 +37,11 @@ type PolicyAccess = {
   has_carrier_statement: boolean
   has_reprojection: boolean
   documents_complete: boolean
+  carrier_statement_skipped: boolean
+  reprojection_skipped: boolean
+  carrier_statement_addressed: boolean
+  reprojection_addressed: boolean
+  documents_addressed: boolean
 }
 
 type CustomerWorkflow = {
@@ -50,6 +55,7 @@ type CustomerWorkflow = {
   has_carrier_statement: boolean
   has_reprojection: boolean
   documents_complete: boolean
+  prep_gate_satisfied: boolean
   prep_status: 'preparing' | 'ready_for_evaluation'
   determination: Determination | null
   determined_at: string | null
@@ -67,7 +73,7 @@ type Summary = {
 const STAGE_LABEL: Record<Stage, string> = {
   stewardship: 'Needs servicing access',
   operations_prep: 'Operations preparation',
-  bob_evaluation: 'Ready for Bob',
+  bob_evaluation: 'Ready for producer evaluation',
   ready_for_outreach: 'Candidate · awaiting Step 4 outreach',
   complete: 'Not a candidate · 1035 review complete',
 }
@@ -398,6 +404,39 @@ function CustomerRow({
     } catch { setRowError('Network error') }
   }
 
+  // Mark a required document UNAVAILABLE (durable, reversible skip). It is not a
+  // received document — it just lets preparation proceed when the document
+  // genuinely cannot be obtained.
+  async function skipDocument(policyId: string, documentType: DocType) {
+    setBusy(true); setRowError(null)
+    try {
+      const res = await fetch(`/api/projects/${projectId}/review-1035/${row.customer_id}/documents/skip`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ document_type: documentType, policy_id: policyId }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setRowError(json.error ?? 'Could not mark unavailable'); return }
+      await onChanged()
+    } catch { setRowError('Network error') }
+    finally { setBusy(false) }
+  }
+
+  // Reverse a skip: the document is no longer marked unavailable.
+  async function unskipDocument(policyId: string, documentType: DocType) {
+    setBusy(true); setRowError(null)
+    try {
+      const res = await fetch(
+        `/api/projects/${projectId}/review-1035/${row.customer_id}/documents/skip?type=${documentType}&policy_id=${policyId}`,
+        { method: 'DELETE' },
+      )
+      const json = await res.json()
+      if (!res.ok) { setRowError(json.error ?? 'Could not undo'); return }
+      await onChanged()
+    } catch { setRowError('Network error') }
+    finally { setBusy(false) }
+  }
+
   return (
     <div className="rounded-2xl border border-surface-border bg-surface-card p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -457,10 +496,11 @@ function CustomerRow({
 
         {/* Step 3 — documents (per policy) + readiness + determination */}
         <div className="rounded-xl border border-surface-border bg-surface-muted/40 p-4">
-          <p className="text-sm font-semibold text-ink">Step 3 · Prepare &amp; evaluate</p>
-          <p className="mt-1 text-sm text-ink-supporting">
-            Collect a carrier statement and reprojection for each permanent policy. Missing
-            documents on supplemental policies don&apos;t block handing the customer to Bob.
+          <p className="text-base font-semibold text-ink">Step 3 · Prepare &amp; evaluate</p>
+          <p className="mt-1 text-sm text-ink-secondary">
+            For each permanent policy, upload the Carrier Statement and the Reprojection, or mark one
+            unavailable. Every required document must be addressed before the customer is ready for
+            producer evaluation.
           </p>
 
           {row.permanent_count === 0 ? (
@@ -476,6 +516,8 @@ function CustomerRow({
                   disabled={busy || !row.step2_satisfied}
                   onUpload={(type, file) => uploadDocument(p.id, type, file)}
                   onView={type => viewDocument(p.id, type)}
+                  onSkip={type => skipDocument(p.id, type)}
+                  onUnskip={type => unskipDocument(p.id, type)}
                 />
               ))}
             </div>
@@ -487,33 +529,38 @@ function CustomerRow({
             </p>
           )}
 
-          {/* Operations: mark preparation complete / reopen */}
+          {/* Operations: mark preparation complete / reopen. The handoff stays
+              disabled until every required document is addressed (uploaded or
+              marked unavailable) — the same rule the server enforces. */}
           {row.step2_satisfied && row.determination == null && (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              {row.prep_status !== 'ready_for_evaluation' ? (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => patch({ action: 'set_prep', prep_status: 'ready_for_evaluation' })}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-brand px-3 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <ClipboardCheck className="size-4" aria-hidden />
-                  Hand to Bob for evaluation
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => patch({ action: 'set_prep', prep_status: 'preparing' })}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-surface-border-strong px-3 text-sm font-semibold text-ink-secondary transition-colors hover:bg-surface-muted"
-                >
-                  Reopen preparation
-                </button>
-              )}
-              {row.prep_status !== 'ready_for_evaluation' && !row.documents_complete && (
-                <span className="text-sm text-ink-secondary">
-                  Some policies are missing documents. You can still hand to Bob — he decides which policies qualify.
-                </span>
+            <div className="mt-3 space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {row.prep_status !== 'ready_for_evaluation' ? (
+                  <button
+                    type="button"
+                    disabled={busy || !row.prep_gate_satisfied}
+                    title={row.prep_gate_satisfied ? undefined : 'Upload or mark unavailable every required document first'}
+                    onClick={() => patch({ action: 'set_prep', prep_status: 'ready_for_evaluation' })}
+                    className="inline-flex h-10 items-center gap-2 rounded-lg bg-brand px-4 text-base font-semibold text-brand-foreground transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <ClipboardCheck className="size-4" aria-hidden />
+                    Ready for Producer Evaluation
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => patch({ action: 'set_prep', prep_status: 'preparing' })}
+                    className="inline-flex h-10 items-center gap-2 rounded-lg border border-surface-border-strong px-4 text-base font-semibold text-ink-secondary transition-colors hover:bg-surface-muted"
+                  >
+                    Reopen preparation
+                  </button>
+                )}
+              </div>
+              {row.prep_status !== 'ready_for_evaluation' && !row.prep_gate_satisfied && (
+                <p className="text-sm text-ink-secondary">
+                  Upload or mark unavailable each policy&apos;s Carrier Statement and Reprojection to continue.
+                </p>
               )}
             </div>
           )}
@@ -594,54 +641,74 @@ function CustomerRow({
 }
 
 function PolicyDocuments({
-  policy, disabled, onUpload, onView,
+  policy, disabled, onUpload, onView, onSkip, onUnskip,
 }: {
   policy: PolicyAccess
   disabled: boolean
   onUpload: (type: DocType, file: File) => void
   onView: (type: DocType) => void
+  onSkip: (type: DocType) => void
+  onUnskip: (type: DocType) => void
 }) {
+  // A policy is READY when both required documents are addressed (uploaded or
+  // marked unavailable). Until then it still has outstanding items.
   return (
-    <div className="rounded-lg border border-surface-border bg-surface-card p-3">
+    <div className="rounded-xl border border-surface-border bg-surface-card p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-ink">{policy.policy_number}</span>
+          <span className="text-base font-semibold text-ink">{policy.policy_number}</span>
           <span className="text-sm text-ink-supporting">{policy.product_type ?? '—'}</span>
         </div>
-        {policy.documents_complete ? (
-          <OperationalTag tone="info" className="px-2.5 py-0.5 text-sm">Documents complete</OperationalTag>
+        {policy.documents_addressed ? (
+          <OperationalTag tone="info" className="px-2.5 py-0.5 text-sm">Ready</OperationalTag>
         ) : (
-          <OperationalTag tone="reason" className="px-2.5 py-0.5 text-sm">Documents outstanding</OperationalTag>
+          <OperationalTag tone="reason" className="px-2.5 py-0.5 text-sm">Needs attention</OperationalTag>
         )}
       </div>
-      <div className="mt-2 space-y-2">
+      <div className="mt-3 space-y-2.5">
         <DocRow
-          label="Carrier statement"
+          label="Carrier Statement"
           present={policy.has_carrier_statement}
+          skipped={policy.carrier_statement_skipped}
           disabled={disabled}
           onUpload={file => onUpload('carrier_statement', file)}
           onView={() => onView('carrier_statement')}
+          onSkip={() => onSkip('carrier_statement')}
+          onUnskip={() => onUnskip('carrier_statement')}
         />
         <DocRow
           label="Reprojection"
           present={policy.has_reprojection}
+          skipped={policy.reprojection_skipped}
           disabled={disabled}
           onUpload={file => onUpload('reprojection', file)}
           onView={() => onView('reprojection')}
+          onSkip={() => onSkip('reprojection')}
+          onUnskip={() => onUnskip('reprojection')}
         />
       </div>
     </div>
   )
 }
 
+/**
+ * One required document for a policy. Three states, each with the right action:
+ *   - uploaded ("Stored"): View + Replace
+ *   - skipped ("Unavailable"): a reversible Undo
+ *   - neither (outstanding): Upload or Skip (mark unavailable)
+ * A skip is durable but reversible, and is never shown as a received document.
+ */
 function DocRow({
-  label, present, disabled, onUpload, onView,
+  label, present, skipped, disabled, onUpload, onView, onSkip, onUnskip,
 }: {
   label: string
   present: boolean
+  skipped: boolean
   disabled: boolean
   onUpload: (file: File) => void
   onView: () => void
+  onSkip: () => void
+  onUnskip: () => void
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null)
 
@@ -654,41 +721,48 @@ function DocRow({
   }
 
   return (
-    <div className="flex items-center justify-between gap-2">
-      <span className="flex items-center gap-2 text-sm text-ink-secondary">
+    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 rounded-lg border border-surface-divider bg-surface-muted/40 px-3 py-2">
+      <span className="flex items-center gap-2 text-base text-ink">
         {present
           ? <FileCheck2 className="size-4 text-status-confirmed-foreground" aria-hidden />
-          : <FileText className="size-4 text-ink-supporting" aria-hidden />}
+          : skipped
+            ? <FileText className="size-4 text-ink-muted" aria-hidden />
+            : <FileText className="size-4 text-ink-supporting" aria-hidden />}
         {label}
+        {present && <span className="text-sm font-medium text-status-confirmed-foreground">· Stored</span>}
+        {skipped && <span className="text-sm font-medium text-ink-muted">· Unavailable</span>}
       </span>
+
+      <input
+        ref={inputRef}
+        type="file"
+        accept="application/pdf,image/*"
+        className="hidden"
+        onChange={onChange}
+      />
+
       <div className="flex items-center gap-3">
-        {present && (
+        {present ? (
           <>
-            <span className="text-sm font-medium text-status-confirmed-foreground">Stored</span>
-            <button
-              type="button"
-              onClick={onView}
-              className="text-sm font-semibold text-brand hover:text-brand-hover"
-            >
-              View
+            <button type="button" onClick={onView}
+              className="text-sm font-semibold text-brand hover:text-brand-hover">View</button>
+            <button type="button" disabled={disabled} onClick={pick}
+              className="text-sm font-semibold text-brand hover:text-brand-hover disabled:cursor-not-allowed disabled:opacity-50">Replace</button>
+          </>
+        ) : skipped ? (
+          // Reversible: undo the skip to require the document again.
+          <button type="button" disabled={disabled} onClick={onUnskip}
+            className="text-sm font-semibold text-brand hover:text-brand-hover disabled:cursor-not-allowed disabled:opacity-50">Undo</button>
+        ) : (
+          <>
+            <button type="button" disabled={disabled} onClick={pick}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50">
+              <Upload className="size-4" aria-hidden /> Upload
             </button>
+            <button type="button" disabled={disabled} onClick={onSkip}
+              className="text-sm font-semibold text-ink-supporting underline-offset-2 hover:text-ink hover:underline disabled:cursor-not-allowed disabled:opacity-50">Skip</button>
           </>
         )}
-        <input
-          ref={inputRef}
-          type="file"
-          accept="application/pdf,image/*"
-          className="hidden"
-          onChange={onChange}
-        />
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={pick}
-          className="text-sm font-semibold text-brand hover:text-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {present ? 'Replace' : 'Upload'}
-        </button>
       </div>
     </div>
   )
