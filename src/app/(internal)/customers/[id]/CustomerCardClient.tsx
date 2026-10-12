@@ -2091,15 +2091,14 @@ export function CustomerCardClient({
           icon={MessageSquare}
           count={notes.length}
           action={
-            notes.length > 0 ? (
-              <button
-                onClick={handleCopyToEAgent}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors"
-              >
-                <Clipboard className="w-3.5 h-3.5" />
-                {noteCopied ? 'Copied!' : 'Copy to eAgent'}
-              </button>
-            ) : undefined
+            <button
+              onClick={handleCopyToEAgent}
+              disabled={notes.length === 0}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {noteCopied ? <ClipboardCheck className="w-3.5 h-3.5" /> : <Clipboard className="w-3.5 h-3.5" />}
+              {noteCopied ? 'Copied!' : 'Copy to eAgent'}
+            </button>
           }
         >
           {/* Compose */}
