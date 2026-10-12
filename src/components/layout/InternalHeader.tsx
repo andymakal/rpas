@@ -7,12 +7,13 @@
  * Bob's workflow pages ONLY (opted in per route via WorkflowChrome). It carries
  * the page-independent chrome controls:
  *
- *   - a collapse toggle for the navy sidebar (left),
- *   - a personalized time-of-day greeting (resolved on the actor's clock,
- *     passed in from the server),
- *   - the prominent Mentoring on/off control (the purple "how to do it" layer,
- *     deliberately distinct from the teal Assistant), and
- *   - sign out.
+ * All controls are left-aligned, in order:
+ *   1. a collapse toggle for the navy sidebar,
+ *   2. a personalized time-of-day greeting (resolved on the actor's clock,
+ *      passed in from the server),
+ *   3. sign out, and
+ *   4. the prominent Mentoring on/off control (the purple "how to do it" layer,
+ *      deliberately distinct from the teal Assistant).
  *
  * It never renders on Andy's dark pages, so those keep their original layout.
  */
@@ -40,18 +41,17 @@ export function InternalHeader({ greeting }: { greeting: string }) {
 
       <p className="truncate text-base font-semibold text-ink">{greeting}</p>
 
-      <div className="ml-auto flex items-center gap-3">
-        <MentorToggle variant="pill" />
-        <button
-          type="button"
-          onClick={handleSignOut}
-          title="Sign out"
-          className="inline-flex items-center gap-1.5 rounded-full border border-surface-border bg-surface-card px-3 py-1 text-xs font-semibold text-ink-supporting transition-colors hover:border-brand/40 hover:text-brand"
-        >
-          <LogOut className="size-3.5" aria-hidden />
-          Sign out
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={handleSignOut}
+        title="Sign out"
+        className="inline-flex items-center gap-1.5 rounded-full border border-surface-border bg-surface-card px-3 py-1 text-xs font-semibold text-ink-supporting transition-colors hover:border-brand/40 hover:text-brand"
+      >
+        <LogOut className="size-3.5" aria-hidden />
+        Sign out
+      </button>
+
+      <MentorToggle variant="pill" />
     </header>
   )
 }
