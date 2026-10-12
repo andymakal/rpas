@@ -104,13 +104,17 @@ export async function PATCH(
       return Response.json({ error: "determination must be 'candidate', 'not_a_candidate', or null" }, { status: 400 })
     }
     if (det !== null) {
-      // Bob can only decide a customer who is ready for evaluation: Step 2
-      // satisfied and operations has marked preparation complete. Document
-      // completeness is NOT required — Bob evaluates with whatever documents are
-      // present and determines which policies qualify.
-      if (!wf.step2_satisfied || wf.prep_status !== 'ready_for_evaluation') {
+      // A NEW determination requires the customer to be ready for evaluation
+      // RIGHT NOW: Step 2 satisfied, operations marked preparation complete, AND
+      // every required document currently addressed (uploaded or explicitly
+      // skipped). prep_gate_satisfied is re-derived from live document state, so
+      // if a skip was reversed or a document removed after handoff, a new
+      // determination is blocked until the gap is addressed again. (This does
+      // NOT touch an already-recorded determination — clearing one, det === null,
+      // is always allowed below.)
+      if (!wf.step2_satisfied || wf.prep_status !== 'ready_for_evaluation' || !wf.prep_gate_satisfied) {
         return Response.json(
-          { error: 'Customer is not ready for evaluation yet (needs servicing access and operations to mark preparation complete).' },
+          { error: 'Customer is not ready for evaluation: it needs servicing access, operations to mark preparation complete, and every required document uploaded or marked unavailable.' },
           { status: 409 },
         )
       }

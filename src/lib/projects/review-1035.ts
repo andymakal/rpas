@@ -154,21 +154,26 @@ export type CustomerWorkflow = {
 function deriveStage(args: {
   step2: boolean
   prepReady: boolean
+  /** Live document-readiness: every permanent policy's two required documents
+   * are addressed (uploaded or explicitly skipped) RIGHT NOW. */
+  prepGateSatisfied: boolean
   determination: Determination | null
 }): WorkflowStage {
   if (!args.step2) return 'stewardship'
-  // A recorded determination ends Step 3. Candidate hands off to Step 4
-  // (Outreach & Scheduling) — Step 3 is complete but the work is not Done.
-  // Not a Candidate is terminal: the 1035 review is complete at Step 3.
+  // A recorded determination ENDS Step 3 and is preserved regardless of the
+  // current document state: once the producer has decided, later removing a
+  // document or reversing a skip must never retroactively undo that decision.
+  // Candidate hands off to Step 4 (not Done); Not a Candidate is terminal.
   if (args.determination === 'candidate') return 'ready_for_outreach'
   if (args.determination === 'not_a_candidate') return 'complete'
-  // Step 2 done, not yet determined. Bob's turn once operations has marked
-  // preparation complete. Document completeness is NOT a gate: additional
-  // permanent policies may lack a statement/reprojection, and that must not
-  // block the handoff — Bob decides which policies are exchange candidates and
-  // whether to combine them. The per-policy present/missing state is shown to
-  // operations and Bob, but it does not hold the customer out of evaluation.
-  if (args.prepReady) return 'bob_evaluation'
+  // Not yet determined. The customer is ready for the producer's evaluation
+  // only when operations marked preparation complete AND every required
+  // document is CURRENTLY addressed. This is deliberately re-derived from live
+  // document state, so if an employee reverses a skip or removes a document
+  // after handoff, readiness falls back to operations_prep and no NEW
+  // determination can be made until the gap is addressed again. (The stored
+  // prep_status flag alone is not sufficient — it can go stale.)
+  if (args.prepReady && args.prepGateSatisfied) return 'bob_evaluation'
   return 'operations_prep'
 }
 
@@ -377,6 +382,7 @@ export async function buildProjectWorkflow(
     const stage = deriveStage({
       step2: step2Satisfied,
       prepReady: prepStatus === 'ready_for_evaluation',
+      prepGateSatisfied,
       determination,
     })
 
