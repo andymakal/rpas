@@ -4,7 +4,10 @@
  * Bob's light-theme workflow header.
  *
  * A slim light bar that spans the content area above the scrolling page body on
- * Bob's workflow pages ONLY (opted in per route via WorkflowChrome). It carries
+ * Bob's workflow pages ONLY (opted in per route via WorkflowChrome). Its clean
+ * styling matches the IPF application header: the modern sans workflow font, a
+ * white surface over a hairline divider, a prominent dark-teal greeting
+ * (text-ink-heading), and muted sign-out text that darkens on hover. It carries
  * the page-independent chrome controls:
  *
  * All controls are left-aligned, in order:
@@ -28,7 +31,7 @@ export function InternalHeader({ greeting }: { greeting: string }) {
   const handleSignOut = useSignOut()
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-surface-border bg-workflow-surface/95 px-4 backdrop-blur sm:px-6">
+    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-surface-border bg-surface-card px-4 font-workflow sm:px-6">
       <button
         type="button"
         onClick={toggle}
@@ -39,13 +42,13 @@ export function InternalHeader({ greeting }: { greeting: string }) {
         {collapsed ? <PanelLeftOpen className="size-4" aria-hidden /> : <PanelLeftClose className="size-4" aria-hidden />}
       </button>
 
-      <p className="truncate text-base font-semibold text-ink">{greeting}</p>
+      <p className="truncate text-xl font-semibold text-ink-heading">{greeting}</p>
 
       <button
         type="button"
         onClick={handleSignOut}
         title="Sign out"
-        className="inline-flex items-center gap-1.5 rounded-full border border-surface-border bg-surface-card px-3 py-1 text-xs font-semibold text-ink-supporting transition-colors hover:border-brand/40 hover:text-brand"
+        className="inline-flex items-center gap-1.5 rounded-full border border-surface-border bg-surface-card px-3 py-1 text-xs font-semibold text-ink-supporting transition-colors hover:border-surface-border-strong hover:text-ink"
       >
         <LogOut className="size-3.5" aria-hidden />
         Sign out
