@@ -13,7 +13,12 @@
  * auto-added to servicing-agent request work.
  */
 
-const PERMANENT_PRODUCT_TYPES = new Set(['UL', 'VUL', 'IUL', 'GUL', 'SUL', 'SVUL', 'WL', 'PERM', 'FA', 'MVA'])
+// 'INDEX' is the carrier's shorthand for Indexed Universal Life (a permanent,
+// cash-value policy). It is matched as an EXACT code so the annuity product
+// types that also contain the word "index" (e.g. "Fixed Index Annuity",
+// "Indexed Annuity") are NOT swept in — those collapse to codes like
+// 'FIXEDINDEXANNUITY', never the bare 'INDEX'.
+const PERMANENT_PRODUCT_TYPES = new Set(['UL', 'VUL', 'IUL', 'GUL', 'SUL', 'SVUL', 'WL', 'PERM', 'FA', 'MVA', 'INDEX'])
 
 export function isPermanent(productType: string | null): boolean {
   if (!productType) return false
