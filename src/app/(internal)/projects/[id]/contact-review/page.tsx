@@ -1,0 +1,70 @@
+import type { Metadata } from 'next'
+import Link from 'next/link'
+import { notFound } from 'next/navigation'
+import { ArrowLeft } from 'lucide-react'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { WorkflowPage, WorkflowHeader } from '@/components/workflow'
+import { ContactReviewClient } from '../ContactReviewClient'
+
+export const metadata: Metadata = { title: 'Contact Review' }
+
+export const dynamic = 'force-dynamic'
+
+/**
+ * Contact Review — a project-scoped pass to complete customer contact
+ * information missing from the import. It reuses the shared research interface
+ * (same light-theme workflow look as Stewardship) and writes only to the
+ * customer record; it never starts stewardship work or creates new records.
+ *
+ * Gated exactly like the 1035 working interface: only an active (non-archived)
+ * 1035 project reaches it. The whole (internal) route group is already gated to
+ * internal staff, and the contact-review API routes additionally enforce
+ * requireInternalAdmin.
+ */
+export default async function ProjectContactReviewPage({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  const { id } = await params
+  const supabase = createAdminClient()
+
+  const { data } = await supabase
+    .from('projects')
+    .select('id, name, status, project_types ( name )')
+    .eq('id', id)
+    .maybeSingle()
+
+  if (!data) notFound()
+
+  const { project_types, ...rest } = data as typeof data & { project_types: { name: string } | null }
+  const project = { ...rest, project_type: project_types?.name ?? '' }
+
+  const is1035 = /1035/.test(project.project_type)
+  const isArchived = project.status === 'archived'
+  if (!is1035 || isArchived) notFound()
+
+  return (
+    <WorkflowPage>
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+        <Link
+          href="/my-work"
+          className="-ml-1 inline-flex items-center gap-1.5 text-sm font-medium text-brand-hover transition-colors hover:text-brand"
+        >
+          <ArrowLeft className="size-4" aria-hidden />
+          Back to My Work
+        </Link>
+        <Link
+          href={`/projects/${project.id}/review`}
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-supporting transition-colors hover:text-ink"
+        >
+          Back to the 1035 workflow
+        </Link>
+      </div>
+
+      <WorkflowHeader primary={project.name} secondary="Contact Review" />
+
+      <ContactReviewClient projectId={project.id} />
+    </WorkflowPage>
+  )
+}
