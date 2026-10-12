@@ -5,8 +5,15 @@ It shows real production *information* through the Supabase `development` branch
 (a persistent, with-data clone of production), while the real production database
 is physically unreachable from the preview.
 
-Current preview URL (regenerated on each `vercel deploy`):
-`https://right-path-agency-system-3x5zkzi8m-makal-financial-services-llc.vercel.app`
+THE shared preview URL — stable, bookmark this one:
+`https://bobdev.therightpathagency.com`
+
+This is a stable Vercel alias, not a per-commit URL. It is the single address
+for all in-progress review, including signing in as other users (Dulce, etc.).
+Each `vercel deploy` creates a new immutable `*.vercel.app` deployment URL;
+those are per-build and freeze on one commit, so never treat one as "the
+preview". After deploying, re-point the stable alias at the new deployment
+(see "Redeploying the preview" below) and everyone keeps using the one address.
 
 ## Why this shape
 
@@ -45,12 +52,20 @@ hard-fails instead of silently writing to the real database.
 
 ## Redeploying the preview
 
-From the repo root, with the Vercel CLI logged in to the Makal team:
+This project is NOT connected to GitHub auto-deploy; a `git push` does not
+update the preview. Publishing is two steps: deploy, then move the stable alias
+onto the new deployment. From the repo root, with the Vercel CLI logged in to
+the Makal team:
 
 ```
-vercel deploy          # preview build; prints the preview URL
-vercel deploy --force  # same, bypassing build cache
+vercel deploy --force                                   # preview build; prints <new-url>
+vercel alias set <new-url> bobdev.therightpathagency.com  # point the stable address at it
+vercel inspect https://bobdev.therightpathagency.com    # verify it reports <new-url>
 ```
+
+Deploy from a working tree that already contains other developers' latest
+(merge `main`/`development` first) so the shared preview never regresses their
+work. Note: `vercel alias` does not accept `--yes`.
 
 Do not run `vercel --prod` / `vercel deploy --prod`: that targets production.
 
