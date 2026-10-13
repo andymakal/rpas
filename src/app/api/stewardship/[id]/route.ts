@@ -381,6 +381,28 @@ export async function PATCH(
     }
   }
 
+  // record-follow-up: a chase on a waiting item (signature or carrier). Log it
+  // and let the state machine roll the next follow-up date forward.
+  if (action.type === 'record-follow-up') {
+    const touchedBy = await resolveEmployeeName(supabase)
+    const what = state.queue === 'waiting-for-carrier'
+      ? 'Followed up with the carrier on servicing-agent confirmation (still outstanding).'
+      : 'Followed up with the customer on the outstanding signed form (not yet returned).'
+    const { error: touchErr } = await supabase
+      .from('case_touches')
+      .insert({
+        customer_id: customerId,
+        case_id:     null,
+        touch_type:  'call',
+        notes:       `Servicing-agent onboarding follow-up: ${what}`,
+        touched_at:  new Date().toISOString(),
+        touched_by:  touchedBy,
+      })
+    if (touchErr) {
+      console.error('stewardship record-follow-up touch log error:', touchErr)
+    }
+  }
+
   // reopen: a refused item was deliberately reopened for further outreach.
   if (action.type === 'reopen') {
     const touchedBy = await resolveEmployeeName(supabase)

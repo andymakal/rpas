@@ -24,7 +24,7 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { QUEUE_META, deriveFollowUpRouting, type OutreachQueue } from '@/lib/stewardship/queues'
+import { QUEUE_META, deriveFollowUpRouting, isWaitingFollowUpDue, type OutreachQueue } from '@/lib/stewardship/queues'
 import { createTimeContext } from '@/lib/time'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
@@ -419,15 +419,28 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   const perQueue = new Map<OutreachQueue, QueueTally>()
   for (const r of openRows) {
     const q = effectiveQueue(r)
-    const activity = STEWARDSHIP_ACTIVITY[q]
-    if (!activity) continue // waiting queues are not actionable MY WORK
+    // A waiting item (awaiting the signed form or carrier confirmation) is NOT
+    // actionable while its follow-up window is open. But once that window
+    // lapses, the chase IS actionable outreach work — the same outreach team
+    // follows up — so a DUE waiting item is tallied under the Outreach activity
+    // (its source still links to its own waiting queue). A not-yet-due waiting
+    // item remains non-actionable and is skipped.
+    const dueWaiting = isWaitingFollowUpDue(
+      { queue: r.queue, follow_up_due: r.follow_up_due, refused_at: r.refused_at },
+      now,
+    )
+    const activity = dueWaiting ? 'outreach' : STEWARDSHIP_ACTIVITY[q]
+    if (!activity) continue // waiting (not yet due) queues are not actionable MY WORK
+    // The queue a due-waiting source links to is the item's REAL queue (so the
+    // worker lands on the signature/carrier chase list), not the outreach queue.
+    const sourceQueue: OutreachQueue = dueWaiting ? r.queue : q
     const a = acc.get(activity)
     if (!a) continue
 
     const itemProjects = projectsByCustomer.get(r.customer_prereviews.customer_id) ?? new Set<string>()
     for (const pid of itemProjects) a.projectIds.add(pid)
 
-    const t = perQueue.get(q) ?? { total: 0, ownedByMe: 0, availableToMe: 0, claimedByOthers: 0, notEligible: 0 }
+    const t = perQueue.get(sourceQueue) ?? { total: 0, ownedByMe: 0, availableToMe: 0, claimedByOthers: 0, notEligible: 0 }
     t.total += 1
     a.total += 1
 
@@ -446,7 +459,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
 
     if (cls.bucket === 'notEligible') {
       t.notEligible += 1
-      perQueue.set(q, t)
+      perQueue.set(sourceQueue, t)
       continue // unassigned / unlicensed: awareness only
     }
 
@@ -475,7 +488,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         t.availableToMe += 1
         break
     }
-    perQueue.set(q, t)
+    perQueue.set(sourceQueue, t)
   }
 
   // One source per contributing queue. Each links to the EMPLOYEE'S ELIGIBLE
@@ -484,8 +497,9 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   // their subset (not the whole queue). The source still shows the full queue
   // count for board visibility, plus the per-employee claim breakdown.
   for (const [q, t] of perQueue) {
-    const activity = STEWARDSHIP_ACTIVITY[q]
-    if (!activity) continue
+    // A waiting queue only reaches perQueue when its items are follow-up-due, in
+    // which case the chase is Outreach work; the action queues map as usual.
+    const activity = STEWARDSHIP_ACTIVITY[q] ?? 'outreach'
     const a = acc.get(activity)
     if (!a || t.total === 0) continue
 
@@ -501,9 +515,17 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       ? ([...scopedProjects].find((pid) => a.projectIds.has(pid)) ?? null)
       : null
 
+    // A waiting queue in perQueue is a follow-up-due chase (signature/carrier),
+    // so label it as the follow-up it is rather than the raw waiting label.
+    const sourceLabel = q === 'waiting-for-form'
+      ? 'Shared Stewardship board — Signature follow-up due'
+      : q === 'waiting-for-carrier'
+        ? 'Shared Stewardship board — Carrier follow-up due'
+        : `Shared Stewardship board — ${QUEUE_LABEL[q]}`
+
     a.sources.push({
       kind: 'stewardship',
-      label: `Shared Stewardship board — ${QUEUE_LABEL[q]}`,
+      label: sourceLabel,
       count: t.total,
       route: linkProjectId ? stewardshipRoute(q, linkProjectId) : stewardshipRoute(q),
       projectId: linkProjectId,
@@ -598,6 +620,47 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     // 20261027000001), so an employee who can do research sees it here and
     // opens it straight from My Work — no navigating through Projects.
     addProjectActivity('contact_review', contactReviewCount, contactReviewRoute)
+  }
+
+  // 4b. FAILED Initial Analysis handoffs. When onboarding completed but the
+  // handoff that creates the analysis-prep review errored, the pre-review
+  // carries handoff_status = 'failed'. Those are real preparation work that did
+  // not get created, so they surface here as Operations Preparation work (the
+  // same employees who do prep), routed to the Reviews surface where they are
+  // listed and retried inline — no separate screen. Agency-wide (not project
+  // scoped). Eligibility mirrors operations_prep; an assist-capable hand may
+  // also pick them up.
+  {
+    const { count: failedCount } = await supabase
+      .from('customer_prereviews')
+      .select('id', { count: 'exact', head: true })
+      .eq('handoff_status', 'failed')
+    const failed = failedCount ?? 0
+    if (failed > 0) {
+      const a = acc.get('operations_prep')
+      if (a) {
+        const agencyWide = new Set<string>() // agency-wide standing (no project scope)
+        const eligible = isEligibleFor(profile, 'operations_prep')
+        const status = activityCapabilityStatus('operations_prep', agencyWide)
+        const canPickUp = eligible || status === 'assist'
+        a.total += failed
+        a.sources.push({
+          kind: 'stewardship',
+          label: 'Failed Initial Analysis handoff — needs retry',
+          count: failed,
+          route: '/reviews?handoff=failed',
+          projectId: null,
+          ownedByMe: 0,
+          availableToMe: canPickUp ? failed : 0,
+          claimedByOthers: 0,
+          notEligible: canPickUp ? 0 : failed,
+        })
+        if (canPickUp) {
+          a.availableToMe += failed
+          if (eligible) a.eligible += failed
+        }
+      }
+    }
   }
 
   // 5. Decide each activity's priority band via ZEN. An activity is included

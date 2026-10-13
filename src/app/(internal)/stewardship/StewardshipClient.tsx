@@ -100,6 +100,9 @@ type BoardItem = {
   carrier_correction: string | null
   prereview_id: string
   customer: Customer
+  // True when a waiting item's (signature/carrier) follow-up window has lapsed,
+  // so the board can flag it as a due chase. Set by the board route.
+  follow_up_due_now?: boolean
   // Optional soft-lease claim (shared by default; the board is never filtered
   // by it). Reused from the IPF queue-owned-until-claimed model.
   claimed_by_producer_id?: string | null
@@ -168,6 +171,45 @@ function fullName(c: Customer) {
  */
 function streetLine(c: { street?: string | null; address_line1?: string | null }): string {
   return (c.street ?? c.address_line1 ?? '').trim()
+}
+
+/** Whether a scheduled follow-up date is due (on/before now). */
+function followUpLapsed(followUpDue: string | null): boolean {
+  if (!followUpDue) return false
+  return new Date(followUpDue.length === 10 ? followUpDue + 'T00:00:00' : followUpDue).getTime() <= Date.now()
+}
+
+/**
+ * The "record a follow-up, schedule the next" control for a waiting item
+ * (awaiting the signed form or carrier confirmation). Prominent once the chase
+ * is due; otherwise shows when the next follow-up is scheduled. Recording a
+ * follow-up keeps the item in its waiting queue and rolls the next-chase date
+ * forward — there is no attempt limit.
+ */
+function FollowUpChase({
+  detail, busy, act, label,
+}: {
+  detail: Detail
+  busy: boolean
+  act: (action: unknown, successNote?: string) => void
+  label: string
+}) {
+  const due = followUpLapsed(detail.follow_up_due)
+  return (
+    <div className={`space-y-2 rounded-xl border p-4 ${due ? 'border-amber-300 bg-amber-50' : 'border-slate-200 bg-white'}`}>
+      <div className="flex items-center gap-2">
+        <Clock className={`size-4 ${due ? 'text-amber-600' : 'text-slate-500'}`} aria-hidden />
+        <p className={`text-base font-semibold ${due ? 'text-amber-900' : 'text-slate-700'}`}>
+          {due ? 'Follow-up due' : (detail.follow_up_due ? `Next follow-up ${shortDate(detail.follow_up_due)}` : 'No follow-up scheduled')}
+        </p>
+      </div>
+      <WorkflowButton icon={Clock} selected={due} disabled={busy}
+        onClick={() => act({ type: 'record-follow-up' }, 'Follow-up recorded. Next one scheduled.')}>
+        {label}
+      </WorkflowButton>
+      <NextNote>Records the chase in history and schedules the next follow-up. Nothing is auto-closed; there is no attempt limit.</NextNote>
+    </div>
+  )
 }
 
 function currency(n: number | null) {
@@ -406,6 +448,10 @@ function queueDetail(it: BoardItem): string {
 function queueTag(it: BoardItem) {
   if (it.queue === 'waiting-for-carrier' && it.carrier_correction) {
     return <OperationalTag tone="exception">Correction</OperationalTag>
+  }
+  // A lapsed signature/carrier follow-up is an actionable chase — flag it.
+  if (it.follow_up_due_now) {
+    return <OperationalTag tone="reason">Follow-up due</OperationalTag>
   }
   if (it.queue === 'ready-to-call' && it.call_reason === 'callback-due') {
     return <OperationalTag tone="reason">Callback due</OperationalTag>
@@ -1297,6 +1343,9 @@ function CarrierAction({
         </div>
       </div>
 
+      {/* Record a chase on the carrier and schedule the next follow-up. */}
+      <FollowUpChase detail={detail} busy={busy} act={act} label="Followed up with the carrier" />
+
       <div className="space-y-2 border-t border-slate-100 pt-4">
         <label htmlFor="corr" className="text-sm font-medium text-slate-700">Carrier requested a correction?</label>
         <textarea id="corr" value={correction} onChange={e => setCorrection(e.target.value)} rows={2}
@@ -1433,6 +1482,8 @@ function FormAction({
           disabled={busy}
           onClick={() => act({ type: 'form-received' }, 'Form receipt recorded. Confirm the policies and signer below, then submit to the carrier.')}
         />
+        {/* Record a chase on the outstanding signature and schedule the next. */}
+        <FollowUpChase detail={detail} busy={busy} act={act} label="Followed up on the signature" />
         <NextNote>
           Recording receipt does not submit anything. After it is recorded, you confirm the applicable
           policies and required signer, then Submit to carrier becomes available.

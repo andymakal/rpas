@@ -171,6 +171,10 @@ export type OutreachAction =
   // Reopen a refused item: clear refused_at and return it to active outreach.
   // The deliberate, human-initiated reversal of an explicit refusal.
   | { type: 'reopen' }
+  // Record a follow-up chase on a waiting item (awaiting the signed form or
+  // carrier confirmation) and schedule the next one. Stays in the same waiting
+  // queue; rolls follow_up_due forward by that queue's interval. No attempt cap.
+  | { type: 'record-follow-up' }
 
 export interface OutreachState {
   queue: OutreachQueue
@@ -514,6 +518,23 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
           refused_at: null,
           last_call_outcome: null,
           follow_up_due: null,
+        },
+      }
+    }
+
+    case 'record-follow-up': {
+      // A chase on a waiting item: the worker followed up on the outstanding
+      // signature (waiting-for-form) or carrier confirmation (waiting-for-carrier)
+      // and it is still unresolved, so schedule the NEXT follow-up. Stays in the
+      // same waiting queue (nothing is resolved yet); only the next-chase date
+      // moves forward, by that queue's interval. No attempt limit; nothing
+      // auto-closes. The route logs the chase as a touch.
+      if (state.queue !== 'waiting-for-form' && state.queue !== 'waiting-for-carrier') {
+        return { patch: {}, error: `Cannot record a follow-up from ${state.queue}` }
+      }
+      return {
+        patch: {
+          follow_up_due: addDays(new Date().toISOString(), waitingFollowUpDays(state.queue)),
         },
       }
     }

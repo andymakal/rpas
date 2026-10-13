@@ -1,11 +1,111 @@
 'use client'
 
-import { useState, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
-import { ClipboardList, AlertTriangle, CheckCircle2, Phone, Search, Plus } from 'lucide-react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { ClipboardList, AlertTriangle, CheckCircle2, Phone, Search, Plus, RefreshCw } from 'lucide-react'
 import type { ReviewListRow, AssigneeOption } from './page'
 import { fmtDate as fmt } from '@/lib/fmt'
 import { setNavList } from '@/lib/nav-list'
+
+// ── Failed Initial Analysis handoffs — visible + recoverable inline ──────────
+
+type FailedHandoff = {
+  prereview_id: string
+  customer_id: string
+  customer_name: string | null
+  handoff_error: string | null
+  completed_at: string | null
+}
+
+/**
+ * Surfaces servicing-agent onboardings whose Initial Analysis handoff FAILED, so
+ * the prep review that should exist can be created with one click — no separate
+ * screen. Driven by the existing /api/stewardship/handoff-retry endpoint. Shown
+ * on the Reviews board because a successful handoff lands here as a prep review;
+ * a failed one belongs in the same place, flagged for recovery. Auto-expanded
+ * when arriving via ?handoff=failed (the My Work deep link).
+ */
+function FailedHandoffBanner() {
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const highlight = searchParams.get('handoff') === 'failed'
+  const [items, setItems] = useState<FailedHandoff[]>([])
+  const [loaded, setLoaded] = useState(false)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch('/api/stewardship/handoff-retry', { cache: 'no-store' })
+      const json = await res.json()
+      if (res.ok) setItems((json.data ?? []) as FailedHandoff[])
+    } finally {
+      setLoaded(true)
+    }
+  }, [])
+
+  useEffect(() => { void load() }, [load])
+
+  async function retry(prereviewId: string) {
+    setBusyId(prereviewId); setMsg(null)
+    try {
+      const res = await fetch('/api/stewardship/handoff-retry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prereview_id: prereviewId }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setMsg(json.error ?? 'Retry failed — the handoff is still outstanding.'); return }
+      setMsg('Handoff retried. The analysis-prep review has been created.')
+      await load()
+      // Refresh the reviews list so the newly created prep review appears.
+      router.refresh()
+    } catch {
+      setMsg('Network error.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  if (!loaded || items.length === 0) return null
+
+  return (
+    <div className={`mb-5 rounded-xl border p-4 ${highlight ? 'border-amber-500 bg-amber-500/10' : 'border-amber-700/50 bg-amber-900/20'}`}>
+      <div className="flex items-center gap-2 mb-2">
+        <AlertTriangle className="w-4 h-4 text-amber-400" />
+        <span className="text-sm font-semibold text-amber-200">
+          {items.length} failed Initial Analysis handoff{items.length === 1 ? '' : 's'} — needs retry
+        </span>
+      </div>
+      <p className="text-xs text-amber-200/70 mb-3">
+        Onboarding completed for {items.length === 1 ? 'this customer' : 'these customers'}, but creating the
+        analysis-prep review errored. Retry to create it now.
+      </p>
+      <div className="space-y-2">
+        {items.map(it => (
+          <div key={it.prereview_id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-800/40 bg-slate-900/60 px-3 py-2">
+            <div className="min-w-0">
+              <span className="text-sm font-medium text-slate-200">{it.customer_name ?? 'Customer'}</span>
+              {it.handoff_error && (
+                <span className="block truncate text-xs text-slate-500" title={it.handoff_error}>{it.handoff_error}</span>
+              )}
+            </div>
+            <button
+              type="button"
+              disabled={busyId === it.prereview_id}
+              onClick={() => retry(it.prereview_id)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-amber-600 px-3 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-600/20 disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${busyId === it.prereview_id ? 'animate-spin' : ''}`} />
+              {busyId === it.prereview_id ? 'Retrying…' : 'Retry handoff'}
+            </button>
+          </div>
+        ))}
+      </div>
+      {msg && <p className="mt-2 text-xs font-medium text-amber-200">{msg}</p>}
+    </div>
+  )
+}
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -197,6 +297,9 @@ export function ReviewsClient({ reviews, producers }: { reviews: ReviewListRow[]
   return (
     <>
       {showModal && <NewReviewModal onClose={handleModalClose} producers={producers} />}
+
+      {/* Failed Initial Analysis handoffs — visible + recoverable inline */}
+      <FailedHandoffBanner />
 
       {/* ── Summary chips ───────────────────────────────────────────────── */}
       <div className="flex flex-wrap gap-3 mb-5">
