@@ -163,7 +163,13 @@ type BoardRow = {
   follow_up_due: string | null
   refused_at: string | null
   claimed_by_producer_id: string | null
-  customer_prereviews: { decision: string | null; customer_id: string }
+  customer_prereviews: {
+    decision: string | null
+    customer_id: string
+    // Contact facts, so the call / email populations are derived from actual
+    // callability/emailability rather than solely the stored queue (Rule 1).
+    customers: { phone: string | null; email: string | null }
+  }
 }
 
 export interface MyWorkOptions {
@@ -363,7 +369,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     .from('stewardship_outreach')
     .select(`
       id, queue, callback_date, follow_up_due, refused_at, claimed_by_producer_id,
-      customer_prereviews!inner ( decision, customer_id )
+      customer_prereviews!inner ( decision, customer_id, customers!inner ( phone, email ) )
     `)
     .order('updated_at', { ascending: true })
   if (boardErr) throw new Error(`MY WORK board read failed: ${boardErr.message}`)
@@ -542,49 +548,14 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
 
     const route = linkProjectId ? stewardshipRoute(q, linkProjectId) : stewardshipRoute(q)
 
-    // The call queue is surfaced as TWO distinct sources (Rule 5): "Calls Due"
-    // (a promised callback or an automatic cadence retry that has reached its
-    // scheduled date) and "Available to Call" (actionable now, not on a due
-    // date). The split is disjoint over the SAME single workflow — an item is
-    // counted in exactly one of them, never both, and the customer is never
-    // duplicated. Both link to the same Ready-to-Call queue so the worker lands
-    // on the same list. Scheduled (due) work is surfaced first without
-    // preventing the available calls from being worked.
-    if (q === 'ready-to-call') {
-      const dueTotal = t.dueToMe
-      const availableTotal = Math.max(t.total - dueTotal, 0)
-      if (dueTotal > 0) {
-        a.sources.push({
-          kind: 'stewardship',
-          label: 'Shared Stewardship board — Calls Due',
-          count: dueTotal,
-          route,
-          projectId: linkProjectId,
-          // Due items that are mine are available-to-me to act on now; they are
-          // also reported as due via dueToMe so the UI can lead with them.
-          ownedByMe: Math.min(t.ownedByMe, dueTotal),
-          availableToMe: dueTotal,
-          claimedByOthers: 0,
-          notEligible: 0,
-          dueToMe: dueTotal,
-        })
-      }
-      if (availableTotal > 0) {
-        a.sources.push({
-          kind: 'stewardship',
-          label: 'Shared Stewardship board — Available to Call',
-          count: availableTotal,
-          route,
-          projectId: linkProjectId,
-          ownedByMe: Math.max(t.ownedByMe - dueTotal, 0),
-          availableToMe: Math.max(t.availableToMe - dueTotal, 0),
-          claimedByOthers: t.claimedByOthers,
-          notEligible: t.notEligible,
-          dueToMe: 0,
-        })
-      }
-      continue
-    }
+    // The call population (Calls Due + Available to Call) is NOT emitted from the
+    // per-queue tally, because callability is independent of the stored queue: a
+    // customer with a usable phone is callable even while they sit in Ready to
+    // Email. It is computed over ALL callable open items in a dedicated pass
+    // below, so a callable customer appears in the call population regardless of
+    // queue (Rule 1), without duplicating the workflow. The per-queue tally still
+    // drives the activity total and the email / research sources.
+    if (q === 'ready-to-call') continue
 
     // A waiting queue in perQueue is a follow-up-due chase (signature/carrier),
     // so label it as the follow-up it is rather than the raw waiting label.
@@ -606,6 +577,83 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       notEligible: t.notEligible,
       dueToMe: t.dueToMe,
     })
+  }
+
+  // 3b. The CALL population (Calls Due + Available to Call), derived from
+  // callability — NOT the stored queue (Rule 1). A customer with a usable phone
+  // is callable even while they sit in Ready to Email awaiting a reply, so every
+  // callable open actionable item is in the call population. The item is still
+  // ONE workflow; appearing in the call population alongside, say, the email
+  // population is the required "every applicable action population", not a
+  // duplicate workflow. These two sources are informational sub-populations of
+  // the Outreach activity: they do NOT add to the activity total (that is driven
+  // once by the per-queue tally), so the headline count never inflates. An item
+  // is Calls Due when its scheduled call has arrived (promised callback due, or
+  // a cadence retry whose date lapsed), otherwise Available to Call; it is in
+  // exactly one of the two. The links open the Ready-to-Call board population.
+  {
+    const outreach = acc.get('outreach')
+    if (outreach) {
+      let callsDue = 0
+      let availableToCall = 0
+      for (const r of openRows) {
+        const phone = r.customer_prereviews.customers?.phone?.trim()
+        if (!phone) continue // not callable: no usable phone on file
+        const q = effectiveQueue(r)
+        // Only ACTIONABLE items are a call opportunity: the call flow itself, or
+        // Ready to Email (awaiting a reply while still callable). A not-yet-due
+        // waiting item (signature/carrier) is not a call opportunity, and a
+        // research item has no usable contact by definition.
+        const callable = q === 'ready-to-call' || q === 'ready-to-email'
+        if (!callable) continue
+        // Eligibility: only count items this employee can act on (routable or
+        // assist), judged against the item's own projects, matching the rest of
+        // the composition.
+        const itemProjects = projectsByCustomer.get(r.customer_prereviews.customer_id) ?? new Set<string>()
+        const eligible =
+          itemEligible('outreach', itemProjects) ||
+          activityCapabilityStatus('outreach', itemProjects) === 'assist'
+        if (!eligible) continue
+        // A teammate's claimed item is not my call opportunity.
+        if (r.claimed_by_producer_id && r.claimed_by_producer_id !== myProducerId) continue
+
+        const due =
+          q === 'ready-to-call' &&
+          (isCallbackDue(r.callback_date, timeCtx) || r.queue === 'waiting-for-response')
+        if (due) callsDue += 1
+        else availableToCall += 1
+      }
+
+      const callRoute = stewardshipRoute('ready-to-call')
+      if (callsDue > 0) {
+        outreach.sources.push({
+          kind: 'stewardship',
+          label: 'Shared Stewardship board — Calls Due',
+          count: callsDue,
+          route: callRoute,
+          projectId: null,
+          ownedByMe: 0,
+          availableToMe: callsDue,
+          claimedByOthers: 0,
+          notEligible: 0,
+          dueToMe: callsDue,
+        })
+      }
+      if (availableToCall > 0) {
+        outreach.sources.push({
+          kind: 'stewardship',
+          label: 'Shared Stewardship board — Available to Call',
+          count: availableToCall,
+          route: callRoute,
+          projectId: null,
+          ownedByMe: 0,
+          availableToMe: availableToCall,
+          claimedByOthers: 0,
+          notEligible: 0,
+          dueToMe: 0,
+        })
+      }
+    }
   }
 
   // 4. The 1035 project workflow (the SAME derived read the project surface

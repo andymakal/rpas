@@ -28,6 +28,7 @@ import {
   EARLY_CALL_SPACING_DAYS,
   NONRESPONSIVE_ATTEMPT_THRESHOLD,
 } from './call-cadence'
+import { applyAction, type OutreachState } from './queues'
 import {
   groupIntoAttempts,
   countCallAttempts,
@@ -260,4 +261,87 @@ test('nonresponsive: ZEN flags review strategy at exactly 7 attempts, not before
   // The pure helper agrees with the ZEN threshold.
   assert.equal(isNonresponsive(6), false)
   assert.equal(isNonresponsive(7), true)
+})
+
+// ── Unified coordinated attempt (record-attempt) and queue independence ──────
+
+function state(partial: Partial<OutreachState> = {}): OutreachState {
+  return {
+    queue: 'ready-to-call',
+    call_reason: null,
+    research_reason: null,
+    last_call_outcome: null,
+    callback_date: null,
+    email_sent_at: null,
+    follow_up_due: null,
+    form_received_at: null,
+    submitted_at: null,
+    carrier_correction: null,
+    form_delivery_method: null,
+    refused_at: null,
+    has_usable_phone: true,
+    ...partial,
+  }
+}
+
+test('record-attempt: a voicemail call schedules the next call via next_call_date', () => {
+  const r = applyAction(state({ queue: 'ready-to-call' }), {
+    type: 'record-attempt',
+    call: 'voicemail',
+    text: 'touch',
+    next_call_date: '2026-02-01',
+  })
+  // The call outcome drives the workflow exactly like call-outcome: voicemail
+  // moves to waiting-for-response with the scheduled next call.
+  assert.equal(r.patch.queue, 'waiting-for-response')
+  assert.equal(r.patch.last_call_outcome, 'voicemail')
+  assert.equal(String(r.patch.follow_up_due).slice(0, 10), '2026-02-01')
+})
+
+test('record-attempt: a reached call advances the same as call-outcome reached', () => {
+  const r = applyAction(state({ queue: 'ready-to-call' }), { type: 'record-attempt', call: 'reached' })
+  assert.equal(r.patch.last_call_outcome, 'reached')
+  // Reached does not leave the call flow; the form step follows.
+  assert.equal(r.patch.queue, undefined)
+})
+
+test('record-attempt: a call is allowed from a NON-call queue (queue is not a lock)', () => {
+  // A callable customer sitting in Ready to Email can still be called; the pure
+  // transition does not reject on the stored queue (the route gates on an actual
+  // usable phone instead).
+  const r = applyAction(state({ queue: 'ready-to-email' }), { type: 'record-attempt', call: 'voicemail', next_call_date: '2026-02-02' })
+  assert.equal(r.error, undefined)
+  assert.equal(r.patch.queue, 'waiting-for-response')
+})
+
+test('record-attempt: an email-only attempt on a call-flow item schedules the next call without a forced call transition', () => {
+  const r = applyAction(state({ queue: 'ready-to-call' }), {
+    type: 'record-attempt',
+    email: 'touch',
+    next_call_date: '2026-02-03',
+  })
+  assert.equal(r.error, undefined)
+  // No call channel: the touches are the progress; the next call is scheduled.
+  assert.equal(r.patch.queue, 'waiting-for-response')
+  assert.equal(String(r.patch.follow_up_due).slice(0, 10), '2026-02-03')
+  assert.equal(r.patch.last_call_outcome, undefined) // no call outcome recorded
+})
+
+test('record-attempt: callback sets the promised date and keeps the item in the call flow', () => {
+  const r = applyAction(state({ queue: 'ready-to-call' }), {
+    type: 'record-attempt',
+    call: 'callback',
+    callback_date: '2026-02-10',
+  })
+  assert.equal(r.patch.last_call_outcome, 'callback')
+  assert.equal(r.patch.callback_date, '2026-02-10')
+  assert.equal(r.patch.queue, 'ready-to-call')
+})
+
+test('call-outcome: no longer rejected by the stored queue (parity with record-attempt)', () => {
+  // The pure transition for a plain call-outcome also no longer gates on queue;
+  // a bad-number from any queue routes to research.
+  const r = applyAction(state({ queue: 'ready-to-email' }), { type: 'call-outcome', outcome: 'bad-number' })
+  assert.equal(r.error, undefined)
+  assert.equal(r.patch.queue, 'research-needed')
 })

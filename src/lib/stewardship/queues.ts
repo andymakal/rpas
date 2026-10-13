@@ -39,6 +39,20 @@ export type CallReason = 'no-email' | 'email-bounced' | 'no-response' | 'callbac
 export type ResearchReason = 'no-contact' | 'bad-number' | 'bounce-no-phone'
 export type CallOutcome = 'reached' | 'voicemail' | 'bad-number' | 'not-interested' | 'callback'
 
+/**
+ * A non-call channel's recorded outcome within a coordinated attempt, using the
+ * IPF grouping vocabulary mapped to Right Path:
+ *   - 'touch'      a real completed send (voicemail left, text sent, email sent,
+ *                  postal sent).
+ *   - 'no_contact' the channel was attempted but not completed (an ordinary
+ *                  non-send; recorded so the attempt is honest).
+ *   - 'unusable'   the channel cannot deliver (full mailbox, bouncing text or
+ *                  email). A recorded usability fact; never a touch.
+ * These never influence cadence/timing (IPF Decision Engine Boundary); they feed
+ * the touch grouping and contact-method usability only.
+ */
+export type AttemptChannelOutcome = 'touch' | 'no_contact' | 'unusable'
+
 /** The three contact facts the customer can confirm during onboarding. */
 export type ContactField = 'phone' | 'email' | 'address'
 
@@ -155,6 +169,36 @@ export type OutreachAction =
   // attempt history. Supplied so applyAction stays pure (no time-math/timezone).
   // When absent, the legacy flat FOLLOW_UP_INTERVAL_DAYS spacing is used.
   | { type: 'call-outcome'; outcome: CallOutcome; callback_date?: string | null; next_call_date?: string | null }
+  // ONE coordinated multi-channel outreach attempt (adapted from IPF
+  // record_outreach_grouping). It records the outcome of each channel used in a
+  // single reach-out AND advances the workflow, so the employee records the
+  // activity ONCE. The call outcome (when a call channel was used) drives the
+  // workflow transition exactly like call-outcome; the voicemail/text/email/
+  // postal outcomes are recorded as individual touches by the route (one
+  // grouping at a shared timestamp) and never influence cadence/timing. An
+  // attempt with no call channel (e.g. an email-only reach-out from Ready to
+  // Email) records its touches and, when it is a plain non-reaching attempt on a
+  // callable customer, schedules the next call via next_call_date without
+  // forcing a call transition. Channel outcomes use the IPF vocabulary
+  // (touch / no_contact / unusable); only the CALL channel carries a workflow
+  // CallOutcome.
+  | {
+      type: 'record-attempt'
+      /** The call channel's workflow outcome, when a call was placed in this
+       * attempt. Omitted when the attempt used no call channel. */
+      call?: CallOutcome | null
+      /** Promised callback date (YYYY-MM-DD) when call === 'callback'. */
+      callback_date?: string | null
+      /** Per-channel recorded outcomes (for the touch grouping + usability).
+       * Absent channel = not offered on this attempt. */
+      voicemail?: AttemptChannelOutcome | null
+      text?: AttemptChannelOutcome | null
+      email?: AttemptChannelOutcome | null
+      postal?: AttemptChannelOutcome | null
+      /** The cadence-resolved next automatic call date (YYYY-MM-DD), supplied by
+       * the route, used when the attempt schedules another call. */
+      next_call_date?: string | null
+    }
   | { type: 'form-sent' }            // after a reached call, the form is (re)sent
   // Signed form came back on its own after the intro email (which already
   // carried the form) — advance to waiting-for-form WITHOUT recording a second
@@ -245,6 +289,61 @@ function dateOnlyToIso(dateOnly: string): string {
   const trimmed = dateOnly.trim()
   if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return `${trimmed}T00:00:00.000Z`
   return trimmed
+}
+
+/**
+ * The outreach patch for one CALL outcome, independent of the stored queue. This
+ * is the single place the call-outcome -> workflow transition lives, so both the
+ * queue-gated `call-outcome` action and the queue-independent `record-attempt`
+ * action produce identical workflow progress for the same outcome. The caller
+ * decides whether a queue gate applies; this only maps outcome -> patch.
+ */
+function callOutcomePatch(
+  outcome: CallOutcome,
+  opts: { callback_date?: string | null; next_call_date?: string | null },
+): OutreachPatch {
+  switch (outcome) {
+    case 'reached':
+      // Reached: stay in the call flow until the form is sent (next action).
+      return { last_call_outcome: 'reached' }
+    case 'bad-number':
+      return {
+        last_call_outcome: 'bad-number',
+        queue: 'research-needed',
+        research_reason: 'bad-number',
+        call_reason: null,
+      }
+    case 'callback':
+      return {
+        last_call_outcome: 'callback',
+        callback_date: opts.callback_date ?? null,
+        queue: 'ready-to-call',
+        call_reason: 'callback-due',
+      }
+    case 'voicemail':
+      // Left a voicemail: schedule the NEXT attempt per the escalating cadence
+      // and WAIT until it is due. Resurfaces to Ready to Call (no-response) via
+      // deriveFollowUpRouting once the scheduled date arrives. No attempt limit;
+      // nothing auto-closes.
+      return {
+        last_call_outcome: 'voicemail',
+        queue: 'waiting-for-response',
+        call_reason: null,
+        research_reason: null,
+        follow_up_due: opts.next_call_date
+          ? dateOnlyToIso(opts.next_call_date)
+          : addDays(new Date().toISOString(), FOLLOW_UP_INTERVAL_DAYS),
+      }
+    case 'not-interested':
+      // Explicit refusal: STOP further outreach (reversible via reopen). Not an
+      // automatic lost/closed state.
+      return {
+        last_call_outcome: 'not-interested',
+        refused_at: new Date().toISOString(),
+        follow_up_due: null,
+        call_reason: null,
+      }
+  }
 }
 
 /**
@@ -347,75 +446,55 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
     }
 
     case 'call-outcome': {
-      if (state.queue !== 'ready-to-call') {
-        return { patch: {}, error: `Cannot record a call outcome from ${state.queue}` }
+      // A call is an available action whenever the item is in the call flow OR
+      // is a callable customer sitting in another queue (e.g. Ready to Email):
+      // the stored queue is the RECOMMENDED next step, not a lock on which
+      // channel the employee may use. The route gates on actual callability
+      // (a usable phone), not on the stored queue, so this transition no longer
+      // rejects a call from a non-call queue. The only queue that cannot take a
+      // call outcome is one with no customer to call, which the route's
+      // callability check already covers.
+      return {
+        patch: callOutcomePatch(action.outcome, {
+          callback_date: action.callback_date,
+          next_call_date: action.next_call_date,
+        }),
       }
-      switch (action.outcome) {
-        case 'reached':
-          // Reached: stay in ready-to-call until the form is sent (next action).
-          return { patch: { last_call_outcome: 'reached' } }
-        case 'bad-number':
-          return {
-            patch: {
-              last_call_outcome: 'bad-number',
-              queue: 'research-needed',
-              research_reason: 'bad-number',
-              call_reason: null,
-            },
-          }
-        case 'callback':
-          return {
-            patch: {
-              last_call_outcome: 'callback',
-              callback_date: action.callback_date ?? null,
-              call_reason: 'callback-due',
-            },
-          }
-        case 'voicemail':
-          // Left a voicemail: auto-schedule the NEXT attempt per the escalating
-          // call cadence and WAIT until it is due. The item moves to the waiting
-          // state with follow_up_due set, so it does not re-appear as actionable
-          // immediately — it resurfaces to Ready to Call (no-response) via
-          // deriveFollowUpRouting once the scheduled date arrives.
-          //
-          // The next-attempt DATE is computed by the route from the grouped
-          // attempt history (24h, 24h, 2d, 3d, then every 6 business days
-          // rotating weekdays) and passed in as next_call_date, keeping this
-          // transition pure. When no date is supplied (legacy callers) it falls
-          // back to the flat FOLLOW_UP_INTERVAL_DAYS spacing.
-          //
-          // There is NO attempt limit and nothing auto-closes: each voicemail
-          // simply rolls the next attempt forward. After enough unsuccessful
-          // attempts the run is FLAGGED Nonresponsive for human review (a ZEN
-          // recommendation surfaced by the reads), but the cadence keeps going;
-          // a human decides to stop. (This is a waiting state, not a promised
-          // callback — callback_date stays null; only an explicit customer
-          // promise sets callback_date.)
-          return {
-            patch: {
-              last_call_outcome: 'voicemail',
-              queue: 'waiting-for-response',
-              call_reason: null,
-              research_reason: null,
-              follow_up_due: action.next_call_date
-                ? dateOnlyToIso(action.next_call_date)
-                : addDays(new Date().toISOString(), FOLLOW_UP_INTERVAL_DAYS),
-            },
-          }
-        case 'not-interested':
-          // Explicit refusal: STOP further outreach. refused_at suppresses the
-          // item from actionable/resurfacing reads and clears any pending
-          // follow-up so nothing re-queues it. This is a human-recorded
-          // disposition, NOT an automatic lost/closed state — it is reversed by
-          // an explicit reopen.
-          return {
-            patch: {
-              last_call_outcome: 'not-interested',
-              refused_at: new Date().toISOString(),
-              follow_up_due: null,
-              call_reason: null,
-            },
-          }
+    }
+
+    case 'record-attempt': {
+      // ONE coordinated multi-channel attempt (IPF record_outreach_grouping
+      // adapted). The CALL channel's outcome (when present) drives the workflow
+      // transition exactly like call-outcome; the other channels are recorded as
+      // touches by the route and never change the workflow here. The employee
+      // records the activity ONCE.
+      //
+      // When the attempt included NO call (e.g. an email-only or text-only
+      // reach-out), there is no call transition: the touches are the progress.
+      // If such an attempt is a plain non-reaching contact on a callable item in
+      // the call flow, we still schedule the next call so the cadence continues;
+      // otherwise the queue is left as-is (the recorded touches are the update).
+      if (action.call) {
+        return {
+          patch: callOutcomePatch(action.call, {
+            callback_date: action.callback_date,
+            next_call_date: action.next_call_date,
+          }),
+        }
+      }
+      // No call channel: record-only attempt. Keep the workflow where it is; the
+      // route writes the channel touches. A scheduled next call, when the route
+      // supplies one for a call-flow item, keeps the cadence moving without a
+      // forced transition.
+      if (action.next_call_date && (state.queue === 'ready-to-call' || state.queue === 'waiting-for-response')) {
+        return {
+          patch: {
+            queue: 'waiting-for-response',
+            follow_up_due: dateOnlyToIso(action.next_call_date),
+            call_reason: null,
+            research_reason: null,
+          },
+        }
       }
       return { patch: {} }
     }

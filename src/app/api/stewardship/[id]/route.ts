@@ -90,7 +90,7 @@ export async function GET(
     .select(`
       ${OUTREACH_COLUMNS},
       customer_prereviews!inner (
-        id, customer_id, source_agency_id, decision,
+        id, customer_id, source_agency_id, decision, created_at,
         customers!inner ( id, first_name, last_name, email, phone, date_of_birth, street, address_line1, city, state, zip, phone_verified_at, email_verified_at, address_verified_at )
       )
     `)
@@ -106,6 +106,7 @@ export async function GET(
       id: string
       customer_id: string
       source_agency_id: string | null
+      created_at: string
       customers: Record<string, unknown>
     }
   }).customer_prereviews
@@ -161,7 +162,9 @@ export async function GET(
   // Strategy" recommendation. Recommendation only: it never stops outreach or
   // changes the queue.
   const actorTimeZone = await getActorTimeZone()
-  const history = await getAttemptHistory(supabase, customerId, actorTimeZone)
+  const history = await getAttemptHistory(supabase, customerId, actorTimeZone, {
+    since: pre.created_at,
+  })
 
   // The AVAILABLE CONTACT OPTIONS for this customer, decided by the ZEN
   // contact-options decision over the real contact facts, with any channel
@@ -272,7 +275,7 @@ export async function PATCH(
 
   const { data: current, error: readErr } = await supabase
     .from('stewardship_outreach')
-    .select(`${OUTREACH_COLUMNS}, customer_prereviews!inner ( customer_id, customers!inner ( phone ) )`)
+    .select(`${OUTREACH_COLUMNS}, customer_prereviews!inner ( customer_id, created_at, customers!inner ( phone, email ) )`)
     .eq('id', id)
     .single()
   if (readErr || !current) {
@@ -280,9 +283,14 @@ export async function PATCH(
   }
 
   const row = current as unknown as OutreachRow & {
-    customer_prereviews: { customer_id: string; customers: { phone: string | null } }
+    customer_prereviews: {
+      customer_id: string
+      created_at: string
+      customers: { phone: string | null; email: string | null }
+    }
   }
   const customerId = row.customer_prereviews.customer_id
+  const runSince = row.customer_prereviews.created_at
 
   // ── research-found: persist the actual contact value BEFORE routing ─────────
   // Field-level: write only the found fact, never overwrite the other. Refuse
@@ -356,22 +364,67 @@ export async function PATCH(
   //   - call-outcome / voicemail: the NEXT call is scheduled from the prior
   //     unsuccessful call attempts PLUS this voicemail (the current attempt is
   //     logged as a touch after the transition, so it is not yet in history).
+  // Does this action schedule the NEXT automatic call? email-sent (first call
+  // 24h later), a voicemail call-outcome, and a record-attempt that is an
+  // unsuccessful non-reaching attempt (voicemail call, or a no-call attempt on a
+  // call-flow item) all do. For those we resolve the cadence date up front.
+  const attemptSchedulesCall =
+    action.type === 'record-attempt' &&
+    // A reached/callback/bad-number/not-interested attempt does NOT roll the
+    // call cadence (reached advances; callback sets its own date; bad-number and
+    // not-interested leave the call flow). Only a voicemail call, or a no-call
+    // record-only attempt still in the call flow, schedules the next call.
+    (action.call === 'voicemail' ||
+      (!action.call && (row.queue === 'ready-to-call' || row.queue === 'waiting-for-response')))
+
   let actionForTransition: typeof action = action
-  if (action.type === 'email-sent' || (action.type === 'call-outcome' && action.outcome === 'voicemail')) {
+  if (
+    action.type === 'email-sent' ||
+    (action.type === 'call-outcome' && action.outcome === 'voicemail') ||
+    attemptSchedulesCall
+  ) {
     const actorTimeZone = await getActorTimeZone()
-    const history = await getAttemptHistory(supabase, customerId, actorTimeZone)
+    const history = await getAttemptHistory(supabase, customerId, actorTimeZone, { since: runSince })
+    // The cadence index is how many unsuccessful CALL attempts precede the next
+    // call:
+    //   - email-sent: pre-call baseline, 0 prior calls -> next call in 24h.
+    //   - a voicemail call (call-outcome or record-attempt call='voicemail'):
+    //     this attempt added a call, so the next call is scheduled from
+    //     callAttempts + 1.
+    //   - a no-call record-only attempt (email/text only) on a call-flow item:
+    //     no new call was placed, so the next call still uses callAttempts.
+    const madeCallThisAttempt =
+      (action.type === 'call-outcome' && action.outcome === 'voicemail') ||
+      (action.type === 'record-attempt' && action.call === 'voicemail')
     const priorUnsuccessfulAttempts =
-      action.type === 'email-sent' ? 0 : history.callAttempts + 1
+      action.type === 'email-sent'
+        ? 0
+        : history.callAttempts + (madeCallThisAttempt ? 1 : 0)
     const resolved = resolveNextCallDate({
       priorUnsuccessfulAttempts,
       actorTimeZone,
-      // A customer-promised callback and an employee override take precedence.
-      // The callback outcome sets callback_date explicitly; a voicemail carries
-      // neither, so these are null for the automatic cadence path.
+      // A customer-promised callback and an employee override take precedence;
+      // this scheduling path is only reached for non-callback attempts, so none
+      // applies here (a callback outcome sets callback_date in the transition).
       promisedCallbackDate: null,
       employeeOverrideDate: null,
     })
     actionForTransition = { ...action, next_call_date: resolved.date }
+  }
+
+  // Callability gate (replaces the old stored-queue restriction on calling):
+  // a call outcome or a call within a coordinated attempt requires a usable
+  // phone on file, NOT a particular stored queue. This is what lets an employee
+  // call a callable customer who happens to sit in Ready to Email, while still
+  // refusing a call when there is genuinely no number to dial.
+  const placesCall =
+    action.type === 'call-outcome' ||
+    (action.type === 'record-attempt' && !!action.call)
+  if (placesCall && !row.customer_prereviews.customers?.phone?.trim()) {
+    return Response.json(
+      { error: 'This customer has no usable phone on file. Use Contact Research to find one.' },
+      { status: 409 },
+    )
   }
 
   const result = applyAction(state, actionForTransition)
@@ -435,6 +488,78 @@ export async function PATCH(
     if (touchErr) {
       // Non-fatal: the workflow transition still proceeds. Log for visibility.
       console.error('stewardship call-outcome touch log error:', touchErr)
+    }
+  }
+
+  // record-attempt: ONE coordinated multi-channel attempt (IPF grouping). Write
+  // the individual channel outcomes as separate case_touches rows at a SHARED
+  // timestamp so they group into exactly one attempt, each preserving its own
+  // outcome. The workflow transition was already applied above from the call
+  // outcome; this records the attempt's history without the employee recording
+  // anything twice. Outcome markers carry per-channel usability/no-contact so
+  // attempt counting and contact-method usability read correctly; markers never
+  // influence cadence/timing.
+  if (action.type === 'record-attempt') {
+    const touchedBy = await resolveEmployeeName(supabase)
+    const attemptAt = new Date().toISOString()
+
+    const callLabel: Record<CallOutcome, string> = {
+      reached: 'Reached the customer.',
+      voicemail: 'Left a voicemail. Follow-up auto-scheduled.',
+      'bad-number': 'Bad number. Moved to Research Needed.',
+      'not-interested': 'Customer declined. Outreach stopped until deliberately reopened.',
+      callback: `Customer asked for a callback${action.callback_date ? ` on ${action.callback_date}` : ''}.`,
+    }
+    // Map a non-call channel outcome to its stored note marker.
+    const markerFor = (o: 'touch' | 'no_contact' | 'unusable' | null | undefined): string =>
+      o === 'unusable' ? OUTCOME_MARKERS.unusable :
+      o === 'no_contact' ? OUTCOME_MARKERS.no_contact :
+      '' // 'touch' (or absent) records a completed touch with no marker
+
+    const rows: Array<{
+      customer_id: string; case_id: null; touch_type: string; notes: string; touched_at: string; touched_by: string | null
+    }> = []
+
+    // The call channel, when a call was placed in this attempt.
+    if (action.call) {
+      const callMarker =
+        action.call === 'bad-number' ? OUTCOME_MARKERS.unusable :
+        action.call === 'voicemail'  ? OUTCOME_MARKERS.no_contact :
+        ''
+      const touchType = action.call === 'voicemail' ? 'voicemail' : 'call'
+      const base = `Servicing-agent onboarding call: ${callLabel[action.call]}`
+      rows.push({
+        customer_id: customerId, case_id: null, touch_type: touchType,
+        notes: callMarker ? `${base} ${callMarker}` : base,
+        touched_at: attemptAt, touched_by: touchedBy,
+      })
+    }
+
+    // The non-call channels actually used in this attempt (absent = not offered).
+    const channelSpecs: Array<{ key: 'voicemail' | 'text' | 'email' | 'postal'; touchType: string; verb: string }> = [
+      { key: 'voicemail', touchType: 'voicemail', verb: 'voicemail' },
+      { key: 'text',      touchType: 'text',      verb: 'text' },
+      { key: 'email',     touchType: 'email',     verb: 'email' },
+      { key: 'postal',    touchType: 'postal',    verb: 'postal' },
+    ]
+    for (const spec of channelSpecs) {
+      const outcome = action[spec.key]
+      if (outcome == null) continue // channel not offered on this attempt
+      const marker = markerFor(outcome)
+      const base = `Servicing-agent onboarding ${spec.verb}.`
+      rows.push({
+        customer_id: customerId, case_id: null, touch_type: spec.touchType,
+        notes: marker ? `${base} ${marker}` : base,
+        touched_at: attemptAt, touched_by: touchedBy,
+      })
+    }
+
+    if (rows.length > 0) {
+      const { error: touchErr } = await supabase.from('case_touches').insert(rows)
+      if (touchErr) {
+        // Non-fatal: the workflow transition still proceeds. Log for visibility.
+        console.error('stewardship record-attempt touch log error:', touchErr)
+      }
     }
   }
 

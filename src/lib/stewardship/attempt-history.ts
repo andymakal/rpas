@@ -99,12 +99,34 @@ export async function getAttemptHistory(
   supabase: SupabaseClient,
   customerId: string,
   actorTimeZone: string | null,
+  options?: {
+    /**
+     * The start instant of the CURRENT onboarding run (the open pre-review's
+     * created_at). Only touches at or after this instant count, so a prior
+     * completed run's attempts never inflate this run's counts or cadence. When
+     * omitted, all onboarding touches for the customer are counted (back-compat).
+     */
+    since?: string | null
+  },
 ): Promise<AttemptHistory> {
-  const { data, error } = await supabase
+  let query = supabase
     .from('case_touches')
     .select('touch_type, touched_at, notes')
     .eq('customer_id', customerId)
     .order('touched_at', { ascending: true })
+
+  // Scope to the current run. A small backward tolerance absorbs the sub-second
+  // skew between a pre-review's created_at and the first touch recorded in the
+  // same operation, so the run's own first attempt is never excluded by a race.
+  if (options?.since) {
+    const sinceMs = new Date(options.since).getTime()
+    if (Number.isFinite(sinceMs)) {
+      const bound = new Date(sinceMs - 5000).toISOString()
+      query = query.gte('touched_at', bound)
+    }
+  }
+
+  const { data, error } = await query
 
   if (error) {
     // A read failure must not fabricate attempts. Report zero attempts so the
