@@ -307,32 +307,24 @@ function OnboardingSection({
               ) : null}
             </div>
             <p className="mt-2 text-xs text-slate-400">
-              {active.phase === 'outreach'
-                ? `Establishing servicing access · ${active.policies_confirmed} of ${active.policies_total} ${active.policies_total === 1 ? 'policy' : 'policies'} confirmed · started ${fmtDate(active.started_at)}`
-                : `Servicing outreach complete · awaiting Initial Analysis preparation · started ${fmtDate(active.started_at)}`}
+              {`Establishing servicing access · ${active.policies_confirmed} of ${active.policies_total} ${active.policies_total === 1 ? 'policy' : 'policies'} confirmed · started ${fmtDate(active.started_at)}`}
             </p>
           </div>
         )}
 
-        {/* COMPLETED summary */}
+        {/* COMPLETED summary — driven by the durable completion marker */}
         {completed && (
           <div className="px-5 py-4">
             <div className="flex items-center gap-2">
-              <span className={`inline-flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-0.5 border ${
-                completed.fully_confirmed
-                  ? 'bg-green-900/50 text-green-300 border-green-800'
-                  : 'bg-slate-800 text-slate-300 border-slate-700'
-              }`}>
-                <CheckCircle className="w-3 h-3" /> Servicing access
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-0.5 border bg-green-900/50 text-green-300 border-green-800">
+                <CheckCircle className="w-3 h-3" /> Onboarding complete
               </span>
               <span className="text-sm text-slate-300">
                 {completed.policies_confirmed} of {completed.policies_total} {completed.policies_total === 1 ? 'policy' : 'policies'} confirmed
               </span>
             </div>
             <p className="mt-2 text-xs text-slate-400">
-              {completed.fully_confirmed
-                ? 'Servicing authority established. Ready for Initial Analysis preparation.'
-                : 'Servicing authority confirmed on some policies. Full detail is in the history below.'}
+              {`Completed ${fmtDate(completed.completed_at)} · handed to Initial Analysis preparation. Full step-by-step history is in Touch History and Notes below.`}
             </p>
           </div>
         )}

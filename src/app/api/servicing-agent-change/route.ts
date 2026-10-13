@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { buildServicingAgentChangePdf, type PostalAddress } from '@/lib/servicing-agent-form'
 
 /**
@@ -20,6 +21,12 @@ import { buildServicingAgentChangePdf, type PostalAddress } from '@/lib/servicin
  *                 address on the customer record.
  */
 export async function GET(request: NextRequest) {
+  // Internal-admin only: this returns a customer's name and contract numbers on
+  // a prefilled carrier form, so it must enforce the same authorization as every
+  // other internal stewardship route — being merely authenticated is not enough.
+  const auth = await requireInternalAdmin()
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
   const { searchParams } = new URL(request.url)
   const customerId = searchParams.get('customer_id') ?? ''
   const ownerOverride = searchParams.get('owner_name')?.trim() ?? ''

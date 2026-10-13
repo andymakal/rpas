@@ -46,13 +46,21 @@ export type ContactField = 'phone' | 'email' | 'address'
 export type FormDeliveryMethod = 'email' | 'postal'
 
 /**
- * Default spacing (in days) between automatic follow-up attempts after an
- * unsuccessful outreach (a voicemail with no callback). There is deliberately
- * NO attempt limit and NO attempt counter: each voicemail simply rolls the next
- * follow-up forward by this many days. A human decides to stop; the system
- * never caps attempts or auto-closes.
+ * Days to wait for a reply to the INITIAL servicing-agent email before the item
+ * resurfaces for a phone call. Two days per the onboarding spec. Applied as
+ * follow_up_due when the email is recorded sent; deriveFollowUpRouting promotes
+ * the item to Ready to Call (no-response) once it lapses.
  */
-export const FOLLOW_UP_INTERVAL_DAYS = 7
+export const INITIAL_EMAIL_FOLLOW_UP_DAYS = 2
+
+/**
+ * Default spacing (in days) between automatic follow-up attempts after an
+ * unsuccessful CALL (a voicemail with no promised callback). There is
+ * deliberately NO attempt limit and NO attempt counter: each voicemail simply
+ * rolls the next follow-up forward by this many days. A human decides to stop;
+ * the system never caps attempts or auto-closes.
+ */
+export const FOLLOW_UP_INTERVAL_DAYS = 2
 
 export interface QueueMeta {
   id: OutreachQueue
@@ -158,11 +166,6 @@ export interface OutreachState {
   form_received_at: string | null
   submitted_at: string | null
   carrier_correction: string | null
-  // Customer-verified contact flags (timestamps; null = not customer-verified).
-  // Distinct from a value merely being on file.
-  phone_verified_at: string | null
-  email_verified_at: string | null
-  address_verified_at: string | null
   // Chosen authorization-form delivery channel; null until the worker picks one.
   form_delivery_method: FormDeliveryMethod | null
   /**
@@ -230,7 +233,10 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
         patch: {
           queue: 'waiting-for-response',
           email_sent_at: now,
-          follow_up_due: addDays(now, action.follow_up_days ?? 7),
+          // Two-day initial-email follow-up window. When it lapses with no
+          // response, the board/My Work/Assistant reads route the item to Ready
+          // to Call (no-response) via deriveFollowUpRouting — see below.
+          follow_up_due: addDays(now, action.follow_up_days ?? INITIAL_EMAIL_FOLLOW_UP_DAYS),
           call_reason: null,
           research_reason: null,
         },
@@ -287,14 +293,21 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
             },
           }
         case 'voicemail':
-          // Auto-schedule the next follow-up. The customer stays in Ready to
-          // Call and resurfaces on follow_up_due. There is NO attempt limit:
-          // each voicemail simply rolls the next follow-up forward. A human
-          // decides to stop; the system never caps attempts or auto-closes.
+          // Left a voicemail: auto-schedule the next attempt and WAIT until it
+          // is due. The item moves to the waiting state with follow_up_due set,
+          // so it does not re-appear as actionable immediately — it resurfaces
+          // to Ready to Call (no-response) via deriveFollowUpRouting once the
+          // window lapses, exactly like an unanswered email. There is NO attempt
+          // limit and NO counter: each voicemail simply rolls the next attempt
+          // forward. A human decides to stop; nothing auto-closes. (This is a
+          // waiting state, not a promised callback — callback_date stays null;
+          // only an explicit customer-promised callback sets callback_date.)
           return {
             patch: {
               last_call_outcome: 'voicemail',
-              call_reason: 'callback-due',
+              queue: 'waiting-for-response',
+              call_reason: null,
+              research_reason: null,
               follow_up_due: addDays(new Date().toISOString(), FOLLOW_UP_INTERVAL_DAYS),
             },
           }
@@ -384,17 +397,14 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
       // Record (or clear) the customer's confirmation that one contact value is
       // correct. Allowed from any queue — verification is customer-record
       // hygiene that can happen whenever the worker is in contact — and it never
-      // changes the queue. The route stamps/clears the matching timestamp.
-      const ts = action.verified ? new Date().toISOString() : null
-      const field =
-        action.field === 'phone'   ? { phone_verified_at: ts } :
-        action.field === 'email'   ? { email_verified_at: ts } :
-        action.field === 'address' ? { address_verified_at: ts } :
-        null
-      if (!field) {
+      // changes the queue. The verification timestamp is DURABLE customer-record
+      // truth, so it is persisted on the CUSTOMER by the route (a side effect,
+      // like research-found), NOT on the temporary outreach row. The pure
+      // transition therefore validates the field and returns no outreach patch.
+      if (action.field !== 'phone' && action.field !== 'email' && action.field !== 'address') {
         return { patch: {}, error: `Unknown contact field: ${String((action as { field?: unknown }).field)}` }
       }
-      return { patch: field }
+      return { patch: {} }
     }
 
     case 'set-delivery-method': {

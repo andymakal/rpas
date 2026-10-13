@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { requireInternalAdmin } from '@/lib/stewardship/auth'
 
 /**
  * GET /api/servicing-agent-change/contracts?customer_id=...
  *
  * Returns the customer's on-file service policies (contracts) for selection in
  * the Servicing Agent Change form. Shape matches SacContract in the client.
+ * Internal-admin only (exposes a customer's policy list).
  */
 export async function GET(request: NextRequest) {
+  const auth = await requireInternalAdmin()
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
   const customerId = new URL(request.url).searchParams.get('customer_id') ?? ''
   if (!customerId) {
     return NextResponse.json({ error: 'customer_id is required' }, { status: 400 })

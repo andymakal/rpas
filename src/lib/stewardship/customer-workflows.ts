@@ -29,17 +29,14 @@ import { QUEUE_META, type OutreachQueue } from './queues'
 export type OnboardingPhase =
   // Outreach is running: the stewardship queue label is the live status.
   | 'outreach'
-  // Outreach finished (servicing access being/already established) and the
-  // prereview is open awaiting the Initial Analysis / review decision.
-  | 'awaiting_analysis'
 
 export type ActiveOnboarding = {
   prereview_id: string
   outreach_id: string | null
   phase: OnboardingPhase
-  /** Human-readable current status, e.g. a queue label or "Awaiting analysis". */
+  /** Human-readable current status, e.g. a queue label. */
   status_label: string
-  /** The current queue when outreach is live; null once outreach has finished. */
+  /** The current queue when outreach is live. */
   queue: OutreachQueue | null
   started_at: string
   /** Servicing-access roll-up across the request / known policies. */
@@ -48,14 +45,15 @@ export type ActiveOnboarding = {
 }
 
 export type CompletedOnboardingSummary = {
-  /** Whether the customer has any policy with servicing access confirmed. */
-  has_confirmed_access: boolean
+  /** When the onboarding run completed (durable; not inferred from sa_status). */
+  completed_at: string
+  /** Policies with confirmed servicing access at the time of this read. */
   policies_total: number
   policies_confirmed: number
   /** True when every known policy has confirmed servicing access. */
   fully_confirmed: boolean
   /** Where completed onboarding hands off next. */
-  handoff: 'initial_analysis' | null
+  handoff: 'initial_analysis'
 }
 
 export type CustomerOnboarding = {
@@ -67,6 +65,7 @@ type PrereviewRow = {
   id: string
   decision: string | null
   created_at: string
+  servicing_completed_at: string | null
 }
 
 type OutreachRow = {
@@ -77,8 +76,16 @@ type OutreachRow = {
 }
 
 /**
- * Build the onboarding summary for one customer. One small set of reads:
- * open prereview -> its outreach (if any) -> the customer's policies' sa_status.
+ * Build the onboarding summary for one customer.
+ *
+ * ACTIVE is an in-progress onboarding: an OPEN pre-review (decision null) with a
+ * live stewardship_outreach row. Completion is NOT inferred from sa_status.
+ *
+ * COMPLETED is driven by the durable, non-derivable marker
+ * customer_prereviews.servicing_completed_at — recorded exactly when an
+ * onboarding run finished (every request policy confirmed). A policy reaching
+ * sa_status = 'confirmed' by some unrelated route does NOT, on its own, make
+ * this read report a completed onboarding.
  */
 export async function getCustomerOnboarding(
   supabase: SupabaseClient,
@@ -94,68 +101,59 @@ export async function getCustomerOnboarding(
   const policiesTotal = policies.length
   const policiesConfirmed = policies.filter(p => p.sa_status === 'confirmed').length
 
-  // 2. The open onboarding work item (decision still null), if any.
+  // 2. The OPEN onboarding work item (decision null) and the most recent
+  //    COMPLETED one (servicing_completed_at set), in one read.
   const { data: preRows } = await supabase
     .from('customer_prereviews')
-    .select('id, decision, created_at')
+    .select('id, decision, created_at, servicing_completed_at')
     .eq('customer_id', customerId)
-    .is('decision', null)
     .order('created_at', { ascending: false })
-    .limit(1)
-  const prereview = ((preRows ?? []) as PrereviewRow[])[0] ?? null
+  const prereviews = (preRows ?? []) as PrereviewRow[]
+  const openPrereview = prereviews.find(p => p.decision == null) ?? null
+  const completedPrereview = prereviews.find(p => p.servicing_completed_at != null) ?? null
 
   let active: ActiveOnboarding | null = null
 
-  if (prereview) {
+  if (openPrereview) {
     // Is outreach still running for this open item?
     const { data: outRows } = await supabase
       .from('stewardship_outreach')
       .select('id, prereview_id, queue, created_at')
-      .eq('prereview_id', prereview.id)
+      .eq('prereview_id', openPrereview.id)
       .limit(1)
     const outreach = ((outRows ?? []) as OutreachRow[])[0] ?? null
 
     if (outreach) {
       active = {
-        prereview_id: prereview.id,
+        prereview_id: openPrereview.id,
         outreach_id: outreach.id,
         phase: 'outreach',
         status_label: QUEUE_META[outreach.queue]?.label ?? 'In outreach',
         queue: outreach.queue,
-        started_at: prereview.created_at,
-        policies_total: policiesTotal,
-        policies_confirmed: policiesConfirmed,
-      }
-    } else {
-      // Outreach finished (row deleted on full confirmation) but the prereview
-      // is still open: the customer is awaiting the Initial Analysis / review
-      // decision. This is the handoff into the analysis preparation process.
-      active = {
-        prereview_id: prereview.id,
-        outreach_id: null,
-        phase: 'awaiting_analysis',
-        status_label: 'Awaiting Initial Analysis',
-        queue: null,
-        started_at: prereview.created_at,
+        started_at: openPrereview.created_at,
         policies_total: policiesTotal,
         policies_confirmed: policiesConfirmed,
       }
     }
+    // An open pre-review with NO outreach row is an edge/legacy state (the
+    // completion path sets decision=review_now, which clears "open"). We do not
+    // fabricate an "awaiting analysis" active item from it — completion is
+    // reported from the durable marker below, and the handoff creates the
+    // actionable review that represents the next step.
   }
 
-  // 3. Completed summary: present whenever any servicing access is confirmed,
-  //    so a finished onboarding is legible on the record even after the active
-  //    item is resolved. The detailed history stays in touches/notes.
-  const completed: CompletedOnboardingSummary | null =
-    policiesConfirmed > 0
-      ? {
-          has_confirmed_access: true,
-          policies_total: policiesTotal,
-          policies_confirmed: policiesConfirmed,
-          fully_confirmed: policiesTotal > 0 && policiesConfirmed === policiesTotal,
-          handoff: 'initial_analysis',
-        }
-      : null
+  // 3. Completed summary: driven by the durable completion marker, NOT by
+  //    incidental sa_status. The confirmed-policy counts are reported from the
+  //    live roll-up for context.
+  const completed: CompletedOnboardingSummary | null = completedPrereview
+    ? {
+        completed_at: completedPrereview.servicing_completed_at as string,
+        policies_total: policiesTotal,
+        policies_confirmed: policiesConfirmed,
+        fully_confirmed: policiesTotal > 0 && policiesConfirmed === policiesTotal,
+        handoff: 'initial_analysis',
+      }
+    : null
 
   return { active, completed }
 }

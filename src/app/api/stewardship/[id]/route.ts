@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
+import { handoffToInitialAnalysis } from '@/lib/stewardship/analysis-handoff'
 import {
   applyAction,
   type OutreachAction,
@@ -25,16 +26,13 @@ type OutreachRow = {
   form_received_at: string | null
   submitted_at: string | null
   carrier_correction: string | null
-  phone_verified_at: string | null
-  email_verified_at: string | null
-  address_verified_at: string | null
   form_delivery_method: 'email' | 'postal' | null
 }
 
 const OUTREACH_COLUMNS =
   'id, prereview_id, queue, call_reason, research_reason, last_call_outcome, ' +
   'callback_date, email_sent_at, follow_up_due, form_received_at, submitted_at, carrier_correction, ' +
-  'phone_verified_at, email_verified_at, address_verified_at, form_delivery_method'
+  'form_delivery_method'
 
 /**
  * Resolve the signed-in employee's display name for a touch log, mirroring the
@@ -82,7 +80,7 @@ export async function GET(
       ${OUTREACH_COLUMNS},
       customer_prereviews!inner (
         id, customer_id, source_agency_id, decision,
-        customers!inner ( id, first_name, last_name, email, phone, date_of_birth, address_line1, city, state, zip )
+        customers!inner ( id, first_name, last_name, email, phone, date_of_birth, address_line1, city, state, zip, phone_verified_at, email_verified_at, address_verified_at )
       )
     `)
     .eq('id', id)
@@ -136,6 +134,7 @@ export async function GET(
     id: string; first_name: string; last_name: string
     email: string | null; phone: string | null; date_of_birth: string | null
     address_line1: string | null; city: string | null; state: string | null; zip: string | null
+    phone_verified_at: string | null; email_verified_at: string | null; address_verified_at: string | null
   }
 
   // Required-signer identity is NOT durable today: there is no owner/signer
@@ -158,10 +157,13 @@ export async function GET(
       form_received_at: o.form_received_at,
       submitted_at: o.submitted_at,
       carrier_correction: o.carrier_correction,
-      phone_verified_at: o.phone_verified_at,
-      email_verified_at: o.email_verified_at,
-      address_verified_at: o.address_verified_at,
       form_delivery_method: o.form_delivery_method,
+      // Customer-verified contact flags now live PERMANENTLY on the customer
+      // record (they must survive outreach completion), so they are returned
+      // from the joined customer, not the temporary outreach row.
+      phone_verified_at: cust.phone_verified_at,
+      email_verified_at: cust.email_verified_at,
+      address_verified_at: cust.address_verified_at,
       customer: cust,
       source_agency_id: pre.source_agency_id,
       holdings,
@@ -246,6 +248,27 @@ export async function PATCH(
     }
   }
 
+  // ── verify-contact: persist the customer's confirmation ON THE CUSTOMER ─────
+  // The verification timestamp is durable customer-record truth and must survive
+  // the end of outreach, so it is written to customers (not the temporary
+  // outreach row). The pure transition only validated the field; here we stamp
+  // or clear the matching customers column.
+  if (action.type === 'verify-contact') {
+    const ts = action.verified ? new Date().toISOString() : null
+    const col =
+      action.field === 'phone'   ? 'phone_verified_at' :
+      action.field === 'email'   ? 'email_verified_at' :
+      'address_verified_at'
+    const { error: vErr } = await supabase
+      .from('customers')
+      .update({ [col]: ts })
+      .eq('id', customerId)
+    if (vErr) {
+      console.error('stewardship verify-contact persist error:', vErr)
+      return Response.json({ error: vErr.message }, { status: 500 })
+    }
+  }
+
   const state: OutreachState = {
     queue: row.queue,
     call_reason: row.call_reason,
@@ -257,9 +280,6 @@ export async function PATCH(
     form_received_at: row.form_received_at,
     submitted_at: row.submitted_at,
     carrier_correction: row.carrier_correction,
-    phone_verified_at: row.phone_verified_at,
-    email_verified_at: row.email_verified_at,
-    address_verified_at: row.address_verified_at,
     form_delivery_method: row.form_delivery_method,
     has_usable_phone: !!row.customer_prereviews.customers?.phone?.trim(),
   }
@@ -375,22 +395,9 @@ export async function PATCH(
       )
     }
 
-    // Promote Wanderer -> Explorer now that servicing authority is confirmed on
-    // this customer. Confirming the servicing agent is the moment Right Path
-    // gains durable access to the relationship, which is exactly the
-    // Wanderer -> Explorer transition. This ONLY ever lifts a 'wanderer' to
-    // 'explorer': the update is scoped to segment = 'wanderer', so a customer
-    // already at explorer or any higher tier is never changed, and nothing is
-    // ever downgraded. Best-effort — a failed promotion must not block the
-    // confirmation that already succeeded.
-    const { error: promoteErr } = await supabase
-      .from('customers')
-      .update({ segment: 'explorer' })
-      .eq('id', customerId)
-      .eq('segment', 'wanderer')
-    if (promoteErr) {
-      console.error('stewardship Wanderer->Explorer promotion error:', promoteErr)
-    }
+    // NOTE: promotion and the Initial Analysis handoff happen ONLY when the
+    // WHOLE onboarding completes (every request policy confirmed), not on this
+    // single per-policy confirmation. See the allConfirmed branch below.
 
     // Persist the outreach patch (clears any standing correction note). Keep the
     // item in waiting-for-carrier; it stays actionable for the remaining
@@ -425,9 +432,59 @@ export async function PATCH(
       (statusRows ?? []).every((p: { sa_status: string | null }) => p.sa_status === 'confirmed')
 
     if (allConfirmed) {
-      // Every request policy is confirmed — the servicing outreach work is done.
-      // Deleting cascades stewardship_outreach_policies; the open
-      // customer_prereview is untouched for the documentation layer.
+      // Every request policy is confirmed — the servicing-agent onboarding run
+      // is COMPLETE. This single point is where completion-triggered effects
+      // fire (never on an earlier per-policy confirmation):
+      //
+      //   1. Record the durable completion marker on the pre-review. This is the
+      //      honest, non-derivable signal of "this onboarding completed"; it is
+      //      NOT inferred from sa_status later, and it survives deleting the
+      //      outreach row and its request-policy links.
+      //   2. Promote Wanderer -> Explorer, now that onboarding is complete for
+      //      ALL applicable policies. Scoped to segment = 'wanderer' so it only
+      //      ever lifts a wanderer and never downgrades or touches a higher tier.
+      //   3. Hand the customer into the existing Initial Analysis preparation
+      //      process (policy_reviews in 'prep', linked to the pre-review, visible
+      //      on /reviews) — the general path that works for project AND
+      //      non-project customers alike.
+      //
+      // The request-policy ids are captured BEFORE deletion so the handoff knows
+      // exactly which policies were onboarded.
+      const prereviewId = (current as unknown as OutreachRow).prereview_id
+
+      // 1. Durable completion marker (always recorded, independent of decision).
+      const { error: compErr } = await supabase
+        .from('customer_prereviews')
+        .update({ servicing_completed_at: new Date().toISOString() })
+        .eq('id', prereviewId)
+      if (compErr) {
+        console.error('stewardship completion marker error:', compErr)
+      }
+
+      // 2. Wanderer -> Explorer on COMPLETION (not first confirmation).
+      const { error: promoteErr } = await supabase
+        .from('customers')
+        .update({ segment: 'explorer' })
+        .eq('id', customerId)
+        .eq('segment', 'wanderer')
+      if (promoteErr) {
+        console.error('stewardship Wanderer->Explorer promotion error:', promoteErr)
+      }
+
+      // 3. Initial Analysis handoff (reviews + decision = review_now). Reuses the
+      // existing policy_reviews vehicle; idempotent and best-effort.
+      try {
+        await handoffToInitialAnalysis(supabase, {
+          prereviewId,
+          customerId,
+          policyIds: requestPolicyIds,
+        })
+      } catch (e) {
+        console.error('stewardship Initial Analysis handoff error:', e)
+      }
+
+      // Finally, delete the outreach row (cascades stewardship_outreach_policies).
+      // The pre-review now carries servicing_completed_at and decision=review_now.
       const { error: delErr } = await supabase
         .from('stewardship_outreach')
         .delete()

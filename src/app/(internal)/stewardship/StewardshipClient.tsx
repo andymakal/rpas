@@ -822,32 +822,34 @@ function TaskAction({
 const EVERLAKE_CARRIER_PATTERN = /everlake|allstate/i
 
 /**
- * The ready-to-email task panel. Keeps the existing prepared-email + tracking
- * behavior; the one change is that opening the prepared email now first
- * generates and downloads the filled servicing-agent PDF (reusing the existing
- * /api/servicing-agent-change generator) so the worker has it ready to attach.
+ * Shared servicing-agent form delivery control. Used wherever the authorization
+ * form is produced and sent — from Ready to Email AND after a reached call —
+ * so the two paths behave identically: a delivery chooser (email / postal),
+ * generation of the filled PDF (postal adds a cover page), the matching
+ * directive, and a confirm button. The caller supplies what the confirm button
+ * fires and its label, since the resulting queue transition differs by context.
+ * Choosing a channel persists it (set-delivery-method), so the form-sent /
+ * email-sent touch the server records reflects the delivery method accurately.
  */
-function ReadyToEmailAction({
-  detail, request, name, busy, noteBox, act,
+function ServicingFormDelivery({
+  detail, request, name, busy, act, confirmLabelFor, onConfirm,
 }: {
   detail: Detail
   request: Holding[]
   name: string
   busy: boolean
-  noteBox: React.ReactNode
   act: (action: unknown, successNote?: string) => void
+  /** Confirm-button label, given the chosen method. */
+  confirmLabelFor: (method: 'email' | 'postal') => string
+  /** Fires the queue transition once the worker confirms the form went out. */
+  onConfirm: (method: 'email' | 'postal') => void
 }) {
   const [preparing, setPreparing] = useState(false)
   const [prepError, setPrepError] = useState<string | null>(null)
-  // Delivery channel: email (default) or postal mail. Persisted on the outreach
-  // so the chosen method is remembered and recorded with the form-sent touch.
+  const [generated, setGenerated] = useState(false)
   const [method, setMethod] = useState<'email' | 'postal'>(detail.form_delivery_method ?? 'email')
   const customerHasAddress = !!(detail.customer.address_line1 && detail.customer.city && detail.customer.state && detail.customer.zip)
 
-  // The contracts the carrier form covers: the request's Everlake/Allstate
-  // policies. If none of the request policies name an Everlake/Allstate carrier
-  // (carrier strings vary), fall back to all request policies, since the whole
-  // outreach is purpose-built for this form.
   const everlake = request.filter(h => h.carrier && EVERLAKE_CARRIER_PATTERN.test(h.carrier))
   const formPolicies = everlake.length > 0 ? everlake : request
   const contractNumbers = formPolicies.map(h => h.policy_number).filter(Boolean)
@@ -862,11 +864,6 @@ function ReadyToEmailAction({
     act({ type: 'set-delivery-method', method: next })
   }
 
-  // Generate the filled servicing-agent PDF (plus a postal cover page when the
-  // postal channel is chosen), download it with a recognizable customer-specific
-  // filename. For email, then open the prepared email in Outlook. The browser's
-  // own download settings decide whether it saves straight to Downloads or shows
-  // a Save As dialog — we do not manage that.
   async function prepareAndOpen() {
     setPrepError(null)
     if (canGenerate) {
@@ -892,26 +889,23 @@ function ReadyToEmailAction({
         a.click()
         a.remove()
         URL.revokeObjectURL(url)
+        setGenerated(true)
       } catch (err) {
         setPrepError(err instanceof Error ? err.message : 'Could not generate the servicing-agent form.')
         setPreparing(false)
-        return // Do not open Outlook if the form could not be produced.
+        return
       }
       setPreparing(false)
     }
-    // Email channel: open the prepared email in the worker's own Outlook via
-    // mailto. Postal channel: nothing to open — the worker prints and mails the
-    // downloaded packet. Launching Outlook is not proof the email was sent.
     if (method === 'email') window.location.href = mailto
   }
 
-  const postalLabel = preparing ? 'Preparing packet\u2026' : 'Generate Postal Packet'
-  const emailLabel = preparing ? 'Preparing form\u2026' : 'Generate Form & Open Email'
+  const genLabel = preparing
+    ? (method === 'postal' ? 'Preparing packet\u2026' : 'Preparing form\u2026')
+    : (method === 'postal' ? 'Generate Postal Packet' : 'Generate Form & Open Email')
 
   return (
-    <ActionPanel heading={method === 'postal' ? `Mail ${name}` : `Email ${name}`}>
-      {noteBox}
-
+    <div className="space-y-3">
       {/* Delivery channel chooser. Operational, so it is prominent. */}
       <div className="space-y-2">
         <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">Delivery</p>
@@ -935,10 +929,13 @@ function ReadyToEmailAction({
 
       <PrimaryAction
         icon={ExternalLink}
-        label={method === 'postal' ? postalLabel : emailLabel}
+        label={genLabel}
         onClick={prepareAndOpen}
-        disabled={preparing || (method === 'postal' && !customerHasAddress)}
+        disabled={preparing || !canGenerate || (method === 'postal' && !customerHasAddress)}
       />
+      {!canGenerate && (
+        <p className="text-sm text-ink-supporting">No request policy numbers to put on the form yet.</p>
+      )}
       {prepError && (
         <div className="flex items-start gap-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-3 text-sm text-status-attention-strong">
           <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
@@ -946,8 +943,6 @@ function ReadyToEmailAction({
         </div>
       )}
       {method === 'email' ? (
-        // Email: a mailto cannot attach the form, so the worker must attach the
-        // downloaded form in Outlook before sending.
         <FormAttachmentDirective request={formPolicies} />
       ) : (
         <div className="flex items-start gap-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-3 text-sm text-status-attention-strong">
@@ -955,31 +950,61 @@ function ReadyToEmailAction({
           <span>The packet includes a cover letter addressed to the customer and the authorization form. Print it, enclose a return envelope, and mail it.</span>
         </div>
       )}
-      {/* This confirmation records the sent form and advances the queue, not
-          generating the document or opening Outlook. */}
       <WorkflowButton
         icon={Check}
         selected
-        disabled={busy}
-        onClick={() => act({ type: 'email-sent' },
-          method === 'postal' ? 'Form mailed. Moved to Waiting for Response.' : 'Email sent. Moved to Waiting for Response.')}
+        disabled={busy || !generated}
+        onClick={() => onConfirm(method)}
       >
-        {method === 'postal' ? 'Form mailed to customer' : 'Form attached and email sent'}
+        {confirmLabelFor(method)}
       </WorkflowButton>
-      {method === 'email' && (
-        <WorkflowButton
-          icon={MailX}
-          disabled={busy}
-          onClick={() => act({ type: 'email-bounced' },
-            detail.customer.phone ? 'Bounce recorded. Moved to Ready to Call.' : 'Bounce recorded. Moved to Research Needed.')}
-        >
-          Email bounced
-        </WorkflowButton>
-      )}
+    </div>
+  )
+}
+
+/**
+ * The ready-to-email task panel. Keeps the existing prepared-email + tracking
+ * behavior; the one change is that opening the prepared email now first
+ * generates and downloads the filled servicing-agent PDF (reusing the existing
+ * /api/servicing-agent-change generator) so the worker has it ready to attach.
+ */
+function ReadyToEmailAction({
+  detail, request, name, busy, noteBox, act,
+}: {
+  detail: Detail
+  request: Holding[]
+  name: string
+  busy: boolean
+  noteBox: React.ReactNode
+  act: (action: unknown, successNote?: string) => void
+}) {
+  const customerHasAddress = !!(detail.customer.address_line1 && detail.customer.city && detail.customer.state && detail.customer.zip)
+  return (
+    <ActionPanel heading={`Reach out to ${name}`}>
+      {noteBox}
+      <ServicingFormDelivery
+        detail={detail}
+        request={request}
+        name={name}
+        busy={busy}
+        act={act}
+        confirmLabelFor={m => (m === 'postal' ? 'Form mailed to customer' : 'Form attached and email sent')}
+        onConfirm={m => act({ type: 'email-sent' },
+          m === 'postal' ? 'Form mailed. Moved to Waiting for Response.' : 'Email sent. Moved to Waiting for Response.')}
+      />
+      <WorkflowButton
+        icon={MailX}
+        disabled={busy}
+        onClick={() => act({ type: 'email-bounced' },
+          detail.customer.phone ? 'Bounce recorded. Moved to Ready to Call.' : 'Bounce recorded. Moved to Research Needed.')}
+      >
+        Email bounced
+      </WorkflowButton>
       <NextNote>
-        {method === 'postal'
-          ? `The packet downloads to your computer. Print and mail it. Recording it as mailed moves ${detail.customer.first_name} to Waiting for Response. Nothing is sent or closed automatically.`
-          : `The completed form downloads to your computer. Attach it in Outlook, then send. Recording it as sent moves ${detail.customer.first_name} to Waiting for Response. A bounce routes to Ready to Call when a phone is on file, or Research Needed when it is not. Nothing is sent or closed automatically.`}
+        Generate the form, send it (email: attach in Outlook; postal: print and mail the packet
+        {customerHasAddress ? '' : ' once a mailing address is on file'}), then record it. Recording it moves
+        {' '}{detail.customer.first_name} to Waiting for Response. A bounce routes to Ready to Call when a phone
+        is on file, or Research Needed when it is not. Nothing is sent or closed automatically.
       </NextNote>
     </ActionPanel>
   )
@@ -993,40 +1018,56 @@ function WaitingForResponseAction({
   noteBox: React.ReactNode
   act: (action: unknown, successNote?: string) => void
 }) {
+  // This waiting state is reached two ways: after the initial email (awaiting a
+  // reply) or after a voicemail (awaiting a callback). Frame the screen for the
+  // channel actually in play so the copy is honest. Either way, when
+  // follow_up_due lapses the item resurfaces to Ready to Call automatically.
+  const afterVoicemail = detail.last_call_outcome === 'voicemail'
   return (
-    <ActionPanel heading={`Check for ${detail.customer.first_name}\u2019s reply`}>
+    <ActionPanel heading={afterVoicemail
+      ? `Awaiting ${detail.customer.first_name}\u2019s callback`
+      : `Check for ${detail.customer.first_name}\u2019s reply`}>
       {noteBox}
       <div className="flex flex-wrap items-center gap-2">
-        {detail.email_sent_at && (
+        {afterVoicemail ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-600">
+            <Phone className="size-3" aria-hidden /> Voicemail left
+          </span>
+        ) : detail.email_sent_at && (
           <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-600">
             <Mail className="size-3" aria-hidden /> Sent {shortDate(detail.email_sent_at)}
           </span>
         )}
         {detail.follow_up_due && (
           <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800">
-            <Clock className="size-3" aria-hidden /> Follow-up due {shortDate(detail.follow_up_due)}
+            <Clock className="size-3" aria-hidden /> Next attempt {shortDate(detail.follow_up_due)}
           </span>
         )}
       </div>
-      {/* Check the reply in the team member's own Outlook. */}
-      <a href="https://outlook.office.com/mail/" target="_blank" rel="noopener noreferrer" className="block">
-        <PrimaryAction icon={ExternalLink} label="Open inbox in Outlook" />
-      </a>
+      {/* Check the reply in the team member's own Outlook (email path only). */}
+      {!afterVoicemail && (
+        <a href="https://outlook.office.com/mail/" target="_blank" rel="noopener noreferrer" className="block">
+          <PrimaryAction icon={ExternalLink} label="Open inbox in Outlook" />
+        </a>
+      )}
       <div className="space-y-2 border-t border-slate-100 pt-4">
         <p className="text-base font-semibold text-slate-700">When the customer engages</p>
         <WorkflowButton icon={FileText} disabled={busy}
           onClick={() => act({ type: 'form-sent' }, 'Form sent. Moved to Waiting for Form.')}>
           Form sent to customer
         </WorkflowButton>
-        <WorkflowButton icon={MailX} disabled={busy}
-          onClick={() => act({ type: 'email-bounced' },
-            detail.customer.phone ? 'Bounce recorded. Moved to Ready to Call.' : 'Bounce recorded. Moved to Research Needed.')}>
-          Email bounced
-        </WorkflowButton>
+        {!afterVoicemail && (
+          <WorkflowButton icon={MailX} disabled={busy}
+            onClick={() => act({ type: 'email-bounced' },
+              detail.customer.phone ? 'Bounce recorded. Moved to Ready to Call.' : 'Bounce recorded. Moved to Research Needed.')}>
+            Email bounced
+          </WorkflowButton>
+        )}
       </div>
       <NextNote>
-        When the follow-up date passes with no response, this customer moves to Ready to Call
-        automatically. Nothing is auto-closed.
+        {afterVoicemail
+          ? 'When the next-attempt date passes with no callback, this customer moves back to Ready to Call automatically. There is no attempt limit; nothing is auto-closed.'
+          : 'When the follow-up date passes with no response, this customer moves to Ready to Call automatically. Nothing is auto-closed.'}
       </NextNote>
     </ActionPanel>
   )
@@ -1101,12 +1142,17 @@ function CallAction({
 
       {outcome === 'reached' && (
         <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-          <FormAttachmentDirective request={request} />
-          <WorkflowButton icon={FileText} selected disabled={busy}
-            onClick={() => act({ type: 'form-sent' }, 'Form sent. Moved to Waiting for Form.')}>
-            Form attached and sent
-          </WorkflowButton>
-          <NextNote>Attach the authorization form, send it, then record it here. Reached and form sent moves this customer to Waiting for Form. Nothing is auto-closed.</NextNote>
+          <p className="text-base font-semibold text-slate-900">Send the servicing-agent form</p>
+          <ServicingFormDelivery
+            detail={detail}
+            request={request}
+            name={fullName(detail.customer)}
+            busy={busy}
+            act={act}
+            confirmLabelFor={m => (m === 'postal' ? 'Form mailed to customer' : 'Form sent to customer')}
+            onConfirm={() => act({ type: 'form-sent' }, 'Form sent. Moved to Waiting for Form.')}
+          />
+          <NextNote>Generate the form, send it (email or postal), then record it here. Reached and form sent moves this customer to Waiting for Form. Nothing is auto-closed.</NextNote>
         </div>
       )}
 
