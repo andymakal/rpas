@@ -7,6 +7,7 @@ import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { getAttemptHistory } from '@/lib/stewardship/attempt-history'
 import { resolveNextCallDate } from '@/lib/stewardship/call-cadence'
 import { resolveContactOptions } from '@/lib/stewardship/contact-options'
+import { OUTCOME_MARKERS } from '@/lib/stewardship/outreach-attempts'
 import {
   evaluateCadenceStatus,
   cadenceRecommendationText,
@@ -152,28 +153,35 @@ export async function GET(
   // signer. We therefore do not assert any signer. The customer and the request
   // policies' insured names are returned as context the worker uses to verify
   // the actual signature(s) from the returned form before submitting; the UI
+  // The CADENCE / NONRESPONSIVE status and the contact-method usability, both
+  // from the grouped communication history. TypeScript groups the individual
+  // communications into explicit attempts (IPF grouping model over case_touches,
+  // preserving every communication) and counts the unsuccessful attempts; ZEN
+  // decides whether the run has reached the "Nonresponsive — Review Contact
+  // Strategy" recommendation. Recommendation only: it never stops outreach or
+  // changes the queue.
+  const actorTimeZone = await getActorTimeZone()
+  const history = await getAttemptHistory(supabase, customerId, actorTimeZone)
+
   // The AVAILABLE CONTACT OPTIONS for this customer, decided by the ZEN
-  // contact-options decision over the real contact facts. Calling, emailing, and
+  // contact-options decision over the real contact facts, with any channel
+  // recorded UNUSABLE in the attempt history subtracted. Calling, emailing, and
   // texting are reported independently and simultaneously; a mailing address
   // supports postal form delivery. One customer, one workflow: these are the
   // actions available on THIS single onboarding item, not separate workflows.
-  const contactOptions = await resolveContactOptions({
-    phone: cust.phone,
-    email: cust.email,
-    street: cust.street,
-    address_line1: cust.address_line1,
-    city: cust.city,
-    state: cust.state,
-    zip: cust.zip,
-  })
+  const contactOptions = await resolveContactOptions(
+    {
+      phone: cust.phone,
+      email: cust.email,
+      street: cust.street,
+      address_line1: cust.address_line1,
+      city: cust.city,
+      state: cust.state,
+      zip: cust.zip,
+    },
+    history.unusableChannels,
+  )
 
-  // The CADENCE / NONRESPONSIVE status, from the grouped communication history.
-  // TypeScript counts the grouped outreach attempts (preserving every
-  // individual communication); ZEN decides whether the run has reached the
-  // "Nonresponsive — Review Contact Strategy" recommendation. This is a
-  // recommendation only: it never stops outreach or changes the queue.
-  const actorTimeZone = await getActorTimeZone()
-  const history = await getAttemptHistory(supabase, customerId, actorTimeZone)
   const cadence = await evaluateCadenceStatus(history.outreachAttempts)
   const nonresponsive = cadence.isNonresponsive
     ? {
@@ -403,13 +411,24 @@ export async function PATCH(
       callback: `Customer asked for a callback${action.callback_date ? ` on ${action.callback_date}` : ''}.`,
     }
     const touchedBy = await resolveEmployeeName(supabase)
+    // Carry the per-channel outcome marker so the attempt history reads this
+    // touch correctly: a bad number marks the phone channel UNUSABLE (it cannot
+    // deliver), a voicemail is an ordinary non-response (not a reached touch),
+    // and other recorded outcomes read as a completed call touch. This never
+    // influences cadence/timing (IPF Decision Engine Boundary); it feeds
+    // attempt counting and contact-method usability only.
+    const outcomeMarker =
+      outcome === 'bad-number' ? OUTCOME_MARKERS.unusable :
+      outcome === 'voicemail'  ? OUTCOME_MARKERS.no_contact :
+      ''
+    const callNote = `Servicing-agent onboarding call: ${outcomeLabel[outcome]}`
     const { error: touchErr } = await supabase
       .from('case_touches')
       .insert({
         customer_id: customerId,
         case_id:     null,
         touch_type:  touchType,
-        notes:       `Servicing-agent onboarding call: ${outcomeLabel[outcome]}`,
+        notes:       outcomeMarker ? `${callNote} ${outcomeMarker}` : callNote,
         touched_at:  new Date().toISOString(),
         touched_by:  touchedBy,
       })

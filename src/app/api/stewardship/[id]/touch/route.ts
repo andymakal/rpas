@@ -31,8 +31,12 @@ import { requireInternalAdmin } from '@/lib/stewardship/auth'
  *   notes is the free-text outcome for that channel (optional).
  */
 
-const ALLOWED_TOUCH_TYPES = ['call', 'voicemail', 'text', 'email'] as const
+import { OUTCOME_MARKERS, type ChannelOutcome } from '@/lib/stewardship/outreach-attempts'
+
+const ALLOWED_TOUCH_TYPES = ['call', 'voicemail', 'text', 'email', 'postal'] as const
 type TouchType = (typeof ALLOWED_TOUCH_TYPES)[number]
+
+const ALLOWED_OUTCOMES = ['touch', 'no_contact', 'unusable'] as const
 
 async function resolveEmployeeName(
   admin: ReturnType<typeof createAdminClient>,
@@ -64,7 +68,8 @@ export async function POST(
   let body: {
     touch_type?: string
     notes?: string
-    channels?: Array<{ touch_type?: string; notes?: string }>
+    outcome?: string
+    channels?: Array<{ touch_type?: string; notes?: string; outcome?: string }>
   }
   try {
     body = await request.json()
@@ -73,12 +78,19 @@ export async function POST(
   }
 
   // Accept the multi-channel attempt form OR the single-channel legacy form.
-  // Only channels the worker actually completed are present; empties are dropped.
+  // Each channel carries its own outcome (reusing the IPF grouping outcome
+  // vocabulary mapped to Right Path): 'touch' (a real completed send / placed
+  // call — the default when omitted, matching the historical behavior of only
+  // logging actually-completed channels), 'no_contact' (an ordinary
+  // non-response), or 'unusable' (the channel itself cannot deliver). The
+  // outcome is persisted via a stable note marker because case_touches has no
+  // outcome column; it drives attempt counting and contact-method usability and
+  // never influences cadence/timing (IPF Decision Engine Boundary).
   const rawChannels = Array.isArray(body.channels)
     ? body.channels
-    : (body.touch_type ? [{ touch_type: body.touch_type, notes: body.notes }] : [])
+    : (body.touch_type ? [{ touch_type: body.touch_type, notes: body.notes, outcome: body.outcome }] : [])
 
-  const channels: { touchType: TouchType; notes: string }[] = []
+  const channels: { touchType: TouchType; notes: string; outcome: ChannelOutcome }[] = []
   for (const ch of rawChannels) {
     const t = ch.touch_type as TouchType | undefined
     if (!t || !ALLOWED_TOUCH_TYPES.includes(t)) {
@@ -87,12 +99,19 @@ export async function POST(
         { status: 400 },
       )
     }
-    channels.push({ touchType: t, notes: typeof ch.notes === 'string' ? ch.notes.trim() : '' })
+    const outcome = (ch.outcome ?? 'touch') as ChannelOutcome
+    if (!ALLOWED_OUTCOMES.includes(outcome)) {
+      return Response.json(
+        { error: `Each channel outcome must be one of: ${ALLOWED_OUTCOMES.join(', ')}` },
+        { status: 400 },
+      )
+    }
+    channels.push({ touchType: t, notes: typeof ch.notes === 'string' ? ch.notes.trim() : '', outcome })
   }
 
   if (channels.length === 0) {
     return Response.json(
-      { error: 'Record at least one completed channel (call, voicemail, text, or email).' },
+      { error: 'Record at least one channel (call, voicemail, text, email, or postal).' },
       { status: 400 },
     )
   }
@@ -116,18 +135,23 @@ export async function POST(
   const touchedAt = new Date().toISOString()
 
   const typeLabel: Record<TouchType, string> = {
-    call: 'Call', voicemail: 'Voicemail', text: 'Text', email: 'Email',
+    call: 'Call', voicemail: 'Voicemail', text: 'Text', email: 'Email', postal: 'Postal',
   }
 
-  // One case_touches row per COMPLETED channel in this attempt. Same timestamp
-  // so the channels of a single attempt read together in history.
-  const rows = channels.map(({ touchType, notes }) => {
+  // One case_touches row per channel in this attempt. All share one timestamp so
+  // the channels of a single attempt read (and group) together as ONE attempt.
+  // The per-channel outcome is appended as a stable machine marker so the
+  // attempt history can tell a real touch from an unusable channel; a completed
+  // touch carries no marker (reads as ordinary onboarding contact prose).
+  const rows = channels.map(({ touchType, notes, outcome }) => {
     const prefix = `Servicing-agent onboarding ${typeLabel[touchType].toLowerCase()}`
+    const marker = OUTCOME_MARKERS[outcome]
+    const base = notes ? `${prefix}: ${notes}` : `${prefix}.`
     return {
       customer_id: customerId,
       case_id:     null,
       touch_type:  touchType,
-      notes:       notes ? `${prefix}: ${notes}` : `${prefix}.`,
+      notes:       marker ? `${base} ${marker}` : base,
       touched_at:  touchedAt,
       touched_by:  touchedBy,
     }

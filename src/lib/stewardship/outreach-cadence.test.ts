@@ -28,7 +28,14 @@ import {
   EARLY_CALL_SPACING_DAYS,
   NONRESPONSIVE_ATTEMPT_THRESHOLD,
 } from './call-cadence'
-import { groupIntoAttempts, countCallAttempts, countOutreachAttempts } from './outreach-attempts'
+import {
+  groupIntoAttempts,
+  countCallAttempts,
+  countOutreachAttempts,
+  unusableChannels,
+  parseOutcomeFromNote,
+  OUTCOME_MARKERS,
+} from './outreach-attempts'
 import { evaluateContactOptions, toContactFacts, initialQueueFromOptions } from './contact-options'
 import { evaluateCadenceStatus } from './cadence-status'
 
@@ -149,32 +156,92 @@ test('cadence precedence: promised callback > employee override > automatic cade
   assert.equal(cadence.source, 'cadence')
 })
 
-// ── Attempt grouping (pure) ──────────────────────────────────────────────────
+// ── Attempt grouping (IPF grouping model over case_touches) ──────────────────
 
-test('attempts: multiple communications on one day count as ONE attempt', () => {
+test('attempts: multiple channels recorded TOGETHER are ONE attempt (shared timestamp)', () => {
+  // A call + voicemail + text recorded as one coordinated reach-out share the
+  // attempt timestamp (as the touch route writes them), so they are ONE attempt
+  // containing multiple channel outcomes — the IPF grouping.
   const attempts = groupIntoAttempts(
     [
-      { channel: 'call', at: '2026-01-05T14:00:00Z' },
-      { channel: 'voicemail', at: '2026-01-05T14:01:00Z' },
-      { channel: 'text', at: '2026-01-05T15:00:00Z' },
-      { channel: 'call', at: '2026-01-07T16:00:00Z' },
+      { channel: 'call', at: '2026-01-05T14:00:00.000Z' },
+      { channel: 'voicemail', at: '2026-01-05T14:00:00.000Z' },
+      { channel: 'text', at: '2026-01-05T14:00:00.000Z' },
     ],
     UTC,
   )
-  assert.equal(attempts.length, 2) // two distinct days
-  assert.equal(countCallAttempts(attempts), 2) // both days included a call
-  assert.equal(countOutreachAttempts(attempts), 2)
-  // The first attempt preserves all three individual communications.
-  assert.equal(attempts[0].communications.length, 3)
+  assert.equal(attempts.length, 1)
+  assert.equal(attempts[0].communications.length, 3) // every channel preserved
+  assert.equal(attempts[0].includedCall, true)
+  assert.equal(countOutreachAttempts(attempts), 1)
+  assert.equal(countCallAttempts(attempts), 1)
 })
 
-test('attempts: an email-only day is an outreach attempt but not a call attempt', () => {
+test('attempts: two SEPARATE reach-outs on the same day are TWO attempts', () => {
+  // Unlike the old by-day grouping, two deliberate reach-outs hours apart on the
+  // same day are two distinct attempts (two groupings).
   const attempts = groupIntoAttempts(
-    [{ channel: 'email', at: '2026-01-05T10:00:00Z' }],
+    [
+      { channel: 'call', at: '2026-01-05T14:00:00Z' },
+      { channel: 'call', at: '2026-01-05T18:30:00Z' },
+    ],
     UTC,
   )
+  assert.equal(attempts.length, 2)
+  assert.equal(countCallAttempts(attempts), 2)
+})
+
+test('attempts: an email-only attempt counts as an outreach attempt but not a call attempt', () => {
+  const attempts = groupIntoAttempts([{ channel: 'email', at: '2026-01-05T10:00:00Z' }], UTC)
   assert.equal(countOutreachAttempts(attempts), 1)
   assert.equal(countCallAttempts(attempts), 0)
+})
+
+// ── Channel usability (recorded fact, reused from IPF) ───────────────────────
+
+test('usability: a channel recorded unusable is reported; a touch is not', () => {
+  const attempts = groupIntoAttempts(
+    [
+      { channel: 'call', at: '2026-01-05T14:00:00.000Z', outcome: 'unusable' },
+      { channel: 'email', at: '2026-01-05T14:00:00.000Z', outcome: 'touch' },
+    ],
+    UTC,
+  )
+  const unusable = unusableChannels(attempts)
+  assert.equal(unusable.has('call'), true)
+  assert.equal(unusable.has('email'), false)
+  // An unusable channel is NOT a touch; the email send is.
+  assert.equal(attempts[0].includedTouch, true)
+})
+
+test('outcome markers: parsed from the touch note; absence of a marker is a touch', () => {
+  assert.equal(parseOutcomeFromNote('Servicing-agent onboarding call: Reached.'), 'touch')
+  assert.equal(parseOutcomeFromNote(`Bad number. ${OUTCOME_MARKERS.unusable}`), 'unusable')
+  assert.equal(parseOutcomeFromNote(`Left a voicemail. ${OUTCOME_MARKERS.no_contact}`), 'no_contact')
+  assert.equal(parseOutcomeFromNote(null), 'touch')
+})
+
+test('contact options: a channel recorded unusable is not offered, and all-unusable needs research', async () => {
+  // Phone + email on file, but the phone number is recorded unusable: calling
+  // AND texting (same number) drop, email remains.
+  const phoneUnusable = await evaluateContactOptions(
+    { hasUsablePhone: true, hasUsableEmail: true, hasUsableAddress: false },
+    { unusableChannels: ['call'] },
+  )
+  assert.equal(phoneUnusable.canCall, false)
+  assert.equal(phoneUnusable.canText, false)
+  assert.equal(phoneUnusable.canEmail, true)
+  assert.equal(phoneUnusable.needsResearch, false)
+
+  // Every usable channel exhausted -> Contact Research.
+  const allGone = await evaluateContactOptions(
+    { hasUsablePhone: true, hasUsableEmail: true, hasUsableAddress: false },
+    { unusableChannels: ['call', 'email'] },
+  )
+  assert.equal(allGone.canCall, false)
+  assert.equal(allGone.canText, false)
+  assert.equal(allGone.canEmail, false)
+  assert.equal(allGone.needsResearch, true)
 })
 
 // ── Nonresponsive recommendation (ZEN) ───────────────────────────────────────

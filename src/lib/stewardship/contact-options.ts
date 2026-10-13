@@ -22,6 +22,7 @@
 
 import { ZenEngine } from '@gorules/zen-engine'
 import contactOptionsModel from '@/rules/contact-options.json'
+import type { OutreachChannel } from './outreach-attempts'
 
 let engine: ZenEngine | null = null
 
@@ -97,7 +98,10 @@ type CollectedRow = Partial<Record<'canCall' | 'canText' | 'canEmail' | 'needsRe
  * address enables no customer-contact CHANNEL (it is not a ZEN channel output),
  * only postal form delivery.
  */
-export async function evaluateContactOptions(facts: ContactFacts): Promise<ContactOptions> {
+export async function evaluateContactOptions(
+  facts: ContactFacts,
+  options?: { unusableChannels?: readonly OutreachChannel[] },
+): Promise<ContactOptions> {
   const zen = getEngine()
   const response = await zen.evaluate('contact-options.json', {
     hasUsablePhone: facts.hasUsablePhone,
@@ -106,18 +110,37 @@ export async function evaluateContactOptions(facts: ContactFacts): Promise<Conta
   const rows = (Array.isArray(response.result) ? response.result : [response.result]) as CollectedRow[]
   const any = (key: keyof CollectedRow): boolean => rows.some((r) => r[key] === true)
 
-  return {
-    canCall: any('canCall'),
-    canText: any('canText'),
-    canEmail: any('canEmail'),
-    canPostal: facts.hasUsableAddress,
-    needsResearch: any('needsResearch'),
-  }
+  // Base eligibility from the real contact facts (ZEN). Then subtract any
+  // channel recorded UNUSABLE in the attempt history: a channel that cannot
+  // deliver (wrong/disconnected number, bouncing text/email) should not be
+  // offered as an available action. This reuses the IPF usability FACT —
+  // recorded, never inferred — as a presentation subtraction, without importing
+  // the IPF early-rewarm recommendation. A phone marked unusable removes BOTH
+  // calling and texting (both ride the same number); a text-channel unusable
+  // removes only texting; an email unusable removes emailing.
+  const unusable = new Set(options?.unusableChannels ?? [])
+  const phoneUnusable = unusable.has('call') || unusable.has('voicemail')
+  const canCall = any('canCall') && !phoneUnusable
+  const canText = any('canText') && !phoneUnusable && !unusable.has('text')
+  const canEmail = any('canEmail') && !unusable.has('email')
+  const canPostal = facts.hasUsableAddress && !unusable.has('postal')
+
+  // Research is needed when no usable contact CHANNEL remains — either because
+  // none was on file, or because every channel on file has been exhausted
+  // (recorded unusable). Postal is form-delivery only, not a contact channel,
+  // so it does not by itself keep an item out of research.
+  const needsResearch = !canCall && !canText && !canEmail
+
+  return { canCall, canText, canEmail, canPostal, needsResearch }
 }
 
-/** Convenience: resolve contact options straight from a raw customer record. */
-export async function resolveContactOptions(contact: CustomerContact): Promise<ContactOptions> {
-  return evaluateContactOptions(toContactFacts(contact))
+/** Convenience: resolve contact options straight from a raw customer record,
+ * optionally subtracting channels recorded unusable in the attempt history. */
+export async function resolveContactOptions(
+  contact: CustomerContact,
+  unusable?: readonly OutreachChannel[],
+): Promise<ContactOptions> {
+  return evaluateContactOptions(toContactFacts(contact), { unusableChannels: unusable })
 }
 
 /**
