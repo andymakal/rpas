@@ -14,9 +14,8 @@ import { useSearchParams } from 'next/navigation'
 import {
   Mail, Phone, Search, Inbox, FileText, Building2, Check, ExternalLink,
   Clock, CircleAlert, Play, PenLine, MailX, Hand, UserCheck,
-  ShieldCheck, ShieldAlert, Clipboard,
+  ShieldCheck, ShieldAlert,
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
 import {
   WorkflowPage, WorkflowHeader,
   QueueSection, QueueRow, QueueListHeader, CustomerQueueCard, QueueEmptyState,
@@ -720,12 +719,6 @@ function ReadyToEmailAction({
 }) {
   const [preparing, setPreparing] = useState(false)
   const [prepError, setPrepError] = useState<string | null>(null)
-  // Clipboard compatibility experiment (Edge/Chrome): status of the attempt to
-  // copy the actual PDF file to the Windows clipboard.
-  const [copying, setCopying] = useState(false)
-  const [copyResult, setCopyResult] = useState<
-    { ok: true; message: string } | { ok: false; message: string } | null
-  >(null)
 
   // The contracts the carrier form covers: the request's Everlake/Allstate
   // policies. If none of the request policies name an Everlake/Allstate carrier
@@ -738,36 +731,32 @@ function ReadyToEmailAction({
 
   const mailto = buildMailto(detail.customer.email, SA_SUBJECT, saEmailBody(detail.customer.first_name))
 
-  // Generate the filled servicing-agent PDF via the existing generator and
-  // return it as a Blob. Shared by the download+email action and the clipboard
-  // experiment so both use the identical PDF.
-  async function generatePdfBlob(): Promise<Blob> {
-    const params = new URLSearchParams()
-    params.set('customer_id', detail.customer.id)
-    params.set('owner_name', name)
-    params.set('contracts', contractNumbers.join(','))
-    const res = await fetch(`/api/servicing-agent-change?${params.toString()}`)
-    if (!res.ok) {
-      const json = await res.json().catch(() => ({}))
-      throw new Error(json.error ?? 'Could not generate the servicing-agent form.')
-    }
-    return res.blob()
-  }
-
-  // Download the filled servicing-agent PDF, then open the prepared email. The
-  // PDF stays in Downloads so the worker attaches it in Outlook before sending.
+  // Generate the filled servicing-agent PDF, download it with a recognizable
+  // customer-specific filename, then open the prepared email in Outlook. The
+  // browser's own download settings decide whether it saves straight to
+  // Downloads or shows a Save As dialog — we do not manage that.
   async function prepareAndOpen() {
     setPrepError(null)
-    setCopyResult(null)
     if (canGenerate) {
       setPreparing(true)
       try {
-        const blob = await generatePdfBlob()
+        const params = new URLSearchParams()
+        params.set('customer_id', detail.customer.id)
+        params.set('owner_name', name)
+        params.set('contracts', contractNumbers.join(','))
+        const res = await fetch(`/api/servicing-agent-change?${params.toString()}`)
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}))
+          throw new Error(json.error ?? 'Could not generate the servicing-agent form.')
+        }
+        const blob = await res.blob()
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        const safe = name.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase()
-        a.download = `servicing-agent-change-${safe || 'form'}.pdf`
+        // Recognizable, customer-specific filename, e.g.
+        // Richard-Smith-Servicing-Agent-Change.pdf
+        const safe = name.trim().replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '')
+        a.download = `${safe || 'Customer'}-Servicing-Agent-Change.pdf`
         document.body.appendChild(a)
         a.click()
         a.remove()
@@ -784,99 +773,19 @@ function ReadyToEmailAction({
     window.location.href = mailto
   }
 
-  // Clipboard compatibility experiment: generate the real PDF and attempt to
-  // write the actual application/pdf file to the clipboard via the native
-  // Clipboard API. No download here, and no image/text/link substitute — we are
-  // specifically testing whether Edge/Chrome will put the real PDF on the
-  // clipboard and whether Outlook then recognizes a Ctrl+V as an attachment.
-  async function copyPdfToClipboard() {
-    setPrepError(null)
-    setCopyResult(null)
-    if (!canGenerate) return
-    setCopying(true)
-    try {
-      // Feature check: ClipboardItem must exist for a file-type write.
-      if (typeof ClipboardItem === 'undefined' || !navigator.clipboard?.write) {
-        setCopyResult({
-          ok: false,
-          message:
-            'This browser does not expose the Clipboard API for files. Use Edge or Chrome, or fall back to Generate form & open prepared email.',
-        })
-        return
-      }
-
-      const blob = await generatePdfBlob()
-      // The actual PDF file, typed as application/pdf. Some builds require the
-      // blob to be wrapped in a promise; passing the blob directly is the
-      // supported form and keeps the real type.
-      const item = new ClipboardItem({ 'application/pdf': blob })
-
-      try {
-        await navigator.clipboard.write([item])
-        setCopyResult({
-          ok: true,
-          message:
-            'The browser accepted the PDF onto the clipboard. Switch to Outlook, click in the message body (or the attachment area), and press Ctrl+V to see whether Outlook recognizes it as a PDF attachment.',
-        })
-      } catch (writeErr) {
-        // Chrome/Edge reject application/pdf unless the site is allowed to write
-        // "unsanitized"/web custom formats. Report the actual rejection verbatim
-        // so the experiment's result is clear.
-        const reason = writeErr instanceof Error ? `${writeErr.name}: ${writeErr.message}` : String(writeErr)
-        setCopyResult({
-          ok: false,
-          message: `The browser rejected copying the PDF file to the clipboard (${reason}). Use Generate form & open prepared email instead.`,
-        })
-      }
-    } catch (err) {
-      setCopyResult({
-        ok: false,
-        message: err instanceof Error ? err.message : 'Could not generate the servicing-agent form.',
-      })
-    } finally {
-      setCopying(false)
-    }
-  }
-
   return (
     <ActionPanel heading={`Email ${name}`}>
       {noteBox}
       <PrimaryAction
         icon={ExternalLink}
-        label={preparing ? 'Preparing form\u2026' : 'Generate form & open prepared email'}
+        label={preparing ? 'Preparing form\u2026' : 'Generate Form & Open Email'}
         onClick={prepareAndOpen}
-        disabled={preparing || copying}
+        disabled={preparing}
       />
       {prepError && (
         <div className="flex items-start gap-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-3 text-sm text-status-attention-strong">
           <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
           <span>{prepError}</span>
-        </div>
-      )}
-      {/* Clipboard compatibility experiment (Edge/Chrome). Copies the REAL PDF
-          file to the clipboard — no download, no image/text/link substitute — so
-          the worker can test whether Outlook accepts a Ctrl+V as an attachment.
-          The download + email action above remains the reliable fallback. */}
-      <WorkflowButton
-        icon={Clipboard}
-        disabled={copying || preparing || !canGenerate}
-        onClick={copyPdfToClipboard}
-      >
-        {copying ? 'Copying PDF\u2026' : 'Copy PDF (clipboard test)'}
-      </WorkflowButton>
-      {copyResult && (
-        <div
-          className={cn(
-            'flex items-start gap-2 rounded-xl border p-3 text-sm',
-            copyResult.ok
-              ? 'border-status-confirmed-border bg-status-confirmed-soft text-status-confirmed-strong'
-              : 'border-status-attention-border bg-status-attention-soft text-status-attention-strong',
-          )}
-        >
-          {copyResult.ok
-            ? <Check className="mt-0.5 size-4 shrink-0" aria-hidden />
-            : <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />}
-          <span>{copyResult.message}</span>
         </div>
       )}
       {/* The authorization form is an explicit, required step: the completed
