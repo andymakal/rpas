@@ -180,25 +180,52 @@ export function SlimTaskHeader({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function AssistantPanel({
-  heading, children, label = 'Assistant',
+  heading, children, label = 'Assistant', density = 'comfortable',
 }: {
   heading: ReactNode
   children: ReactNode
   label?: string
+  /**
+   * Visual density of the Assistant shell. 'comfortable' (default) is the large
+   * standalone briefing. 'compact' tightens the padding, inter-block spacing,
+   * and heading scale for a board-top briefing that must sit above a dense
+   * queue list without dominating it. Both keep the same teal identity, tokens,
+   * and type hierarchy — only the scale differs — so the Assistant stays
+   * consistent with the rest of the workflow UI.
+   */
+  density?: 'comfortable' | 'compact'
 }) {
+  const compact = density === 'compact'
   return (
     <section
-      className="flex flex-col gap-7 rounded-3xl border border-brand-subtle bg-surface-card p-7 sm:p-8"
+      className={cn(
+        'flex flex-col rounded-3xl border border-brand-subtle bg-surface-card',
+        compact ? 'gap-4 p-5 sm:p-6' : 'gap-7 p-7 sm:p-8',
+      )}
       aria-label={label}
     >
       <div className="flex items-center gap-3">
-        <span className="flex size-10 items-center justify-center rounded-full bg-brand text-brand-foreground">
-          <Sparkles className="size-5" aria-hidden />
+        <span
+          className={cn(
+            'flex items-center justify-center rounded-full bg-brand text-brand-foreground',
+            compact ? 'size-8' : 'size-10',
+          )}
+        >
+          <Sparkles className={compact ? 'size-4' : 'size-5'} aria-hidden />
         </span>
-        <p className="text-base font-semibold uppercase tracking-[0.1em] text-brand-hover">{label}</p>
+        <p className="text-sm font-semibold uppercase tracking-[0.1em] text-brand-hover sm:text-base">
+          {label}
+        </p>
       </div>
 
-      <h2 className="text-4xl font-semibold leading-tight tracking-tight text-ink">{heading}</h2>
+      <h2
+        className={cn(
+          'font-semibold leading-tight tracking-tight text-ink',
+          compact ? 'text-2xl' : 'text-4xl',
+        )}
+      >
+        {heading}
+      </h2>
 
       {children}
     </section>

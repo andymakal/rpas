@@ -33,10 +33,8 @@ import type { DailyDirectionState } from '@/lib/daily-direction/types'
  */
 export function DailyDirectionBriefing({
   state,
-  className,
 }: {
   state: DailyDirectionState
-  className?: string
 }) {
   // A single-destination verdict (research_needed / waiting) exposes one route.
   // The 'outreach' verdict deliberately exposes NO single route: calls, emails,
@@ -46,24 +44,20 @@ export function DailyDirectionBriefing({
   const isOutreach = state.nextActionKind === 'outreach'
 
   return (
-    // Built on the shared AssistantPanel shell so the live Assistant inherits
-    // the canonical teal identity row + heading from the design system instead
-    // of re-rolling them. The panel owns the "Assistant" label and the heading;
-    // everything below is the ready DailyDirectionState the composition
-    // resolved. Spacing is overridden to the compact board density.
-    <div className={cn('[&>section]:gap-4 [&>section]:p-5 sm:[&>section]:p-6', className)}>
-      <AssistantPanel heading={<span className="text-2xl">{nextActionHeading(state)}</span>}>
+    // Built on the shared AssistantPanel shell in its compact density, so the
+    // board-top Assistant inherits the canonical teal identity row, heading
+    // scale, and spacing from the design system rather than overriding them.
+    // The panel owns the "Assistant" label and the heading; everything below is
+    // the ready DailyDirectionState the composition resolved.
+    <AssistantPanel density="compact" heading={nextActionHeading(state)}>
       {/* The deterministic reason: a plain statement of available work. */}
-      <p className="-mt-2 max-w-prose text-lg leading-relaxed text-ink-secondary">
+      <p className="max-w-prose text-base leading-relaxed text-ink-secondary">
         {state.reason}
       </p>
 
       {/* Single-destination verdicts (research / waiting) get one CTA. */}
       {singleRoute && !isOutreach && (
-        <Link
-          href={state.route as string}
-          className="inline-flex w-fit items-center gap-2 rounded-lg bg-brand px-5 py-2.5 text-base font-semibold text-brand-foreground transition-colors hover:bg-brand-hover"
-        >
+        <Link href={state.route as string} className={ctaClass}>
           {ctaLabel(state)}
           <ArrowRight className="size-4" aria-hidden />
         </Link>
@@ -74,11 +68,7 @@ export function DailyDirectionBriefing({
       {isOutreach && state.outreachOptions.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {state.outreachOptions.map((o) => (
-            <Link
-              key={o.queue}
-              href={o.route}
-              className="inline-flex items-center gap-2 rounded-lg bg-brand px-5 py-2.5 text-base font-semibold text-brand-foreground transition-colors hover:bg-brand-hover"
-            >
+            <Link key={o.queue} href={o.route} className={ctaClass}>
               Open {o.label}
               <span className="rounded-full bg-brand-foreground/20 px-2 text-sm">{o.count}</span>
               <ArrowRight className="size-4" aria-hidden />
@@ -96,7 +86,7 @@ export function DailyDirectionBriefing({
             <Phone className="size-4" aria-hidden />
             Promised callbacks due
           </p>
-          <ul className="mt-2 space-y-1.5">
+          <ul className="mt-2 space-y-0.5">
             {state.dueCallbacks.map((cb) => (
               <li key={cb.id}>
                 <Link
@@ -121,12 +111,12 @@ export function DailyDirectionBriefing({
           <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">
             On the board
           </p>
-          <ul className="mt-2 space-y-1">
+          <ul className="mt-1.5 space-y-0.5">
             {state.availableWork.map((w) => (
               <li key={w.queue}>
                 <Link
                   href={w.route}
-                  className="flex items-center justify-between gap-3 rounded-lg px-2 py-2 text-base hover:bg-brand-wash"
+                  className="flex items-center justify-between gap-3 rounded-lg px-2 py-1.5 text-base hover:bg-brand-wash"
                 >
                   <span className="flex items-center gap-2">
                     <span className="text-ink">{w.label}</span>
@@ -155,10 +145,15 @@ export function DailyDirectionBriefing({
           The Stewardship board is clear.
         </div>
       )}
-      </AssistantPanel>
-    </div>
+    </AssistantPanel>
   )
 }
+
+/** Shared teal CTA treatment for the Assistant's links, so every call to action
+ * reads identically. Driven by brand tokens, never a per-link restyle. */
+const ctaClass =
+  'inline-flex w-fit items-center gap-2 rounded-lg bg-brand px-4 py-2 text-base font-semibold ' +
+  'text-brand-foreground transition-colors hover:bg-brand-hover'
 
 /** The action-first heading for the recommended next action. */
 function nextActionHeading(state: DailyDirectionState): string {

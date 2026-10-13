@@ -650,6 +650,10 @@ function StewardshipTask({ itemId, onBack }: { itemId: string; onBack: () => voi
   )
 }
 
+/**
+ * The per-queue task action. Dispatches to the queue-specific panel. Each panel
+ * owns its own copy, controls, and transitions; the dispatcher only routes.
+ */
 function TaskAction({
   detail, request, busy, note, act,
 }: {
@@ -670,100 +674,193 @@ function TaskAction({
   switch (detail.queue) {
     case 'ready-to-email':
       return (
-        <ActionPanel heading={`Email ${name}`}>
-          {noteBox}
-          {/* Open the prepared email in the worker's own Outlook via mailto.
-              Launching Outlook is not proof the email was sent — the worker
-              confirms explicitly below. */}
-          <a
-            href={buildMailto(detail.customer.email, SA_SUBJECT, saEmailBody(detail.customer.first_name))}
-            className="block"
-          >
-            <PrimaryAction icon={ExternalLink} label="Open prepared email in Outlook" />
-          </a>
-          {/* The authorization form is an explicit, required step: the prepared
-              email says a form is attached, but a mailto cannot attach one, so
-              the worker must attach the approved servicing-agent authorization
-              form in Outlook before sending. This is prominent because it
-              changes what the worker must do. */}
-          <FormAttachmentDirective request={request} />
-          <WorkflowButton
-            icon={Check}
-            selected
-            disabled={busy}
-            onClick={() => act({ type: 'email-sent' }, 'Email sent. Moved to Waiting for Response.')}
-          >
-            Form attached and email sent
-          </WorkflowButton>
-          <WorkflowButton
-            icon={MailX}
-            disabled={busy}
-            onClick={() => act({ type: 'email-bounced' },
-              detail.customer.phone ? 'Bounce recorded. Moved to Ready to Call.' : 'Bounce recorded. Moved to Research Needed.')}
-          >
-            Email bounced
-          </WorkflowButton>
-          <NextNote>
-            Attach the signed-ready authorization form in Outlook, then send. Recording it as sent moves
-            {' '}{detail.customer.first_name} to Waiting for Response. A bounce routes to Ready to Call when a
-            phone is on file, or Research Needed when it is not. Nothing is sent or closed automatically.
-          </NextNote>
-        </ActionPanel>
+        <ReadyToEmailAction
+          detail={detail} request={request} name={name} busy={busy} noteBox={noteBox} act={act}
+        />
       )
-
     case 'ready-to-call':
       return <CallAction detail={detail} request={request} busy={busy} noteBox={noteBox} act={act} />
-
     case 'research-needed':
       return <ResearchAction detail={detail} busy={busy} noteBox={noteBox} act={act} />
-
-
     case 'waiting-for-response':
-      return (
-        <ActionPanel heading={`Check for ${detail.customer.first_name}\u2019s reply`}>
-          {noteBox}
-          <div className="flex flex-wrap items-center gap-2">
-            {detail.email_sent_at && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-600">
-                <Mail className="size-3" aria-hidden /> Sent {shortDate(detail.email_sent_at)}
-              </span>
-            )}
-            {detail.follow_up_due && (
-              <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800">
-                <Clock className="size-3" aria-hidden /> Follow-up due {shortDate(detail.follow_up_due)}
-              </span>
-            )}
-          </div>
-          {/* Check the reply in the team member's own Outlook. */}
-          <a href="https://outlook.office.com/mail/" target="_blank" rel="noopener noreferrer" className="block">
-            <PrimaryAction icon={ExternalLink} label="Open inbox in Outlook" />
-          </a>
-          <div className="space-y-2 border-t border-slate-100 pt-4">
-            <p className="text-base font-semibold text-slate-700">When the customer engages</p>
-            <WorkflowButton icon={FileText} disabled={busy}
-              onClick={() => act({ type: 'form-sent' }, 'Form sent. Moved to Waiting for Form.')}>
-              Form sent to customer
-            </WorkflowButton>
-            <WorkflowButton icon={MailX} disabled={busy}
-              onClick={() => act({ type: 'email-bounced' },
-                detail.customer.phone ? 'Bounce recorded. Moved to Ready to Call.' : 'Bounce recorded. Moved to Research Needed.')}>
-              Email bounced
-            </WorkflowButton>
-          </div>
-          <NextNote>
-            When the follow-up date passes with no response, this customer moves to Ready to Call
-            automatically. Nothing is auto-closed.
-          </NextNote>
-        </ActionPanel>
-      )
-
+      return <WaitingForResponseAction detail={detail} busy={busy} noteBox={noteBox} act={act} />
     case 'waiting-for-form':
       return <FormAction detail={detail} request={request} busy={busy} noteBox={noteBox} act={act} />
-
-
     case 'waiting-for-carrier':
       return <CarrierAction detail={detail} request={request} busy={busy} noteBox={noteBox} act={act} />
   }
+}
+
+/**
+ * Everlake/Allstate carriers whose fixed life/annuity contracts the ALL2018-4
+ * servicing-agent form applies to. The stewardship outreach workflow exists for
+ * exactly this scenario, but a customer's request can in principle include
+ * other-carrier policies; we only auto-fill the carrier form with the policies
+ * it actually covers. Matched case-insensitively as a substring of the holding
+ * carrier string.
+ */
+const EVERLAKE_CARRIER_PATTERN = /everlake|allstate/i
+
+/**
+ * The ready-to-email task panel. Keeps the existing prepared-email + tracking
+ * behavior; the one change is that opening the prepared email now first
+ * generates and downloads the filled servicing-agent PDF (reusing the existing
+ * /api/servicing-agent-change generator) so the worker has it ready to attach.
+ */
+function ReadyToEmailAction({
+  detail, request, name, busy, noteBox, act,
+}: {
+  detail: Detail
+  request: Holding[]
+  name: string
+  busy: boolean
+  noteBox: React.ReactNode
+  act: (action: unknown, successNote?: string) => void
+}) {
+  const [preparing, setPreparing] = useState(false)
+  const [prepError, setPrepError] = useState<string | null>(null)
+
+  // The contracts the carrier form covers: the request's Everlake/Allstate
+  // policies. If none of the request policies name an Everlake/Allstate carrier
+  // (carrier strings vary), fall back to all request policies, since the whole
+  // outreach is purpose-built for this form.
+  const everlake = request.filter(h => h.carrier && EVERLAKE_CARRIER_PATTERN.test(h.carrier))
+  const formPolicies = everlake.length > 0 ? everlake : request
+  const contractNumbers = formPolicies.map(h => h.policy_number).filter(Boolean)
+  const canGenerate = contractNumbers.length > 0
+
+  const mailto = buildMailto(detail.customer.email, SA_SUBJECT, saEmailBody(detail.customer.first_name))
+
+  // Download the filled servicing-agent PDF, then open the prepared email. The
+  // PDF stays in Downloads so the worker attaches it in Outlook before sending.
+  async function prepareAndOpen() {
+    setPrepError(null)
+    if (canGenerate) {
+      setPreparing(true)
+      try {
+        const params = new URLSearchParams()
+        params.set('customer_id', detail.customer.id)
+        params.set('owner_name', name)
+        params.set('contracts', contractNumbers.join(','))
+        const res = await fetch(`/api/servicing-agent-change?${params.toString()}`)
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}))
+          throw new Error(json.error ?? 'Could not generate the servicing-agent form.')
+        }
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        const safe = name.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase()
+        a.download = `servicing-agent-change-${safe || 'form'}.pdf`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        URL.revokeObjectURL(url)
+      } catch (err) {
+        setPrepError(err instanceof Error ? err.message : 'Could not generate the servicing-agent form.')
+        setPreparing(false)
+        return // Do not open Outlook if the form could not be produced.
+      }
+      setPreparing(false)
+    }
+    // Open the prepared email in the worker's own Outlook via mailto. Launching
+    // Outlook is not proof the email was sent — the worker confirms below.
+    window.location.href = mailto
+  }
+
+  return (
+    <ActionPanel heading={`Email ${name}`}>
+      {noteBox}
+      <PrimaryAction
+        icon={ExternalLink}
+        label={preparing ? 'Preparing form\u2026' : 'Generate form & open prepared email'}
+        onClick={prepareAndOpen}
+        disabled={preparing}
+      />
+      {prepError && (
+        <div className="flex items-start gap-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-3 text-sm text-status-attention-strong">
+          <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span>{prepError}</span>
+        </div>
+      )}
+      {/* The authorization form is an explicit, required step: the completed
+          form downloads to the worker's computer, but a mailto cannot attach
+          one, so the worker must attach the downloaded form in Outlook before
+          sending. This is prominent because it changes what the worker does. */}
+      <FormAttachmentDirective request={formPolicies} />
+      {/* Email tracking is unchanged: this confirmation is what records the
+          sent email and advances the queue, not opening Outlook. */}
+      <WorkflowButton
+        icon={Check}
+        selected
+        disabled={busy}
+        onClick={() => act({ type: 'email-sent' }, 'Email sent. Moved to Waiting for Response.')}
+      >
+        Form attached and email sent
+      </WorkflowButton>
+      <WorkflowButton
+        icon={MailX}
+        disabled={busy}
+        onClick={() => act({ type: 'email-bounced' },
+          detail.customer.phone ? 'Bounce recorded. Moved to Ready to Call.' : 'Bounce recorded. Moved to Research Needed.')}
+      >
+        Email bounced
+      </WorkflowButton>
+      <NextNote>
+        The completed form downloads to your computer. Attach it in Outlook, then send. Recording it as
+        sent moves {detail.customer.first_name} to Waiting for Response. A bounce routes to Ready to Call
+        when a phone is on file, or Research Needed when it is not. Nothing is sent or closed automatically.
+      </NextNote>
+    </ActionPanel>
+  )
+}
+
+function WaitingForResponseAction({
+  detail, busy, noteBox, act,
+}: {
+  detail: Detail
+  busy: boolean
+  noteBox: React.ReactNode
+  act: (action: unknown, successNote?: string) => void
+}) {
+  return (
+    <ActionPanel heading={`Check for ${detail.customer.first_name}\u2019s reply`}>
+      {noteBox}
+      <div className="flex flex-wrap items-center gap-2">
+        {detail.email_sent_at && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-2.5 py-1 text-xs text-slate-600">
+            <Mail className="size-3" aria-hidden /> Sent {shortDate(detail.email_sent_at)}
+          </span>
+        )}
+        {detail.follow_up_due && (
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-800">
+            <Clock className="size-3" aria-hidden /> Follow-up due {shortDate(detail.follow_up_due)}
+          </span>
+        )}
+      </div>
+      {/* Check the reply in the team member's own Outlook. */}
+      <a href="https://outlook.office.com/mail/" target="_blank" rel="noopener noreferrer" className="block">
+        <PrimaryAction icon={ExternalLink} label="Open inbox in Outlook" />
+      </a>
+      <div className="space-y-2 border-t border-slate-100 pt-4">
+        <p className="text-base font-semibold text-slate-700">When the customer engages</p>
+        <WorkflowButton icon={FileText} disabled={busy}
+          onClick={() => act({ type: 'form-sent' }, 'Form sent. Moved to Waiting for Form.')}>
+          Form sent to customer
+        </WorkflowButton>
+        <WorkflowButton icon={MailX} disabled={busy}
+          onClick={() => act({ type: 'email-bounced' },
+            detail.customer.phone ? 'Bounce recorded. Moved to Ready to Call.' : 'Bounce recorded. Moved to Research Needed.')}>
+          Email bounced
+        </WorkflowButton>
+      </div>
+      <NextNote>
+        When the follow-up date passes with no response, this customer moves to Ready to Call
+        automatically. Nothing is auto-closed.
+      </NextNote>
+    </ActionPanel>
+  )
 }
 
 function CallAction({
