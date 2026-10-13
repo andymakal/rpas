@@ -103,11 +103,29 @@ type BoardItem = {
   // True when a waiting item's (signature/carrier) follow-up window has lapsed,
   // so the board can flag it as a due chase. Set by the board route.
   follow_up_due_now?: boolean
+  // The derived call action population this item belongs to (callability-based,
+  // not its stored queue): 'calls-due' | 'available-to-call' | null. Set by the
+  // board route so a population view lists exactly the counted customers.
+  call_population?: 'calls-due' | 'available-to-call' | null
   // Optional soft-lease claim (shared by default; the board is never filtered
   // by it). Reused from the IPF queue-owned-until-claimed model.
   claimed_by_producer_id?: string | null
   claimed_by_name?: string | null
   is_mine?: boolean
+}
+
+/** A derived call action population a My Work link can open on the board. */
+type CallPopulation = 'calls-due' | 'available-to-call'
+
+const POPULATION_META: Record<CallPopulation, { label: string; blurb: string }> = {
+  'calls-due': {
+    label: 'Calls Due',
+    blurb: 'Customers with a scheduled call that has come due: a promised callback or an automatic retry.',
+  },
+  'available-to-call': {
+    label: 'Available to Call',
+    blurb: 'Customers with a usable phone who can be called now, not on a scheduled due date.',
+  },
 }
 
 type Holding = {
@@ -271,6 +289,12 @@ export function StewardshipClient({
   const [loading, setLoading] = useState(true)
   const [openQueue, setOpenQueue] = useState<OutreachQueue | null>(initialQueue)
   const [openItemId, setOpenItemId] = useState<string | null>(initialItemId)
+  // A derived call population view (opened from a My Work "Calls Due" /
+  // "Available to Call" link). When set, the board shows exactly that
+  // population's customers, fetched from the server with the population filter.
+  const [openPopulation, setOpenPopulation] = useState<CallPopulation | null>(null)
+  const [populationItems, setPopulationItems] = useState<BoardItem[]>([])
+  const [populationLoading, setPopulationLoading] = useState(false)
   // Claiming (optional soft lease) is only shown on the actionable outreach
   // queues. claimBusy tracks the row currently being claimed/released; claimMsg
   // surfaces an eligibility/conflict message from the claim endpoint.
@@ -291,9 +315,26 @@ export function StewardshipClient({
     lastAppliedQueueParam.current = queueParam
     if (queueParam && (OUTREACH_QUEUES as readonly string[]).includes(queueParam)) {
       setOpenItemId(null)
+      setOpenPopulation(null)
       setOpenQueue(queueParam as OutreachQueue)
     }
   }, [queueParam])
+
+  // Respond to the ?population= param (a My Work Calls Due / Available to Call
+  // link). Opens the derived population view, which lists exactly the customers
+  // the population counted, fetched server-side with the population filter so
+  // the counted and opened sets always match.
+  const populationParam = searchParams.get('population')
+  const lastAppliedPopulationParam = useRef<string | null>(null)
+  useEffect(() => {
+    if (populationParam === lastAppliedPopulationParam.current) return
+    lastAppliedPopulationParam.current = populationParam
+    if (populationParam === 'calls-due' || populationParam === 'available-to-call') {
+      setOpenItemId(null)
+      setOpenQueue(null)
+      setOpenPopulation(populationParam)
+    }
+  }, [populationParam])
 
   // Per-customer deep link: when a ?customer_id= param is present (a project
   // work view opening a specific customer's task), open that customer's actual
@@ -333,6 +374,26 @@ export function StewardshipClient({
 
   useEffect(() => { void loadBoard() }, [loadBoard])
 
+  // Fetch the opened call population from the server (which applies the SAME
+  // callability + due derivation My Work counts with), so the list is exactly
+  // the counted customers regardless of their stored queue.
+  const loadPopulation = useCallback(async (population: CallPopulation) => {
+    setPopulationLoading(true)
+    try {
+      const params = new URLSearchParams({ population })
+      if (project) params.set('project_id', project.id)
+      const res = await fetch(`/api/stewardship?${params.toString()}`, { cache: 'no-store' })
+      const json = await res.json()
+      if (res.ok) setPopulationItems(json.data.items as BoardItem[])
+    } finally {
+      setPopulationLoading(false)
+    }
+  }, [project])
+
+  useEffect(() => {
+    if (openPopulation) void loadPopulation(openPopulation)
+  }, [openPopulation, loadPopulation])
+
   const claim = useCallback(async (outreachId: string, release: boolean) => {
     setClaimBusy(outreachId); setClaimMsg(null)
     try {
@@ -344,19 +405,78 @@ export function StewardshipClient({
       const json = await res.json()
       if (!res.ok) { setClaimMsg(json.error ?? 'Could not update the claim.'); return }
       await loadBoard()
+      if (openPopulation) await loadPopulation(openPopulation)
     } catch {
       setClaimMsg('Network error.')
     } finally {
       setClaimBusy(null)
     }
-  }, [loadBoard])
+  }, [loadBoard, openPopulation, loadPopulation])
 
   if (openItemId) {
     return (
       <StewardshipTask
         itemId={openItemId}
-        onBack={() => { setOpenItemId(null); void loadBoard() }}
+        onBack={() => {
+          setOpenItemId(null)
+          void loadBoard()
+          if (openPopulation) void loadPopulation(openPopulation)
+        }}
       />
+    )
+  }
+
+  // A derived call population view (Calls Due / Available to Call). Lists exactly
+  // the customers the server derived for this population, so the counted and
+  // opened sets match and a callable customer appears here even when their
+  // stored queue is Ready to Email. Due items are shown first.
+  if (openPopulation) {
+    const meta = POPULATION_META[openPopulation]
+    const popItems = populationItems
+      .slice()
+      .sort((a, b) => dueCallbackRank(a, actorTimeZone) - dueCallbackRank(b, actorTimeZone))
+    return (
+      <WorkflowPage>
+        <QueueListHeader
+          icon={Phone}
+          label={meta.label}
+          count={popItems.length}
+          blurb={meta.blurb}
+          onBack={() => setOpenPopulation(null)}
+        />
+        {claimMsg && (
+          <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {claimMsg}
+          </p>
+        )}
+        <div className="mt-5 space-y-3">
+          {populationLoading ? (
+            <p className="text-sm text-slate-500">Loading…</p>
+          ) : popItems.length === 0 ? (
+            <QueueEmptyState>No customers in this population right now.</QueueEmptyState>
+          ) : (
+            popItems.map(it => (
+              <CustomerQueueCard
+                key={it.id}
+                name={fullName(it.customer)}
+                detail={queueDetail(it)}
+                trailing={
+                  <div className="flex items-center gap-2">
+                    {queueTag(it)}
+                    <ClaimControl
+                      item={it}
+                      busy={claimBusy === it.id}
+                      onClaim={() => claim(it.id, false)}
+                      onRelease={() => claim(it.id, true)}
+                    />
+                  </div>
+                }
+                onOpen={() => setOpenItemId(it.id)}
+              />
+            ))
+          )}
+        </div>
+      </WorkflowPage>
     )
   }
 

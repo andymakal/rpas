@@ -23,8 +23,10 @@ import {
   groupIntoAttempts,
   countCallAttempts,
   countOutreachAttempts,
+  countUnsuccessfulAttempts,
   unusableChannels,
   parseOutcomeFromNote,
+  noteIndicatesReached,
   type Communication,
   type OutreachAttempt,
   type OutreachChannel,
@@ -81,8 +83,11 @@ export interface AttemptHistory {
   attempts: OutreachAttempt[]
   /** Grouped attempts that included a phone call (call/voicemail). */
   callAttempts: number
-  /** Grouped outreach attempts across all channels (the Nonresponsive basis). */
+  /** All grouped outreach attempts across all channels (successful or not). */
   outreachAttempts: number
+  /** Grouped attempts that did NOT reach the customer. The correct basis for the
+   * seven-attempt Nonresponsive advisory (a reached attempt is a success). */
+  unsuccessfulAttempts: number
   /** Channels recorded as unusable (number/mailbox/address cannot deliver).
    * Serializable list so the contact-options read can subtract an exhausted
    * channel without re-deriving. */
@@ -132,7 +137,7 @@ export async function getAttemptHistory(
     // A read failure must not fabricate attempts. Report zero attempts so the
     // cadence falls back to its first-attempt spacing rather than guessing.
     console.error('attempt-history read error:', error.message)
-    return { attempts: [], callAttempts: 0, outreachAttempts: 0, unusableChannels: [] }
+    return { attempts: [], callAttempts: 0, outreachAttempts: 0, unsuccessfulAttempts: 0, unusableChannels: [] }
   }
 
   const rows = (data ?? []) as { touch_type: string; touched_at: string; notes: string | null }[]
@@ -145,6 +150,9 @@ export async function getAttemptHistory(
       // no outcome column). A plainly recorded channel reads as a completed
       // touch; markers denote ordinary non-response or an unusable channel.
       outcome: parseOutcomeFromNote(r.notes),
+      // A reached call makes its attempt successful (excluded from the
+      // unsuccessful-attempt total).
+      reached: noteIndicatesReached(r.notes),
     }))
 
   const attempts = groupIntoAttempts(communications, actorTimeZone)
@@ -152,6 +160,7 @@ export async function getAttemptHistory(
     attempts,
     callAttempts: countCallAttempts(attempts),
     outreachAttempts: countOutreachAttempts(attempts),
+    unsuccessfulAttempts: countUnsuccessfulAttempts(attempts),
     unusableChannels: Array.from(unusableChannels(attempts)),
   }
 }

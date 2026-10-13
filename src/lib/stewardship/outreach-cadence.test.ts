@@ -33,6 +33,7 @@ import {
   groupIntoAttempts,
   countCallAttempts,
   countOutreachAttempts,
+  countUnsuccessfulAttempts,
   unusableChannels,
   parseOutcomeFromNote,
   OUTCOME_MARKERS,
@@ -344,4 +345,76 @@ test('call-outcome: no longer rejected by the stored queue (parity with record-a
   const r = applyAction(state({ queue: 'ready-to-email' }), { type: 'call-outcome', outcome: 'bad-number' })
   assert.equal(r.error, undefined)
   assert.equal(r.patch.queue, 'research-needed')
+})
+
+// ── Backward-movement guard + proceed-to-authorization (Failure 2) ───────────
+
+test('record-attempt: a call CHASE while awaiting the signed form never moves the customer backward', () => {
+  // Calling to chase the signature and leaving a voicemail must NOT drop the
+  // customer out of waiting-for-form back into the call flow.
+  const r = applyAction(state({ queue: 'waiting-for-form' }), { type: 'record-attempt', call: 'voicemail' })
+  assert.equal(r.error, undefined)
+  assert.equal(r.patch.queue, undefined) // stage preserved
+  assert.equal(r.patch.last_call_outcome, 'voicemail') // history still recorded
+})
+
+test('record-attempt: a call chase while awaiting the carrier preserves the carrier stage', () => {
+  const r = applyAction(state({ queue: 'waiting-for-carrier' }), { type: 'record-attempt', call: 'bad-number' })
+  assert.equal(r.patch.queue, undefined) // not moved to research-needed
+  assert.equal(r.patch.last_call_outcome, 'bad-number')
+})
+
+test('call-outcome: not-interested stops outreach even from a waiting stage', () => {
+  const r = applyAction(state({ queue: 'waiting-for-carrier' }), { type: 'call-outcome', outcome: 'not-interested' })
+  assert.ok(r.patch.refused_at) // explicit refusal always applies
+})
+
+test('form-sent: allowed from Ready to Email (call first, reach, proceed to authorization)', () => {
+  const r = applyAction(state({ queue: 'ready-to-email' }), { type: 'form-sent' })
+  assert.equal(r.error, undefined)
+  assert.equal(r.patch.queue, 'waiting-for-form')
+})
+
+// ── Intro email via a coordinated attempt updates progress (Failure 2) ───────
+
+test('record-attempt: an email sent from Ready to Email is the introductory email and advances progress', () => {
+  const r = applyAction(state({ queue: 'ready-to-email' }), {
+    type: 'record-attempt',
+    email: 'touch',
+    next_call_date: '2026-03-01',
+  })
+  assert.equal(r.error, undefined)
+  // Leaves the intro-email population so the introduction is never recommended
+  // again, and schedules the first call.
+  assert.equal(r.patch.queue, 'waiting-for-response')
+  assert.ok(r.patch.email_sent_at)
+  assert.equal(String(r.patch.follow_up_due).slice(0, 10), '2026-03-01')
+})
+
+// ── Only genuinely unsuccessful attempts count (Failure 3) ───────────────────
+
+test('unsuccessful count: a reached attempt is excluded; voicemails count', () => {
+  const attempts = groupIntoAttempts(
+    [
+      { channel: 'call', at: '2026-01-05T14:00:00.000Z', reached: false }, // voicemail-style miss
+      { channel: 'call', at: '2026-01-06T14:00:00.000Z', reached: true },  // reached: success
+    ],
+    UTC,
+  )
+  assert.equal(countOutreachAttempts(attempts), 2)
+  assert.equal(countUnsuccessfulAttempts(attempts), 1) // the reached one does not count
+})
+
+test('unsuccessful count: seven unsuccessful attempts flag nonresponsive (advisory, outreach not stopped)', async () => {
+  const comms = Array.from({ length: 7 }, (_, i) => ({
+    channel: 'call' as const,
+    at: new Date(Date.UTC(2026, 0, 5 + i, 14)).toISOString(),
+    reached: false,
+  }))
+  const attempts = groupIntoAttempts(comms, UTC)
+  assert.equal(countUnsuccessfulAttempts(attempts), 7)
+  const verdict = await evaluateCadenceStatus(countUnsuccessfulAttempts(attempts))
+  assert.equal(verdict.isNonresponsive, true)
+  // Advisory only: nothing in the verdict stops outreach or sets a terminal state.
+  assert.equal(verdict.recommendation, 'review_contact_strategy')
 })

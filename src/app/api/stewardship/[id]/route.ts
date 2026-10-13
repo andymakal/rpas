@@ -7,7 +7,7 @@ import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { getAttemptHistory } from '@/lib/stewardship/attempt-history'
 import { resolveNextCallDate } from '@/lib/stewardship/call-cadence'
 import { resolveContactOptions } from '@/lib/stewardship/contact-options'
-import { OUTCOME_MARKERS } from '@/lib/stewardship/outreach-attempts'
+import { OUTCOME_MARKERS, REACHED_MARKER } from '@/lib/stewardship/outreach-attempts'
 import {
   evaluateCadenceStatus,
   cadenceRecommendationText,
@@ -185,12 +185,15 @@ export async function GET(
     history.unusableChannels,
   )
 
-  const cadence = await evaluateCadenceStatus(history.outreachAttempts)
+  // The Nonresponsive advisory counts only genuinely UNSUCCESSFUL attempts (a
+  // reached attempt is a success and never counts toward the seven-attempt
+  // warning).
+  const cadence = await evaluateCadenceStatus(history.unsuccessfulAttempts)
   const nonresponsive = cadence.isNonresponsive
     ? {
         label: NONRESPONSIVE_LABEL,
-        attempts: history.outreachAttempts,
-        recommendation: cadenceRecommendationText(cadence.recommendation, history.outreachAttempts),
+        attempts: history.unsuccessfulAttempts,
+        recommendation: cadenceRecommendationText(cadence.recommendation, history.unsuccessfulAttempts),
       }
     : null
 
@@ -368,13 +371,22 @@ export async function PATCH(
   // 24h later), a voicemail call-outcome, and a record-attempt that is an
   // unsuccessful non-reaching attempt (voicemail call, or a no-call attempt on a
   // call-flow item) all do. For those we resolve the cadence date up front.
+  // An intro authorization email sent via a record-attempt (email channel from
+  // Ready to Email) schedules the first call 24h later, exactly like email-sent.
+  const attemptIsIntroEmail =
+    action.type === 'record-attempt' &&
+    !action.call &&
+    row.queue === 'ready-to-email' &&
+    action.email === 'touch'
   const attemptSchedulesCall =
     action.type === 'record-attempt' &&
     // A reached/callback/bad-number/not-interested attempt does NOT roll the
     // call cadence (reached advances; callback sets its own date; bad-number and
-    // not-interested leave the call flow). Only a voicemail call, or a no-call
-    // record-only attempt still in the call flow, schedules the next call.
+    // not-interested leave the call flow). Only a voicemail call, a no-call
+    // record-only attempt still in the call flow, or the intro-email attempt
+    // schedules the next call.
     (action.call === 'voicemail' ||
+      attemptIsIntroEmail ||
       (!action.call && (row.queue === 'ready-to-call' || row.queue === 'waiting-for-response')))
 
   let actionForTransition: typeof action = action
@@ -397,8 +409,8 @@ export async function PATCH(
       (action.type === 'call-outcome' && action.outcome === 'voicemail') ||
       (action.type === 'record-attempt' && action.call === 'voicemail')
     const priorUnsuccessfulAttempts =
-      action.type === 'email-sent'
-        ? 0
+      action.type === 'email-sent' || attemptIsIntroEmail
+        ? 0 // first call is due 24h after the introductory email
         : history.callAttempts + (madeCallThisAttempt ? 1 : 0)
     const resolved = resolveNextCallDate({
       priorUnsuccessfulAttempts,
@@ -470,9 +482,13 @@ export async function PATCH(
     // and other recorded outcomes read as a completed call touch. This never
     // influences cadence/timing (IPF Decision Engine Boundary); it feeds
     // attempt counting and contact-method usability only.
+    // reached / callback / not-interested all mean the customer was REACHED, so
+    // the attempt is successful and excluded from the unsuccessful total. A bad
+    // number is an unusable channel; a voicemail is an ordinary non-response.
     const outcomeMarker =
       outcome === 'bad-number' ? OUTCOME_MARKERS.unusable :
       outcome === 'voicemail'  ? OUTCOME_MARKERS.no_contact :
+      (outcome === 'reached' || outcome === 'callback' || outcome === 'not-interested') ? REACHED_MARKER :
       ''
     const callNote = `Servicing-agent onboarding call: ${outcomeLabel[outcome]}`
     const { error: touchErr } = await supabase
@@ -525,6 +541,7 @@ export async function PATCH(
       const callMarker =
         action.call === 'bad-number' ? OUTCOME_MARKERS.unusable :
         action.call === 'voicemail'  ? OUTCOME_MARKERS.no_contact :
+        (action.call === 'reached' || action.call === 'callback' || action.call === 'not-interested') ? REACHED_MARKER :
         ''
       const touchType = action.call === 'voicemail' ? 'voicemail' : 'call'
       const base = `Servicing-agent onboarding call: ${callLabel[action.call]}`
@@ -557,8 +574,17 @@ export async function PATCH(
     if (rows.length > 0) {
       const { error: touchErr } = await supabase.from('case_touches').insert(rows)
       if (touchErr) {
-        // Non-fatal: the workflow transition still proceeds. Log for visibility.
+        // The grouping IS the required attempt history for this coordinated
+        // attempt, and the attempt also advances workflow progress / cadence.
+        // If the history fails to save we must NOT silently advance the
+        // workflow: abort before the patch persists so the attempt can be
+        // retried as a whole. This is the one place a touch-log failure is
+        // fatal, precisely because the attempt and its history are one unit.
         console.error('stewardship record-attempt touch log error:', touchErr)
+        return Response.json(
+          { error: 'Could not save the attempt history. Nothing was changed; please try recording the attempt again.' },
+          { status: 500 },
+        )
       }
     }
   }

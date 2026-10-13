@@ -3,7 +3,9 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { resolveProducerForUser } from '@/lib/capabilities/resolve'
-import { QUEUE_META, deriveFollowUpRouting, isWaitingFollowUpDue, type OutreachQueue } from '@/lib/stewardship/queues'
+import { QUEUE_META, deriveFollowUpRouting, isWaitingFollowUpDue, callPopulationOf, type OutreachQueue, type CallPopulation } from '@/lib/stewardship/queues'
+import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
+import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 
 /**
  * GET /api/stewardship
@@ -31,6 +33,13 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url)
   const queueFilter = url.searchParams.get('queue')
   const projectId = url.searchParams.get('project_id')?.trim() || null
+  // A derived ACTION POPULATION to open (callability-based, not a stored queue),
+  // so a My Work population link opens exactly the customers it counted.
+  const populationParam = url.searchParams.get('population')?.trim() || null
+  const populationFilter: CallPopulation | null =
+    populationParam === 'calls-due' || populationParam === 'available-to-call'
+      ? populationParam
+      : null
 
   // Project scope: resolve the project's customer set up front. The board is
   // then filtered to these customers so counts and lists show only this
@@ -64,10 +73,16 @@ export async function GET(request: NextRequest) {
     .eq('queue', 'waiting-for-response')
     .not('follow_up_due', 'is', null)
     .lte('follow_up_due', now.toISOString())
+  // Capture which items were cadence-promoted this pass. After the UPDATE their
+  // stored queue is ready-to-call, so the "was this a scheduled cadence retry?"
+  // signal (rawQueue === waiting-for-response) is otherwise lost; this set
+  // preserves it so the Calls Due population stays correct across the transition.
+  const cadencePromotedIds = new Set<string>()
   for (const w of (waiting ?? []) as { id: string; follow_up_due: string | null }[]) {
     const patch = deriveFollowUpRouting({ queue: 'waiting-for-response', follow_up_due: w.follow_up_due }, now)
     if (patch) {
       await supabase.from('stewardship_outreach').update(patch).eq('id', w.id)
+      cadencePromotedIds.add(w.id)
     }
   }
 
@@ -92,7 +107,10 @@ export async function GET(request: NextRequest) {
     `)
     .order('updated_at', { ascending: true })
 
-  if (queueFilter && queueFilter in QUEUE_META) {
+  // A stored-queue filter narrows to one queue. A population filter spans
+  // several stored queues (callable items in ready-to-call AND ready-to-email),
+  // so it is applied AFTER the derivation below, not as a queue eq here.
+  if (!populationFilter && queueFilter && queueFilter in QUEUE_META) {
     query = query.eq('queue', queueFilter)
   }
 
@@ -152,35 +170,73 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  const items = rows.map(r => ({
-    id: r.id,
-    queue: r.queue,
-    call_reason: r.call_reason,
-    research_reason: r.research_reason,
-    last_call_outcome: r.last_call_outcome,
-    callback_date: r.callback_date,
-    email_sent_at: r.email_sent_at,
-    follow_up_due: r.follow_up_due,
-    form_received_at: r.form_received_at,
-    submitted_at: r.submitted_at,
-    carrier_correction: r.carrier_correction,
-    // Waiting-for-form / waiting-for-carrier items whose chase window has lapsed
-    // are flagged follow-up-due so the list can surface them for a nudge without
-    // changing their (legitimately waiting) queue.
-    follow_up_due_now: isWaitingFollowUpDue({ queue: r.queue, follow_up_due: r.follow_up_due, refused_at: r.refused_at }, now),
-    prereview_id: r.customer_prereviews.id,
-    customer: r.customer_prereviews.customers,
-    // Optional soft-lease claim (shared by default). is_mine lets the list mark
-    // the caller's own commitments; the board is never filtered by this.
-    claimed_by_producer_id: r.claimed_by_producer_id,
-    claimed_by_name: r.claimed_by_producer_id ? (nameByProducerId.get(r.claimed_by_producer_id) ?? null) : null,
-    is_mine: !!r.claimed_by_producer_id && r.claimed_by_producer_id === myProducerId,
-  }))
+  // Actor calendar for the date-only callback-due test used by the call
+  // population derivation (each employee's own "today").
+  const actorTimeZone = await getActorTimeZone()
+
+  const items = rows.map(r => {
+    // The derived call population this item belongs to (callability-based, not
+    // its stored queue), using the SAME shared definition My Work counts with.
+    // rawQueue is reconstructed: an item just promoted this pass was in
+    // waiting-for-response, so it reads as a scheduled cadence retry (Calls Due).
+    const rawQueue: OutreachQueue = cadencePromotedIds.has(r.id) ? 'waiting-for-response' : r.queue
+    const population = callPopulationOf({
+      effectiveQueue: r.queue,
+      rawQueue,
+      hasUsablePhone: !!r.customer_prereviews.customers?.phone?.trim(),
+      callbackDue: isCallbackDue(r.callback_date, actorTimeZone),
+    })
+    return {
+      id: r.id,
+      queue: r.queue,
+      call_reason: r.call_reason,
+      research_reason: r.research_reason,
+      last_call_outcome: r.last_call_outcome,
+      callback_date: r.callback_date,
+      email_sent_at: r.email_sent_at,
+      follow_up_due: r.follow_up_due,
+      form_received_at: r.form_received_at,
+      submitted_at: r.submitted_at,
+      carrier_correction: r.carrier_correction,
+      // Waiting-for-form / waiting-for-carrier items whose chase window has lapsed
+      // are flagged follow-up-due so the list can surface them for a nudge without
+      // changing their (legitimately waiting) queue.
+      follow_up_due_now: isWaitingFollowUpDue({ queue: r.queue, follow_up_due: r.follow_up_due, refused_at: r.refused_at }, now),
+      // The call action population (null when the item is not a call opportunity).
+      // Carried so the board can open a population link exactly as counted.
+      call_population: population,
+      prereview_id: r.customer_prereviews.id,
+      customer: r.customer_prereviews.customers,
+      // Optional soft-lease claim (shared by default). is_mine lets the list mark
+      // the caller's own commitments; the board is never filtered by this.
+      claimed_by_producer_id: r.claimed_by_producer_id,
+      claimed_by_name: r.claimed_by_producer_id ? (nameByProducerId.get(r.claimed_by_producer_id) ?? null) : null,
+      is_mine: !!r.claimed_by_producer_id && r.claimed_by_producer_id === myProducerId,
+    }
+  })
+
+  // When a population is requested, return exactly that population's customers —
+  // the SAME set My Work counted — regardless of each item's stored queue.
+  const visibleItems = populationFilter
+    ? items.filter(it => it.call_population === populationFilter)
+    : items
 
   const counts = Object.fromEntries(
     (Object.keys(QUEUE_META) as OutreachQueue[]).map(q => [q, 0]),
   ) as Record<OutreachQueue, number>
   for (const it of items) counts[it.queue] += 1
+  // Population counts, so the board header can show the opened population size.
+  const populationCounts = {
+    'calls-due': items.filter(it => it.call_population === 'calls-due').length,
+    'available-to-call': items.filter(it => it.call_population === 'available-to-call').length,
+  }
 
-  return Response.json({ data: { items, counts, my_producer_id: myProducerId } })
+  return Response.json({
+    data: {
+      items: visibleItems,
+      counts,
+      population_counts: populationCounts,
+      my_producer_id: myProducerId,
+    },
+  })
 }

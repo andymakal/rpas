@@ -70,6 +70,11 @@ export interface Communication {
   /** The per-channel outcome (defaults to 'touch' when a channel was recorded
    * with no explicit marker, i.e. an actually-completed channel). */
   outcome?: ChannelOutcome
+  /** True when this communication REACHED the customer (a reached call). A
+   * reached contact makes its attempt SUCCESSFUL, so the attempt does not count
+   * toward the unsuccessful-attempt (Nonresponsive) total. Derived from the
+   * reached note marker by the attempt-history reader. */
+  reached?: boolean
 }
 
 /**
@@ -87,6 +92,9 @@ export interface OutreachAttempt {
   includedCall: boolean
   /** True when at least one channel in the attempt was a real completed touch. */
   includedTouch: boolean
+  /** True when the attempt REACHED the customer (a reached call). A reached
+   * attempt is SUCCESSFUL and is excluded from the unsuccessful-attempt total. */
+  reached: boolean
 }
 
 /**
@@ -150,6 +158,7 @@ export function groupIntoAttempts(
       communications: g.comms,
       includedCall: g.comms.some((c) => c.channel === 'call' || c.channel === 'voicemail'),
       includedTouch: g.comms.some(isTouch),
+      reached: g.comms.some((c) => c.reached === true),
     }
   })
 }
@@ -166,13 +175,24 @@ export function countCallAttempts(attempts: OutreachAttempt[]): number {
 }
 
 /**
- * The total number of grouped outreach attempts across ALL channels. This is the
- * "7 unsuccessful outreach attempts" basis for the Nonresponsive recommendation:
- * the rule speaks of outreach attempts, not calls specifically, so every grouped
- * reach-out counts once, regardless of how many channels it touched.
+ * The total number of grouped outreach attempts across ALL channels, successful
+ * or not. Every grouped reach-out counts once regardless of how many channels it
+ * touched. Use countUnsuccessfulAttempts for the Nonresponsive threshold.
  */
 export function countOutreachAttempts(attempts: OutreachAttempt[]): number {
   return attempts.length
+}
+
+/**
+ * The number of genuinely UNSUCCESSFUL outreach attempts: grouped attempts that
+ * did NOT reach the customer. This is the correct basis for the seven-attempt
+ * Nonresponsive advisory (the rule is about repeated failures to reach, so an
+ * attempt that reached the customer must not count). A reached attempt also
+ * advances the workflow out of the call flow, so in practice the run is already
+ * engaged; excluding it here keeps the advisory honest if outreach later resumes.
+ */
+export function countUnsuccessfulAttempts(attempts: OutreachAttempt[]): number {
+  return attempts.filter((a) => !a.reached).length
 }
 
 /**
@@ -211,6 +231,14 @@ export const OUTCOME_MARKERS: Record<ChannelOutcome, string> = {
   unusable: '[channel-unusable]',
 }
 
+/**
+ * The marker that records a call REACHED the customer, so the attempt is
+ * SUCCESSFUL and excluded from the unsuccessful-attempt (Nonresponsive) total.
+ * Kept separate from OUTCOME_MARKERS because "reached" is a success signal, not
+ * a per-channel non-response/usability outcome.
+ */
+export const REACHED_MARKER = '[reached]'
+
 /** Derive a per-channel outcome from a touch note. Absence of a marker means a
  * completed touch; the markers above denote ordinary non-response or an unusable
  * channel. Case-insensitive, tolerant of surrounding prose. */
@@ -220,4 +248,9 @@ export function parseOutcomeFromNote(note: string | null): ChannelOutcome {
   if (n.includes(OUTCOME_MARKERS.unusable)) return 'unusable'
   if (n.includes(OUTCOME_MARKERS.no_contact)) return 'no_contact'
   return 'touch'
+}
+
+/** Whether a touch note records that the call REACHED the customer. */
+export function noteIndicatesReached(note: string | null): boolean {
+  return !!note && note.toLowerCase().includes(REACHED_MARKER)
 }

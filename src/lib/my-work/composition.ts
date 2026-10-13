@@ -24,7 +24,7 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { QUEUE_META, deriveFollowUpRouting, isWaitingFollowUpDue, type OutreachQueue } from '@/lib/stewardship/queues'
+import { QUEUE_META, deriveFollowUpRouting, isWaitingFollowUpDue, callPopulationOf, type OutreachQueue } from '@/lib/stewardship/queues'
 import { createTimeContext } from '@/lib/time'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
@@ -62,6 +62,18 @@ function stewardshipRoute(queue: OutreachQueue, projectId?: string | null): stri
   // When the link is project-scoped (the employee is eligible for only that
   // project's items), carry the project id so the board opens exactly that
   // subset of the queue — not the whole shared queue.
+  return projectId ? `${base}&project_id=${encodeURIComponent(projectId)}` : base
+}
+
+/**
+ * A link to a derived ACTION POPULATION on the board (not a single stored
+ * queue). The populations are callability-based, so a customer callable from
+ * Ready to Email still appears under the call populations. The board opens
+ * exactly the customers the population counted (Rule 1): the same derivation
+ * runs on the board route, so the counted and opened sets match.
+ */
+function populationRoute(population: 'available-to-call' | 'calls-due', projectId?: string | null): string {
+  const base = `${STEWARDSHIP_ROUTE}?population=${encodeURIComponent(population)}`
   return projectId ? `${base}&project_id=${encodeURIComponent(projectId)}` : base
 }
 
@@ -597,15 +609,15 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       let callsDue = 0
       let availableToCall = 0
       for (const r of openRows) {
-        const phone = r.customer_prereviews.customers?.phone?.trim()
-        if (!phone) continue // not callable: no usable phone on file
-        const q = effectiveQueue(r)
-        // Only ACTIONABLE items are a call opportunity: the call flow itself, or
-        // Ready to Email (awaiting a reply while still callable). A not-yet-due
-        // waiting item (signature/carrier) is not a call opportunity, and a
-        // research item has no usable contact by definition.
-        const callable = q === 'ready-to-call' || q === 'ready-to-email'
-        if (!callable) continue
+        // The shared call-population definition (also used by the board route) so
+        // the counted set and the opened set always match.
+        const population = callPopulationOf({
+          effectiveQueue: effectiveQueue(r),
+          rawQueue: r.queue,
+          hasUsablePhone: !!r.customer_prereviews.customers?.phone?.trim(),
+          callbackDue: isCallbackDue(r.callback_date, timeCtx),
+        })
+        if (!population) continue
         // Eligibility: only count items this employee can act on (routable or
         // assist), judged against the item's own projects, matching the rest of
         // the composition.
@@ -617,20 +629,18 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         // A teammate's claimed item is not my call opportunity.
         if (r.claimed_by_producer_id && r.claimed_by_producer_id !== myProducerId) continue
 
-        const due =
-          q === 'ready-to-call' &&
-          (isCallbackDue(r.callback_date, timeCtx) || r.queue === 'waiting-for-response')
-        if (due) callsDue += 1
+        if (population === 'calls-due') callsDue += 1
         else availableToCall += 1
       }
 
-      const callRoute = stewardshipRoute('ready-to-call')
       if (callsDue > 0) {
         outreach.sources.push({
           kind: 'stewardship',
           label: 'Shared Stewardship board — Calls Due',
           count: callsDue,
-          route: callRoute,
+          // Opens the Calls Due population (callable + scheduled-due), the SAME
+          // set this counted, regardless of each item's stored queue.
+          route: populationRoute('calls-due'),
           projectId: null,
           ownedByMe: 0,
           availableToMe: callsDue,
@@ -644,7 +654,8 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
           kind: 'stewardship',
           label: 'Shared Stewardship board — Available to Call',
           count: availableToCall,
-          route: callRoute,
+          // Opens the Available to Call population (callable, not yet due).
+          route: populationRoute('available-to-call'),
           projectId: null,
           ownedByMe: 0,
           availableToMe: availableToCall,

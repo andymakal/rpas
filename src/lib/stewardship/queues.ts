@@ -278,6 +278,47 @@ function addDays(iso: string, days: number): string {
 }
 
 /**
+ * The derived call ACTION POPULATION an open item belongs to, if any. This is
+ * the single shared definition both My Work (counting the population) and the
+ * board route (opening it) use, so the counted set and the opened set are always
+ * identical (Rule 1). Callability is independent of the stored queue: a customer
+ * with a usable phone is callable even while sitting in Ready to Email awaiting a
+ * reply, so they belong to the call population too.
+ *
+ *   - 'calls-due'          callable AND a scheduled call has arrived: a promised
+ *                          callback due today, or an automatic cadence retry
+ *                          whose date lapsed (the item was promoted from
+ *                          waiting-for-response to Ready to Call). Due status is
+ *                          preserved across that transition because it is derived
+ *                          from the SAME follow-up routing both reads apply.
+ *   - 'available-to-call'  callable and actionable now, not on a scheduled due
+ *                          date (Ready to Call without a due marker, or a
+ *                          callable Ready to Email item).
+ *   - null                 not a call opportunity (no usable phone, or a
+ *                          non-actionable / research / waiting-not-due state).
+ */
+export type CallPopulation = 'calls-due' | 'available-to-call'
+
+export function callPopulationOf(input: {
+  /** Effective queue after follow-up promotion (deriveFollowUpRouting applied). */
+  effectiveQueue: OutreachQueue
+  /** The stored queue before promotion (to detect a cadence-due retry). */
+  rawQueue: OutreachQueue
+  /** Whether the customer has a usable phone (callable at all). */
+  hasUsablePhone: boolean
+  /** Whether a promised callback is due today (actor calendar; caller decides). */
+  callbackDue: boolean
+}): CallPopulation | null {
+  if (!input.hasUsablePhone) return null
+  const callable = input.effectiveQueue === 'ready-to-call' || input.effectiveQueue === 'ready-to-email'
+  if (!callable) return null
+  const due =
+    input.effectiveQueue === 'ready-to-call' &&
+    (input.callbackDue || input.rawQueue === 'waiting-for-response')
+  return due ? 'calls-due' : 'available-to-call'
+}
+
+/**
  * Normalize a date-only (YYYY-MM-DD) cadence date to a storable ISO instant for
  * follow_up_due. The board/My Work/Daily Direction reads compare follow_up_due
  * as a date, so a start-of-day UTC instant preserves the intended due DATE. A
@@ -344,6 +385,37 @@ function callOutcomePatch(
         call_reason: null,
       }
   }
+}
+
+/**
+ * The queues from which a call outcome drives the pre-authorization call-flow
+ * transition. In every OTHER queue a call is a CHASE on the current stage (e.g.
+ * calling to chase the signed form while awaiting it, or the carrier), so it
+ * must preserve the stage and never move the customer backward.
+ */
+const CALL_FLOW_QUEUES: readonly OutreachQueue[] = ['ready-to-call', 'waiting-for-response', 'ready-to-email']
+
+/**
+ * Apply a call outcome WITHOUT ever moving the customer backward through
+ * authorization or carrier servicing. In the pre-authorization call flow
+ * (ready-to-call / waiting-for-response / ready-to-email) the outcome drives the
+ * normal call-flow transition. In an authorization/carrier waiting stage
+ * (waiting-for-form / waiting-for-carrier) a call is a chase: it records
+ * last_call_outcome for history but leaves the stage and its scheduled chase
+ * untouched. 'not-interested' is the single exception that always applies, since
+ * an explicit refusal stops outreach from any stage (reversible via reopen).
+ */
+function callOutcomeInStage(
+  state: OutreachState,
+  outcome: CallOutcome,
+  opts: { callback_date?: string | null; next_call_date?: string | null },
+): OutreachPatch {
+  if (CALL_FLOW_QUEUES.includes(state.queue) || outcome === 'not-interested') {
+    return callOutcomePatch(outcome, opts)
+  }
+  // Authorization / carrier stage (or any non-call-flow waiting state): record
+  // the call outcome only; never change the queue or the stage's schedule.
+  return { last_call_outcome: outcome }
 }
 
 /**
@@ -450,16 +522,18 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
       // is a callable customer sitting in another queue (e.g. Ready to Email):
       // the stored queue is the RECOMMENDED next step, not a lock on which
       // channel the employee may use. The route gates on actual callability
-      // (a usable phone), not on the stored queue, so this transition no longer
-      // rejects a call from a non-call queue. The only queue that cannot take a
-      // call outcome is one with no customer to call, which the route's
-      // callability check already covers.
-      return {
-        patch: callOutcomePatch(action.outcome, {
-          callback_date: action.callback_date,
-          next_call_date: action.next_call_date,
-        }),
-      }
+      // (a usable phone), not on the stored queue.
+      //
+      // CRITICAL: a contact attempt must NEVER move a customer BACKWARD through
+      // authorization or carrier servicing. While the item is awaiting the
+      // signed form or carrier confirmation, a call is a CHASE on that same
+      // stage: it records history but does not change the queue (handled below
+      // via callOutcomeInStage). Only in the pre-authorization call flow does a
+      // call outcome drive the call-flow transition.
+      return { patch: callOutcomeInStage(state, action.outcome, {
+        callback_date: action.callback_date,
+        next_call_date: action.next_call_date,
+      }) }
     }
 
     case 'record-attempt': {
@@ -469,23 +543,41 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
       // touches by the route and never change the workflow here. The employee
       // records the activity ONCE.
       //
-      // When the attempt included NO call (e.g. an email-only or text-only
-      // reach-out), there is no call transition: the touches are the progress.
-      // If such an attempt is a plain non-reaching contact on a callable item in
-      // the call flow, we still schedule the next call so the cadence continues;
-      // otherwise the queue is left as-is (the recorded touches are the update).
+      // Backward-movement guard: in the authorization/carrier waiting stages a
+      // recorded attempt is a chase that NEVER changes the stage (see
+      // callOutcomeInStage and the no-call branch below).
       if (action.call) {
+        return { patch: callOutcomeInStage(state, action.call, {
+          callback_date: action.callback_date,
+          next_call_date: action.next_call_date,
+        }) }
+      }
+      // No call channel. An EMAIL sent from Ready to Email is the introductory
+      // authorization email: it advances the workflow out of the intro-email
+      // population (so the introduction is never recommended again) and starts
+      // the call cadence, exactly like the dedicated email-sent action. The
+      // route stamps email_sent_at; here we move to the waiting state and set
+      // the first scheduled call.
+      const sentEmailFromIntro =
+        state.queue === 'ready-to-email' && action.email === 'touch'
+      if (sentEmailFromIntro) {
         return {
-          patch: callOutcomePatch(action.call, {
-            callback_date: action.callback_date,
-            next_call_date: action.next_call_date,
-          }),
+          patch: {
+            queue: 'waiting-for-response',
+            email_sent_at: new Date().toISOString(),
+            follow_up_due: action.next_call_date
+              ? dateOnlyToIso(action.next_call_date)
+              : addDays(new Date().toISOString(), INITIAL_EMAIL_FOLLOW_UP_DAYS),
+            call_reason: null,
+            research_reason: null,
+          },
         }
       }
-      // No call channel: record-only attempt. Keep the workflow where it is; the
-      // route writes the channel touches. A scheduled next call, when the route
-      // supplies one for a call-flow item, keeps the cadence moving without a
-      // forced transition.
+      // Otherwise a record-only attempt. A scheduled next call keeps the cadence
+      // moving ONLY while the item is in the pre-authorization call flow
+      // (ready-to-call / waiting-for-response). In every other state, including
+      // the authorization/carrier waiting stages, the touches are the progress
+      // and the stage is preserved.
       if (action.next_call_date && (state.queue === 'ready-to-call' || state.queue === 'waiting-for-response')) {
         return {
           patch: {
@@ -503,7 +595,15 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
       // Sending the servicing-agent form (from a reached call or from email).
       // Entering waiting-for-form schedules a follow-up nudge to chase the
       // signature (does not change the queue when due; isWaitingFollowUpDue).
-      if (state.queue !== 'ready-to-call' && state.queue !== 'waiting-for-response') {
+      // Allowed from the whole pre-authorization call flow: Ready to Call and
+      // the waiting-for-response window as before, AND Ready to Email — so a
+      // worker who CALLS FIRST and reaches the customer can proceed directly to
+      // authorization without being forced back through the email step.
+      if (
+        state.queue !== 'ready-to-call' &&
+        state.queue !== 'waiting-for-response' &&
+        state.queue !== 'ready-to-email'
+      ) {
         return { patch: {}, error: `Cannot send the form from ${state.queue}` }
       }
       return {
