@@ -287,10 +287,13 @@ function addDays(iso: string, days: number): string {
  *
  *   - 'calls-due'          callable AND a scheduled call has arrived: a promised
  *                          callback due today, or an automatic cadence retry
- *                          whose date lapsed (the item was promoted from
- *                          waiting-for-response to Ready to Call). Due status is
- *                          preserved across that transition because it is derived
- *                          from the SAME follow-up routing both reads apply.
+ *                          that came due (the item was promoted from
+ *                          waiting-for-response to Ready to Call, which durably
+ *                          stamps call_reason = 'no-response'). Due status is
+ *                          read from DURABLE row state (call_reason + a due
+ *                          callback_date), so it survives repeated reads,
+ *                          refreshes, and the queue transition until the
+ *                          scheduled call is actually handled.
  *   - 'available-to-call'  callable and actionable now, not on a scheduled due
  *                          date (Ready to Call without a due marker, or a
  *                          callable Ready to Email item).
@@ -302,8 +305,14 @@ export type CallPopulation = 'calls-due' | 'available-to-call'
 export function callPopulationOf(input: {
   /** Effective queue after follow-up promotion (deriveFollowUpRouting applied). */
   effectiveQueue: OutreachQueue
-  /** The stored queue before promotion (to detect a cadence-due retry). */
-  rawQueue: OutreachQueue
+  /**
+   * The item's durable call_reason. A cadence retry that came due is persisted
+   * as 'no-response' by the follow-up promotion, and a promised callback as
+   * 'callback-due', so the DUE status is a durable fact on the row rather than a
+   * one-pass signal. This is what keeps Calls Due accurate across refreshes and
+   * the waiting-to-response -> Ready to Call transition.
+   */
+  callReason: CallReason | null
   /** Whether the customer has a usable phone (callable at all). */
   hasUsablePhone: boolean
   /** Whether a promised callback is due today (actor calendar; caller decides). */
@@ -312,9 +321,16 @@ export function callPopulationOf(input: {
   if (!input.hasUsablePhone) return null
   const callable = input.effectiveQueue === 'ready-to-call' || input.effectiveQueue === 'ready-to-email'
   if (!callable) return null
+  // A scheduled call has come due when, in the call flow, either a promised
+  // callback is due today, or the row durably carries a due call_reason: a
+  // cadence retry ('no-response') or a promised callback ('callback-due'). All
+  // three are durable until the call is handled, so Calls Due does not flip back
+  // to Available on a later read.
   const due =
     input.effectiveQueue === 'ready-to-call' &&
-    (input.callbackDue || input.rawQueue === 'waiting-for-response')
+    (input.callbackDue ||
+      input.callReason === 'no-response' ||
+      input.callReason === 'callback-due')
   return due ? 'calls-due' : 'available-to-call'
 }
 

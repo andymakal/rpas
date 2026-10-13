@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { resolveProducerForUser } from '@/lib/capabilities/resolve'
-import { QUEUE_META, deriveFollowUpRouting, isWaitingFollowUpDue, callPopulationOf, type OutreachQueue, type CallPopulation } from '@/lib/stewardship/queues'
+import { QUEUE_META, deriveFollowUpRouting, isWaitingFollowUpDue, callPopulationOf, type OutreachQueue, type CallPopulation, type CallReason } from '@/lib/stewardship/queues'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 
@@ -73,16 +73,14 @@ export async function GET(request: NextRequest) {
     .eq('queue', 'waiting-for-response')
     .not('follow_up_due', 'is', null)
     .lte('follow_up_due', now.toISOString())
-  // Capture which items were cadence-promoted this pass. After the UPDATE their
-  // stored queue is ready-to-call, so the "was this a scheduled cadence retry?"
-  // signal (rawQueue === waiting-for-response) is otherwise lost; this set
-  // preserves it so the Calls Due population stays correct across the transition.
-  const cadencePromotedIds = new Set<string>()
+  // Promote overdue waiting-for-response items to Ready to Call and PERSIST the
+  // move. The promotion durably stamps call_reason = 'no-response', which is the
+  // signal the Calls Due derivation reads, so a cadence-due call stays Calls Due
+  // across later reads without needing a one-pass in-memory flag.
   for (const w of (waiting ?? []) as { id: string; follow_up_due: string | null }[]) {
     const patch = deriveFollowUpRouting({ queue: 'waiting-for-response', follow_up_due: w.follow_up_due }, now)
     if (patch) {
       await supabase.from('stewardship_outreach').update(patch).eq('id', w.id)
-      cadencePromotedIds.add(w.id)
     }
   }
 
@@ -177,12 +175,12 @@ export async function GET(request: NextRequest) {
   const items = rows.map(r => {
     // The derived call population this item belongs to (callability-based, not
     // its stored queue), using the SAME shared definition My Work counts with.
-    // rawQueue is reconstructed: an item just promoted this pass was in
-    // waiting-for-response, so it reads as a scheduled cadence retry (Calls Due).
-    const rawQueue: OutreachQueue = cadencePromotedIds.has(r.id) ? 'waiting-for-response' : r.queue
+    // Due status reads from DURABLE row state (call_reason + a due callback),
+    // so it survives refreshes and the waiting-to-response -> Ready to Call
+    // promotion (which persisted call_reason = 'no-response').
     const population = callPopulationOf({
       effectiveQueue: r.queue,
-      rawQueue,
+      callReason: r.call_reason as CallReason | null,
       hasUsablePhone: !!r.customer_prereviews.customers?.phone?.trim(),
       callbackDue: isCallbackDue(r.callback_date, actorTimeZone),
     })

@@ -24,7 +24,7 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { QUEUE_META, deriveFollowUpRouting, isWaitingFollowUpDue, callPopulationOf, type OutreachQueue } from '@/lib/stewardship/queues'
+import { QUEUE_META, deriveFollowUpRouting, isWaitingFollowUpDue, callPopulationOf, type OutreachQueue, type CallReason } from '@/lib/stewardship/queues'
 import { createTimeContext } from '@/lib/time'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
@@ -171,6 +171,7 @@ const QUEUE_LABEL: Record<OutreachQueue, string> = {
 type BoardRow = {
   id: string
   queue: OutreachQueue
+  call_reason: string | null
   callback_date: string | null
   follow_up_due: string | null
   refused_at: string | null
@@ -380,7 +381,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   const { data: boardData, error: boardErr } = await supabase
     .from('stewardship_outreach')
     .select(`
-      id, queue, callback_date, follow_up_due, refused_at, claimed_by_producer_id,
+      id, queue, call_reason, callback_date, follow_up_due, refused_at, claimed_by_producer_id,
       customer_prereviews!inner ( decision, customer_id, customers!inner ( phone, email ) )
     `)
     .order('updated_at', { ascending: true })
@@ -611,9 +612,15 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       for (const r of openRows) {
         // The shared call-population definition (also used by the board route) so
         // the counted set and the opened set always match.
+        // Due status reads from durable row state: a cadence retry promoted in
+        // memory here carries call_reason 'no-response' via deriveFollowUpRouting,
+        // matching the persisted value the board stamps, so counting and the
+        // opened list agree and stay stable across refreshes.
+        const effPatch = deriveFollowUpRouting({ queue: r.queue, follow_up_due: r.follow_up_due }, now)
+        const effCallReason = (effPatch?.call_reason as CallReason | undefined) ?? (r.call_reason as CallReason | null) ?? null
         const population = callPopulationOf({
           effectiveQueue: effectiveQueue(r),
-          rawQueue: r.queue,
+          callReason: effCallReason,
           hasUsablePhone: !!r.customer_prereviews.customers?.phone?.trim(),
           callbackDue: isCallbackDue(r.callback_date, timeCtx),
         })

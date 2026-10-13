@@ -28,7 +28,7 @@ import {
   EARLY_CALL_SPACING_DAYS,
   NONRESPONSIVE_ATTEMPT_THRESHOLD,
 } from './call-cadence'
-import { applyAction, type OutreachState } from './queues'
+import { applyAction, callPopulationOf, deriveFollowUpRouting, type OutreachState } from './queues'
 import {
   groupIntoAttempts,
   countCallAttempts,
@@ -417,4 +417,67 @@ test('unsuccessful count: seven unsuccessful attempts flag nonresponsive (adviso
   assert.equal(verdict.isNonresponsive, true)
   // Advisory only: nothing in the verdict stops outreach or sets a terminal state.
   assert.equal(verdict.recommendation, 'review_contact_strategy')
+})
+
+// ── Due status is DURABLE across reads/refreshes/transitions (Issue 1) ───────
+
+test('calls-due is read from durable call_reason, so it survives a later read', () => {
+  // A cadence retry that came due is persisted as call_reason 'no-response' when
+  // the item is promoted to ready-to-call. On ANY later read (no promotion that
+  // pass) it must still read as Calls Due, not flip to Available.
+  const promoted = deriveFollowUpRouting(
+    { queue: 'waiting-for-response', follow_up_due: '2026-01-01T00:00:00.000Z' },
+    new Date('2026-02-01T12:00:00Z'),
+  )
+  assert.equal(promoted?.queue, 'ready-to-call')
+  assert.equal(promoted?.call_reason, 'no-response')
+
+  // Simulate the subsequent read: stored queue ready-to-call, durable
+  // call_reason 'no-response', nothing promoted this pass.
+  const pop = callPopulationOf({
+    effectiveQueue: 'ready-to-call',
+    callReason: 'no-response',
+    hasUsablePhone: true,
+    callbackDue: false,
+  })
+  assert.equal(pop, 'calls-due')
+})
+
+test('a due promised callback reads Calls Due; a plain ready-to-call reads Available', () => {
+  assert.equal(
+    callPopulationOf({ effectiveQueue: 'ready-to-call', callReason: 'callback-due', hasUsablePhone: true, callbackDue: true }),
+    'calls-due',
+  )
+  assert.equal(
+    callPopulationOf({ effectiveQueue: 'ready-to-call', callReason: null, hasUsablePhone: true, callbackDue: false }),
+    'available-to-call',
+  )
+})
+
+test('a callable ready-to-email customer is Available to Call; no phone is in no call population', () => {
+  assert.equal(
+    callPopulationOf({ effectiveQueue: 'ready-to-email', callReason: null, hasUsablePhone: true, callbackDue: false }),
+    'available-to-call',
+  )
+  assert.equal(
+    callPopulationOf({ effectiveQueue: 'ready-to-call', callReason: 'no-response', hasUsablePhone: false, callbackDue: false }),
+    null,
+  )
+})
+
+// ── Reached-from-Ready-to-Email proceeds to authorization, not an intro (Issue 2)
+
+test('a reached call from Ready to Email keeps the item callable and lets form-sent advance to Waiting for Form', () => {
+  // Record a reached call via a coordinated attempt from ready-to-email: stays
+  // in ready-to-email (no backward move) and marks reached.
+  const reached = applyAction(state({ queue: 'ready-to-email' }), { type: 'record-attempt', call: 'reached' })
+  assert.equal(reached.error, undefined)
+  assert.equal(reached.patch.last_call_outcome, 'reached')
+  assert.equal(reached.patch.queue, undefined) // still ready-to-email
+
+  // The authorization form send then advances to Waiting for Form. This is the
+  // form-sent transition (authorization), NOT email-sent (the introduction).
+  const formSent = applyAction(state({ queue: 'ready-to-email', last_call_outcome: 'reached' }), { type: 'form-sent' })
+  assert.equal(formSent.error, undefined)
+  assert.equal(formSent.patch.queue, 'waiting-for-form')
 })

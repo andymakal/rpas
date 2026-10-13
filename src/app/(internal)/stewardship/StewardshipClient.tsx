@@ -1233,6 +1233,40 @@ function ReadyToEmailAction({
   act: (action: unknown, successNote?: string) => void
 }) {
   const customerHasAddress = !!(streetLine(detail.customer) && detail.customer.city && detail.customer.state && detail.customer.zip)
+
+  // If the worker has already CALLED and REACHED this customer (recorded as an
+  // attempt from the context panel), the right next step is to send the
+  // servicing-agent AUTHORIZATION form directly, not an introductory email. The
+  // form send advances authorization (form-sent -> Waiting for Form) and is NOT
+  // the introduction, so sending it never counts as a generic intro email and
+  // never falsely satisfies the introduction. Both channels remain available: a
+  // worker who did not reach the customer still sends the introductory email.
+  const reached = detail.last_call_outcome === 'reached'
+
+  if (reached) {
+    return (
+      <ActionPanel heading={`Send ${name} the servicing-agent authorization`}>
+        {noteBox}
+        <OperationalTag tone="info">
+          <Check className="mr-1.5 size-4" aria-hidden /> Reached by phone. Proceed directly to authorization.
+        </OperationalTag>
+        <ServicingFormDelivery
+          detail={detail}
+          request={request}
+          name={name}
+          busy={busy}
+          act={act}
+          confirmLabelFor={m => (m === 'postal' ? 'Form mailed to customer' : 'Form sent to customer')}
+          onConfirm={() => act({ type: 'form-sent' }, 'Authorization form sent. Moved to Waiting for Form.')}
+        />
+        <NextNote>
+          You reached {detail.customer.first_name} by phone, so send the authorization form now. Recording it
+          moves them straight to Waiting for Form. This is the authorization form, not an introductory email.
+        </NextNote>
+      </ActionPanel>
+    )
+  }
+
   return (
     <ActionPanel heading={`Reach out to ${name}`}>
       {noteBox}
