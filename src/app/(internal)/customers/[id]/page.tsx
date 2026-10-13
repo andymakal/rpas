@@ -51,6 +51,9 @@ export type CustomerDetail = {
   fact_finder:          Record<string, unknown> | null
   fact_finder_verified_at: string | null
   fact_finder_verified_by: string | null
+  phone_verified_at:    string | null
+  email_verified_at:    string | null
+  address_verified_at:  string | null
   is_deceased:     boolean
   is_former_client: boolean
   is_prospect:     boolean
@@ -153,6 +156,7 @@ export default async function CustomerCardPage({
       tobacco_use, preferred_language, health_notes,
       customer_group_id, segment, drive_folder_url,
       fact_finder, fact_finder_verified_at, fact_finder_verified_by,
+      phone_verified_at, email_verified_at, address_verified_at,
       is_deceased, is_former_client, is_prospect, is_emoney_client
     `)
     .eq('id', id)

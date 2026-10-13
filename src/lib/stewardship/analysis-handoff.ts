@@ -49,114 +49,152 @@ async function nextReviewNumber(supabase: SupabaseClient): Promise<string> {
 }
 
 export type HandoffResult = {
-  /** 1 when a review was created for this prereview, 0 when one already existed. */
+  /** Overall outcome, persisted to customer_prereviews.handoff_status. */
+  status: 'done' | 'failed'
+  /** How the handoff resolved, for the audit note / UI. */
+  mode: 'created_review' | 'reused_review' | 'project_prep' | 'none'
+  /** Error detail when status = 'failed' (also persisted to handoff_error). */
+  error: string | null
+  /** 1 when a review was created, 0 otherwise. */
   reviewsCreated: number
-  /** True when a review already existed for this prereview (idempotent no-op). */
-  reviewExisted: boolean
-  /** Policies attached to the review (via the policy_review_policies bridge). */
+  /** Policies attached to the review (0 for the project-prep path). */
   policiesCovered: number
 }
 
 /**
- * Create the Initial Analysis prep review for a just-completed onboarding and
- * mark the pre-review decided ('review_now').
+ * Hand a just-completed onboarding into the existing Initial Analysis
+ * preparation process, then mark the pre-review decided ('review_now').
  *
- * Model (from the prereview foundation migration): ONE policy_review per
- * pre-review (policy_reviews.prereview_id is UNIQUE), covering one or more
- * policies via the policy_review_policies bridge. policy_reviews.policy_id is
- * the backward-compatibility anchor (the first confirmed policy). So this
- * creates a single review anchored to the first policy, type-derived from it,
- * and bridges every confirmed request policy.
+ * Two cases, so the 1035 document-preparation workflow is preserved and NOT
+ * duplicated:
  *
- * Idempotent and best-effort: if a review already links this pre-review, it is
- * reused (bridge rows are upserted); never throws — a handoff hiccup must not
- * undo the completed confirmation.
+ *   - Customer IS in an ACTIVE 1035 project: that project's own
+ *     document-preparation workflow (the derived operations_prep stage over
+ *     service_policies.sa_status + project_customer_reviews) IS the Initial
+ *     Analysis prep. Creating a general policy_review on top would be duplicate
+ *     work, so we do NOT create one — the 1035 workflow already surfaces the
+ *     prep. We still mark the decision review_now.
+ *
+ *   - Otherwise (non-project onboarding): create ONE policy_review in 'prep'
+ *     (prereview_id is UNIQUE — one review per pre-review) covering every
+ *     confirmed policy via the policy_review_policies bridge, so it appears on
+ *     /reviews as actionable Initial Analysis prep.
+ *
+ * The outcome is RETURNED (not swallowed): on any failure, status='failed' with
+ * an error, so the caller can persist it to customer_prereviews.handoff_status /
+ * handoff_error and a failed handoff is never silently lost. Idempotent: a
+ * review already linked to the pre-review is reused.
  */
 export async function handoffToInitialAnalysis(
   supabase: SupabaseClient,
   args: { prereviewId: string; customerId: string; policyIds: string[] },
 ): Promise<HandoffResult> {
-  const result: HandoffResult = { reviewsCreated: 0, reviewExisted: false, policiesCovered: 0 }
+  const result: HandoffResult = {
+    status: 'done', mode: 'none', error: null, reviewsCreated: 0, policiesCovered: 0,
+  }
   const policyIds = Array.from(new Set(args.policyIds.filter(Boolean)))
 
-  if (policyIds.length === 0) {
+  try {
+    // Is the customer in an ACTIVE 1035 project? If so, that project's
+    // document-preparation workflow owns Initial Analysis prep; do not create a
+    // competing general review.
+    const inActive1035 = await customerInActive1035Project(supabase, args.customerId)
+
+    if (inActive1035) {
+      result.mode = 'project_prep'
+    } else if (policyIds.length === 0) {
+      result.mode = 'none'
+    } else {
+      // Reuse an existing review for this pre-review if one is already linked
+      // (prereview_id is unique) — makes the handoff idempotent.
+      const { data: existing } = await supabase
+        .from('policy_reviews')
+        .select('id')
+        .eq('prereview_id', args.prereviewId)
+        .maybeSingle()
+
+      let reviewId = existing?.id ?? null
+      if (reviewId) {
+        result.mode = 'reused_review'
+      } else {
+        const { data: anchor } = await supabase
+          .from('service_policies')
+          .select('id, product_type, customer_id')
+          .eq('id', policyIds[0])
+          .maybeSingle()
+        const reviewNumber = await nextReviewNumber(supabase)
+        const { data: inserted, error: insErr } = await supabase
+          .from('policy_reviews')
+          .insert({
+            review_number: reviewNumber,
+            policy_id:     policyIds[0],
+            customer_id:   anchor?.customer_id ?? args.customerId,
+            review_type:   getReviewType(anchor?.product_type ?? null),
+            status:        'prep',
+            prep_notes:    'Created from completed servicing-agent onboarding (Initial Analysis prep).',
+            prereview_id:  args.prereviewId,
+          })
+          .select('id')
+          .single()
+        if (insErr || !inserted) {
+          throw new Error(`policy_review insert failed: ${insErr?.message ?? 'unknown'}`)
+        }
+        reviewId = inserted.id
+        result.mode = 'created_review'
+        result.reviewsCreated = 1
+      }
+
+      // Bridge every confirmed policy to the one review (idempotent upsert).
+      const bridgeRows = policyIds.map(pid => ({ policy_review_id: reviewId as string, policy_id: pid }))
+      const { error: bridgeErr } = await supabase
+        .from('policy_review_policies')
+        .upsert(bridgeRows, { onConflict: 'policy_review_id,policy_id', ignoreDuplicates: true })
+      if (bridgeErr) {
+        throw new Error(`policy_review_policies upsert failed: ${bridgeErr.message}`)
+      }
+      result.policiesCovered = policyIds.length
+    }
+
+    // Record the producer-facing decision so the item leaves the outreach board.
     await markPrereviewReviewNow(supabase, args.prereviewId)
+    result.status = 'done'
+    return result
+  } catch (e) {
+    result.status = 'failed'
+    result.error = e instanceof Error ? e.message : String(e)
+    console.error('analysis handoff failed:', result.error)
     return result
   }
+}
 
-  // Reuse an existing review for this pre-review if one is already linked
-  // (prereview_id is unique). This makes the handoff idempotent.
-  const { data: existing } = await supabase
-    .from('policy_reviews')
-    .select('id')
-    .eq('prereview_id', args.prereviewId)
-    .maybeSingle()
-
-  let reviewId: string | null = existing?.id ?? null
-
-  if (reviewId) {
-    result.reviewExisted = true
-  } else {
-    // Anchor the single review to the first confirmed policy; derive its type
-    // from that policy's product_type.
-    const { data: anchor } = await supabase
-      .from('service_policies')
-      .select('id, product_type, customer_id')
-      .eq('id', policyIds[0])
-      .maybeSingle()
-    const reviewNumber = await nextReviewNumber(supabase)
-    const { data: inserted, error: insErr } = await supabase
-      .from('policy_reviews')
-      .insert({
-        review_number: reviewNumber,
-        policy_id:     policyIds[0],
-        customer_id:   anchor?.customer_id ?? args.customerId,
-        review_type:   getReviewType(anchor?.product_type ?? null),
-        status:        'prep',
-        prep_notes:    'Created from completed servicing-agent onboarding (Initial Analysis prep).',
-        prereview_id:  args.prereviewId,
-      })
-      .select('id')
-      .single()
-    if (insErr || !inserted) {
-      console.error('analysis handoff: policy_review insert error', insErr)
-      // Still record the decision so the item leaves the outreach board.
-      await markPrereviewReviewNow(supabase, args.prereviewId)
-      return result
-    }
-    reviewId = inserted.id
-    result.reviewsCreated = 1
-  }
-
-  // Bridge every confirmed request policy to the one review. Idempotent via
-  // upsert on the composite PK, so re-running adds nothing and never errors on
-  // a policy already linked.
-  const bridgeRows = policyIds.map(pid => ({ policy_review_id: reviewId as string, policy_id: pid }))
-  const { error: bridgeErr } = await supabase
-    .from('policy_review_policies')
-    .upsert(bridgeRows, { onConflict: 'policy_review_id,policy_id', ignoreDuplicates: true })
-  if (bridgeErr) {
-    console.error('analysis handoff: policy_review_policies upsert error', bridgeErr)
-  } else {
-    result.policiesCovered = policyIds.length
-  }
-
-  await markPrereviewReviewNow(supabase, args.prereviewId)
-  return result
+/** Whether the customer belongs to any ACTIVE (non-archived) 1035 project. */
+async function customerInActive1035Project(
+  supabase: SupabaseClient,
+  customerId: string,
+): Promise<boolean> {
+  const { data } = await supabase
+    .from('project_customers')
+    .select('project_id, projects!inner ( status, project_types!inner ( name ) )')
+    .eq('customer_id', customerId)
+    .eq('projects.status', 'active')
+    .eq('projects.project_types.name', '1035 Exchange')
+    .limit(1)
+  return (data ?? []).length > 0
 }
 
 /**
  * Record the producer-facing decision 'review_now' on the pre-review. Scoped to
  * a still-open (decision null) row so a concurrent decision is never clobbered,
- * and so this is safe to call more than once.
+ * and so this is safe to call more than once. Throws on a DB error so the caller
+ * marks the handoff failed rather than losing it.
  */
 async function markPrereviewReviewNow(supabase: SupabaseClient, prereviewId: string): Promise<void> {
   const { error } = await supabase
     .from('customer_prereviews')
-    .update({ decision: 'review_now', servicing_completed_at: new Date().toISOString() })
+    .update({ decision: 'review_now' })
     .eq('id', prereviewId)
     .is('decision', null)
   if (error) {
-    console.error('analysis handoff: prereview decision update error', error)
+    throw new Error(`prereview decision update failed: ${error.message}`)
   }
 }

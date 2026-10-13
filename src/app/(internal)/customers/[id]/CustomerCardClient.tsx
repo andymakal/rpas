@@ -264,6 +264,24 @@ function SegmentBadge({ segment }: { segment: string | null }) {
   )
 }
 
+/**
+ * Small "customer verified" tick shown beside a contact value when the customer
+ * confirmed it during onboarding (customers.*_verified_at). It stays visible on
+ * the record after onboarding, and a DB trigger clears the flag when the value
+ * changes — so a tick always means "this exact value was confirmed".
+ */
+function VerifiedTick({ at }: { at: string | null }) {
+  if (!at) return null
+  return (
+    <span
+      title={`Customer-verified ${fmtDate(at)}`}
+      className="inline-flex items-center gap-1 rounded-full border border-emerald-800 bg-emerald-900/40 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300"
+    >
+      <Check className="w-2.5 h-2.5" /> Verified
+    </span>
+  )
+}
+
 // ── Servicing-Agent Onboarding ─────────────────────────────────────────────────
 
 /**
@@ -287,27 +305,35 @@ function OnboardingSection({
   return (
     <Section title="Servicing-Agent Onboarding" icon={ClipboardCheck} count={count}>
       <div className="divide-y divide-slate-800">
-        {/* ACTIVE workflow */}
+        {/* ACTIVE workflow (includes a declined item, which is stopped until reopened) */}
         {active && (
           <div className="px-5 py-4">
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 text-xs font-medium bg-teal-900/50 text-teal-300 border border-teal-800 rounded-full px-2.5 py-0.5">
-                  <Send className="w-3 h-3" /> Active
-                </span>
+                {active.refused_at ? (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium bg-amber-900/50 text-amber-300 border border-amber-800 rounded-full px-2.5 py-0.5">
+                    <ShieldOff className="w-3 h-3" /> Declined
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium bg-teal-900/50 text-teal-300 border border-teal-800 rounded-full px-2.5 py-0.5">
+                    <Send className="w-3 h-3" /> Active
+                  </span>
+                )}
                 <span className="text-sm font-medium text-slate-200">{active.status_label}</span>
               </div>
               {active.outreach_id ? (
                 <Link
-                  href={`/stewardship?customer_id=${customerId}`}
+                  href={`/stewardship?item_id=${active.outreach_id}`}
                   className="inline-flex items-center gap-1 text-xs font-medium text-teal-400 hover:text-teal-300"
                 >
-                  Open task <ChevronRight className="w-3.5 h-3.5" />
+                  {active.refused_at ? 'Reopen' : 'Open task'} <ChevronRight className="w-3.5 h-3.5" />
                 </Link>
               ) : null}
             </div>
             <p className="mt-2 text-xs text-slate-400">
-              {`Establishing servicing access · ${active.policies_confirmed} of ${active.policies_total} ${active.policies_total === 1 ? 'policy' : 'policies'} confirmed · started ${fmtDate(active.started_at)}`}
+              {active.refused_at
+                ? `Customer declined on ${fmtDate(active.refused_at)}. Outreach is stopped until reopened.`
+                : `Establishing servicing access · ${active.policies_confirmed} of ${active.policies_total} ${active.policies_total === 1 ? 'policy' : 'policies'} confirmed · started ${fmtDate(active.started_at)}`}
             </p>
           </div>
         )}
@@ -1071,14 +1097,20 @@ export function CustomerCardClient({
                   <div className="mt-4 space-y-2">
                     <div className="flex flex-wrap gap-x-6 gap-y-1.5">
                       {customer.phone && (
-                        <a href={`tel:${customer.phone}`} className="flex items-center gap-1.5 text-sm text-slate-300 hover:text-white transition-colors">
-                          <Phone className="w-3.5 h-3.5 text-slate-500 shrink-0" /> {formatPhone(customer.phone!)}
-                        </a>
+                        <span className="flex items-center gap-1.5">
+                          <a href={`tel:${customer.phone}`} className="flex items-center gap-1.5 text-sm text-slate-300 hover:text-white transition-colors">
+                            <Phone className="w-3.5 h-3.5 text-slate-500 shrink-0" /> {formatPhone(customer.phone!)}
+                          </a>
+                          <VerifiedTick at={customer.phone_verified_at} />
+                        </span>
                       )}
                       {customer.email && (
-                        <a href={`mailto:${customer.email}`} className="flex items-center gap-1.5 text-sm text-slate-300 hover:text-white transition-colors">
-                          <Mail className="w-3.5 h-3.5 text-slate-500 shrink-0" /> {customer.email}
-                        </a>
+                        <span className="flex items-center gap-1.5">
+                          <a href={`mailto:${customer.email}`} className="flex items-center gap-1.5 text-sm text-slate-300 hover:text-white transition-colors">
+                            <Mail className="w-3.5 h-3.5 text-slate-500 shrink-0" /> {customer.email}
+                          </a>
+                          <VerifiedTick at={customer.email_verified_at} />
+                        </span>
                       )}
                       {customer.drive_folder_url && (
                         <a href={customer.drive_folder_url} target="_blank" rel="noopener noreferrer"
@@ -1094,6 +1126,7 @@ export function CustomerCardClient({
                           {customer.street && <>{customer.street}<br /></>}
                           {[customer.city, customer.state, customer.zip].filter(Boolean).join(', ')}
                         </span>
+                        <VerifiedTick at={customer.address_verified_at} />
                       </div>
                     )}
                     <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-xs text-slate-500">

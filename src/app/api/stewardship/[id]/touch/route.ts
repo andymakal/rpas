@@ -18,9 +18,17 @@ import { requireInternalAdmin } from '@/lib/stewardship/auth'
  * customer record's shared communication log exactly like the other
  * servicing-agent touches.
  *
- * Body: { touch_type: 'call' | 'voicemail' | 'text' | 'email', notes?: string }
- *   - touch_type maps to case_touches.touch_type. A Hearsay text is 'text'.
- *   - notes is the free-text outcome of the conversation (optional).
+ * One outreach ATTEMPT can touch the customer on several channels at once (a
+ * call plus a Hearsay text plus an email, for example). The worker records the
+ * channels they ACTUALLY completed in that attempt; each completed channel
+ * becomes its own case_touches row. Channels not completed are simply omitted —
+ * nothing fictitious is logged.
+ *
+ * Body (either form is accepted):
+ *   { channels: Array<{ touch_type, notes? }> }   — the multi-channel attempt
+ *   { touch_type, notes? }                        — a single channel (legacy)
+ *   touch_type maps to case_touches.touch_type. A Hearsay text is 'text'.
+ *   notes is the free-text outcome for that channel (optional).
  */
 
 const ALLOWED_TOUCH_TYPES = ['call', 'voicemail', 'text', 'email'] as const
@@ -53,21 +61,41 @@ export async function POST(
 
   const { id } = await params
 
-  let body: { touch_type?: string; notes?: string }
+  let body: {
+    touch_type?: string
+    notes?: string
+    channels?: Array<{ touch_type?: string; notes?: string }>
+  }
   try {
     body = await request.json()
   } catch {
     return Response.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const touchType = body.touch_type as TouchType | undefined
-  if (!touchType || !ALLOWED_TOUCH_TYPES.includes(touchType)) {
+  // Accept the multi-channel attempt form OR the single-channel legacy form.
+  // Only channels the worker actually completed are present; empties are dropped.
+  const rawChannels = Array.isArray(body.channels)
+    ? body.channels
+    : (body.touch_type ? [{ touch_type: body.touch_type, notes: body.notes }] : [])
+
+  const channels: { touchType: TouchType; notes: string }[] = []
+  for (const ch of rawChannels) {
+    const t = ch.touch_type as TouchType | undefined
+    if (!t || !ALLOWED_TOUCH_TYPES.includes(t)) {
+      return Response.json(
+        { error: `Each channel touch_type must be one of: ${ALLOWED_TOUCH_TYPES.join(', ')}` },
+        { status: 400 },
+      )
+    }
+    channels.push({ touchType: t, notes: typeof ch.notes === 'string' ? ch.notes.trim() : '' })
+  }
+
+  if (channels.length === 0) {
     return Response.json(
-      { error: `touch_type must be one of: ${ALLOWED_TOUCH_TYPES.join(', ')}` },
+      { error: 'Record at least one completed channel (call, voicemail, text, or email).' },
       { status: 400 },
     )
   }
-  const notes = typeof body.notes === 'string' ? body.notes.trim() : ''
 
   const supabase = createAdminClient()
 
@@ -85,27 +113,31 @@ export async function POST(
   }).customer_prereviews.customer_id
 
   const touchedBy = await resolveEmployeeName(supabase)
+  const touchedAt = new Date().toISOString()
 
   const typeLabel: Record<TouchType, string> = {
     call: 'Call', voicemail: 'Voicemail', text: 'Text', email: 'Email',
   }
-  const prefix = `Servicing-agent onboarding ${typeLabel[touchType].toLowerCase()}`
-  const finalNotes = notes ? `${prefix}: ${notes}` : `${prefix}.`
 
-  const { error: touchErr } = await supabase
-    .from('case_touches')
-    .insert({
+  // One case_touches row per COMPLETED channel in this attempt. Same timestamp
+  // so the channels of a single attempt read together in history.
+  const rows = channels.map(({ touchType, notes }) => {
+    const prefix = `Servicing-agent onboarding ${typeLabel[touchType].toLowerCase()}`
+    return {
       customer_id: customerId,
       case_id:     null,
       touch_type:  touchType,
-      notes:       finalNotes,
-      touched_at:  new Date().toISOString(),
+      notes:       notes ? `${prefix}: ${notes}` : `${prefix}.`,
+      touched_at:  touchedAt,
       touched_by:  touchedBy,
-    })
+    }
+  })
+
+  const { error: touchErr } = await supabase.from('case_touches').insert(rows)
   if (touchErr) {
     console.error('stewardship ad-hoc touch log error:', touchErr)
     return Response.json({ error: 'Could not record the history entry.' }, { status: 500 })
   }
 
-  return Response.json({ data: { ok: true } }, { status: 201 })
+  return Response.json({ data: { ok: true, recorded: rows.length } }, { status: 201 })
 }

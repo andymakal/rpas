@@ -27,12 +27,13 @@ type OutreachRow = {
   submitted_at: string | null
   carrier_correction: string | null
   form_delivery_method: 'email' | 'postal' | null
+  refused_at: string | null
 }
 
 const OUTREACH_COLUMNS =
   'id, prereview_id, queue, call_reason, research_reason, last_call_outcome, ' +
   'callback_date, email_sent_at, follow_up_due, form_received_at, submitted_at, carrier_correction, ' +
-  'form_delivery_method'
+  'form_delivery_method, refused_at'
 
 /**
  * Resolve the signed-in employee's display name for a touch log, mirroring the
@@ -80,7 +81,7 @@ export async function GET(
       ${OUTREACH_COLUMNS},
       customer_prereviews!inner (
         id, customer_id, source_agency_id, decision,
-        customers!inner ( id, first_name, last_name, email, phone, date_of_birth, address_line1, city, state, zip, phone_verified_at, email_verified_at, address_verified_at )
+        customers!inner ( id, first_name, last_name, email, phone, date_of_birth, street, address_line1, city, state, zip, phone_verified_at, email_verified_at, address_verified_at )
       )
     `)
     .eq('id', id)
@@ -133,7 +134,7 @@ export async function GET(
   const cust = pre.customers as {
     id: string; first_name: string; last_name: string
     email: string | null; phone: string | null; date_of_birth: string | null
-    address_line1: string | null; city: string | null; state: string | null; zip: string | null
+    street: string | null; address_line1: string | null; city: string | null; state: string | null; zip: string | null
     phone_verified_at: string | null; email_verified_at: string | null; address_verified_at: string | null
   }
 
@@ -158,6 +159,7 @@ export async function GET(
       submitted_at: o.submitted_at,
       carrier_correction: o.carrier_correction,
       form_delivery_method: o.form_delivery_method,
+      refused_at: o.refused_at,
       // Customer-verified contact flags now live PERMANENTLY on the customer
       // record (they must survive outreach completion), so they are returned
       // from the joined customer, not the temporary outreach row.
@@ -281,6 +283,7 @@ export async function PATCH(
     submitted_at: row.submitted_at,
     carrier_correction: row.carrier_correction,
     form_delivery_method: row.form_delivery_method,
+    refused_at: row.refused_at,
     has_usable_phone: !!row.customer_prereviews.customers?.phone?.trim(),
   }
 
@@ -317,7 +320,7 @@ export async function PATCH(
       reached: 'Reached the customer.',
       voicemail: 'Left a voicemail. Follow-up auto-scheduled.',
       'bad-number': 'Bad number. Moved to Research Needed.',
-      'not-interested': 'Customer not interested. No further outreach; a human decides any next step.',
+      'not-interested': 'Customer declined. Outreach stopped until deliberately reopened.',
       callback: `Customer asked for a callback${action.callback_date ? ` on ${action.callback_date}` : ''}.`,
     }
     const touchedBy = await resolveEmployeeName(supabase)
@@ -356,6 +359,43 @@ export async function PATCH(
       })
     if (touchErr) {
       console.error('stewardship form-sent touch log error:', touchErr)
+    }
+  }
+
+  // form-returned: the signed form came back on its own after the intro email.
+  // Record the RECEIPT only — never a fictitious second mailing/send.
+  if (action.type === 'form-returned') {
+    const touchedBy = await resolveEmployeeName(supabase)
+    const { error: touchErr } = await supabase
+      .from('case_touches')
+      .insert({
+        customer_id: customerId,
+        case_id:     null,
+        touch_type:  'email', // inbound return (scan/email is the usual channel)
+        notes:       'Signed servicing-agent form returned by the customer (no re-send; the form went with the introductory email).',
+        touched_at:  new Date().toISOString(),
+        touched_by:  touchedBy,
+      })
+    if (touchErr) {
+      console.error('stewardship form-returned touch log error:', touchErr)
+    }
+  }
+
+  // reopen: a refused item was deliberately reopened for further outreach.
+  if (action.type === 'reopen') {
+    const touchedBy = await resolveEmployeeName(supabase)
+    const { error: touchErr } = await supabase
+      .from('case_touches')
+      .insert({
+        customer_id: customerId,
+        case_id:     null,
+        touch_type:  'call',
+        notes:       'Servicing-agent onboarding reopened after a prior refusal.',
+        touched_at:  new Date().toISOString(),
+        touched_by:  touchedBy,
+      })
+    if (touchErr) {
+      console.error('stewardship reopen touch log error:', touchErr)
     }
   }
 
@@ -471,16 +511,30 @@ export async function PATCH(
         console.error('stewardship Wanderer->Explorer promotion error:', promoteErr)
       }
 
-      // 3. Initial Analysis handoff (reviews + decision = review_now). Reuses the
-      // existing policy_reviews vehicle; idempotent and best-effort.
+      // 3. Initial Analysis handoff. For a 1035-project customer this defers to
+      // that project's document-preparation workflow (no duplicate review); for
+      // everyone else it creates the prep review. The OUTCOME is persisted to
+      // the pre-review so a failed handoff is never silently lost — it stays
+      // visible and retryable (handoff_status = 'failed' + handoff_error).
+      let handoff
       try {
-        await handoffToInitialAnalysis(supabase, {
+        handoff = await handoffToInitialAnalysis(supabase, {
           prereviewId,
           customerId,
           policyIds: requestPolicyIds,
         })
       } catch (e) {
-        console.error('stewardship Initial Analysis handoff error:', e)
+        handoff = { status: 'failed' as const, error: e instanceof Error ? e.message : String(e) }
+      }
+      const { error: hsErr } = await supabase
+        .from('customer_prereviews')
+        .update({
+          handoff_status: handoff.status,
+          handoff_error:  handoff.status === 'failed' ? (handoff.error ?? 'Unknown handoff error') : null,
+        })
+        .eq('id', prereviewId)
+      if (hsErr) {
+        console.error('stewardship handoff status persist error:', hsErr)
       }
 
       // Finally, delete the outreach row (cascades stewardship_outreach_policies).

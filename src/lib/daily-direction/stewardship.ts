@@ -49,6 +49,7 @@ type BoardRow = {
   call_reason: string | null
   callback_date: string | null
   follow_up_due: string | null
+  refused_at: string | null
   customer_prereviews: {
     decision: string | null
     customers: { id: string; first_name: string; last_name: string }
@@ -86,7 +87,7 @@ export async function getDailyDirection(
   const { data, error } = await supabase
     .from('stewardship_outreach')
     .select(`
-      id, queue, call_reason, callback_date, follow_up_due,
+      id, queue, call_reason, callback_date, follow_up_due, refused_at,
       customer_prereviews!inner (
         decision,
         customers!inner ( id, first_name, last_name )
@@ -100,8 +101,10 @@ export async function getDailyDirection(
 
   // Only OPEN items (undecided pre-review) are stewardship work, exactly as the
   // board route filters.
+  // Open items only, and never a refused one (an explicit refusal stops outreach
+  // until a deliberate reopen), matching the board's suppression.
   const rows = ((data ?? []) as unknown as BoardRow[]).filter(
-    (r) => r.customer_prereviews?.decision == null,
+    (r) => r.customer_prereviews?.decision == null && r.refused_at == null,
   )
 
   // READ-ONLY follow-up routing. The board route persists the promotion of

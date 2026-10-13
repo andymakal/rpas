@@ -127,8 +127,10 @@ type Detail = BoardItem & {
   email_verified_at: string | null
   address_verified_at: string | null
   form_delivery_method: 'email' | 'postal' | null
+  refused_at: string | null
   customer: Customer & {
     date_of_birth: string | null
+    street: string | null
     address_line1: string | null
     city: string | null
     state: string | null
@@ -159,6 +161,15 @@ function fullName(c: Customer) {
   return `${c.first_name} ${c.last_name}`.trim()
 }
 
+/**
+ * The mailing street line for a customer. Real data stores it in `street`;
+ * `address_line1` exists but is empty in practice. Prefer street, fall back to
+ * address_line1.
+ */
+function streetLine(c: { street?: string | null; address_line1?: string | null }): string {
+  return (c.street ?? c.address_line1 ?? '').trim()
+}
+
 function currency(n: number | null) {
   if (n == null) return '\u2014'
   return n.toLocaleString('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })
@@ -169,6 +180,7 @@ export function StewardshipClient({
   project = null,
   initialQueue = null,
   initialCustomerId = null,
+  initialItemId = null,
   actorTimeZone = null,
 }: {
   agencies: AgencyOption[]
@@ -181,6 +193,10 @@ export function StewardshipClient({
    * board opens that one customer's outreach task directly once it loads, so a
    * per-customer link lands on the actual task rather than the whole board. */
   initialCustomerId?: string | null
+  /** When set (via the ?item_id= param), open this exact outreach task directly.
+   * Unlike customer_id this does not depend on the item appearing on the board,
+   * so a suppressed (e.g. refused) item is still reachable to reopen. */
+  initialItemId?: string | null
   /** The signed-in employee's detected IANA timezone, used to judge date-only
    * callback due on the actor's calendar for the queue-list sort. */
   actorTimeZone?: string | null
@@ -191,7 +207,7 @@ export function StewardshipClient({
   )
   const [loading, setLoading] = useState(true)
   const [openQueue, setOpenQueue] = useState<OutreachQueue | null>(initialQueue)
-  const [openItemId, setOpenItemId] = useState<string | null>(null)
+  const [openItemId, setOpenItemId] = useState<string | null>(initialItemId)
   // Claiming (optional soft lease) is only shown on the actionable outreach
   // queues. claimBusy tracks the row currently being claimed/released; claimMsg
   // surfaces an eligibility/conflict message from the claim endpoint.
@@ -791,6 +807,12 @@ function TaskAction({
     </div>
   )
 
+  // A refused item shows a stop state and a deliberate Reopen; outreach stays
+  // suppressed everywhere else until it is reopened here.
+  if (detail.refused_at) {
+    return <RefusedAction detail={detail} busy={busy} noteBox={noteBox} act={act} />
+  }
+
   switch (detail.queue) {
     case 'ready-to-email':
       return (
@@ -848,7 +870,7 @@ function ServicingFormDelivery({
   const [prepError, setPrepError] = useState<string | null>(null)
   const [generated, setGenerated] = useState(false)
   const [method, setMethod] = useState<'email' | 'postal'>(detail.form_delivery_method ?? 'email')
-  const customerHasAddress = !!(detail.customer.address_line1 && detail.customer.city && detail.customer.state && detail.customer.zip)
+  const customerHasAddress = !!(streetLine(detail.customer) && detail.customer.city && detail.customer.state && detail.customer.zip)
 
   const everlake = request.filter(h => h.carrier && EVERLAKE_CARRIER_PATTERN.test(h.carrier))
   const formPolicies = everlake.length > 0 ? everlake : request
@@ -978,7 +1000,7 @@ function ReadyToEmailAction({
   noteBox: React.ReactNode
   act: (action: unknown, successNote?: string) => void
 }) {
-  const customerHasAddress = !!(detail.customer.address_line1 && detail.customer.city && detail.customer.state && detail.customer.zip)
+  const customerHasAddress = !!(streetLine(detail.customer) && detail.customer.city && detail.customer.state && detail.customer.zip)
   return (
     <ActionPanel heading={`Reach out to ${name}`}>
       {noteBox}
@@ -1005,6 +1027,42 @@ function ReadyToEmailAction({
         {customerHasAddress ? '' : ' once a mailing address is on file'}), then record it. Recording it moves
         {' '}{detail.customer.first_name} to Waiting for Response. A bounce routes to Ready to Call when a phone
         is on file, or Research Needed when it is not. Nothing is sent or closed automatically.
+      </NextNote>
+    </ActionPanel>
+  )
+}
+
+/**
+ * A customer who explicitly declined. Outreach is stopped and the item no longer
+ * surfaces on the board; this screen (reached from the customer record) states
+ * the stop and offers a deliberate Reopen. Nothing is auto-closed.
+ */
+function RefusedAction({
+  detail, busy, noteBox, act,
+}: {
+  detail: Detail
+  busy: boolean
+  noteBox: React.ReactNode
+  act: (action: unknown, successNote?: string) => void
+}) {
+  return (
+    <ActionPanel heading={`${detail.customer.first_name} declined`}>
+      {noteBox}
+      <div className="flex items-start gap-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-4 text-base text-status-attention-strong">
+        <CircleAlert className="mt-0.5 size-5 shrink-0" aria-hidden />
+        <span>
+          This customer explicitly declined further servicing-agent outreach
+          {detail.refused_at ? ` on ${shortDate(detail.refused_at)}` : ''}. Outreach is stopped: they do
+          not appear on the board or in anyone&apos;s work until reopened. Nothing was closed.
+        </span>
+      </div>
+      <WorkflowButton icon={Play} selected disabled={busy}
+        onClick={() => act({ type: 'reopen' }, 'Reopened. The customer returns to active outreach.')}>
+        Reopen outreach
+      </WorkflowButton>
+      <NextNote>
+        Reopening clears the refusal and returns the customer to active outreach. Only do this on a
+        deliberate decision to re-engage.
       </NextNote>
     </ActionPanel>
   )
@@ -1052,9 +1110,18 @@ function WaitingForResponseAction({
       )}
       <div className="space-y-2 border-t border-slate-100 pt-4">
         <p className="text-base font-semibold text-slate-700">When the customer engages</p>
+        {/* The signed form may come straight back — the introductory email
+            already carried it. Record the RETURN without logging a second
+            mailing. Only shown on the email path. */}
+        {!afterVoicemail && (
+          <WorkflowButton icon={FileText} selected disabled={busy}
+            onClick={() => act({ type: 'form-returned' }, 'Signed form received. Moved to Waiting for Form.')}>
+            Signed form returned (no re-send)
+          </WorkflowButton>
+        )}
         <WorkflowButton icon={FileText} disabled={busy}
           onClick={() => act({ type: 'form-sent' }, 'Form sent. Moved to Waiting for Form.')}>
-          Form sent to customer
+          {afterVoicemail ? 'Form sent to customer' : 'Re-sent the form to the customer'}
         </WorkflowButton>
         {!afterVoicemail && (
           <WorkflowButton icon={MailX} disabled={busy}
@@ -1470,7 +1537,7 @@ function CustomerContext({
   act: (action: unknown, successNote?: string) => void
 }) {
   const c = detail.customer
-  const addr = [c.address_line1, [c.city, c.state].filter(Boolean).join(', '), c.zip].filter(Boolean).join(' \u00b7 ')
+  const addr = [streetLine(c), [c.city, c.state].filter(Boolean).join(', '), c.zip].filter(Boolean).join(' \u00b7 ')
   // A customer-verified value reads as green ("confirmed"); on file but
   // unverified reads as amber ("on file, not confirmed"); missing reads red.
   const fieldStatus = (present: boolean, verifiedAt: string | null) =>
@@ -1516,7 +1583,7 @@ function ContactVerification({
   act: (action: unknown, successNote?: string) => void
 }) {
   const c = detail.customer
-  const hasAddress = !!(c.address_line1 && c.city && c.state && c.zip)
+  const hasAddress = !!(streetLine(c) && c.city && c.state && c.zip)
   const rows: { field: 'phone' | 'email' | 'address'; label: string; present: boolean; verifiedAt: string | null }[] = [
     { field: 'phone', label: 'Phone', present: !!c.phone, verifiedAt: detail.phone_verified_at },
     { field: 'email', label: 'Email', present: !!c.email, verifiedAt: detail.email_verified_at },
@@ -1555,37 +1622,48 @@ function ContactVerification({
 }
 
 /**
- * Record an ad-hoc outreach touch (call, voicemail, Hearsay text, or email) with
- * an optional conversation outcome. Writes to the customer's history via
- * /api/stewardship/[id]/touch; it never changes the queue. The specific
- * workflow transitions (recorded call outcomes, the SA email, form-sent) already
- * log their own touches — this is for everything else the worker wants on the
- * record, including texting outcomes.
+ * Record ONE outreach attempt across multiple channels at once. A single attempt
+ * often touches the customer by call AND Hearsay text AND email together; the
+ * worker checks the channels they ACTUALLY completed and gives each an optional
+ * outcome. Only checked channels are recorded (each becomes its own history
+ * entry) — nothing is logged for a channel left unchecked. Writes to the
+ * customer's history via /api/stewardship/[id]/touch; never changes the queue.
  */
+type ContactChannelId = 'call' | 'voicemail' | 'text' | 'email'
+
 function LogContactPanel({ itemId, customerFirstName }: { itemId: string; customerFirstName: string }) {
-  const TYPES: { id: 'call' | 'voicemail' | 'text' | 'email'; label: string }[] = [
+  const CHANNELS: { id: ContactChannelId; label: string }[] = [
     { id: 'call', label: 'Call' },
     { id: 'voicemail', label: 'Voicemail' },
-    { id: 'text', label: 'Text' },
+    { id: 'text', label: 'Text (Hearsay)' },
     { id: 'email', label: 'Email' },
   ]
-  const [type, setType] = useState<'call' | 'voicemail' | 'text' | 'email'>('call')
-  const [notes, setNotes] = useState('')
+  // Per-channel: whether it was completed in this attempt, and its outcome note.
+  const [done, setDone] = useState<Record<ContactChannelId, boolean>>({ call: false, voicemail: false, text: false, email: false })
+  const [notes, setNotes] = useState<Record<ContactChannelId, string>>({ call: '', voicemail: '', text: '', email: '' })
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
+  const anyChecked = CHANNELS.some(c => done[c.id])
+
   async function log() {
+    const channels = CHANNELS
+      .filter(c => done[c.id])
+      .map(c => ({ touch_type: c.id, notes: notes[c.id].trim() }))
+    if (channels.length === 0) return
     setBusy(true); setMsg(null)
     try {
       const res = await fetch(`/api/stewardship/${itemId}/touch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ touch_type: type, notes: notes.trim() }),
+        body: JSON.stringify({ channels }),
       })
       const json = await res.json()
       if (!res.ok) { setMsg(json.error ?? 'Could not record.'); return }
-      setMsg('Recorded in history.')
-      setNotes('')
+      const n = json.data?.recorded ?? channels.length
+      setMsg(`Recorded ${n} ${n === 1 ? 'channel' : 'channels'} in history.`)
+      setDone({ call: false, voicemail: false, text: false, email: false })
+      setNotes({ call: '', voicemail: '', text: '', email: '' })
     } catch {
       setMsg('Network error.')
     } finally {
@@ -1595,29 +1673,38 @@ function LogContactPanel({ itemId, customerFirstName }: { itemId: string; custom
 
   return (
     <div className="rounded-xl border border-surface-border bg-surface-card p-4">
-      <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">Log a contact</p>
+      <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">Log this attempt</p>
       <p className="mt-1 text-sm text-ink-secondary">
-        Record a call, voicemail, text, or email with {customerFirstName}, and the outcome. Added to the
-        customer&apos;s history.
+        Check every channel you actually reached {customerFirstName} on in this attempt, with the outcome.
+        Only checked channels are added to the history.
       </p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {TYPES.map(t => (
-          <WorkflowButton key={t.id} selected={type === t.id} disabled={busy} onClick={() => setType(t.id)}>
-            {type === t.id && <Check className="size-4" aria-hidden />}
-            {t.label}
-          </WorkflowButton>
+      <div className="mt-3 space-y-2">
+        {CHANNELS.map(c => (
+          <div key={c.id} className="rounded-lg border border-surface-border p-2.5">
+            <label className="flex cursor-pointer items-center gap-2.5 text-base font-medium text-ink">
+              <input
+                type="checkbox"
+                checked={done[c.id]}
+                disabled={busy}
+                onChange={e => setDone(d => ({ ...d, [c.id]: e.target.checked }))}
+                className="size-4 rounded border-slate-400 text-teal-600 focus:ring-teal-500"
+              />
+              {c.label}
+            </label>
+            {done[c.id] && (
+              <input
+                value={notes[c.id]}
+                onChange={e => setNotes(n => ({ ...n, [c.id]: e.target.value }))}
+                placeholder="Outcome (optional)"
+                className="mt-2 w-full rounded-lg border border-surface-border-strong bg-surface-card px-3 py-1.5 text-sm text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-ring/40"
+              />
+            )}
+          </div>
         ))}
       </div>
-      <textarea
-        value={notes}
-        onChange={e => setNotes(e.target.value)}
-        rows={2}
-        placeholder="What happened? (optional)"
-        className="mt-3 w-full rounded-lg border border-surface-border-strong bg-surface-card px-3 py-2 text-sm text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-ring/40"
-      />
-      <div className="mt-2 flex items-center gap-3">
-        <WorkflowButton icon={PenLine} selected disabled={busy} onClick={log}>
-          {busy ? 'Recording…' : 'Record in history'}
+      <div className="mt-3 flex items-center gap-3">
+        <WorkflowButton icon={PenLine} selected disabled={busy || !anyChecked} onClick={log}>
+          {busy ? 'Recording…' : 'Record attempt'}
         </WorkflowButton>
         {msg && <span className="text-sm font-medium text-ink-secondary">{msg}</span>}
       </div>

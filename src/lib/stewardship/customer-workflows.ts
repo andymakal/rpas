@@ -34,10 +34,12 @@ export type ActiveOnboarding = {
   prereview_id: string
   outreach_id: string | null
   phase: OnboardingPhase
-  /** Human-readable current status, e.g. a queue label. */
+  /** Human-readable current status, e.g. a queue label or "Declined (stopped)". */
   status_label: string
   /** The current queue when outreach is live. */
   queue: OutreachQueue | null
+  /** When set, the customer declined; outreach is stopped until reopened. */
+  refused_at: string | null
   started_at: string
   /** Servicing-access roll-up across the request / known policies. */
   policies_total: number
@@ -73,6 +75,7 @@ type OutreachRow = {
   prereview_id: string
   queue: OutreachQueue
   created_at: string
+  refused_at: string | null
 }
 
 /**
@@ -118,7 +121,7 @@ export async function getCustomerOnboarding(
     // Is outreach still running for this open item?
     const { data: outRows } = await supabase
       .from('stewardship_outreach')
-      .select('id, prereview_id, queue, created_at')
+      .select('id, prereview_id, queue, created_at, refused_at')
       .eq('prereview_id', openPrereview.id)
       .limit(1)
     const outreach = ((outRows ?? []) as OutreachRow[])[0] ?? null
@@ -128,8 +131,11 @@ export async function getCustomerOnboarding(
         prereview_id: openPrereview.id,
         outreach_id: outreach.id,
         phase: 'outreach',
-        status_label: QUEUE_META[outreach.queue]?.label ?? 'In outreach',
+        status_label: outreach.refused_at
+          ? 'Declined — outreach stopped'
+          : (QUEUE_META[outreach.queue]?.label ?? 'In outreach'),
         queue: outreach.queue,
+        refused_at: outreach.refused_at,
         started_at: openPrereview.created_at,
         policies_total: policiesTotal,
         policies_confirmed: policiesConfirmed,

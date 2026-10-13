@@ -161,6 +161,7 @@ type BoardRow = {
   queue: OutreachQueue
   callback_date: string | null
   follow_up_due: string | null
+  refused_at: string | null
   claimed_by_producer_id: string | null
   customer_prereviews: { decision: string | null; customer_id: string }
 }
@@ -361,14 +362,16 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   const { data: boardData, error: boardErr } = await supabase
     .from('stewardship_outreach')
     .select(`
-      id, queue, callback_date, follow_up_due, claimed_by_producer_id,
+      id, queue, callback_date, follow_up_due, refused_at, claimed_by_producer_id,
       customer_prereviews!inner ( decision, customer_id )
     `)
     .order('updated_at', { ascending: true })
   if (boardErr) throw new Error(`MY WORK board read failed: ${boardErr.message}`)
 
+  // Open items only, and never a refused one (explicit refusal stops outreach),
+  // matching the board's suppression.
   const openRows = ((boardData ?? []) as unknown as BoardRow[]).filter(
-    (r) => r.customer_prereviews?.decision == null,
+    (r) => r.customer_prereviews?.decision == null && r.refused_at == null,
   )
 
   // Project association for the open board customers: which project(s) each

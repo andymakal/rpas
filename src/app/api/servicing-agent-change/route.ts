@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
   if (customerId && (!ownerName || isPostal)) {
     const { data: customer, error } = await supabase
       .from('customers')
-      .select('first_name, last_name, address_line1, city, state, zip')
+      .select('first_name, last_name, street, address_line1, city, state, zip')
       .eq('id', customerId)
       .single()
     if (error || !customer) {
@@ -63,7 +63,10 @@ export async function GET(request: NextRequest) {
       ownerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ').trim()
     }
     if (isPostal) {
-      const hasAddress = Boolean(customer.address_line1 && customer.city && customer.state && customer.zip)
+      // Real data stores the mailing street in `street`; `address_line1` exists
+      // but is empty in practice. Prefer street, fall back to address_line1.
+      const streetLine = (customer.street ?? customer.address_line1 ?? '').trim()
+      const hasAddress = Boolean(streetLine && customer.city && customer.state && customer.zip)
       if (!hasAddress) {
         return NextResponse.json(
           { error: 'This customer has no complete mailing address on file. Add one before generating a postal packet.' },
@@ -72,7 +75,7 @@ export async function GET(request: NextRequest) {
       }
       postalTo = {
         name: ownerName || [customer.first_name, customer.last_name].filter(Boolean).join(' ').trim(),
-        line1: customer.address_line1,
+        line1: streetLine,
         city: customer.city,
         state: customer.state,
         zip: customer.zip,

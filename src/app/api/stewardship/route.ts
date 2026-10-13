@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { resolveProducerForUser } from '@/lib/capabilities/resolve'
-import { QUEUE_META, deriveFollowUpRouting, type OutreachQueue } from '@/lib/stewardship/queues'
+import { QUEUE_META, deriveFollowUpRouting, isWaitingFollowUpDue, type OutreachQueue } from '@/lib/stewardship/queues'
 
 /**
  * GET /api/stewardship
@@ -84,7 +84,7 @@ export async function GET(request: NextRequest) {
     .select(`
       id, prereview_id, queue, call_reason, research_reason, last_call_outcome,
       callback_date, email_sent_at, follow_up_due, form_received_at, submitted_at, carrier_correction,
-      updated_at, claimed_by_producer_id,
+      refused_at, updated_at, claimed_by_producer_id,
       customer_prereviews!inner (
         id, customer_id, source_agency_id, decision,
         customers!inner ( id, first_name, last_name, email, phone )
@@ -114,6 +114,7 @@ export async function GET(request: NextRequest) {
     form_received_at: string | null
     submitted_at: string | null
     carrier_correction: string | null
+    refused_at: string | null
     claimed_by_producer_id: string | null
     customer_prereviews: {
       id: string
@@ -123,11 +124,14 @@ export async function GET(request: NextRequest) {
   }
 
   // Only open items (decision still null) belong on the outreach board. A
-  // decided pre-review is no longer stewardship/outreach work. When a project
-  // scope is set, also drop any item whose customer is not in the project, so
-  // both the list and the counts below reflect only this project's work.
+  // decided pre-review is no longer stewardship/outreach work. A REFUSED item is
+  // suppressed from the board until it is deliberately reopened (an explicit
+  // refusal stops outreach). When a project scope is set, also drop any item
+  // whose customer is not in the project, so both the list and the counts below
+  // reflect only this project's work.
   const rows = ((data ?? []) as unknown as Row[]).filter(r => {
     if (r.customer_prereviews?.decision != null) return false
+    if (r.refused_at != null) return false
     if (projectCustomerIds && !projectCustomerIds.has(r.customer_prereviews.customers.id)) return false
     return true
   })
@@ -160,6 +164,10 @@ export async function GET(request: NextRequest) {
     form_received_at: r.form_received_at,
     submitted_at: r.submitted_at,
     carrier_correction: r.carrier_correction,
+    // Waiting-for-form / waiting-for-carrier items whose chase window has lapsed
+    // are flagged follow-up-due so the list can surface them for a nudge without
+    // changing their (legitimately waiting) queue.
+    follow_up_due_now: isWaitingFollowUpDue({ queue: r.queue, follow_up_due: r.follow_up_due, refused_at: r.refused_at }, now),
     prereview_id: r.customer_prereviews.id,
     customer: r.customer_prereviews.customers,
     // Optional soft-lease claim (shared by default). is_mine lets the list mark

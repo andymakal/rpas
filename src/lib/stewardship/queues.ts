@@ -62,6 +62,16 @@ export const INITIAL_EMAIL_FOLLOW_UP_DAYS = 2
  */
 export const FOLLOW_UP_INTERVAL_DAYS = 2
 
+/**
+ * How many days to wait before nudging a follow-up on work that is waiting on
+ * the CUSTOMER to return the signed form (waiting-for-form) or on the CARRIER to
+ * confirm (waiting-for-carrier). These are legitimately waiting states, so the
+ * nudge does NOT change the queue; it just marks the item follow-up-due so it
+ * resurfaces for a chase. Rolled forward on each nudge; no attempt limit.
+ */
+export const AWAITING_SIGNATURE_FOLLOW_UP_DAYS = 5
+export const AWAITING_CARRIER_FOLLOW_UP_DAYS = 7
+
 export interface QueueMeta {
   id: OutreachQueue
   label: string
@@ -137,6 +147,10 @@ export type OutreachAction =
   | { type: 'email-bounced' }        // emailed outreach bounced
   | { type: 'call-outcome'; outcome: CallOutcome; callback_date?: string | null }
   | { type: 'form-sent' }            // after a reached call, the form is (re)sent
+  // Signed form came back on its own after the intro email (which already
+  // carried the form) — advance to waiting-for-form WITHOUT recording a second
+  // send. Distinct from form-sent so no fictitious mailing is logged.
+  | { type: 'form-returned' }
   | { type: 'research-found'; found: 'email' | 'phone' | 'nothing' }
   | { type: 'form-received' }        // signed form came back (before submit)
   | { type: 'submit-to-carrier' }
@@ -154,6 +168,9 @@ export type OutreachAction =
   // Record which channel the authorization form is delivered through. An
   // operator decision that does not, by itself, change the queue.
   | { type: 'set-delivery-method'; method: FormDeliveryMethod }
+  // Reopen a refused item: clear refused_at and return it to active outreach.
+  // The deliberate, human-initiated reversal of an explicit refusal.
+  | { type: 'reopen' }
 
 export interface OutreachState {
   queue: OutreachQueue
@@ -168,6 +185,10 @@ export interface OutreachState {
   carrier_correction: string | null
   // Chosen authorization-form delivery channel; null until the worker picks one.
   form_delivery_method: FormDeliveryMethod | null
+  // When set, the customer explicitly declined further outreach. The item is
+  // suppressed from actionable/resurfacing reads until an explicit reopen clears
+  // it. Human-recorded, reversible; never an automatic lost/closed state.
+  refused_at: string | null
   /**
    * Whether the customer currently has a usable phone. Not stored on the
    * outreach row (contact facts live on customers); supplied by the caller so
@@ -206,15 +227,41 @@ function addDays(iso: string, days: number): string {
  * Ready to Call (reason: no-response). This is derived from follow_up_due vs
  * now, so overdue work surfaces in the right queue without manual housekeeping.
  * Returns a patch to apply, or null when nothing is overdue.
+ *
+ * A REFUSED item is never resurfaced: an explicit refusal stops outreach until
+ * a deliberate reopen.
  */
 export function deriveFollowUpRouting(
-  state: Pick<OutreachState, 'queue' | 'follow_up_due'>,
+  state: Pick<OutreachState, 'queue' | 'follow_up_due'> & { refused_at?: string | null },
   now: Date = new Date(),
 ): OutreachPatch | null {
+  if (state.refused_at) return null
   if (state.queue !== 'waiting-for-response') return null
   if (!state.follow_up_due) return null
   if (new Date(state.follow_up_due).getTime() > now.getTime()) return null
   return { queue: 'ready-to-call', call_reason: 'no-response' }
+}
+
+/**
+ * Whether a WAITING item (awaiting the signed form or awaiting carrier
+ * confirmation) is due for a follow-up chase. Unlike deriveFollowUpRouting this
+ * does NOT change the queue — those items are legitimately waiting on the
+ * customer or carrier — it only reports that the follow-up window has lapsed so
+ * the item resurfaces for a nudge. A refused item is never due.
+ */
+export function isWaitingFollowUpDue(
+  state: Pick<OutreachState, 'queue' | 'follow_up_due'> & { refused_at?: string | null },
+  now: Date = new Date(),
+): boolean {
+  if (state.refused_at) return false
+  if (state.queue !== 'waiting-for-form' && state.queue !== 'waiting-for-carrier') return false
+  if (!state.follow_up_due) return false
+  return new Date(state.follow_up_due).getTime() <= now.getTime()
+}
+
+/** The follow-up interval (days) for a given waiting queue. */
+export function waitingFollowUpDays(queue: OutreachQueue): number {
+  return queue === 'waiting-for-carrier' ? AWAITING_CARRIER_FOLLOW_UP_DAYS : AWAITING_SIGNATURE_FOLLOW_UP_DAYS
 }
 
 /**
@@ -312,18 +359,55 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
             },
           }
         case 'not-interested':
-          // Explicit human disposition. No further outreach, but NOT auto-closed.
-          return { patch: { last_call_outcome: 'not-interested' } }
+          // Explicit refusal: STOP further outreach. refused_at suppresses the
+          // item from actionable/resurfacing reads and clears any pending
+          // follow-up so nothing re-queues it. This is a human-recorded
+          // disposition, NOT an automatic lost/closed state — it is reversed by
+          // an explicit reopen.
+          return {
+            patch: {
+              last_call_outcome: 'not-interested',
+              refused_at: new Date().toISOString(),
+              follow_up_due: null,
+              call_reason: null,
+            },
+          }
       }
       return { patch: {} }
     }
 
     case 'form-sent': {
       // Sending the servicing-agent form (from a reached call or from email).
+      // Entering waiting-for-form schedules a follow-up nudge to chase the
+      // signature (does not change the queue when due; isWaitingFollowUpDue).
       if (state.queue !== 'ready-to-call' && state.queue !== 'waiting-for-response') {
         return { patch: {}, error: `Cannot send the form from ${state.queue}` }
       }
-      return { patch: { queue: 'waiting-for-form' } }
+      return {
+        patch: {
+          queue: 'waiting-for-form',
+          follow_up_due: addDays(new Date().toISOString(), AWAITING_SIGNATURE_FOLLOW_UP_DAYS),
+          call_reason: null,
+        },
+      }
+    }
+
+    case 'form-returned': {
+      // The signed form came back on its own after the introductory email (which
+      // already carried the form). Advance to waiting-for-form and record the
+      // RECEIPT directly — WITHOUT recording a second mailing/send. The route
+      // logs no form-sent touch for this transition; it records receipt only.
+      if (state.queue !== 'waiting-for-response') {
+        return { patch: {}, error: `Can only record a returned form while awaiting a reply (from ${state.queue})` }
+      }
+      return {
+        patch: {
+          queue: 'waiting-for-form',
+          form_received_at: new Date().toISOString(),
+          follow_up_due: addDays(new Date().toISOString(), AWAITING_SIGNATURE_FOLLOW_UP_DAYS),
+          call_reason: null,
+        },
+      }
     }
 
     case 'research-found': {
@@ -363,6 +447,8 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
           queue: 'waiting-for-carrier',
           submitted_at: new Date().toISOString(),
           carrier_correction: null,
+          // Schedule a chase on the carrier if confirmation does not come back.
+          follow_up_due: addDays(new Date().toISOString(), AWAITING_CARRIER_FOLLOW_UP_DAYS),
         },
       }
     }
@@ -413,6 +499,23 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
       }
       // Operator records the chosen delivery channel. Does not change the queue.
       return { patch: { form_delivery_method: action.method } }
+    }
+
+    case 'reopen': {
+      // Deliberate reversal of an explicit refusal. Clear refused_at so the item
+      // becomes actionable again. Only meaningful when currently refused.
+      if (!state.refused_at) {
+        return { patch: {}, error: 'This item is not refused.' }
+      }
+      // Return it to active outreach: clear the refusal and the stale outcome,
+      // and give it a fresh next-attempt date so it resurfaces as actionable.
+      return {
+        patch: {
+          refused_at: null,
+          last_call_outcome: null,
+          follow_up_due: null,
+        },
+      }
     }
   }
 }
