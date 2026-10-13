@@ -307,10 +307,13 @@ export function callPopulationOf(input: {
   effectiveQueue: OutreachQueue
   /**
    * The item's durable call_reason. A cadence retry that came due is persisted
-   * as 'no-response' by the follow-up promotion, and a promised callback as
-   * 'callback-due', so the DUE status is a durable fact on the row rather than a
-   * one-pass signal. This is what keeps Calls Due accurate across refreshes and
-   * the waiting-to-response -> Ready to Call transition.
+   * as 'no-response' by the follow-up promotion (deriveFollowUpRouting only
+   * stamps it once follow_up_due has lapsed), so 'no-response' is a durable
+   * fact that the retry IS due now. A promised callback is persisted as
+   * 'callback-due' the MOMENT it is scheduled, with its due date in the future,
+   * so 'callback-due' records only that a callback is promised — NOT that it is
+   * due now. Whether that callback has actually come due is carried separately
+   * by `callbackDue` (date on/before today on the actor's calendar).
    */
   callReason: CallReason | null
   /** Whether the customer has a usable phone (callable at all). */
@@ -321,16 +324,18 @@ export function callPopulationOf(input: {
   if (!input.hasUsablePhone) return null
   const callable = input.effectiveQueue === 'ready-to-call' || input.effectiveQueue === 'ready-to-email'
   if (!callable) return null
-  // A scheduled call has come due when, in the call flow, either a promised
-  // callback is due today, or the row durably carries a due call_reason: a
-  // cadence retry ('no-response') or a promised callback ('callback-due'). All
-  // three are durable until the call is handled, so Calls Due does not flip back
-  // to Available on a later read.
+  // A scheduled call has come due when, in the call flow, EITHER a promised
+  // callback has reached its scheduled date (callbackDue), OR the row durably
+  // carries a cadence retry that already lapsed ('no-response', stamped by the
+  // follow-up promotion only once overdue). A 'callback-due' reason is NOT an
+  // independent due signal: it is set when the callback is scheduled (future
+  // date), so a future promised callback stays Available to Call until its date
+  // arrives, at which point `callbackDue` turns it to Calls Due. Both remaining
+  // triggers are durable until the call is handled, so Calls Due does not flip
+  // back to Available on a later read.
   const due =
     input.effectiveQueue === 'ready-to-call' &&
-    (input.callbackDue ||
-      input.callReason === 'no-response' ||
-      input.callReason === 'callback-due')
+    (input.callbackDue || input.callReason === 'no-response')
   return due ? 'calls-due' : 'available-to-call'
 }
 

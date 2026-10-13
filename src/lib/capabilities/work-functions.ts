@@ -199,3 +199,46 @@ export function isEligibleFor(
       (e.projectId === null || (projectId != null && e.projectId === projectId)),
   )
 }
+
+/**
+ * Whether an employee can ACT ON (pick up) a specific shared work item, judged
+ * against the item's own project set. This is the single shared pick-up test
+ * used both by My Work (to COUNT an actionable population) and by the board
+ * route (to decide which customers an opened population view LISTS), so the two
+ * can never disagree.
+ *
+ * An item is actionable to the employee when they are routably eligible for the
+ * work (agency-wide or in any of the item's projects) OR hold an assist
+ * (overqualified) standing for it in a relevant scope — an overqualified
+ * employee is not routed the work but MAY pick it up to help. A missing profile
+ * means no personal pick-up eligibility.
+ */
+export function canActOnItem(
+  profile: ProducerCapabilityProfile | null,
+  workFunction: WorkFunctionKey,
+  requiredQualification: QualificationKey | null,
+  itemProjects: Iterable<string>,
+): boolean {
+  if (!profile) return false
+  if (isEligibleFor(profile, workFunction)) return true // agency-wide routable
+  // Agency-wide assist (overqualified with no project scope) also confers pick-up.
+  if (classifyCapability(profile, workFunction, requiredQualification, null) === 'assist') return true
+  for (const pid of itemProjects) {
+    if (isEligibleFor(profile, workFunction, pid)) return true
+    if (classifyCapability(profile, workFunction, requiredQualification, pid) === 'assist') return true
+  }
+  return false
+}
+
+/**
+ * Whether a shared item is CLAIMED BY ANOTHER employee (so it is not the
+ * caller's opportunity). An unclaimed item, or one the caller claimed
+ * themselves, is available to the caller. Shared with the board route so a
+ * population count and the opened list treat claims identically.
+ */
+export function claimedByOther(
+  claimedByProducerId: string | null | undefined,
+  myProducerId: string | null,
+): boolean {
+  return !!claimedByProducerId && claimedByProducerId !== myProducerId
+}

@@ -34,6 +34,8 @@ import {
   resolveCapabilityProfile,
 } from '@/lib/capabilities/resolve'
 import {
+  canActOnItem,
+  claimedByOther,
   classifyCapability,
   isEligibleFor,
   type CapabilityStatus,
@@ -625,16 +627,13 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
           callbackDue: isCallbackDue(r.callback_date, timeCtx),
         })
         if (!population) continue
-        // Eligibility: only count items this employee can act on (routable or
-        // assist), judged against the item's own projects, matching the rest of
-        // the composition.
+        // Eligibility + claim: only count items this employee can actually pick
+        // up, judged against the item's own projects. Uses the SAME shared tests
+        // (canActOnItem / claimedByOther) the board route applies when it opens a
+        // population view, so the counted set and the opened list cannot diverge.
         const itemProjects = projectsByCustomer.get(r.customer_prereviews.customer_id) ?? new Set<string>()
-        const eligible =
-          itemEligible('outreach', itemProjects) ||
-          activityCapabilityStatus('outreach', itemProjects) === 'assist'
-        if (!eligible) continue
-        // A teammate's claimed item is not my call opportunity.
-        if (r.claimed_by_producer_id && r.claimed_by_producer_id !== myProducerId) continue
+        if (!canActOnItem(profile, 'outreach', requiredQualByActivity.get('outreach') ?? null, itemProjects)) continue
+        if (claimedByOther(r.claimed_by_producer_id, myProducerId)) continue
 
         if (population === 'calls-due') callsDue += 1
         else availableToCall += 1

@@ -2,7 +2,8 @@ import { NextRequest } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
-import { resolveProducerForUser } from '@/lib/capabilities/resolve'
+import { resolveCapabilityProfile, loadWorkFunctions } from '@/lib/capabilities/resolve'
+import { canActOnItem, claimedByOther } from '@/lib/capabilities/work-functions'
 import { QUEUE_META, deriveFollowUpRouting, isWaitingFollowUpDue, callPopulationOf, type OutreachQueue, type CallPopulation, type CallReason } from '@/lib/stewardship/queues'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
@@ -85,12 +86,20 @@ export async function GET(request: NextRequest) {
   }
 
   // Resolve the caller's producer so the board can mark which shared items are
-  // theirs (is_mine) and surface who holds each optional claim. The board is
-  // never FILTERED by the claim — this is presentation only.
+  // theirs (is_mine) and surface who holds each optional claim. The UNSCOPED
+  // board is never FILTERED by the claim — that is presentation only. A
+  // POPULATION view (opened from a My Work count), however, must list exactly
+  // the set My Work counted, so it also resolves the caller's capability profile
+  // to apply the SAME eligibility + claim gate below.
   const sessionClient = await createClient()
   const { data: { user } } = await sessionClient.auth.getUser()
-  const myProducer = user ? await resolveProducerForUser(user.id) : null
-  const myProducerId = myProducer?.id ?? null
+  const [myProfile, workFunctions] = await Promise.all([
+    user ? resolveCapabilityProfile(user.id) : Promise.resolve(null),
+    populationFilter ? loadWorkFunctions() : Promise.resolve([]),
+  ])
+  const myProducerId = myProfile?.producerId ?? null
+  const outreachRequiredQual =
+    workFunctions.find(w => w.canonicalKey === 'outreach')?.requiredQualification ?? null
 
   let query = supabase
     .from('stewardship_outreach')
@@ -213,21 +222,64 @@ export async function GET(request: NextRequest) {
     }
   })
 
-  // When a population is requested, return exactly that population's customers —
-  // the SAME set My Work counted — regardless of each item's stored queue.
+  // A population view opened from a My Work count must list EXACTLY what My Work
+  // counted: the callable items in that population that this employee can pick
+  // up (eligible by capability for the item's projects) and that are not claimed
+  // by someone else. My Work applies this same canActOnItem / claimedByOther
+  // gate, so with the gate applied here the opened list and the count agree.
+  // Resolve each board customer's project set once (only needed for a population
+  // view's eligibility test).
+  const projectsByCustomer = new Map<string, Set<string>>()
+  if (populationFilter) {
+    const boardCustomerIds = Array.from(new Set(items.map(it => it.customer?.id).filter((v): v is string => !!v)))
+    if (boardCustomerIds.length > 0) {
+      const { data: memberships } = await supabase
+        .from('project_customers')
+        .select('customer_id, project_id')
+        .in('customer_id', boardCustomerIds)
+      for (const m of (memberships ?? []) as { customer_id: string; project_id: string }[]) {
+        const set = projectsByCustomer.get(m.customer_id) ?? new Set<string>()
+        set.add(m.project_id)
+        projectsByCustomer.set(m.customer_id, set)
+      }
+    }
+  }
+
+  // The caller's actionable call items: in a call population, pickable by
+  // capability, and not claimed by another employee. Mirrors My Work exactly.
+  const isActionableToMe = (it: (typeof items)[number]): boolean => {
+    if (!it.call_population) return false
+    const itemProjects = projectsByCustomer.get(it.customer?.id ?? '') ?? new Set<string>()
+    if (!canActOnItem(myProfile, 'outreach', outreachRequiredQual, itemProjects)) return false
+    if (claimedByOther(it.claimed_by_producer_id, myProducerId)) return false
+    return true
+  }
+
+  // When a population is requested, return exactly that population's customers
+  // this employee can act on — the SAME set My Work counted — regardless of each
+  // item's stored queue. Without a population filter the board is the unscoped,
+  // unfiltered view (presentation only; never filtered by claim/eligibility).
   const visibleItems = populationFilter
-    ? items.filter(it => it.call_population === populationFilter)
+    ? items.filter(it => it.call_population === populationFilter && isActionableToMe(it))
     : items
 
   const counts = Object.fromEntries(
     (Object.keys(QUEUE_META) as OutreachQueue[]).map(q => [q, 0]),
   ) as Record<OutreachQueue, number>
   for (const it of items) counts[it.queue] += 1
-  // Population counts, so the board header can show the opened population size.
-  const populationCounts = {
-    'calls-due': items.filter(it => it.call_population === 'calls-due').length,
-    'available-to-call': items.filter(it => it.call_population === 'available-to-call').length,
-  }
+  // Population counts for the board header. In a population view they reflect the
+  // caller-actionable sets (eligible + unclaimed), matching My Work's counts and
+  // the list length above. In the unscoped board they are the raw population
+  // sizes (presentation only).
+  const populationCounts = populationFilter
+    ? {
+        'calls-due': items.filter(it => it.call_population === 'calls-due' && isActionableToMe(it)).length,
+        'available-to-call': items.filter(it => it.call_population === 'available-to-call' && isActionableToMe(it)).length,
+      }
+    : {
+        'calls-due': items.filter(it => it.call_population === 'calls-due').length,
+        'available-to-call': items.filter(it => it.call_population === 'available-to-call').length,
+      }
 
   return Response.json({
     data: {

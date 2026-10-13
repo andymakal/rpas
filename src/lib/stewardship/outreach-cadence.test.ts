@@ -454,6 +454,21 @@ test('a due promised callback reads Calls Due; a plain ready-to-call reads Avail
   )
 })
 
+test('a FUTURE promised callback is Available to Call, not Calls Due, until its date arrives', () => {
+  // call_reason is stamped 'callback-due' the moment the callback is scheduled,
+  // with a future callback_date. Before that date (callbackDue=false) it must
+  // NOT appear in Calls Due; the 'callback-due' reason alone is not "due now".
+  assert.equal(
+    callPopulationOf({ effectiveQueue: 'ready-to-call', callReason: 'callback-due', hasUsablePhone: true, callbackDue: false }),
+    'available-to-call',
+  )
+  // On/after the scheduled date, callbackDue flips true and it becomes Calls Due.
+  assert.equal(
+    callPopulationOf({ effectiveQueue: 'ready-to-call', callReason: 'callback-due', hasUsablePhone: true, callbackDue: true }),
+    'calls-due',
+  )
+})
+
 test('a callable ready-to-email customer is Available to Call; no phone is in no call population', () => {
   assert.equal(
     callPopulationOf({ effectiveQueue: 'ready-to-email', callReason: null, hasUsablePhone: true, callbackDue: false }),
