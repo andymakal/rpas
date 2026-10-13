@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import {
   applyAction,
@@ -29,6 +30,29 @@ type OutreachRow = {
 const OUTREACH_COLUMNS =
   'id, prereview_id, queue, call_reason, research_reason, last_call_outcome, ' +
   'callback_date, email_sent_at, follow_up_due, form_received_at, submitted_at, carrier_correction'
+
+/**
+ * Resolve the signed-in employee's display name for a touch log, mirroring the
+ * cases touch route: prefer staff_profiles.display_name, fall back to the email
+ * local-part. Attribution is best-effort and never blocks the workflow.
+ */
+async function resolveEmployeeName(
+  admin: ReturnType<typeof createAdminClient>,
+): Promise<string | null> {
+  try {
+    const sessionClient = await createClient()
+    const { data: { user } } = await sessionClient.auth.getUser()
+    if (!user) return null
+    const { data: profile } = await admin
+      .from('staff_profiles')
+      .select('display_name')
+      .eq('id', user.id)
+      .maybeSingle()
+    return profile?.display_name ?? user.email?.split('@')[0] ?? null
+  } catch {
+    return null
+  }
+}
 
 /**
  * GET /api/stewardship/[id]
@@ -350,6 +374,42 @@ export async function PATCH(
     if (updErr) {
       console.error('stewardship patch error:', updErr)
       return Response.json({ error: updErr.message }, { status: 500 })
+    }
+  }
+
+  // ── Durable communication-history entry for the servicing-agent email ───────
+  // When the worker confirms "Form attached and email sent", record one lasting
+  // email touch on the customer's shared Touch History (case_touches, now
+  // customer-level), identifiable as 1035 servicing outreach. This is the only
+  // place the confirmation becomes durable history — opening Outlook records
+  // nothing, since that is a separate mailto with no server call.
+  //
+  // Duplicate prevention without a new terminal state: record ONLY when the
+  // email was actually just sent, i.e. the transition came FROM ready-to-email.
+  // A repeated submission of the same confirmation re-fires from
+  // waiting-for-response (the item already advanced), so it logs nothing. A
+  // later legitimate email must re-enter ready-to-email (via research-found
+  // email), so it correctly creates a new entry.
+  if (
+    action.type === 'email-sent' &&
+    state.queue === 'ready-to-email' &&
+    typeof result.patch.email_sent_at === 'string'
+  ) {
+    const touchedBy = await resolveEmployeeName(supabase)
+    const { error: touchErr } = await supabase
+      .from('case_touches')
+      .insert({
+        customer_id: customerId,
+        case_id:     null,
+        touch_type:  'servicing_outreach',
+        notes:       'Servicing-agent authorization email sent (1035 stewardship outreach).',
+        touched_at:  result.patch.email_sent_at,
+        touched_by:  touchedBy,
+      })
+    if (touchErr) {
+      // Non-fatal: the workflow transition already succeeded and must stand.
+      // Log for follow-up rather than failing the request or rolling back.
+      console.error('stewardship servicing-outreach touch log error:', touchErr)
     }
   }
 

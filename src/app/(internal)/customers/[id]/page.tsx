@@ -225,21 +225,33 @@ export default async function CustomerCardPage({
   const caseIds = (cases ?? []).map(c => c.id)
   let caseHistory: CaseStatusHistoryEntry[] = []
   let touchHistory: TouchHistoryEntry[] = []
+
+  // Case status history is genuinely case-scoped — only fetch when there are cases.
   if (caseIds.length > 0) {
-    const [histResult, touchResult] = await Promise.all([
-      supabase
-        .from('case_status_history')
-        .select('id, case_id, from_status, to_status, changed_at')
-        .in('case_id', caseIds)
-        .order('changed_at', { ascending: false }),
-      supabase
-        .from('case_touches')
-        .select('id, case_id, touch_type, notes, touched_at, touched_by')
-        .in('case_id', caseIds)
-        .order('touched_at', { ascending: false }),
-    ])
-    caseHistory   = (histResult.data   ?? []) as CaseStatusHistoryEntry[]
-    touchHistory  = (touchResult.data  ?? []) as TouchHistoryEntry[]
+    const { data: histData } = await supabase
+      .from('case_status_history')
+      .select('id, case_id, from_status, to_status, changed_at')
+      .in('case_id', caseIds)
+      .order('changed_at', { ascending: false })
+    caseHistory = (histData ?? []) as CaseStatusHistoryEntry[]
+  }
+
+  // Touch history is the shared communication log. A touch reaches this customer
+  // either through one of their cases (case_id) OR directly (customer_id, e.g.
+  // 1035 servicing-agent outreach, where the customer often has no case). Gather
+  // both and merge, newest first. This runs even with zero cases so customer-
+  // level touches are never hidden.
+  {
+    const orClauses: string[] = [`customer_id.eq.${id}`]
+    if (caseIds.length > 0) {
+      orClauses.push(`case_id.in.(${caseIds.join(',')})`)
+    }
+    const { data: touchData } = await supabase
+      .from('case_touches')
+      .select('id, case_id, touch_type, notes, touched_at, touched_by')
+      .or(orClauses.join(','))
+      .order('touched_at', { ascending: false })
+    touchHistory = (touchData ?? []) as TouchHistoryEntry[]
   }
 
   // Fetch customer notes (running compliance log)
