@@ -1,0 +1,78 @@
+{
+  "_comment": "Right Path Servicing-Agent Onboarding — CONTACT OPTIONS decision. Part of the established GoRules ZEN decision layer (adapted from the IPF ZEN pattern in src/rules/next-best-action.json). This decision owns WHICH contact methods a customer qualifies for, from normalized contact facts the TypeScript layer gathers from the real customer record (phone, email, mailing address). It encodes the settled business rules: (1) a customer qualifies for calling, emailing, and texting INDEPENDENTLY and SIMULTANEOUSLY — a usable phone enables BOTH calling AND texting (US phone used for voice is also textable), a usable email enables emailing, and these do not compete; (2) a customer with NO usable contact method needs Contact Research. ZEN never queries the database; it decides over the booleans TS supplies. It does NOT choose a single 'next' channel or rank the channels — ordering/next-best-action is a separate decision — it only reports the eligible options so one onboarding workflow can surface every action queue the customer qualifies for without duplicating the customer. passThrough is used so the normalized facts flow through alongside the decision outputs.",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "inputNode",
+      "name": "Contact facts",
+      "position": { "x": 0, "y": 150 },
+      "content": {}
+    },
+    {
+      "id": "contact-options-table",
+      "type": "decisionTableNode",
+      "name": "Contact options",
+      "position": { "x": 300, "y": 150 },
+      "content": {
+        "hitPolicy": "collect",
+        "inputs": [
+          { "id": "i1", "name": "Has a usable phone", "field": "hasUsablePhone" },
+          { "id": "i2", "name": "Has a usable email", "field": "hasUsableEmail" }
+        ],
+        "outputs": [
+          { "id": "o1", "name": "Can call", "field": "canCall" },
+          { "id": "o2", "name": "Can text", "field": "canText" },
+          { "id": "o3", "name": "Can email", "field": "canEmail" },
+          { "id": "o4", "name": "Needs contact research", "field": "needsResearch" }
+        ],
+        "rules": [
+          {
+            "_id": "r1",
+            "_description": "A usable phone makes BOTH calling and texting available. The two are independent capabilities on the same number, not alternatives; neither competes with email. This rule contributes the call+text options whenever a phone exists, regardless of email.",
+            "i1": "true",
+            "i2": "",
+            "o1": "true",
+            "o2": "true",
+            "o3": "",
+            "o4": ""
+          },
+          {
+            "_id": "r2",
+            "_description": "A usable email makes emailing available, independently of whether a phone exists. Contributes the email option whenever an email exists.",
+            "i1": "",
+            "i2": "true",
+            "o1": "",
+            "o2": "",
+            "o3": "true",
+            "o4": ""
+          },
+          {
+            "_id": "r3",
+            "_description": "No usable phone AND no usable email: the customer has no usable contact method, so Contact Research is required (the exception path). Address alone does not enable call/email/text, so it never satisfies this; it only supports postal form delivery once a channel establishes contact.",
+            "i1": "false",
+            "i2": "false",
+            "o1": "",
+            "o2": "",
+            "o3": "",
+            "o4": "true"
+          }
+        ],
+        "passThrough": true,
+        "inputField": null,
+        "outputPath": null,
+        "executionMode": "single"
+      }
+    },
+    {
+      "id": "output",
+      "type": "outputNode",
+      "name": "Response",
+      "position": { "x": 600, "y": 150 },
+      "content": {}
+    }
+  ],
+  "edges": [
+    { "id": "e1", "sourceId": "input", "targetId": "contact-options-table", "sourceHandle": null, "type": "edge" },
+    { "id": "e2", "sourceId": "contact-options-table", "targetId": "output", "sourceHandle": null, "type": "edge" }
+  ]
+}

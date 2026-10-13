@@ -143,9 +143,18 @@ export function initialQueue(contact: { email: string | null; phone: string | nu
  * update service_policies). Transitions are explicit; nothing auto-advances.
  */
 export type OutreachAction =
-  | { type: 'email-sent'; follow_up_days?: number }
+  // next_call_date is the cadence-resolved first-call date (YYYY-MM-DD), computed
+  // by the route from the attempt history + actor calendar. Supplied so the pure
+  // transition stays free of time-math and timezone concerns: after the intro
+  // email the first call is due per the cadence (24h for the first attempt).
+  // follow_up_days remains as a legacy fallback when no date is supplied.
+  | { type: 'email-sent'; follow_up_days?: number; next_call_date?: string | null }
   | { type: 'email-bounced' }        // emailed outreach bounced
-  | { type: 'call-outcome'; outcome: CallOutcome; callback_date?: string | null }
+  // next_call_date is the cadence-resolved next automatic call date (YYYY-MM-DD)
+  // for an unsuccessful (voicemail) call, computed by the route from the grouped
+  // attempt history. Supplied so applyAction stays pure (no time-math/timezone).
+  // When absent, the legacy flat FOLLOW_UP_INTERVAL_DAYS spacing is used.
+  | { type: 'call-outcome'; outcome: CallOutcome; callback_date?: string | null; next_call_date?: string | null }
   | { type: 'form-sent' }            // after a reached call, the form is (re)sent
   // Signed form came back on its own after the intro email (which already
   // carried the form) — advance to waiting-for-form WITHOUT recording a second
@@ -225,6 +234,20 @@ function addDays(iso: string, days: number): string {
 }
 
 /**
+ * Normalize a date-only (YYYY-MM-DD) cadence date to a storable ISO instant for
+ * follow_up_due. The board/My Work/Daily Direction reads compare follow_up_due
+ * as a date, so a start-of-day UTC instant preserves the intended due DATE. A
+ * value that is already a full ISO instant is passed through unchanged. The
+ * cadence computes the date on the actor's calendar; this only widens it to the
+ * timestamptz column's type without inventing a clock time.
+ */
+function dateOnlyToIso(dateOnly: string): string {
+  const trimmed = dateOnly.trim()
+  if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return `${trimmed}T00:00:00.000Z`
+  return trimmed
+}
+
+/**
  * Deterministic derived routing for overdue waiting-for-response items.
  *
  * When the follow-up window has lapsed with no response, the item should be in
@@ -284,10 +307,15 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
         patch: {
           queue: 'waiting-for-response',
           email_sent_at: now,
-          // Two-day initial-email follow-up window. When it lapses with no
-          // response, the board/My Work/Assistant reads route the item to Ready
-          // to Call (no-response) via deriveFollowUpRouting — see below.
-          follow_up_due: addDays(now, action.follow_up_days ?? INITIAL_EMAIL_FOLLOW_UP_DAYS),
+          // After the introductory email the first CALL is due per the cadence
+          // (24h for the first attempt). The route supplies that cadence date as
+          // next_call_date; when it lapses with no response the reads promote the
+          // item to Ready to Call (no-response) via deriveFollowUpRouting. A
+          // legacy caller with no date falls back to the fixed initial-email
+          // follow-up window.
+          follow_up_due: action.next_call_date
+            ? dateOnlyToIso(action.next_call_date)
+            : addDays(now, action.follow_up_days ?? INITIAL_EMAIL_FOLLOW_UP_DAYS),
           call_reason: null,
           research_reason: null,
         },
@@ -344,22 +372,34 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
             },
           }
         case 'voicemail':
-          // Left a voicemail: auto-schedule the next attempt and WAIT until it
-          // is due. The item moves to the waiting state with follow_up_due set,
-          // so it does not re-appear as actionable immediately — it resurfaces
-          // to Ready to Call (no-response) via deriveFollowUpRouting once the
-          // window lapses, exactly like an unanswered email. There is NO attempt
-          // limit and NO counter: each voicemail simply rolls the next attempt
-          // forward. A human decides to stop; nothing auto-closes. (This is a
-          // waiting state, not a promised callback — callback_date stays null;
-          // only an explicit customer-promised callback sets callback_date.)
+          // Left a voicemail: auto-schedule the NEXT attempt per the escalating
+          // call cadence and WAIT until it is due. The item moves to the waiting
+          // state with follow_up_due set, so it does not re-appear as actionable
+          // immediately — it resurfaces to Ready to Call (no-response) via
+          // deriveFollowUpRouting once the scheduled date arrives.
+          //
+          // The next-attempt DATE is computed by the route from the grouped
+          // attempt history (24h, 24h, 2d, 3d, then every 6 business days
+          // rotating weekdays) and passed in as next_call_date, keeping this
+          // transition pure. When no date is supplied (legacy callers) it falls
+          // back to the flat FOLLOW_UP_INTERVAL_DAYS spacing.
+          //
+          // There is NO attempt limit and nothing auto-closes: each voicemail
+          // simply rolls the next attempt forward. After enough unsuccessful
+          // attempts the run is FLAGGED Nonresponsive for human review (a ZEN
+          // recommendation surfaced by the reads), but the cadence keeps going;
+          // a human decides to stop. (This is a waiting state, not a promised
+          // callback — callback_date stays null; only an explicit customer
+          // promise sets callback_date.)
           return {
             patch: {
               last_call_outcome: 'voicemail',
               queue: 'waiting-for-response',
               call_reason: null,
               research_reason: null,
-              follow_up_due: addDays(new Date().toISOString(), FOLLOW_UP_INTERVAL_DAYS),
+              follow_up_due: action.next_call_date
+                ? dateOnlyToIso(action.next_call_date)
+                : addDays(new Date().toISOString(), FOLLOW_UP_INTERVAL_DAYS),
             },
           }
         case 'not-interested':

@@ -3,6 +3,15 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { handoffToInitialAnalysis } from '@/lib/stewardship/analysis-handoff'
+import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
+import { getAttemptHistory } from '@/lib/stewardship/attempt-history'
+import { resolveNextCallDate } from '@/lib/stewardship/call-cadence'
+import { resolveContactOptions } from '@/lib/stewardship/contact-options'
+import {
+  evaluateCadenceStatus,
+  cadenceRecommendationText,
+  NONRESPONSIVE_LABEL,
+} from '@/lib/stewardship/cadence-status'
 import {
   applyAction,
   type OutreachAction,
@@ -143,6 +152,37 @@ export async function GET(
   // signer. We therefore do not assert any signer. The customer and the request
   // policies' insured names are returned as context the worker uses to verify
   // the actual signature(s) from the returned form before submitting; the UI
+  // The AVAILABLE CONTACT OPTIONS for this customer, decided by the ZEN
+  // contact-options decision over the real contact facts. Calling, emailing, and
+  // texting are reported independently and simultaneously; a mailing address
+  // supports postal form delivery. One customer, one workflow: these are the
+  // actions available on THIS single onboarding item, not separate workflows.
+  const contactOptions = await resolveContactOptions({
+    phone: cust.phone,
+    email: cust.email,
+    street: cust.street,
+    address_line1: cust.address_line1,
+    city: cust.city,
+    state: cust.state,
+    zip: cust.zip,
+  })
+
+  // The CADENCE / NONRESPONSIVE status, from the grouped communication history.
+  // TypeScript counts the grouped outreach attempts (preserving every
+  // individual communication); ZEN decides whether the run has reached the
+  // "Nonresponsive — Review Contact Strategy" recommendation. This is a
+  // recommendation only: it never stops outreach or changes the queue.
+  const actorTimeZone = await getActorTimeZone()
+  const history = await getAttemptHistory(supabase, customerId, actorTimeZone)
+  const cadence = await evaluateCadenceStatus(history.outreachAttempts)
+  const nonresponsive = cadence.isNonresponsive
+    ? {
+        label: NONRESPONSIVE_LABEL,
+        attempts: history.outreachAttempts,
+        recommendation: cadenceRecommendationText(cadence.recommendation, history.outreachAttempts),
+      }
+    : null
+
   // requires that confirmation.
   return Response.json({
     data: {
@@ -169,6 +209,14 @@ export async function GET(
       customer: cust,
       source_agency_id: pre.source_agency_id,
       holdings,
+      // The available contact actions (call / text / email / postal) and whether
+      // Contact Research is needed, decided by ZEN from the real contact facts.
+      contact_options: contactOptions,
+      // Grouped outreach-attempt count and the Nonresponsive recommendation when
+      // ZEN has flagged the run (null otherwise). Recommendation only.
+      outreach_attempts: history.outreachAttempts,
+      call_attempts: history.callAttempts,
+      nonresponsive,
       // Signer identity cannot be determined from durable data.
       signer_identity_known: false,
     },
@@ -287,7 +335,38 @@ export async function PATCH(
     has_usable_phone: !!row.customer_prereviews.customers?.phone?.trim(),
   }
 
-  const result = applyAction(state, action)
+  // ── Cadence: resolve the next automatic CALL date from the attempt history ──
+  // The escalating call cadence (24h, 24h, 2d, 3d, then every 6 business days
+  // rotating weekdays) is deterministic time-math, so it is computed HERE (the
+  // TypeScript/normalization half of the GoRules division of labor) and passed
+  // into the pure transition as next_call_date. ZEN is not involved in the
+  // day-math. The resolved date honors a customer-promised callback and an
+  // employee override over the computed cadence.
+  //
+  //   - email-sent: the first call is due 24h after the intro email -> cadence
+  //     with zero prior unsuccessful call attempts.
+  //   - call-outcome / voicemail: the NEXT call is scheduled from the prior
+  //     unsuccessful call attempts PLUS this voicemail (the current attempt is
+  //     logged as a touch after the transition, so it is not yet in history).
+  let actionForTransition: typeof action = action
+  if (action.type === 'email-sent' || (action.type === 'call-outcome' && action.outcome === 'voicemail')) {
+    const actorTimeZone = await getActorTimeZone()
+    const history = await getAttemptHistory(supabase, customerId, actorTimeZone)
+    const priorUnsuccessfulAttempts =
+      action.type === 'email-sent' ? 0 : history.callAttempts + 1
+    const resolved = resolveNextCallDate({
+      priorUnsuccessfulAttempts,
+      actorTimeZone,
+      // A customer-promised callback and an employee override take precedence.
+      // The callback outcome sets callback_date explicitly; a voicemail carries
+      // neither, so these are null for the automatic cadence path.
+      promisedCallbackDate: null,
+      employeeOverrideDate: null,
+    })
+    actionForTransition = { ...action, next_call_date: resolved.date }
+  }
+
+  const result = applyAction(state, actionForTransition)
   if (result.error) {
     return Response.json({ error: result.error }, { status: 409 })
   }

@@ -65,6 +65,14 @@ export interface WorkSource {
   claimedByOthers: number
   /** Items in this source the employee is NOT eligible to perform. */
   notEligible: number
+  /**
+   * Items in this source that are DUE for this employee right now: a promised
+   * callback or an automatic cadence retry that has reached its scheduled date
+   * (owned-by-me or unclaimed). A subset of the actionable items, surfaced so
+   * the UI can distinguish Calls Due from Available to Call (Rule 5). Zero for
+   * sources that carry no scheduled-due distinction.
+   */
+  dueToMe: number
 }
 
 /**

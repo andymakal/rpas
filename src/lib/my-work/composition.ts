@@ -415,6 +415,10 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     availableToMe: number
     claimedByOthers: number
     notEligible: number
+    /** Items that are DUE for THIS employee (promised callback or cadence retry
+     * at its scheduled date; owned-by-me or unclaimed). A subset of the
+     * actionable items, never counted on top of them. */
+    dueToMe: number
   }
   const perQueue = new Map<OutreachQueue, QueueTally>()
   for (const r of openRows) {
@@ -440,21 +444,37 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     const itemProjects = projectsByCustomer.get(r.customer_prereviews.customer_id) ?? new Set<string>()
     for (const pid of itemProjects) a.projectIds.add(pid)
 
-    const t = perQueue.get(sourceQueue) ?? { total: 0, ownedByMe: 0, availableToMe: 0, claimedByOthers: 0, notEligible: 0 }
+    const t = perQueue.get(sourceQueue) ?? { total: 0, ownedByMe: 0, availableToMe: 0, claimedByOthers: 0, notEligible: 0, dueToMe: 0 }
     t.total += 1
     a.total += 1
 
+    // A call is DUE (not merely available) when it has reached its scheduled
+    // moment: either a promised CALLBACK that has come due, or an automatic
+    // CADENCE retry whose scheduled date has arrived (the item was promoted from
+    // waiting-for-response to Ready to Call by the follow-up routing because its
+    // follow_up_due lapsed). "Available to Call" is a Ready-to-Call item that is
+    // actionable now but not on a scheduled due date. This is the Rule-5
+    // distinction, expressed as presentation over the SAME single workflow — the
+    // customer is never duplicated; one item is either due or available, not
+    // both. Only the call queue carries this distinction.
+    const isCadencePromoted = q === 'ready-to-call' && r.queue === 'waiting-for-response'
+    const callbackDueNow = q === 'ready-to-call' && isCallbackDue(r.callback_date, timeCtx)
+    const isCallDue = callbackDueNow || isCadencePromoted
+
     // Classify this item for THIS employee. Assist-capable items are pickable
     // (consistent with the claim path); only unassigned/unlicensed are
-    // awareness-only. A due callback counts as mine only when owned-by-me or
-    // unclaimed — a teammate's claimed commitment is never my due callback. The
-    // item's standing is judged against its OWN projects.
+    // awareness-only. A due item counts as mine only when owned-by-me or
+    // unclaimed — a teammate's claimed commitment is never my due work. The
+    // item's standing is judged against its OWN projects. isDueCallback carries
+    // the broader "call due" sense (promised callback OR cadence retry) so the
+    // ZEN due_callback band fires for a due cadence retry too, keeping scheduled
+    // calls prioritized above merely-available ones.
     const rawClaimedBy = r.claimed_by_producer_id
     const cls = classifyBoardItem({
       routableEligible: itemEligible(activity, itemProjects),
       assistCapable: activityCapabilityStatus(activity, itemProjects) === 'assist',
       claimedBy: rawClaimedBy == null ? null : rawClaimedBy === myProducerId ? 'me' : 'other',
-      isDueCallback: q === 'ready-to-call' && isCallbackDue(r.callback_date, timeCtx),
+      isDueCallback: isCallDue,
     })
 
     if (cls.bucket === 'notEligible') {
@@ -462,6 +482,11 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       perQueue.set(sourceQueue, t)
       continue // unassigned / unlicensed: awareness only
     }
+
+    // Count a due call that is mine to act on (owned-by-me or unclaimed) toward
+    // the "Calls Due" tally for this queue, so the source can report Calls Due
+    // separately from Available to Call without double-counting.
+    if (cls.countsAsMyDueCallback) t.dueToMe += 1
 
     // Only ROUTABLE eligibility feeds the eligible-item count that drives the
     // ZEN isEligible fact; assist stays non-routable but pickable, so it never
@@ -515,6 +540,52 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       ? ([...scopedProjects].find((pid) => a.projectIds.has(pid)) ?? null)
       : null
 
+    const route = linkProjectId ? stewardshipRoute(q, linkProjectId) : stewardshipRoute(q)
+
+    // The call queue is surfaced as TWO distinct sources (Rule 5): "Calls Due"
+    // (a promised callback or an automatic cadence retry that has reached its
+    // scheduled date) and "Available to Call" (actionable now, not on a due
+    // date). The split is disjoint over the SAME single workflow — an item is
+    // counted in exactly one of them, never both, and the customer is never
+    // duplicated. Both link to the same Ready-to-Call queue so the worker lands
+    // on the same list. Scheduled (due) work is surfaced first without
+    // preventing the available calls from being worked.
+    if (q === 'ready-to-call') {
+      const dueTotal = t.dueToMe
+      const availableTotal = Math.max(t.total - dueTotal, 0)
+      if (dueTotal > 0) {
+        a.sources.push({
+          kind: 'stewardship',
+          label: 'Shared Stewardship board — Calls Due',
+          count: dueTotal,
+          route,
+          projectId: linkProjectId,
+          // Due items that are mine are available-to-me to act on now; they are
+          // also reported as due via dueToMe so the UI can lead with them.
+          ownedByMe: Math.min(t.ownedByMe, dueTotal),
+          availableToMe: dueTotal,
+          claimedByOthers: 0,
+          notEligible: 0,
+          dueToMe: dueTotal,
+        })
+      }
+      if (availableTotal > 0) {
+        a.sources.push({
+          kind: 'stewardship',
+          label: 'Shared Stewardship board — Available to Call',
+          count: availableTotal,
+          route,
+          projectId: linkProjectId,
+          ownedByMe: Math.max(t.ownedByMe - dueTotal, 0),
+          availableToMe: Math.max(t.availableToMe - dueTotal, 0),
+          claimedByOthers: t.claimedByOthers,
+          notEligible: t.notEligible,
+          dueToMe: 0,
+        })
+      }
+      continue
+    }
+
     // A waiting queue in perQueue is a follow-up-due chase (signature/carrier),
     // so label it as the follow-up it is rather than the raw waiting label.
     const sourceLabel = q === 'waiting-for-form'
@@ -527,12 +598,13 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       kind: 'stewardship',
       label: sourceLabel,
       count: t.total,
-      route: linkProjectId ? stewardshipRoute(q, linkProjectId) : stewardshipRoute(q),
+      route,
       projectId: linkProjectId,
       ownedByMe: t.ownedByMe,
       availableToMe: t.availableToMe,
       claimedByOthers: t.claimedByOthers,
       notEligible: t.notEligible,
+      dueToMe: t.dueToMe,
     })
   }
 
@@ -603,6 +675,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         availableToMe: canPickUp ? count : 0,
         claimedByOthers: 0,
         notEligible: canPickUp ? 0 : count,
+        dueToMe: 0,
       })
       if (!canPickUp) return // awareness-only: counts to total/awareness only
       a.availableToMe += count
@@ -654,6 +727,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
           availableToMe: canPickUp ? failed : 0,
           claimedByOthers: 0,
           notEligible: canPickUp ? 0 : failed,
+          dueToMe: 0,
         })
         if (canPickUp) {
           a.availableToMe += failed

@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { assertProjectActive } from '@/lib/projects/guard'
-import { initialQueue } from '@/lib/stewardship/queues'
+import { resolveContactOptions, initialQueueFromOptions } from '@/lib/stewardship/contact-options'
 
 /**
  * POST /api/stewardship/start
@@ -248,7 +248,14 @@ export async function POST(request: NextRequest) {
     // so a failed start never leaves an orphan open pre-review or a partial
     // outreach item. There is no cross-table transaction available to the client,
     // so compensation is the smallest safe consistency approach here.
-    const route = initialQueue({ email: c.email, phone: c.phone })
+    // The RECOMMENDED first action is decided by the ZEN contact-options
+    // decision over the customer's real contact facts (one customer, one
+    // workflow). The customer simultaneously qualifies for every channel the
+    // options report; the board and My Work surface all applicable action
+    // queues from this single workflow. The queue stored here is only the
+    // opening action, not an exclusive channel.
+    const options = await resolveContactOptions({ email: c.email, phone: c.phone })
+    const route = initialQueueFromOptions(options)
     const { data: outreach, error: outErr } = await supabase
       .from('stewardship_outreach')
       .insert({

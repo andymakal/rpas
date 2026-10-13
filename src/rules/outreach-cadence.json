@@ -1,0 +1,59 @@
+{
+  "_comment": "Right Path Servicing-Agent Onboarding — OUTREACH CADENCE / NONRESPONSIVE decision. Part of the established GoRules ZEN decision layer (adapted from the IPF ZEN pattern in src/rules/next-best-action.json). ZEN owns the BUSINESS JUDGMENT about the state of an outreach run given its attempt history; the deterministic day-math (next call date, business-day rotation) stays in TypeScript (src/lib/stewardship/call-cadence.ts), per the settled division of labor. This decision takes normalized attempt facts the TS layer derives from the grouped communication history and emits the cadence status: whether the run has reached the point of being flagged 'Nonresponsive — Review Contact Strategy'. CRITICAL SETTLED RULES: the flag is a RECOMMENDATION ONLY — it never stops outreach, never closes the item, and never changes the queue on its own. The cadence continues indefinitely; a human decides whether to continue, change strategy, defer, or stop. ZEN here decides ONLY the status/recommendation, not any terminal action.",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "inputNode",
+      "name": "Cadence facts",
+      "position": { "x": 0, "y": 150 },
+      "content": {}
+    },
+    {
+      "id": "outreach-cadence-table",
+      "type": "decisionTableNode",
+      "name": "Cadence status",
+      "position": { "x": 300, "y": 150 },
+      "content": {
+        "hitPolicy": "first",
+        "inputs": [
+          { "id": "i1", "name": "Unsuccessful outreach attempts so far", "field": "unsuccessfulAttempts" }
+        ],
+        "outputs": [
+          { "id": "o1", "name": "Cadence status", "field": "cadenceStatus" },
+          { "id": "o2", "name": "Recommendation code", "field": "recommendation" }
+        ],
+        "rules": [
+          {
+            "_id": "r1",
+            "_description": "Seven or more unsuccessful outreach attempts: flag the run 'Nonresponsive — Review Contact Strategy'. This is a RECOMMENDATION for a human to reconsider the contact information, the communication method, or the timing. It does NOT stop outreach, close the item, or change the queue; the cadence keeps producing next-attempt dates and a person decides what to do.",
+            "i1": ">= 7",
+            "o1": "\"nonresponsive\"",
+            "o2": "\"review_contact_strategy\""
+          },
+          {
+            "_id": "r2",
+            "_description": "Fewer than seven unsuccessful attempts: the run is in its normal automatic cadence. Keep attempting on the computed schedule.",
+            "i1": "",
+            "o1": "\"active\"",
+            "o2": "\"continue_cadence\""
+          }
+        ],
+        "passThrough": true,
+        "inputField": null,
+        "outputPath": null,
+        "executionMode": "single"
+      }
+    },
+    {
+      "id": "output",
+      "type": "outputNode",
+      "name": "Response",
+      "position": { "x": 600, "y": 150 },
+      "content": {}
+    }
+  ],
+  "edges": [
+    { "id": "e1", "sourceId": "input", "targetId": "outreach-cadence-table", "sourceHandle": null, "type": "edge" },
+    { "id": "e2", "sourceId": "outreach-cadence-table", "targetId": "output", "sourceHandle": null, "type": "edge" }
+  ]
+}

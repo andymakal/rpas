@@ -63,6 +63,7 @@ function activity(p: Partial<ActivityGroup> & { band: PriorityBand; rank: number
         availableToMe: availableCount,
         claimedByOthers: p.claimedByOthersCount ?? 0,
         notEligible: 0,
+        dueToMe: dueCount,
       },
     ],
   }

@@ -141,6 +141,27 @@ type Detail = BoardItem & {
   }
   source_agency_id: string | null
   holdings: Holding[]
+  /** The available contact actions for this customer, decided by ZEN from the
+   * real contact facts. Call / text / email are independent and simultaneous;
+   * postal supports form delivery; needsResearch when no usable method exists. */
+  contact_options?: {
+    canCall: boolean
+    canText: boolean
+    canEmail: boolean
+    canPostal: boolean
+    needsResearch: boolean
+  } | null
+  /** Grouped outreach-attempt counts (individual communications preserved,
+   * grouped into attempts). */
+  outreach_attempts?: number
+  call_attempts?: number
+  /** The Nonresponsive recommendation when ZEN has flagged the run, else null.
+   * A recommendation only: outreach is never auto-stopped. */
+  nonresponsive?: {
+    label: string
+    attempts: number
+    recommendation: string
+  } | null
   /** Signer identity is not derivable from durable data; always false today. */
   signer_identity_known: boolean
 }
@@ -859,24 +880,69 @@ function TaskAction({
     return <RefusedAction detail={detail} busy={busy} noteBox={noteBox} act={act} />
   }
 
-  switch (detail.queue) {
-    case 'ready-to-email':
-      return (
-        <ReadyToEmailAction
-          detail={detail} request={request} name={name} busy={busy} noteBox={noteBox} act={act}
-        />
-      )
-    case 'ready-to-call':
-      return <CallAction detail={detail} request={request} busy={busy} noteBox={noteBox} act={act} />
-    case 'research-needed':
-      return <ResearchAction detail={detail} busy={busy} noteBox={noteBox} act={act} />
-    case 'waiting-for-response':
-      return <WaitingForResponseAction detail={detail} busy={busy} noteBox={noteBox} act={act} />
-    case 'waiting-for-form':
-      return <FormAction detail={detail} request={request} busy={busy} noteBox={noteBox} act={act} />
-    case 'waiting-for-carrier':
-      return <CarrierAction detail={detail} request={request} busy={busy} noteBox={noteBox} act={act} />
-  }
+  // The Nonresponsive recommendation (ZEN-flagged after enough unsuccessful
+  // outreach attempts) is shown ABOVE the normal action, never instead of it:
+  // outreach is not stopped, the queue is unchanged, and the worker still acts.
+  // It recommends reconsidering contact information, method, or timing, and
+  // leaves the decision to the person.
+  const banner = detail.nonresponsive ? (
+    <NonresponsiveNotice nonresponsive={detail.nonresponsive} />
+  ) : null
+
+  const panel = (() => {
+    switch (detail.queue) {
+      case 'ready-to-email':
+        return (
+          <ReadyToEmailAction
+            detail={detail} request={request} name={name} busy={busy} noteBox={noteBox} act={act}
+          />
+        )
+      case 'ready-to-call':
+        return <CallAction detail={detail} request={request} busy={busy} noteBox={noteBox} act={act} />
+      case 'research-needed':
+        return <ResearchAction detail={detail} busy={busy} noteBox={noteBox} act={act} />
+      case 'waiting-for-response':
+        return <WaitingForResponseAction detail={detail} busy={busy} noteBox={noteBox} act={act} />
+      case 'waiting-for-form':
+        return <FormAction detail={detail} request={request} busy={busy} noteBox={noteBox} act={act} />
+      case 'waiting-for-carrier':
+        return <CarrierAction detail={detail} request={request} busy={busy} noteBox={noteBox} act={act} />
+      default:
+        return null
+    }
+  })()
+
+  if (!banner) return panel
+  return (
+    <div className="space-y-4">
+      {banner}
+      {panel}
+    </div>
+  )
+}
+
+/**
+ * The Nonresponsive — Review Contact Strategy recommendation. A prominent but
+ * non-blocking banner: it explains that enough outreach attempts have not
+ * reached the customer and recommends reconsidering the contact information,
+ * the communication method, or the timing. It never stops outreach and offers
+ * no terminal action; the worker decides whether to continue, change approach,
+ * defer, or stop.
+ */
+function NonresponsiveNotice({
+  nonresponsive,
+}: {
+  nonresponsive: { label: string; attempts: number; recommendation: string }
+}) {
+  return (
+    <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-4 text-base text-amber-900">
+      <CircleAlert className="mt-0.5 size-5 shrink-0" aria-hidden />
+      <div className="space-y-1">
+        <p className="font-semibold">{nonresponsive.label}</p>
+        <p className="text-sm">{nonresponsive.recommendation}</p>
+      </div>
+    </div>
+  )
 }
 
 /**
