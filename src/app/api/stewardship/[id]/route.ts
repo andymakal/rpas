@@ -365,6 +365,72 @@ export async function PATCH(
     return Response.json({ data: stillOpen, completed_outreach: false })
   }
 
+  // ── "Form attached and email sent": advance AND record the touch atomically ─
+  // This confirmation is the one place the sent servicing-agent authorization
+  // email becomes durable history (opening Outlook is a separate mailto that
+  // records nothing). Two requirements shape this path:
+  //
+  //   1. A successful confirmation must never silently leave the customer
+  //      without a history entry. The touch is recorded as part of the
+  //      operation; if it fails we surface an error instead of swallowing it.
+  //   2. Repeated or concurrent submits of the SAME confirmation must not create
+  //      duplicate touches, while a legitimate later email still does.
+  //
+  // Both are met by gating on the queue transition itself. The advance
+  // ready-to-email -> waiting-for-response is persisted with a conditional
+  // update scoped to the current queue, so it is atomic at the database: only
+  // the FIRST request to flip the row matches. A duplicate or concurrent submit
+  // (the row already in waiting-for-response) matches zero rows and records
+  // nothing. A later legitimate email must re-enter ready-to-email first, so it
+  // flips the row again and correctly logs a new touch.
+  if (action.type === 'email-sent' && state.queue === 'ready-to-email') {
+    const { data: advancedRows, error: advErr } = await supabase
+      .from('stewardship_outreach')
+      .update(result.patch)
+      .eq('id', id)
+      .eq('queue', 'ready-to-email')
+      .select(OUTREACH_COLUMNS)
+    if (advErr) {
+      console.error('stewardship email-sent advance error:', advErr)
+      return Response.json({ error: advErr.message }, { status: 500 })
+    }
+
+    // Zero rows: another request already advanced this item (duplicate or
+    // concurrent submit). Nothing further to record. Return the current row.
+    if (!advancedRows || advancedRows.length === 0) {
+      const { data: currentRow } = await supabase
+        .from('stewardship_outreach')
+        .select(OUTREACH_COLUMNS)
+        .eq('id', id)
+        .single()
+      return Response.json({ data: currentRow, completed_outreach: false })
+    }
+
+    const advanced = advancedRows[0] as unknown as OutreachRow
+    const touchedBy = await resolveEmployeeName(supabase)
+    const { error: touchErr } = await supabase
+      .from('case_touches')
+      .insert({
+        customer_id: customerId,
+        case_id:     null,
+        touch_type:  'email',
+        notes:       '1035 servicing-agent authorization email sent to the customer.',
+        touched_at:  advanced.email_sent_at ?? new Date().toISOString(),
+        touched_by:  touchedBy,
+      })
+    if (touchErr) {
+      // The confirmation must not silently lose its history entry. Surface the
+      // failure so the worker knows to retry rather than believing it logged.
+      console.error('stewardship email touch log error:', touchErr)
+      return Response.json(
+        { error: 'The email was recorded but its history entry could not be saved. Please try again.' },
+        { status: 500 },
+      )
+    }
+
+    return Response.json({ data: advanced, completed_outreach: false })
+  }
+
   // Normal case: persist the outreach patch.
   if (Object.keys(result.patch).length > 0) {
     const { error: updErr } = await supabase
@@ -374,42 +440,6 @@ export async function PATCH(
     if (updErr) {
       console.error('stewardship patch error:', updErr)
       return Response.json({ error: updErr.message }, { status: 500 })
-    }
-  }
-
-  // ── Durable communication-history entry for the servicing-agent email ───────
-  // When the worker confirms "Form attached and email sent", record one lasting
-  // email touch on the customer's shared Touch History (case_touches, now
-  // customer-level), identifiable as 1035 servicing outreach. This is the only
-  // place the confirmation becomes durable history — opening Outlook records
-  // nothing, since that is a separate mailto with no server call.
-  //
-  // Duplicate prevention without a new terminal state: record ONLY when the
-  // email was actually just sent, i.e. the transition came FROM ready-to-email.
-  // A repeated submission of the same confirmation re-fires from
-  // waiting-for-response (the item already advanced), so it logs nothing. A
-  // later legitimate email must re-enter ready-to-email (via research-found
-  // email), so it correctly creates a new entry.
-  if (
-    action.type === 'email-sent' &&
-    state.queue === 'ready-to-email' &&
-    typeof result.patch.email_sent_at === 'string'
-  ) {
-    const touchedBy = await resolveEmployeeName(supabase)
-    const { error: touchErr } = await supabase
-      .from('case_touches')
-      .insert({
-        customer_id: customerId,
-        case_id:     null,
-        touch_type:  'servicing_outreach',
-        notes:       'Servicing-agent authorization email sent (1035 stewardship outreach).',
-        touched_at:  result.patch.email_sent_at,
-        touched_by:  touchedBy,
-      })
-    if (touchErr) {
-      // Non-fatal: the workflow transition already succeeded and must stand.
-      // Log for follow-up rather than failing the request or rolling back.
-      console.error('stewardship servicing-outreach touch log error:', touchErr)
     }
   }
 

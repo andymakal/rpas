@@ -134,7 +134,6 @@ const TOUCH_TYPE_LABELS: Record<string, string> = {
   text:               'Text',
   email:              'Email',
   missed_appointment: 'Missed Appt.',
-  servicing_outreach: 'Servicing Email',
 }
 
 const TOUCH_COLORS: Record<string, string> = {
@@ -143,7 +142,6 @@ const TOUCH_COLORS: Record<string, string> = {
   text:               'bg-emerald-900/50 border-emerald-700 text-emerald-300',
   email:              'bg-violet-900/50 border-violet-700 text-violet-300',
   missed_appointment: 'bg-red-900/50 border-red-700 text-red-300',
-  servicing_outreach: 'bg-teal-900/50 border-teal-700 text-teal-300',
 }
 
 function SrStatusBadge({ status }: { status: string }) {
