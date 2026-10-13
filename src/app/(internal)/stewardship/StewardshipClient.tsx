@@ -123,6 +123,10 @@ type Holding = {
 
 type Detail = BoardItem & {
   form_received_at: string | null
+  phone_verified_at: string | null
+  email_verified_at: string | null
+  address_verified_at: string | null
+  form_delivery_method: 'email' | 'postal' | null
   customer: Customer & {
     date_of_birth: string | null
     address_line1: string | null
@@ -473,6 +477,8 @@ function shortDate(iso: string): string {
 // Start Capture — begin stewardship work for a selected agency book.
 // ─────────────────────────────────────────────────────────────────────────────
 
+type CustomerSearchResult = { id: string; first_name: string; last_name: string; phone: string | null; email: string | null }
+
 function StartCapture({ agencies, onStarted }: { agencies: AgencyOption[]; onStarted: () => void }) {
   const [agencyId, setAgencyId] = useState('')
   const [busy, setBusy] = useState(false)
@@ -524,7 +530,117 @@ function StartCapture({ agencies, onStarted }: { agencies: AgencyOption[]; onSta
         </WorkflowButton>
         {result && <span className="text-sm font-medium text-ink-secondary">{result}</span>}
       </div>
+
+      <StartSingleCustomer onStarted={onStarted} />
     </section>
+  )
+}
+
+/**
+ * Start onboarding for ONE customer. Same capture flow as the book/project
+ * paths, scoped to a single customer resolved by name search. Reuses the shared
+ * /api/customers/search endpoint and the customer_id branch of
+ * /api/stewardship/start.
+ */
+function StartSingleCustomer({ onStarted }: { onStarted: () => void }) {
+  const [q, setQ] = useState('')
+  const [results, setResults] = useState<CustomerSearchResult[]>([])
+  const [searching, setSearching] = useState(false)
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [result, setResult] = useState<string | null>(null)
+
+  // Debounced name/phone search once the query is at least 2 characters.
+  useEffect(() => {
+    const term = q.trim()
+    if (term.length < 2) { setResults([]); return }
+    let cancelled = false
+    setSearching(true)
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/customers/search?q=${encodeURIComponent(term)}`, { cache: 'no-store' })
+        const json = await res.json()
+        if (!cancelled && res.ok) setResults((json.data ?? []) as CustomerSearchResult[])
+      } finally {
+        if (!cancelled) setSearching(false)
+      }
+    }, 250)
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [q])
+
+  async function startOne(c: CustomerSearchResult) {
+    setBusyId(c.id); setResult(null)
+    try {
+      const res = await fetch('/api/stewardship/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer_id: c.id }),
+      })
+      const json = await res.json()
+      if (res.ok) {
+        const name = `${c.first_name} ${c.last_name}`.trim()
+        if (json.data.started > 0) {
+          setResult(`Started onboarding for ${name}.`)
+        } else if (json.data.skipped > 0) {
+          setResult(`${name} is already in progress.`)
+        } else {
+          setResult(`${name} has no known policy to onboard.`)
+        }
+        setQ(''); setResults([])
+        onStarted()
+      } else {
+        setResult(json.error ?? 'Could not start onboarding.')
+      }
+    } catch {
+      setResult('Network error.')
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  return (
+    <div className="mt-5 border-t border-surface-border pt-5">
+      <h3 className="text-sm font-semibold text-ink">Or start one customer</h3>
+      <p className="mt-1 text-sm text-ink-secondary">
+        Search by name or phone to begin onboarding a single customer. Every policy we know they hold
+        goes into the servicing-agent request.
+      </p>
+      <div className="mt-3 max-w-md">
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted" aria-hidden />
+          <input
+            value={q}
+            onChange={e => setQ(e.target.value)}
+            placeholder="Search customer…"
+            className="w-full rounded-lg border border-surface-border-strong bg-surface-card py-2 pl-9 pr-3 text-sm text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-ring/40"
+          />
+        </div>
+        {q.trim().length >= 2 && (
+          <div className="mt-2 overflow-hidden rounded-lg border border-surface-border">
+            {searching && results.length === 0 ? (
+              <p className="px-3 py-2 text-sm text-ink-muted">Searching…</p>
+            ) : results.length === 0 ? (
+              <p className="px-3 py-2 text-sm text-ink-muted">No matches.</p>
+            ) : (
+              results.map(c => (
+                <button
+                  key={c.id}
+                  type="button"
+                  disabled={busyId === c.id}
+                  onClick={() => startOne(c)}
+                  className="flex w-full items-center justify-between gap-3 border-b border-surface-border px-3 py-2 text-left last:border-b-0 hover:bg-surface-muted disabled:opacity-50"
+                >
+                  <span className="text-sm font-medium text-ink">{c.first_name} {c.last_name}</span>
+                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-hover">
+                    <Play className="size-3.5" aria-hidden /> {busyId === c.id ? 'Starting…' : 'Start'}
+                  </span>
+                </button>
+              ))
+            )}
+          </div>
+        )}
+        {result && <p className="mt-2 text-sm font-medium text-ink-secondary">{result}</p>}
+      </div>
+    </div>
   )
 }
 
@@ -644,7 +760,8 @@ function StewardshipTask({ itemId, onBack }: { itemId: string; onBack: () => voi
         }
         context={
           <>
-            <CustomerContext detail={detail} />
+            <CustomerContext detail={detail} busy={busy} act={act} />
+            <LogContactPanel itemId={detail.id} customerFirstName={detail.customer.first_name} />
             <HoldingsContext request={request} context={context} />
           </>
         }
@@ -722,6 +839,10 @@ function ReadyToEmailAction({
 }) {
   const [preparing, setPreparing] = useState(false)
   const [prepError, setPrepError] = useState<string | null>(null)
+  // Delivery channel: email (default) or postal mail. Persisted on the outreach
+  // so the chosen method is remembered and recorded with the form-sent touch.
+  const [method, setMethod] = useState<'email' | 'postal'>(detail.form_delivery_method ?? 'email')
+  const customerHasAddress = !!(detail.customer.address_line1 && detail.customer.city && detail.customer.state && detail.customer.zip)
 
   // The contracts the carrier form covers: the request's Everlake/Allstate
   // policies. If none of the request policies name an Everlake/Allstate carrier
@@ -734,10 +855,18 @@ function ReadyToEmailAction({
 
   const mailto = buildMailto(detail.customer.email, SA_SUBJECT, saEmailBody(detail.customer.first_name))
 
-  // Generate the filled servicing-agent PDF, download it with a recognizable
-  // customer-specific filename, then open the prepared email in Outlook. The
-  // browser's own download settings decide whether it saves straight to
-  // Downloads or shows a Save As dialog — we do not manage that.
+  function chooseMethod(next: 'email' | 'postal') {
+    if (next === method) return
+    setMethod(next)
+    setPrepError(null)
+    act({ type: 'set-delivery-method', method: next })
+  }
+
+  // Generate the filled servicing-agent PDF (plus a postal cover page when the
+  // postal channel is chosen), download it with a recognizable customer-specific
+  // filename. For email, then open the prepared email in Outlook. The browser's
+  // own download settings decide whether it saves straight to Downloads or shows
+  // a Save As dialog — we do not manage that.
   async function prepareAndOpen() {
     setPrepError(null)
     if (canGenerate) {
@@ -747,6 +876,7 @@ function ReadyToEmailAction({
         params.set('customer_id', detail.customer.id)
         params.set('owner_name', name)
         params.set('contracts', contractNumbers.join(','))
+        if (method === 'postal') params.set('delivery', 'postal')
         const res = await fetch(`/api/servicing-agent-change?${params.toString()}`)
         if (!res.ok) {
           const json = await res.json().catch(() => ({}))
@@ -756,10 +886,8 @@ function ReadyToEmailAction({
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        // Recognizable, customer-specific filename, e.g.
-        // Richard-Smith-Servicing-Agent-Change.pdf
         const safe = name.trim().replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '')
-        a.download = `${safe || 'Customer'}-Servicing-Agent-Change.pdf`
+        a.download = `${safe || 'Customer'}-Servicing-Agent-Change${method === 'postal' ? '-Postal-Packet' : ''}.pdf`
         document.body.appendChild(a)
         a.click()
         a.remove()
@@ -771,19 +899,45 @@ function ReadyToEmailAction({
       }
       setPreparing(false)
     }
-    // Open the prepared email in the worker's own Outlook via mailto. Launching
-    // Outlook is not proof the email was sent — the worker confirms below.
-    window.location.href = mailto
+    // Email channel: open the prepared email in the worker's own Outlook via
+    // mailto. Postal channel: nothing to open — the worker prints and mails the
+    // downloaded packet. Launching Outlook is not proof the email was sent.
+    if (method === 'email') window.location.href = mailto
   }
 
+  const postalLabel = preparing ? 'Preparing packet\u2026' : 'Generate Postal Packet'
+  const emailLabel = preparing ? 'Preparing form\u2026' : 'Generate Form & Open Email'
+
   return (
-    <ActionPanel heading={`Email ${name}`}>
+    <ActionPanel heading={method === 'postal' ? `Mail ${name}` : `Email ${name}`}>
       {noteBox}
+
+      {/* Delivery channel chooser. Operational, so it is prominent. */}
+      <div className="space-y-2">
+        <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">Delivery</p>
+        <div className="flex flex-wrap gap-2">
+          <WorkflowButton selected={method === 'email'} disabled={busy || preparing} onClick={() => chooseMethod('email')}>
+            {method === 'email' && <Check className="size-4" aria-hidden />}
+            Email
+          </WorkflowButton>
+          <WorkflowButton selected={method === 'postal'} disabled={busy || preparing} onClick={() => chooseMethod('postal')}>
+            {method === 'postal' && <Check className="size-4" aria-hidden />}
+            Postal mail
+          </WorkflowButton>
+        </div>
+        {method === 'postal' && !customerHasAddress && (
+          <div className="flex items-start gap-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-3 text-sm text-status-attention-strong">
+            <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+            <span>No complete mailing address on file. Add one on the customer record before generating a postal packet.</span>
+          </div>
+        )}
+      </div>
+
       <PrimaryAction
         icon={ExternalLink}
-        label={preparing ? 'Preparing form\u2026' : 'Generate Form & Open Email'}
+        label={method === 'postal' ? postalLabel : emailLabel}
         onClick={prepareAndOpen}
-        disabled={preparing}
+        disabled={preparing || (method === 'postal' && !customerHasAddress)}
       />
       {prepError && (
         <div className="flex items-start gap-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-3 text-sm text-status-attention-strong">
@@ -791,33 +945,41 @@ function ReadyToEmailAction({
           <span>{prepError}</span>
         </div>
       )}
-      {/* The authorization form is an explicit, required step: the completed
-          form downloads to the worker's computer, but a mailto cannot attach
-          one, so the worker must attach the downloaded form in Outlook before
-          sending. This is prominent because it changes what the worker does. */}
-      <FormAttachmentDirective request={formPolicies} />
-      {/* Email tracking is unchanged: this confirmation is what records the
-          sent email and advances the queue, not opening Outlook. */}
+      {method === 'email' ? (
+        // Email: a mailto cannot attach the form, so the worker must attach the
+        // downloaded form in Outlook before sending.
+        <FormAttachmentDirective request={formPolicies} />
+      ) : (
+        <div className="flex items-start gap-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-3 text-sm text-status-attention-strong">
+          <FileText className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span>The packet includes a cover letter addressed to the customer and the authorization form. Print it, enclose a return envelope, and mail it.</span>
+        </div>
+      )}
+      {/* This confirmation records the sent form and advances the queue, not
+          generating the document or opening Outlook. */}
       <WorkflowButton
         icon={Check}
         selected
         disabled={busy}
-        onClick={() => act({ type: 'email-sent' }, 'Email sent. Moved to Waiting for Response.')}
+        onClick={() => act({ type: 'email-sent' },
+          method === 'postal' ? 'Form mailed. Moved to Waiting for Response.' : 'Email sent. Moved to Waiting for Response.')}
       >
-        Form attached and email sent
+        {method === 'postal' ? 'Form mailed to customer' : 'Form attached and email sent'}
       </WorkflowButton>
-      <WorkflowButton
-        icon={MailX}
-        disabled={busy}
-        onClick={() => act({ type: 'email-bounced' },
-          detail.customer.phone ? 'Bounce recorded. Moved to Ready to Call.' : 'Bounce recorded. Moved to Research Needed.')}
-      >
-        Email bounced
-      </WorkflowButton>
+      {method === 'email' && (
+        <WorkflowButton
+          icon={MailX}
+          disabled={busy}
+          onClick={() => act({ type: 'email-bounced' },
+            detail.customer.phone ? 'Bounce recorded. Moved to Ready to Call.' : 'Bounce recorded. Moved to Research Needed.')}
+        >
+          Email bounced
+        </WorkflowButton>
+      )}
       <NextNote>
-        The completed form downloads to your computer. Attach it in Outlook, then send. Recording it as
-        sent moves {detail.customer.first_name} to Waiting for Response. A bounce routes to Ready to Call
-        when a phone is on file, or Research Needed when it is not. Nothing is sent or closed automatically.
+        {method === 'postal'
+          ? `The packet downloads to your computer. Print and mail it. Recording it as mailed moves ${detail.customer.first_name} to Waiting for Response. Nothing is sent or closed automatically.`
+          : `The completed form downloads to your computer. Attach it in Outlook, then send. Recording it as sent moves ${detail.customer.first_name} to Waiting for Response. A bounce routes to Ready to Call when a phone is on file, or Research Needed when it is not. Nothing is sent or closed automatically.`}
       </NextNote>
     </ActionPanel>
   )
@@ -1254,24 +1416,167 @@ function RequiredSignatureConfirm({
 // Context panels
 // ─────────────────────────────────────────────────────────────────────────────
 
-function CustomerContext({ detail }: { detail: Detail }) {
+function CustomerContext({
+  detail, busy, act,
+}: {
+  detail: Detail
+  busy: boolean
+  act: (action: unknown, successNote?: string) => void
+}) {
   const c = detail.customer
   const addr = [c.address_line1, [c.city, c.state].filter(Boolean).join(', '), c.zip].filter(Boolean).join(' \u00b7 ')
+  // A customer-verified value reads as green ("confirmed"); on file but
+  // unverified reads as amber ("on file, not confirmed"); missing reads red.
+  const fieldStatus = (present: boolean, verifiedAt: string | null) =>
+    verifiedAt ? { tone: 'confirmed' as const, label: 'Customer verified' }
+      : present ? { tone: 'known' as const, label: 'On file' }
+      : { tone: 'missing' as const, label: 'Missing' }
+  const emailS = fieldStatus(!!c.email, detail.email_verified_at)
+  const phoneS = fieldStatus(!!c.phone, detail.phone_verified_at)
+  const addrS = fieldStatus(!!addr, detail.address_verified_at)
   const fields: ContextField[] = [
     {
       label: 'Email', value: c.email ?? 'Not on file', empty: !c.email,
-      statusTone: c.email ? 'known' : 'missing', statusIcon: Mail, statusLabel: c.email ? 'On file' : 'Missing',
+      statusTone: emailS.tone, statusIcon: Mail, statusLabel: emailS.label,
     },
     {
       label: 'Phone', value: c.phone ?? 'Not on file', empty: !c.phone,
-      statusTone: c.phone ? 'known' : 'missing', statusIcon: Phone, statusLabel: c.phone ? 'On file' : 'Missing',
+      statusTone: phoneS.tone, statusIcon: Phone, statusLabel: phoneS.label,
     },
     {
       label: 'Address', value: addr || 'Not on file', empty: !addr,
-      statusTone: addr ? 'known' : 'missing', statusIcon: Building2, statusLabel: addr ? 'On file' : 'Missing',
+      statusTone: addrS.tone, statusIcon: Building2, statusLabel: addrS.label,
     },
   ]
-  return <ContextHeader eyebrow="Stewardship" title={fullName(c)} fields={fields} />
+  return (
+    <>
+      <ContextHeader eyebrow="Stewardship" title={fullName(c)} fields={fields} />
+      <ContactVerification detail={detail} busy={busy} act={act} />
+    </>
+  )
+}
+
+/**
+ * Simple customer-verified checkboxes for phone, email, and address. Checking a
+ * box records that the customer confirmed that value is correct (a distinct fact
+ * from the value merely being on file). It never changes the queue. A box is
+ * disabled when there is no value on file to verify.
+ */
+function ContactVerification({
+  detail, busy, act,
+}: {
+  detail: Detail
+  busy: boolean
+  act: (action: unknown, successNote?: string) => void
+}) {
+  const c = detail.customer
+  const hasAddress = !!(c.address_line1 && c.city && c.state && c.zip)
+  const rows: { field: 'phone' | 'email' | 'address'; label: string; present: boolean; verifiedAt: string | null }[] = [
+    { field: 'phone', label: 'Phone', present: !!c.phone, verifiedAt: detail.phone_verified_at },
+    { field: 'email', label: 'Email', present: !!c.email, verifiedAt: detail.email_verified_at },
+    { field: 'address', label: 'Mailing address', present: hasAddress, verifiedAt: detail.address_verified_at },
+  ]
+  return (
+    <div className="rounded-xl border border-surface-border bg-surface-card p-4">
+      <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">Customer-verified contact</p>
+      <p className="mt-1 text-sm text-ink-secondary">
+        Check each value the customer confirms is correct. This records a verification, separate from the
+        value simply being on file.
+      </p>
+      <div className="mt-3 space-y-2">
+        {rows.map(r => (
+          <label
+            key={r.field}
+            className={`flex items-center gap-2.5 text-base font-medium ${r.present ? 'cursor-pointer text-ink' : 'cursor-not-allowed text-ink-muted'}`}
+          >
+            <input
+              type="checkbox"
+              checked={!!r.verifiedAt}
+              disabled={busy || !r.present}
+              onChange={e => act(
+                { type: 'verify-contact', field: r.field, verified: e.target.checked },
+                e.target.checked ? `${r.label} marked customer-verified.` : `${r.label} verification cleared.`,
+              )}
+              className="size-4 rounded border-slate-400 text-teal-600 focus:ring-teal-500 disabled:opacity-40"
+            />
+            <span>{r.label} {r.present ? '' : <span className="text-sm font-normal text-ink-muted">(nothing on file)</span>}</span>
+            {r.verifiedAt && <Check className="size-4 text-emerald-600" aria-hidden />}
+          </label>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Record an ad-hoc outreach touch (call, voicemail, Hearsay text, or email) with
+ * an optional conversation outcome. Writes to the customer's history via
+ * /api/stewardship/[id]/touch; it never changes the queue. The specific
+ * workflow transitions (recorded call outcomes, the SA email, form-sent) already
+ * log their own touches — this is for everything else the worker wants on the
+ * record, including texting outcomes.
+ */
+function LogContactPanel({ itemId, customerFirstName }: { itemId: string; customerFirstName: string }) {
+  const TYPES: { id: 'call' | 'voicemail' | 'text' | 'email'; label: string }[] = [
+    { id: 'call', label: 'Call' },
+    { id: 'voicemail', label: 'Voicemail' },
+    { id: 'text', label: 'Text' },
+    { id: 'email', label: 'Email' },
+  ]
+  const [type, setType] = useState<'call' | 'voicemail' | 'text' | 'email'>('call')
+  const [notes, setNotes] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<string | null>(null)
+
+  async function log() {
+    setBusy(true); setMsg(null)
+    try {
+      const res = await fetch(`/api/stewardship/${itemId}/touch`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ touch_type: type, notes: notes.trim() }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setMsg(json.error ?? 'Could not record.'); return }
+      setMsg('Recorded in history.')
+      setNotes('')
+    } catch {
+      setMsg('Network error.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-surface-border bg-surface-card p-4">
+      <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">Log a contact</p>
+      <p className="mt-1 text-sm text-ink-secondary">
+        Record a call, voicemail, text, or email with {customerFirstName}, and the outcome. Added to the
+        customer&apos;s history.
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {TYPES.map(t => (
+          <WorkflowButton key={t.id} selected={type === t.id} disabled={busy} onClick={() => setType(t.id)}>
+            {type === t.id && <Check className="size-4" aria-hidden />}
+            {t.label}
+          </WorkflowButton>
+        ))}
+      </div>
+      <textarea
+        value={notes}
+        onChange={e => setNotes(e.target.value)}
+        rows={2}
+        placeholder="What happened? (optional)"
+        className="mt-3 w-full rounded-lg border border-surface-border-strong bg-surface-card px-3 py-2 text-sm text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-ring/40"
+      />
+      <div className="mt-2 flex items-center gap-3">
+        <WorkflowButton icon={PenLine} selected disabled={busy} onClick={log}>
+          {busy ? 'Recording…' : 'Record in history'}
+        </WorkflowButton>
+        {msg && <span className="text-sm font-medium text-ink-secondary">{msg}</span>}
+      </div>
+    </div>
+  )
 }
 
 function HoldingsContext({ request, context }: { request: Holding[]; context: Holding[] }) {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { buildServicingAgentChangePdf } from '@/lib/servicing-agent-form'
+import { buildServicingAgentChangePdf, type PostalAddress } from '@/lib/servicing-agent-form'
 
 /**
  * GET /api/servicing-agent-change?customer_id=...&policy_id=...&policy_id=...
@@ -14,6 +14,10 @@ import { buildServicingAgentChangePdf } from '@/lib/servicing-agent-form'
  *   owner_name  — overrides the printed requester name
  *   contracts   — comma-separated contract numbers used verbatim (overrides the
  *                 policy_id lookup; supports hand-corrected / missing numbers)
+ *   delivery    — 'email' (default) returns the form only; 'postal' prepends a
+ *                 cover letter addressed to the customer so the packet can be
+ *                 printed and mailed. Postal requires a resolvable mailing
+ *                 address on the customer record.
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
@@ -21,6 +25,8 @@ export async function GET(request: NextRequest) {
   const ownerOverride = searchParams.get('owner_name')?.trim() ?? ''
   const contractsOverride = searchParams.get('contracts')?.trim() ?? ''
   const policyIds = searchParams.getAll('policy_id').filter(Boolean)
+  const delivery = (searchParams.get('delivery')?.trim() ?? 'email').toLowerCase()
+  const isPostal = delivery === 'postal'
 
   if (!customerId && !ownerOverride) {
     return NextResponse.json(
@@ -31,18 +37,49 @@ export async function GET(request: NextRequest) {
 
   const supabase = createAdminClient()
 
-  // Owner name: override wins; otherwise the customer's full name.
+  // Owner name: override wins; otherwise the customer's full name. For the
+  // postal path we also need the customer's mailing address, so fetch it in the
+  // same lookup. A row is fetched whenever we have a customer_id and still need
+  // the name OR a postal address.
   let ownerName = ownerOverride
-  if (!ownerName && customerId) {
+  let postalTo: PostalAddress | null = null
+  if (customerId && (!ownerName || isPostal)) {
     const { data: customer, error } = await supabase
       .from('customers')
-      .select('first_name, last_name')
+      .select('first_name, last_name, address_line1, city, state, zip')
       .eq('id', customerId)
       .single()
     if (error || !customer) {
       return NextResponse.json({ error: 'Customer not found' }, { status: 404 })
     }
-    ownerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ').trim()
+    if (!ownerName) {
+      ownerName = [customer.first_name, customer.last_name].filter(Boolean).join(' ').trim()
+    }
+    if (isPostal) {
+      const hasAddress = Boolean(customer.address_line1 && customer.city && customer.state && customer.zip)
+      if (!hasAddress) {
+        return NextResponse.json(
+          { error: 'This customer has no complete mailing address on file. Add one before generating a postal packet.' },
+          { status: 400 },
+        )
+      }
+      postalTo = {
+        name: ownerName || [customer.first_name, customer.last_name].filter(Boolean).join(' ').trim(),
+        line1: customer.address_line1,
+        city: customer.city,
+        state: customer.state,
+        zip: customer.zip,
+      }
+    }
+  }
+
+  // Postal always requires a resolvable address, which comes from the customer
+  // record. An owner_name override alone cannot produce a postal packet.
+  if (isPostal && !postalTo) {
+    return NextResponse.json(
+      { error: 'A customer_id with a complete mailing address is required for postal delivery.' },
+      { status: 400 },
+    )
   }
 
   // Contract numbers: an explicit comma-separated override wins (allows the
@@ -76,10 +113,10 @@ export async function GET(request: NextRequest) {
     )
   }
 
-  const pdfBytes = await buildServicingAgentChangePdf({ ownerName, contractNumbers })
+  const pdfBytes = await buildServicingAgentChangePdf({ ownerName, contractNumbers, postalTo })
 
   const safeName = ownerName.replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase()
-  const filename = `servicing-agent-change-${safeName || 'form'}.pdf`
+  const filename = `servicing-agent-change-${isPostal ? 'postal-' : ''}${safeName || 'form'}.pdf`
 
   return new NextResponse(Buffer.from(pdfBytes), {
     headers: {

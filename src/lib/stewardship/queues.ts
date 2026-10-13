@@ -39,6 +39,21 @@ export type CallReason = 'no-email' | 'email-bounced' | 'no-response' | 'callbac
 export type ResearchReason = 'no-contact' | 'bad-number' | 'bounce-no-phone'
 export type CallOutcome = 'reached' | 'voicemail' | 'bad-number' | 'not-interested' | 'callback'
 
+/** The three contact facts the customer can confirm during onboarding. */
+export type ContactField = 'phone' | 'email' | 'address'
+
+/** How the authorization form is delivered to the customer. */
+export type FormDeliveryMethod = 'email' | 'postal'
+
+/**
+ * Default spacing (in days) between automatic follow-up attempts after an
+ * unsuccessful outreach (a voicemail with no callback). There is deliberately
+ * NO attempt limit and NO attempt counter: each voicemail simply rolls the next
+ * follow-up forward by this many days. A human decides to stop; the system
+ * never caps attempts or auto-closes.
+ */
+export const FOLLOW_UP_INTERVAL_DAYS = 7
+
 export interface QueueMeta {
   id: OutreachQueue
   label: string
@@ -124,6 +139,13 @@ export type OutreachAction =
   // every request policy is confirmed — that completion is decided by the route
   // after it re-reads the request policies' statuses, not here.
   | { type: 'carrier-confirmed'; policy_id: string }
+  // Record that the customer confirmed a specific contact value is correct.
+  // Pure workflow state only; persisting the confirmation timestamp is a
+  // side-effect the route performs. Verification never changes the queue.
+  | { type: 'verify-contact'; field: ContactField; verified: boolean }
+  // Record which channel the authorization form is delivered through. An
+  // operator decision that does not, by itself, change the queue.
+  | { type: 'set-delivery-method'; method: FormDeliveryMethod }
 
 export interface OutreachState {
   queue: OutreachQueue
@@ -136,6 +158,13 @@ export interface OutreachState {
   form_received_at: string | null
   submitted_at: string | null
   carrier_correction: string | null
+  // Customer-verified contact flags (timestamps; null = not customer-verified).
+  // Distinct from a value merely being on file.
+  phone_verified_at: string | null
+  email_verified_at: string | null
+  address_verified_at: string | null
+  // Chosen authorization-form delivery channel; null until the worker picks one.
+  form_delivery_method: FormDeliveryMethod | null
   /**
    * Whether the customer currently has a usable phone. Not stored on the
    * outreach row (contact facts live on customers); supplied by the caller so
@@ -258,7 +287,17 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
             },
           }
         case 'voicemail':
-          return { patch: { last_call_outcome: 'voicemail' } }
+          // Auto-schedule the next follow-up. The customer stays in Ready to
+          // Call and resurfaces on follow_up_due. There is NO attempt limit:
+          // each voicemail simply rolls the next follow-up forward. A human
+          // decides to stop; the system never caps attempts or auto-closes.
+          return {
+            patch: {
+              last_call_outcome: 'voicemail',
+              call_reason: 'callback-due',
+              follow_up_due: addDays(new Date().toISOString(), FOLLOW_UP_INTERVAL_DAYS),
+            },
+          }
         case 'not-interested':
           // Explicit human disposition. No further outreach, but NOT auto-closed.
           return { patch: { last_call_outcome: 'not-interested' } }
@@ -339,6 +378,31 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
         patch: { carrier_correction: null },
         confirmPolicyId: action.policy_id,
       }
+    }
+
+    case 'verify-contact': {
+      // Record (or clear) the customer's confirmation that one contact value is
+      // correct. Allowed from any queue — verification is customer-record
+      // hygiene that can happen whenever the worker is in contact — and it never
+      // changes the queue. The route stamps/clears the matching timestamp.
+      const ts = action.verified ? new Date().toISOString() : null
+      const field =
+        action.field === 'phone'   ? { phone_verified_at: ts } :
+        action.field === 'email'   ? { email_verified_at: ts } :
+        action.field === 'address' ? { address_verified_at: ts } :
+        null
+      if (!field) {
+        return { patch: {}, error: `Unknown contact field: ${String((action as { field?: unknown }).field)}` }
+      }
+      return { patch: field }
+    }
+
+    case 'set-delivery-method': {
+      if (action.method !== 'email' && action.method !== 'postal') {
+        return { patch: {}, error: `Unknown delivery method: ${String((action as { method?: unknown }).method)}` }
+      }
+      // Operator records the chosen delivery channel. Does not change the queue.
+      return { patch: { form_delivery_method: action.method } }
     }
   }
 }

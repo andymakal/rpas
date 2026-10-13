@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
-import { PDFDocument } from 'pdf-lib'
+import { PDFDocument, StandardFonts, rgb } from 'pdf-lib'
 import { MAX_CONTRACTS } from './servicing-agent-form-shared'
 
 export { MAX_CONTRACTS, servicingAgentEmailMessage } from './servicing-agent-form-shared'
@@ -39,11 +39,107 @@ const CONTRACT_FIELD_NAMES = Array.from({ length: 12 }, (_, i) => String(i + 1))
 const REQUESTER_NAME_FIELD =
   'Printed name of requester Contract Owner Current Writing Agent only'
 
+/**
+ * The agency's return address, shown on the postal cover page and used as the
+ * return/mail-back address when the form is sent by mail. The permanent
+ * servicing-agent identity (James Andrew Makal) is baked into the carrier form
+ * template itself; this is just the office mailing address for the cover sheet.
+ */
+export const AGENCY_RETURN_ADDRESS = {
+  name: 'James Andrew Makal',
+  line1: 'Makal Financial Services',
+  phone: '(814) 808-7526',
+  email: 'amakal@allstate.com',
+} as const
+
+export type PostalAddress = {
+  /** Addressee name (usually the contract owner). */
+  name: string
+  line1: string | null
+  line2?: string | null
+  city: string | null
+  state: string | null
+  zip: string | null
+}
+
 export type ServicingAgentFormInput = {
   /** Contract owner's full name, written to the printed-requester field. */
   ownerName: string
   /** Contract (policy) numbers; up to MAX_CONTRACTS are placed in fields 1–12. */
   contractNumbers: string[]
+  /**
+   * When present, a postal cover page addressed to this mailing address is
+   * prepended to the filled form so the whole packet can be printed and mailed.
+   * Omit for the email path (form only, no cover page).
+   */
+  postalTo?: PostalAddress | null
+}
+
+/** Format a mailing address into display lines, dropping blanks. */
+function addressLines(a: PostalAddress): string[] {
+  const cityStateZip = [a.city, a.state].filter(Boolean).join(', ')
+  const lastLine = [cityStateZip, a.zip].filter(Boolean).join(' ')
+  return [a.name, a.line1 ?? '', a.line2 ?? '', lastLine].filter(l => l && l.trim())
+}
+
+/**
+ * Build a single-page postal cover letter: the agency return address, today's
+ * date, the customer's mailing address, and a short instruction to sign and
+ * mail the attached form back. Drawn with pdf-lib's standard font (no external
+ * assets). This is the postal counterpart to the email body.
+ */
+async function buildPostalCoverPage(
+  doc: PDFDocument,
+  to: PostalAddress,
+): Promise<void> {
+  const page = doc.insertPage(0, [612, 792]) // US Letter, cover first
+  const font = await doc.embedFont(StandardFonts.Helvetica)
+  const bold = await doc.embedFont(StandardFonts.HelveticaBold)
+  const ink = rgb(0.1, 0.12, 0.16)
+  const left = 72
+  let y = 720
+
+  const line = (text: string, f = font, size = 11, gap = 16) => {
+    page.drawText(text, { x: left, y, size, font: f, color: ink })
+    y -= gap
+  }
+
+  // Return address block.
+  line(AGENCY_RETURN_ADDRESS.name, bold)
+  line(AGENCY_RETURN_ADDRESS.line1)
+  line(`${AGENCY_RETURN_ADDRESS.phone}  ·  ${AGENCY_RETURN_ADDRESS.email}`)
+  y -= 18
+
+  // Date.
+  const today = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+  line(today)
+  y -= 10
+
+  // Recipient address block.
+  for (const l of addressLines(to)) line(l)
+  y -= 20
+
+  // Salutation + body.
+  const first = to.name.trim().split(/\s+/)[0] || 'there'
+  line(`Dear ${first},`)
+  y -= 6
+  const body = [
+    'Enclosed is a Servicing Agent Change form for your Everlake (formerly Allstate)',
+    'life insurance or annuity contract(s). It names James Andrew Makal as your',
+    'servicing agent so our office can continue to help you with your contract(s).',
+    '',
+    'Signing this form does not change your policy or coverage. It simply allows us',
+    'to access your policy information and assist you when needed.',
+    '',
+    'Please sign and date the requester line near the bottom of the enclosed form,',
+    'then return it to us in the enclosed envelope or by mail to the address above.',
+    'If you have additional contracts, there is space on the form to include them.',
+    '',
+    'Thank you,',
+  ]
+  for (const l of body) line(l || ' ', font, 11, 16)
+  y -= 4
+  line(AGENCY_RETURN_ADDRESS.name, bold)
 }
 
 export async function buildServicingAgentChangePdf(
@@ -74,6 +170,12 @@ export async function buildServicingAgentChangePdf(
   // for the owner to sign. The agent block and the checked Contract Owner box
   // are already part of the template.
   form.flatten()
+
+  // Postal path: prepend a cover letter addressed to the customer so the whole
+  // packet can be printed and mailed. The email path omits this (form only).
+  if (input.postalTo) {
+    await buildPostalCoverPage(doc, input.postalTo)
+  }
 
   return doc.save()
 }

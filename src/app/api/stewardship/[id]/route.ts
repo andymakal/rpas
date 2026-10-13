@@ -25,11 +25,16 @@ type OutreachRow = {
   form_received_at: string | null
   submitted_at: string | null
   carrier_correction: string | null
+  phone_verified_at: string | null
+  email_verified_at: string | null
+  address_verified_at: string | null
+  form_delivery_method: 'email' | 'postal' | null
 }
 
 const OUTREACH_COLUMNS =
   'id, prereview_id, queue, call_reason, research_reason, last_call_outcome, ' +
-  'callback_date, email_sent_at, follow_up_due, form_received_at, submitted_at, carrier_correction'
+  'callback_date, email_sent_at, follow_up_due, form_received_at, submitted_at, carrier_correction, ' +
+  'phone_verified_at, email_verified_at, address_verified_at, form_delivery_method'
 
 /**
  * Resolve the signed-in employee's display name for a touch log, mirroring the
@@ -153,6 +158,10 @@ export async function GET(
       form_received_at: o.form_received_at,
       submitted_at: o.submitted_at,
       carrier_correction: o.carrier_correction,
+      phone_verified_at: o.phone_verified_at,
+      email_verified_at: o.email_verified_at,
+      address_verified_at: o.address_verified_at,
+      form_delivery_method: o.form_delivery_method,
       customer: cust,
       source_agency_id: pre.source_agency_id,
       holdings,
@@ -248,6 +257,10 @@ export async function PATCH(
     form_received_at: row.form_received_at,
     submitted_at: row.submitted_at,
     carrier_correction: row.carrier_correction,
+    phone_verified_at: row.phone_verified_at,
+    email_verified_at: row.email_verified_at,
+    address_verified_at: row.address_verified_at,
+    form_delivery_method: row.form_delivery_method,
     has_usable_phone: !!row.customer_prereviews.customers?.phone?.trim(),
   }
 
@@ -269,6 +282,60 @@ export async function PATCH(
         .from('service_policies')
         .update({ sa_form_sent_at: new Date().toISOString() })
         .in('id', policyIds)
+    }
+  }
+
+  // Record call outcomes in customer history. Every recorded call outcome
+  // becomes a durable touch (call or voicemail) so the customer's history shows
+  // the contact attempts the onboarding workflow made. Attribution is
+  // best-effort; a failed touch log must never block the workflow transition.
+  if (action.type === 'call-outcome') {
+    const outcome = action.outcome
+    // Voicemail is its own touch_type; every other call outcome is a 'call'.
+    const touchType = outcome === 'voicemail' ? 'voicemail' : 'call'
+    const outcomeLabel: Record<CallOutcome, string> = {
+      reached: 'Reached the customer.',
+      voicemail: 'Left a voicemail. Follow-up auto-scheduled.',
+      'bad-number': 'Bad number. Moved to Research Needed.',
+      'not-interested': 'Customer not interested. No further outreach; a human decides any next step.',
+      callback: `Customer asked for a callback${action.callback_date ? ` on ${action.callback_date}` : ''}.`,
+    }
+    const touchedBy = await resolveEmployeeName(supabase)
+    const { error: touchErr } = await supabase
+      .from('case_touches')
+      .insert({
+        customer_id: customerId,
+        case_id:     null,
+        touch_type:  touchType,
+        notes:       `Servicing-agent onboarding call: ${outcomeLabel[outcome]}`,
+        touched_at:  new Date().toISOString(),
+        touched_by:  touchedBy,
+      })
+    if (touchErr) {
+      // Non-fatal: the workflow transition still proceeds. Log for visibility.
+      console.error('stewardship call-outcome touch log error:', touchErr)
+    }
+  }
+
+  // Record the servicing-agent form being sent to the customer (from a reached
+  // call or from the waiting-for-response engagement path). The ready-to-email
+  // path records its own email touch separately below.
+  if (action.type === 'form-sent') {
+    const touchedBy = await resolveEmployeeName(supabase)
+    const isPostal = row.form_delivery_method === 'postal'
+    const method = isPostal ? 'by postal mail' : 'by email'
+    const { error: touchErr } = await supabase
+      .from('case_touches')
+      .insert({
+        customer_id: customerId,
+        case_id:     null,
+        touch_type:  isPostal ? 'postal' : 'email',
+        notes:       `Servicing-agent authorization form sent to the customer ${method}.`,
+        touched_at:  new Date().toISOString(),
+        touched_by:  touchedBy,
+      })
+    if (touchErr) {
+      console.error('stewardship form-sent touch log error:', touchErr)
     }
   }
 
@@ -306,6 +373,23 @@ export async function PATCH(
         { error: 'Could not update servicing status; the item was left in Waiting for Carrier.' },
         { status: 500 },
       )
+    }
+
+    // Promote Wanderer -> Explorer now that servicing authority is confirmed on
+    // this customer. Confirming the servicing agent is the moment Right Path
+    // gains durable access to the relationship, which is exactly the
+    // Wanderer -> Explorer transition. This ONLY ever lifts a 'wanderer' to
+    // 'explorer': the update is scoped to segment = 'wanderer', so a customer
+    // already at explorer or any higher tier is never changed, and nothing is
+    // ever downgraded. Best-effort — a failed promotion must not block the
+    // confirmation that already succeeded.
+    const { error: promoteErr } = await supabase
+      .from('customers')
+      .update({ segment: 'explorer' })
+      .eq('id', customerId)
+      .eq('segment', 'wanderer')
+    if (promoteErr) {
+      console.error('stewardship Wanderer->Explorer promotion error:', promoteErr)
     }
 
     // Persist the outreach patch (clears any standing correction note). Keep the

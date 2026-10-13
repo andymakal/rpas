@@ -1,7 +1,10 @@
 import { notFound } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { generateFlags } from '@/lib/reviews/prep'
+import { getCustomerOnboarding, type CustomerOnboarding } from '@/lib/stewardship/customer-workflows'
 import { CustomerCardClient } from './CustomerCardClient'
+
+export type { CustomerOnboarding } from '@/lib/stewardship/customer-workflows'
 
 export const dynamic = 'force-dynamic'
 
@@ -329,6 +332,16 @@ export default async function CustomerCardPage({
     }
   })
 
+  // Servicing-agent onboarding summary (active workflow + completed roll-up).
+  // Derived live from the stewardship tables + policy sa_status; never fails the
+  // page if the read errors.
+  let onboarding: CustomerOnboarding = { active: null, completed: null }
+  try {
+    onboarding = await getCustomerOnboarding(supabase, id)
+  } catch {
+    onboarding = { active: null, completed: null }
+  }
+
   return (
     <CustomerCardClient
       customer={customer as CustomerDetail}
@@ -342,6 +355,7 @@ export default async function CustomerCardPage({
       touchHistory={touchHistory}
       initialNotes={notes}
       householdMembers={householdMembers}
+      onboarding={onboarding}
     />
   )
 }

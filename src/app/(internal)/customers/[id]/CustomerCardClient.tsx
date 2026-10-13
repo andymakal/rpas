@@ -14,6 +14,7 @@ import type {
   CustomerDetail, LinkedCase, LinkedPolicy, LinkedServiceRequest,
   LinkedReview, ProducerOption,
   CaseStatusHistoryEntry, CustomerNote, TouchHistoryEntry, HouseholdMember,
+  CustomerOnboarding,
 } from './page'
 import { fmtDate } from '@/lib/fmt'
 import { formatPhone } from '@/lib/format-phone'
@@ -134,6 +135,7 @@ const TOUCH_TYPE_LABELS: Record<string, string> = {
   text:               'Text',
   email:              'Email',
   missed_appointment: 'Missed Appt.',
+  postal:             'Postal',
 }
 
 const TOUCH_COLORS: Record<string, string> = {
@@ -142,6 +144,7 @@ const TOUCH_COLORS: Record<string, string> = {
   text:               'bg-emerald-900/50 border-emerald-700 text-emerald-300',
   email:              'bg-violet-900/50 border-violet-700 text-violet-300',
   missed_appointment: 'bg-red-900/50 border-red-700 text-red-300',
+  postal:             'bg-sky-900/50 border-sky-700 text-sky-300',
 }
 
 function SrStatusBadge({ status }: { status: string }) {
@@ -261,6 +264,83 @@ function SegmentBadge({ segment }: { segment: string | null }) {
   )
 }
 
+// ── Servicing-Agent Onboarding ─────────────────────────────────────────────────
+
+/**
+ * Shows the customer's servicing-agent onboarding (the Stewardship workflow):
+ * the ACTIVE workflow with its live status, and a one-line COMPLETED summary of
+ * servicing access. The detailed step-by-step history is NOT repeated here — it
+ * lives in Touch History and Notes below. When there is nothing to show (no
+ * active work and no confirmed access), the section is omitted entirely.
+ */
+function OnboardingSection({
+  onboarding, customerId,
+}: {
+  onboarding: CustomerOnboarding
+  customerId: string
+}) {
+  const { active, completed } = onboarding
+  if (!active && !completed) return null
+
+  const count = active ? 1 : 0
+
+  return (
+    <Section title="Servicing-Agent Onboarding" icon={ClipboardCheck} count={count}>
+      <div className="divide-y divide-slate-800">
+        {/* ACTIVE workflow */}
+        {active && (
+          <div className="px-5 py-4">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium bg-teal-900/50 text-teal-300 border border-teal-800 rounded-full px-2.5 py-0.5">
+                  <Send className="w-3 h-3" /> Active
+                </span>
+                <span className="text-sm font-medium text-slate-200">{active.status_label}</span>
+              </div>
+              {active.outreach_id ? (
+                <Link
+                  href={`/stewardship?customer_id=${customerId}`}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-teal-400 hover:text-teal-300"
+                >
+                  Open task <ChevronRight className="w-3.5 h-3.5" />
+                </Link>
+              ) : null}
+            </div>
+            <p className="mt-2 text-xs text-slate-400">
+              {active.phase === 'outreach'
+                ? `Establishing servicing access · ${active.policies_confirmed} of ${active.policies_total} ${active.policies_total === 1 ? 'policy' : 'policies'} confirmed · started ${fmtDate(active.started_at)}`
+                : `Servicing outreach complete · awaiting Initial Analysis preparation · started ${fmtDate(active.started_at)}`}
+            </p>
+          </div>
+        )}
+
+        {/* COMPLETED summary */}
+        {completed && (
+          <div className="px-5 py-4">
+            <div className="flex items-center gap-2">
+              <span className={`inline-flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-0.5 border ${
+                completed.fully_confirmed
+                  ? 'bg-green-900/50 text-green-300 border-green-800'
+                  : 'bg-slate-800 text-slate-300 border-slate-700'
+              }`}>
+                <CheckCircle className="w-3 h-3" /> Servicing access
+              </span>
+              <span className="text-sm text-slate-300">
+                {completed.policies_confirmed} of {completed.policies_total} {completed.policies_total === 1 ? 'policy' : 'policies'} confirmed
+              </span>
+            </div>
+            <p className="mt-2 text-xs text-slate-400">
+              {completed.fully_confirmed
+                ? 'Servicing authority established. Ready for Initial Analysis preparation.'
+                : 'Servicing authority confirmed on some policies. Full detail is in the history below.'}
+            </p>
+          </div>
+        )}
+      </div>
+    </Section>
+  )
+}
+
 // ── Section wrapper ───────────────────────────────────────────────────────────
 
 function Section({ title, icon: Icon, count, children, action }: {
@@ -333,6 +413,7 @@ export function CustomerCardClient({
   initialNotes,
   touchHistory,
   householdMembers = [],
+  onboarding = { active: null, completed: null },
 }: {
   customer:             CustomerDetail
   cases:                LinkedCase[]
@@ -345,6 +426,7 @@ export function CustomerCardClient({
   initialNotes:         CustomerNote[]
   touchHistory:         TouchHistoryEntry[]
   householdMembers?:    HouseholdMember[]
+  onboarding?:          CustomerOnboarding
 }) {
   const router = useRouter()
   const [cases,       setCases]       = useState<LinkedCase[]>(initialCases)
@@ -1537,6 +1619,9 @@ export function CustomerCardClient({
             </table>
           )}
         </Section>
+
+        {/* Servicing-Agent Onboarding — active workflow + completed summary */}
+        <OnboardingSection onboarding={onboarding} customerId={customer.id} />
 
         {/* Cases */}
         <Section title="Cases" icon={FolderKanban} count={cases.length}>
