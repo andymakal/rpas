@@ -79,6 +79,9 @@ function saEmailBody(firstName: string): string {
     '',
     'We\'re systematically restoring access to these policies. If you have any questions or specific concerns about yours right now, please let us know. We\'d be happy to discuss them with you.',
   ].join('\n')
+    // Trailing blank paragraph (two CRLFs) so the worker can drop their Outlook
+    // signature at the bottom without first pressing Enter. Wording is unchanged.
+    + '\r\n\r\n'
 }
 
 type Customer = { id: string; first_name: string; last_name: string; email: string | null; phone: string | null }
