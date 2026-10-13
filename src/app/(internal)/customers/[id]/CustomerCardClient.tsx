@@ -1977,6 +1977,12 @@ export function CustomerCardClient({
           action={
             <div className="flex items-center gap-3">
               <Link
+                href={`/servicing-agent-change?customer_id=${customer.id}`}
+                className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                <Send className="w-3.5 h-3.5" /> Servicing Agent Change
+              </Link>
+              <Link
                 href={`/financial-review/new?customer_id=${customer.id}`}
                 className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
               >
