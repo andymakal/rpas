@@ -2,8 +2,12 @@
 
 import { useState, useCallback } from 'react'
 import Link from 'next/link'
-import { Search, X, ArrowLeft, Loader2, FileDown, Copy, Check, AlertCircle } from 'lucide-react'
-import { servicingAgentEmailMessage, MAX_CONTRACTS } from '@/lib/servicing-agent-form-shared'
+import { Search, X, ArrowLeft, Loader2, Check, AlertCircle, MailPlus } from 'lucide-react'
+import {
+  servicingAgentEmailMessage,
+  servicingAgentEmailSubject,
+  MAX_CONTRACTS,
+} from '@/lib/servicing-agent-form-shared'
 
 export type SacCustomer = {
   id:         string
@@ -61,7 +65,6 @@ export function ServicingAgentChangeClient({
   const [extraContracts, setExtraContracts] = useState('')
 
   const [generating, setGenerating] = useState(false)
-  const [copied, setCopied]         = useState(false)
   const [error, setError]           = useState<string | null>(null)
 
   const searchCustomers = useCallback(async (q: string) => {
@@ -148,6 +151,7 @@ export function ServicingAgentChangeClient({
         const json = await res.json().catch(() => ({}))
         throw new Error(json.error ?? 'Could not generate the PDF.')
       }
+      // 1. Download the completed PDF; it stays in Downloads to attach manually.
       const blob = await res.blob()
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
@@ -158,20 +162,19 @@ export function ServicingAgentChangeClient({
       a.click()
       a.remove()
       URL.revokeObjectURL(url)
+
+      // 2. Open a prepared email in the default mail client (Outlook) with the
+      //    subject and body prefilled. The owner attaches the downloaded PDF.
+      const to = customer.email ?? ''
+      const mailto =
+        `mailto:${encodeURIComponent(to)}` +
+        `?subject=${encodeURIComponent(servicingAgentEmailSubject())}` +
+        `&body=${encodeURIComponent(servicingAgentEmailMessage(ownerName || 'there'))}`
+      window.location.href = mailto
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not generate the PDF.')
     } finally {
       setGenerating(false)
-    }
-  }
-
-  async function copyEmail() {
-    try {
-      await navigator.clipboard.writeText(servicingAgentEmailMessage(ownerName || 'there'))
-      setCopied(true)
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      setError('Could not copy to clipboard.')
     }
   }
 
@@ -340,25 +343,20 @@ export function ServicingAgentChangeClient({
           </div>
         )}
 
-        {/* Actions */}
+        {/* Action */}
         {customer && (
-          <div className="flex items-center gap-3 pt-2">
+          <div className="pt-2">
             <button
               onClick={generate}
               disabled={!canGenerate || generating}
               className="inline-flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 text-white text-sm font-medium rounded-lg px-5 py-2.5 transition-colors"
             >
-              {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileDown className="w-4 h-4" />}
-              Generate PDF
+              {generating ? <Loader2 className="w-4 h-4 animate-spin" /> : <MailPlus className="w-4 h-4" />}
+              Generate PDF &amp; Email
             </button>
-            <button
-              onClick={copyEmail}
-              disabled={!ownerName.trim()}
-              className="inline-flex items-center gap-2 bg-slate-800 hover:bg-slate-700 disabled:opacity-50 border border-slate-700 text-slate-200 text-sm font-medium rounded-lg px-4 py-2.5 transition-colors"
-            >
-              {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
-              {copied ? 'Copied' : 'Copy email message'}
-            </button>
+            <p className="text-slate-500 text-xs mt-2">
+              Downloads the completed PDF and opens a prepared email. Attach the downloaded PDF from your Downloads folder before sending.
+            </p>
           </div>
         )}
       </div>

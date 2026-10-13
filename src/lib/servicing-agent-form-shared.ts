@@ -7,6 +7,11 @@
 /** Maximum contract numbers the carrier form can hold on page 1 (fields 1–12). */
 export const MAX_CONTRACTS = 12
 
+/** Subject line for the accompanying servicing-agent-change email. */
+export function servicingAgentEmailSubject(): string {
+  return 'Servicing Agent Change form for your Everlake (Allstate) contract(s)'
+}
+
 /**
  * The short accompanying email the owner receives with the form. Kept here so
  * the UI and any server use share one source of truth.
