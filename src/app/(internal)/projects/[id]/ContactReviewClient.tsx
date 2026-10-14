@@ -27,8 +27,7 @@ import {
   ContextHeader, type ContextField, SlimTaskHeader, AssistantPanel,
   QueueListHeader, CustomerQueueCard, QueueEmptyState,
 } from '@/components/workflow'
-import { useMentoring } from '@/lib/mentoring/MentoringProvider'
-import { MentorNote } from '@/lib/mentoring/MentorUi'
+import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import {
   normalizeEmailInput, normalizePhoneInput, formatPhoneAsTyped,
   type ContactFieldResult,
@@ -62,11 +61,10 @@ function gapDetail(c: ContactReviewCustomer): string {
 }
 
 export function ContactReviewClient({ projectId }: { projectId: string }) {
-  // Mentoring is the app-wide "how to do it" coaching layer, toggled in the
-  // shared header. Read it here only to decide whether to show coaching notes;
-  // the Assistant content is unchanged either way. Kept distinct from the
-  // Assistant, consistent with My Work and Stewardship.
-  const { mentoring } = useMentoring()
+  // Mentoring is the app-wide "how to do it" coaching layer. The per-section
+  // MentorGuidance controls below are always shown; the global toggle (in the
+  // shared header) only sets their default open/closed state, so this component
+  // no longer reads the global value directly.
   const [rows, setRows] = useState<ContactReviewCustomer[]>([])
   const [summary, setSummary] = useState<Summary | null>(null)
   const [loading, setLoading] = useState(true)
@@ -192,15 +190,15 @@ export function ContactReviewClient({ projectId }: { projectId: string }) {
             onClick={() => setOpenId(remaining[0].customer_id)}
           />
         )}
-        {/* Mentoring (HOW), separate from the Assistant (WHAT): only when the
-            shared Mentoring toggle is on. */}
-        {mentoring && (
-          <MentorNote>
-            In eAgent Quick Search, a middle initial or a nickname can hide a match. If the full
-            name finds nothing, try the last name alone, then confirm the date of birth before you
-            copy any email or phone back here.
-          </MentorNote>
-        )}
+        {/* Mentoring (HOW), separate from the Assistant (WHAT). Its own purple
+            control is always shown; the global Mentoring toggle only sets its
+            default open/closed state, and employees can toggle this section
+            independently. */}
+        <MentorGuidance label="How to find a match">
+          In eAgent Quick Search, a middle initial or a nickname can hide a match. If the full
+          name finds nothing, try the last name alone, then confirm the date of birth before you
+          copy any email or phone back here.
+        </MentorGuidance>
       </AssistantPanel>
 
       <QueueListHeader
@@ -247,7 +245,6 @@ function ContactReviewTask({
   onSkipped: () => void
 }) {
   const name = fullName(customer)
-  const { mentoring } = useMentoring()
 
   // Inputs start from the stored values so existing information is preserved
   // unless the worker changes it. Email and phone are edited independently.
@@ -468,13 +465,12 @@ function ContactReviewTask({
           </NextNote>
 
           {/* Mentoring (HOW), consistent with the list view and the other
-              workflows: shown only when the shared Mentoring toggle is on. */}
-          {mentoring && (
-            <MentorNote>
-              Enter one usable method and move on; you do not need both. A phone with no email is
-              still progress. Only overwrite a value in eAgent when you are confident it is wrong.
-            </MentorNote>
-          )}
+              workflows. Its own purple control is always shown; the global
+              toggle only sets the default open/closed state. */}
+          <MentorGuidance label="How to fill contact info">
+            Enter one usable method and move on; you do not need both. A phone with no email is
+            still progress. Only overwrite a value in eAgent when you are confident it is wrong.
+          </MentorGuidance>
         </ActionPanel>
       }
       context={

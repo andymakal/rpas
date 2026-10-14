@@ -19,6 +19,7 @@ import Link from 'next/link'
 import {
   Sparkles, ArrowRight, Phone, Mail, Users, CheckCircle2, Lock,
   NotebookPen, AlertCircle, ListChecks, ChevronRight, SlidersHorizontal,
+  CalendarClock, FolderOpen,
 } from 'lucide-react'
 import {
   Select,
@@ -27,8 +28,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useMentoring } from '@/lib/mentoring/MentoringProvider'
-import { MentorNote } from '@/lib/mentoring/MentorUi'
+import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import {
   WorkflowPage,
   WorkflowHeader,
@@ -138,30 +138,34 @@ export function MyWorkClient({
     <WorkflowPage>
       <WorkflowHeader primary="My Work" />
 
-      {/* Project + Activity filters. They narrow the work shown below; fixed-time
-          commitments stay visible regardless, and every route/count/permission
-          is unchanged. Rendered only when there is something to filter. */}
-      {hasFilters && (
-        <WorkFilters
-          projectOptions={projectOptions}
-          activityOptions={activityOptions}
-          projectFilter={projectFilter}
-          activityFilter={activityFilter}
-          onProjectChange={setProjectFilter}
-          onActivityChange={setActivityFilter}
-          onClear={() => {
-            setProjectFilter(ALL)
-            setActivityFilter(ALL)
-          }}
-          active={filtersActive}
-        />
-      )}
-
-      {/* The Assistant: on arrival it helps the worker START, not explains the
-          system. It shows any genuine time-specific commitments first, then asks
-          what to work on and offers two prominent choices. The full inventory
-          is available on demand, not shown up front. */}
-      <MyWorkAssistant state={filteredState} direction={direction} />
+      {/* The Assistant is the first thing an employee meets in My Work. The
+          Project + Activity filters live INSIDE its panel, so changing a filter
+          reshapes the same briefing the worker is reading. The Assistant leads
+          with any genuine fixed-time commitments and the day's breadth, then
+          asks what to work on and offers two prominent start choices. Fixed-time
+          commitments stay visible regardless of the filters, and every route,
+          count, and permission is unchanged. The full inventory is on demand. */}
+      <MyWorkAssistant
+        state={filteredState}
+        direction={direction}
+        filters={
+          hasFilters
+            ? {
+                projectOptions,
+                activityOptions,
+                projectFilter,
+                activityFilter,
+                onProjectChange: setProjectFilter,
+                onActivityChange: setActivityFilter,
+                onClear: () => {
+                  setProjectFilter(ALL)
+                  setActivityFilter(ALL)
+                },
+                active: filtersActive,
+              }
+            : null
+        }
+      />
 
       {/* Today's Focus banner: temporary management direction, shown as a
           distinct notice below the chooser. It influences ordering; never hides
@@ -195,8 +199,24 @@ export function MyWorkClient({
   )
 }
 
-/** The filter bar: Project (all / one) and Activity (all / one), both combinable.
- * Compact, above the Assistant, with a Clear affordance when a filter is set. */
+/** The props the filter bar needs. Shared so the Assistant can carry them in
+ * and render the bar inside its own panel. */
+interface WorkFiltersProps {
+  projectOptions: FilterOption[]
+  activityOptions: FilterOption[]
+  projectFilter: string
+  activityFilter: string
+  onProjectChange: (v: string) => void
+  onActivityChange: (v: string) => void
+  onClear: () => void
+  active: boolean
+}
+
+/** The filter bar: Project (all / one) and Activity (all / one), both
+ * combinable. Rendered INSIDE the Assistant panel, so it is a light inset row
+ * rather than its own card, with a Clear affordance when a filter is set.
+ * Changing a filter reshapes the Assistant's briefing above and the work below;
+ * fixed-time commitments stay visible regardless. */
 function WorkFilters({
   projectOptions,
   activityOptions,
@@ -206,20 +226,11 @@ function WorkFilters({
   onActivityChange,
   onClear,
   active,
-}: {
-  projectOptions: FilterOption[]
-  activityOptions: FilterOption[]
-  projectFilter: string
-  activityFilter: string
-  onProjectChange: (v: string) => void
-  onActivityChange: (v: string) => void
-  onClear: () => void
-  active: boolean
-}) {
+}: WorkFiltersProps) {
   return (
     <section
       aria-label="Filter your work"
-      className="flex flex-wrap items-center gap-3 rounded-2xl border border-surface-border bg-surface-card p-4"
+      className="flex flex-wrap items-center gap-3 rounded-xl border border-surface-border bg-surface-muted p-3"
     >
       <span className="flex items-center gap-1.5 text-sm font-medium text-ink-supporting">
         <SlidersHorizontal className="size-4" aria-hidden /> Filter
@@ -302,20 +313,24 @@ const CALL_QUEUE_ROUTE = '/stewardship?queue=ready-to-call'
 function MyWorkAssistant({
   state,
   direction,
+  filters,
 }: {
   state: MyWorkState
   direction: MyWorkDirection
+  /** The in-panel Project + Activity filters, or null when there is nothing to
+   * filter. Rendered inside the Assistant so a filter change reshapes the same
+   * briefing the worker is reading. */
+  filters: WorkFiltersProps | null
 }) {
   // Which panel is expanded. 'choose' is the calm default: just the question
   // and the two choices. Quiet Work and the full inventory expand in place;
   // Outbound Calls is a direct link, so it needs no expanded state.
   const [view, setView] = useState<'choose' | 'quiet' | 'all'>('choose')
 
-  // Mentoring (coaching on HOW to work) is a separate, app-wide on/off layer.
-  // The toggle lives in the shared sidebar; here we only READ it to decide
-  // whether to show coaching notes. It never changes the Assistant, the counts,
-  // or the workflow.
-  const { mentoring } = useMentoring()
+  // Mentoring (coaching on HOW to work) is a separate, app-wide layer. The
+  // per-choice coaching below renders through MentorGuidance, whose own purple
+  // control is always present; the global toggle only sets its default open
+  // state. Mentoring never changes the Assistant, the counts, or the workflow.
 
   // Genuine time-specific commitments needing attention now (fixed appointments,
   // promised callbacks). These are the only things surfaced before the question.
@@ -334,6 +349,16 @@ function MyWorkAssistant({
       <AssistantPanel heading={<span className="text-2xl">What would you like to work on?</span>}>
         {/* Mentoring is toggled app-wide from the sidebar; when on, the coaching
             notes below appear. The Assistant itself is unchanged either way. */}
+
+        {/* Filters live inside the Assistant, so narrowing to a project or an
+            activity reshapes the briefing and the choices below in place. */}
+        {filters && <WorkFilters {...filters} />}
+
+        {/* The concise daily briefing: the honest fixed-time-commitment line and
+            the day's project breadth. Both read already-resolved facts; neither
+            invents a count or a priority. Shown above the question so the worker
+            orients before choosing. */}
+        <DailyBriefing direction={direction} />
 
         {/* 1. Commitments first — the only thing shown before the question. */}
         {commitments.length > 0 && <CommitmentsNotice commitments={commitments} />}
@@ -356,11 +381,7 @@ function MyWorkAssistant({
                 totalLabel="available items"
                 selected={view === 'quiet'}
                 onSelect={() => setView(view === 'quiet' ? 'choose' : 'quiet')}
-                mentorNote={
-                  mentoring
-                    ? 'Quiet work is yours to pace: pick it up independently whenever time permits.'
-                    : null
-                }
+                mentorNote="Quiet work is yours to pace: pick it up independently whenever time permits."
               />
               <StartChoice
                 kind="calls"
@@ -369,11 +390,7 @@ function MyWorkAssistant({
                 total={callsTotal}
                 totalLabel="available calls"
                 href={callsTotal > 0 ? (calls?.items[0]?.route ?? CALL_QUEUE_ROUTE) : undefined}
-                mentorNote={
-                  mentoring
-                    ? 'Calls depend on the customer: reach out when they are most likely available, not just when you have a free moment.'
-                    : null
-                }
+                mentorNote="Calls depend on the customer: reach out when they are most likely available, not just when you have a free moment."
               />
             </div>
 
@@ -417,6 +434,71 @@ function MyWorkAssistant({
           when expanded — the same band-grouped activity cards as before. */}
       {view === 'all' && <FullInventory state={state} />}
     </div>
+  )
+}
+
+/**
+ * The concise daily briefing shown at the top of the Assistant: two honest
+ * orientation lines read from the already-derived direction.
+ *
+ * 1. Fixed-time commitments. Right Path records no exact-time (clock)
+ *    appointments yet, so when none are known we say exactly that — "no
+ *    fixed-time appointments on record" — and never claim the employee HAS no
+ *    appointments, which Right Path cannot establish. When any are known they
+ *    are named with a direct link. Date-only promised callbacks are NOT fixed
+ *    appointments; they surface as "needs attention now" below, keeping the IPF
+ *    exact-time vs date-only distinction intact.
+ * 2. Active-project breadth: how many distinct projects currently have work
+ *    available to this employee, so the day's scope is clear at a glance. This
+ *    reflects the current filter selection.
+ */
+function DailyBriefing({ direction }: { direction: MyWorkDirection }) {
+  const { fixedTimeCommitments: fixed, projectsWithAvailableWork: projectCount } = direction
+  return (
+    <dl className="grid gap-3 sm:grid-cols-2">
+      <div className="rounded-xl border border-surface-border bg-surface-muted p-4">
+        <dt className="flex items-center gap-1.5 text-sm font-medium text-ink-supporting">
+          <CalendarClock className="size-4" aria-hidden /> Fixed-time commitments
+        </dt>
+        {fixed.known ? (
+          <dd className="mt-1.5 space-y-1">
+            {fixed.items.map((c) => (
+              <div key={c.workFunction} className="flex items-center justify-between gap-3 text-base">
+                <span className="truncate font-medium text-ink">{c.label}</span>
+                {c.route ? (
+                  <Link
+                    href={c.route}
+                    className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-hover hover:underline"
+                  >
+                    Open <ArrowRight className="size-3.5" aria-hidden />
+                  </Link>
+                ) : null}
+              </div>
+            ))}
+          </dd>
+        ) : (
+          // Honest absence: we only know Right Path holds none, not that none
+          // exist. Never phrased as "you have no appointments".
+          <dd className="mt-1.5 text-base leading-relaxed text-ink-secondary">
+            Right Path does not show any fixed commitments for you today.
+          </dd>
+        )}
+      </div>
+
+      <div className="rounded-xl border border-surface-border bg-surface-muted p-4">
+        <dt className="flex items-center gap-1.5 text-sm font-medium text-ink-supporting">
+          <FolderOpen className="size-4" aria-hidden /> Active projects with work
+        </dt>
+        <dd className="mt-1.5 flex items-baseline gap-2 text-base text-ink-secondary">
+          <span className="text-2xl font-semibold text-ink">{projectCount}</span>
+          <span>
+            {projectCount === 1
+              ? 'project has work available to you right now.'
+              : 'projects have work available to you right now.'}
+          </span>
+        </dd>
+      </div>
+    </dl>
   )
 }
 
@@ -509,9 +591,15 @@ function StartChoice({
       </div>
       {/* Assistant copy (WHAT this choice is). */}
       <p className="mt-3 text-base leading-relaxed text-ink-secondary">{subtitle}</p>
-      {/* Mentor coaching (HOW to approach it) — purple, only when Mentoring is
-          on. Kept visually and semantically distinct from the Assistant copy. */}
-      {mentorNote && <MentorNote className="mt-2">{mentorNote}</MentorNote>}
+      {/* Mentor coaching (HOW to approach it) — purple, kept visually and
+          semantically distinct from the Assistant copy. Its own control is
+          always shown; the global Mentoring toggle only sets its default
+          open/closed state. */}
+      {mentorNote && (
+        <MentorGuidance className="mt-3" label="How to approach this">
+          {mentorNote}
+        </MentorGuidance>
+      )}
       <span className="mt-3 inline-flex items-center gap-1.5 text-base font-medium text-brand-hover">
         {isCalls ? 'Open the call queue' : selected ? 'Hide quiet work' : 'Show quiet work'}
         <ArrowRight className="size-4" aria-hidden />

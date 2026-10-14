@@ -148,9 +148,46 @@ export interface NextActionOption {
  * next; primary and support list the employee's actionable responsibilities
  * split by how the work is routed to them.
  */
+/**
+ * The honest fixed-time-commitment summary for the daily briefing. Right Path
+ * records no exact-time (clock) appointments yet — only date-only promised
+ * callbacks — so `known` is almost always false today. When it IS false we must
+ * NOT claim the employee has no appointments: we only know Right Path holds none
+ * on record, which is a different (and weaker) statement. The IPF exact-time vs
+ * date-only distinction is preserved: only the `exact_time_commitment` band is a
+ * genuine clock commitment; a due_callback is due work, not a fixed appointment.
+ */
+export interface FixedTimeCommitmentSummary {
+  /**
+   * True only when Right Path actually holds one or more exact-time commitments
+   * for this employee right now. False means "none on record", NOT "none exist".
+   */
+  known: boolean
+  /** The fixed-time commitment activities (the `exact_time_commitment` band),
+   * each with a direct route, when any are known. Empty when `known` is false. */
+  items: DirectionRow[]
+}
+
 export interface MyWorkDirection {
   /** True when the employee has no actionable work right now (open capacity). */
   quiet: boolean
+  /**
+   * Fixed-time (clock) commitments for the briefing. These are exempt from the
+   * Project/Activity filters upstream, so they stay visible regardless of what
+   * the employee has filtered to — a customer commitment is never hidden. When
+   * none are on record we report that honestly rather than asserting there are
+   * no appointments (Right Path cannot establish that today).
+   */
+  fixedTimeCommitments: FixedTimeCommitmentSummary
+  /**
+   * How many distinct active projects currently have work AVAILABLE to this
+   * employee (owned or unclaimed-and-eligible), across the shared board and the
+   * project workflows. Derived from the same resolved sources the view renders;
+   * it introduces no new count and no new priority — it just summarizes breadth
+   * for the briefing. Zero when the employee's actionable work is all
+   * agency-wide (not tied to a project) or there is none.
+   */
+  projectsWithAvailableWork: number
   /**
    * The recommended next action, or null when quiet. GoRules ZEN owns the
    * priority: the options are EVERY actionable activity sharing the highest ZEN
@@ -204,8 +241,23 @@ export function deriveMyWorkDirection(state: MyWorkState): MyWorkDirection {
   // re-ranks within it.
   const actionable = state.activities.filter(isActionable)
 
+  // The honest fixed-time-commitment summary and the active-project breadth are
+  // part of EVERY briefing, including a quiet one: an employee with no routine
+  // work could still have a fixed appointment, and the honest "none on record"
+  // statement must appear rather than silence that reads as "no appointments".
+  const fixedTimeCommitments = deriveFixedTimeCommitments(state)
+  const projectsWithAvailableWork = countProjectsWithAvailableWork(actionable)
+
   if (actionable.length === 0) {
-    return { quiet: true, nextAction: null, primary: [], support: [], workModeGroups: [] }
+    return {
+      quiet: true,
+      fixedTimeCommitments,
+      projectsWithAvailableWork,
+      nextAction: null,
+      primary: [],
+      support: [],
+      workModeGroups: [],
+    }
   }
 
   // The highest-priority rank present among actionable work (lower rank = higher
@@ -249,7 +301,60 @@ export function deriveMyWorkDirection(state: MyWorkState): MyWorkDirection {
   // preserved within each group and no cross-group ranking is invented.
   const workModeGroups = buildWorkModeGroups(actionable)
 
-  return { quiet: false, nextAction, primary, support, workModeGroups }
+  return {
+    quiet: false,
+    fixedTimeCommitments,
+    projectsWithAvailableWork,
+    nextAction,
+    primary,
+    support,
+    workModeGroups,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Briefing summaries (fixed-time commitments, active-project breadth).
+// ---------------------------------------------------------------------------
+
+/**
+ * The honest fixed-time-commitment summary. Only the `exact_time_commitment`
+ * band is a genuine clock commitment (a due_callback is due work, not a fixed
+ * appointment), and only one with items the employee can act on is surfaced.
+ * When none are present we report `known: false` — "none on record" — rather
+ * than asserting the employee has no appointments, because Right Path does not
+ * yet hold exact-time commitments and so cannot establish their absence.
+ */
+export function deriveFixedTimeCommitments(state: MyWorkState): FixedTimeCommitmentSummary {
+  const items = state.activities
+    .filter((a) => a.band === 'exact_time_commitment' && actionableCountOf(a) > 0)
+    .map(toRow)
+  return { known: items.length > 0, items }
+}
+
+/**
+ * Count the DISTINCT active projects that currently have work AVAILABLE to this
+ * employee (owned or unclaimed-and-eligible). A project counts when any
+ * actionable activity has a project-scoped source with such work, either as the
+ * source's own project (projectId) or as a shared source's per-project slice
+ * (projectScopes[pid]). Agency-wide work tied to no project does not add to the
+ * count. This reads the resolved sources only; it introduces no new count and
+ * no new ordering.
+ */
+export function countProjectsWithAvailableWork(actionable: ActivityGroup[]): number {
+  const projects = new Set<string>()
+  for (const a of actionable) {
+    for (const s of a.sources) {
+      if (s.projectId && s.ownedByMe + s.availableToMe > 0) {
+        projects.add(s.projectId)
+      }
+      if (s.projectScopes) {
+        for (const [pid, scope] of Object.entries(s.projectScopes)) {
+          if (scope.ownedByMe + scope.availableToMe > 0) projects.add(pid)
+        }
+      }
+    }
+  }
+  return projects.size
 }
 
 // ---------------------------------------------------------------------------
