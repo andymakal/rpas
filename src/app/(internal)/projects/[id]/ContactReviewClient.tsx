@@ -4,12 +4,12 @@
  * Contact Review — a fast look-up-and-complete pass over a project's customers
  * whose contact information is incomplete (missing a usable email or phone).
  *
- * The worker works the list continuously: open a customer, copy their name into
- * eAgent Quick Search, read what eAgent shows, type in the email and/or phone
- * they find, and Save & Next — or, if eAgent has nothing usable, Nothing Usable
- * & Next. Either action advances to the next customer in place; the worker never
- * returns to the queue between customers, and a customer already handled this
- * session is not presented again.
+ * The worker works the list continuously: open a customer, search Gateway by
+ * their last name and policy number, read what Gateway shows, type in the email
+ * and/or phone they find, and Save & Next — or, if Gateway has nothing usable,
+ * Nothing Usable & Next. Either action advances to the next customer in place;
+ * the worker never returns to the queue between customers, and a customer
+ * already handled this session is not presented again.
  *
  * Reuses the shared light-theme workflow design system (the same look as the
  * Stewardship research task) and the Assistant panel. It writes only to the
@@ -20,7 +20,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Loader2, Mail, Phone, Copy, Check, Save, SkipForward,
-  ClipboardCheck, UserRound,
+  ClipboardCheck, UserRound, FileText,
 } from 'lucide-react'
 import {
   TaskShell, ActionPanel, PrimaryAction, WorkflowButton, NextNote,
@@ -41,6 +41,7 @@ type ContactReviewCustomer = {
   phone: string | null
   has_email: boolean
   has_phone: boolean
+  policy_number: string | null
 }
 
 type Summary = { total: number; missing_both: number; one_usable: number }
@@ -216,15 +217,15 @@ export function ContactReviewClient({
 
   return (
     <section className="space-y-5">
-      <AssistantPanel heading="Complete the contact information eAgent is missing">
+      <AssistantPanel heading="Complete the contact information Gateway is missing">
         <div className="space-y-3 text-lg leading-relaxed text-ink-secondary">
           <p>
             The Cassidy import left these customers without a complete way to reach them.
-            Open a customer, copy their name into eAgent Quick Search, and fill in whatever
-            email or phone eAgent shows. Each save writes straight to the customer record.
+            Open a customer, search Gateway by their last name and policy number, and fill in
+            whatever email or phone Gateway shows. Each save writes straight to the customer record.
           </p>
           <p className="text-base text-ink-supporting">
-            Work straight down the list. Save &amp; Next moves you to the next customer; if eAgent
+            Work straight down the list. Save &amp; Next moves you to the next customer; if Gateway
             has nothing usable, Nothing Usable &amp; Next records that research found nothing and
             keeps you moving. A customer you have handled will not keep coming back on later
             passes, and anyone whose details later turn up returns to the list automatically.
@@ -242,9 +243,10 @@ export function ContactReviewClient({
             default open/closed state, and employees can toggle this section
             independently. */}
         <MentorGuidance label="How to find a match">
-          In eAgent Quick Search, a middle initial or a nickname can hide a match. If the full
-          name finds nothing, try the last name alone, then confirm the date of birth before you
-          copy any email or phone back here.
+          Search Gateway with the customer&apos;s last name and policy number together — the policy
+          number is the surest way to land on the right record. If the policy number finds nothing,
+          try the last name alone, then confirm the date of birth before you copy any email or
+          phone back here.
         </MentorGuidance>
       </AssistantPanel>
 
@@ -278,7 +280,8 @@ export function ContactReviewClient({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ContactReviewTask — one customer: current contact, Copy Name, edit, advance.
+// ContactReviewTask — one customer: current contact, Copy Last Name / Copy
+// Policy Number for the Gateway look-up, edit, advance.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ContactReviewTask({
@@ -292,6 +295,9 @@ function ContactReviewTask({
   onSkipped: () => void
 }) {
   const name = fullName(customer)
+  const lastName = (customer.last_name ?? '').trim()
+  const policyNumber = (customer.policy_number ?? '').trim()
+  const hasPolicyNumber = policyNumber.length > 0
 
   // Inputs start from the stored values so existing information is preserved
   // unless the worker changes it. Email and phone are edited independently.
@@ -303,19 +309,20 @@ function ContactReviewTask({
   // null means "not yet evaluated" (unchanged from the stored value).
   const [emailResult, setEmailResult] = useState<ContactFieldResult | null>(null)
   const [phoneResult, setPhoneResult] = useState<ContactFieldResult | null>(null)
-  const [copied, setCopied] = useState(false)
+  // Which copy button last fired, so only that one shows its confirmed state.
+  const [copiedField, setCopiedField] = useState<'last' | 'policy' | null>(null)
   const [busy, setBusy] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current) }, [])
 
-  const copyName = useCallback(() => {
-    void navigator.clipboard.writeText(name)
-    setCopied(true)
+  const copyValue = useCallback((field: 'last' | 'policy', value: string) => {
+    void navigator.clipboard.writeText(value)
+    setCopiedField(field)
     if (copyTimer.current) clearTimeout(copyTimer.current)
-    copyTimer.current = setTimeout(() => setCopied(false), 2000)
-  }, [name])
+    copyTimer.current = setTimeout(() => setCopiedField(null), 2000)
+  }, [])
 
   // Normalize on blur so pasted values are cleaned in place: the field shows
   // the canonical value, and an invalid number/address surfaces a message
@@ -440,26 +447,52 @@ function ContactReviewTask({
         <ActionPanel heading={`Complete contact for ${name}`}>
           {/* Why this is here — a prominent, high-contrast operational reason. */}
           <div className="flex items-center gap-2 rounded-xl border border-status-missing-border bg-status-missing-soft p-4 text-lg text-status-missing-strong">
-            <UserRound className="size-5 shrink-0" aria-hidden /> {gapDetail(customer)}. Look this customer up in eAgent.
+            <UserRound className="size-5 shrink-0" aria-hidden /> {gapDetail(customer)}. Look this customer up in Gateway.
           </div>
 
-          {/* Step 1: copy the name for eAgent Quick Search. */}
-          <div className="space-y-2.5 rounded-xl border border-surface-border bg-surface-muted/40 p-4">
-            <p className="text-base font-semibold text-ink-secondary">1. Search eAgent</p>
+          {/* Step 1: copy the last name and policy number for the Gateway search. */}
+          <div className="space-y-3 rounded-xl border border-surface-border bg-surface-muted/40 p-4">
+            <p className="text-base font-semibold text-ink-secondary">1. Search Gateway</p>
+
             <div className="flex flex-wrap items-center gap-3">
-              <span className="text-xl font-semibold text-ink">{name}</span>
-              <WorkflowButton icon={copied ? Check : Copy} selected={copied} onClick={copyName}>
-                {copied ? 'Name copied' : 'Copy Name'}
+              <span className="text-xl font-semibold text-ink">{lastName || name}</span>
+              <WorkflowButton
+                icon={copiedField === 'last' ? Check : Copy}
+                selected={copiedField === 'last'}
+                onClick={() => copyValue('last', lastName)}
+                disabled={!lastName}
+              >
+                {copiedField === 'last' ? 'Last name copied' : 'Copy Last Name'}
               </WorkflowButton>
             </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              {hasPolicyNumber ? (
+                <>
+                  <span className="font-mono text-xl font-semibold text-ink">{policyNumber}</span>
+                  <WorkflowButton
+                    icon={copiedField === 'policy' ? Check : Copy}
+                    selected={copiedField === 'policy'}
+                    onClick={() => copyValue('policy', policyNumber)}
+                  >
+                    {copiedField === 'policy' ? 'Policy number copied' : 'Copy Policy Number'}
+                  </WorkflowButton>
+                </>
+              ) : (
+                <span className="inline-flex items-center gap-2 rounded-lg border border-surface-border bg-surface-card px-3 py-1.5 text-base text-ink-supporting">
+                  <FileText className="size-4 shrink-0" aria-hidden /> No policy number on file — search by last name
+                </span>
+              )}
+            </div>
+
             <p className="text-base text-ink-supporting">
-              Paste the name into eAgent Quick Search, then type what you find below.
+              Search Gateway with the last name and policy number, then type what you find below.
             </p>
           </div>
 
           {/* Step 2: enter / correct email and phone independently. */}
           <div className="space-y-4 rounded-xl border border-surface-border bg-surface-card p-4">
-            <p className="text-base font-semibold text-ink-secondary">2. Enter what eAgent shows</p>
+            <p className="text-base font-semibold text-ink-secondary">2. Enter what Gateway shows</p>
 
             <div className="space-y-1.5">
               <label htmlFor="cr-email" className="flex items-center gap-1.5 text-base font-medium text-ink-secondary">
@@ -540,8 +573,10 @@ function ContactReviewTask({
               workflows. Its own purple control is always shown; the global
               toggle only sets the default open/closed state. */}
           <MentorGuidance label="How to fill contact info">
-            Enter one usable method and move on; you do not need both. A phone with no email is
-            still progress. Only overwrite a value in eAgent when you are confident it is wrong.
+            Search Gateway with the last name and policy number together — the policy number lands
+            you on the right record fastest. Enter one usable method and move on; you do not need
+            both. A phone with no email is still progress. Only overwrite a value here when you are
+            confident Gateway is right.
           </MentorGuidance>
         </ActionPanel>
       }

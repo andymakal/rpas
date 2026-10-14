@@ -41,6 +41,10 @@ export interface ContactReviewCustomer {
   phone: string | null
   has_email: boolean
   has_phone: boolean
+  /** Any one policy number already on file for this customer, shown so the
+   * worker can search Gateway by last name + policy number. null when the
+   * customer has no policy on file. */
+  policy_number: string | null
 }
 
 export interface ContactReviewSummary {
@@ -72,6 +76,35 @@ async function chunked<T>(
   for (let i = 0; i < items.length; i += size) {
     await run(items.slice(i, i + size))
   }
+}
+
+type ServicePolicyRow = { customer_id: string | null; policy_number: string | null }
+
+/**
+ * Map each given customer to ANY ONE policy number on file, read in a batched
+ * pass over service_policies (non-test). Gateway look-up only needs a single
+ * policy number to pair with the last name, so the first usable one wins and
+ * additional policies are ignored. Customers with no policy are simply absent
+ * from the map (surfaced as "no policy number" in the UI).
+ */
+async function loadOnePolicyNumberPerCustomer(
+  supabase: SupabaseClient,
+  customerIds: string[],
+): Promise<Map<string, string>> {
+  const byCustomer = new Map<string, string>()
+  if (customerIds.length === 0) return byCustomer
+  await chunked(customerIds, 300, async chunk => {
+    const { data } = await supabase
+      .from('service_policies')
+      .select('customer_id, policy_number')
+      .in('customer_id', chunk)
+      .eq('is_test', false)
+    for (const p of (data ?? []) as ServicePolicyRow[]) {
+      if (!p.customer_id || !usable(p.policy_number)) continue
+      if (!byCustomer.has(p.customer_id)) byCustomer.set(p.customer_id, p.policy_number!.trim())
+    }
+  })
+  return byCustomer
 }
 
 /**
@@ -114,6 +147,12 @@ export async function buildContactReview(
     incomplete.map((c) => c.id),
   )
 
+  // One policy number per customer for the Gateway look-up (last name + policy).
+  const policyByCustomer = await loadOnePolicyNumberPerCustomer(
+    supabase,
+    incomplete.map((c) => c.id),
+  )
+
   const out: ContactReviewCustomer[] = []
   for (const c of incomplete) {
     const hasEmail = usable(c.email)
@@ -132,6 +171,7 @@ export async function buildContactReview(
       phone: c.phone,
       has_email: hasEmail,
       has_phone: hasPhone,
+      policy_number: policyByCustomer.get(c.id) ?? null,
     })
   }
 
@@ -183,6 +223,8 @@ export async function loadContactReviewCustomer(
   // Both methods present: there is nothing to review or research.
   if (hasEmail && hasPhone) return null
 
+  const policyByCustomer = await loadOnePolicyNumberPerCustomer(supabase, [row.id])
+
   return {
     customer_id: row.id,
     first_name: row.first_name,
@@ -191,6 +233,7 @@ export async function loadContactReviewCustomer(
     phone: row.phone,
     has_email: hasEmail,
     has_phone: hasPhone,
+    policy_number: policyByCustomer.get(row.id) ?? null,
   }
 }
 
