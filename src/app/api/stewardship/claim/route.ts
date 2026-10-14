@@ -108,11 +108,13 @@ export async function POST(request: NextRequest) {
   const supabase = createAdminClient()
 
   // Read the item with the facts needed to judge actionability + activity +
-  // project scope: its queue, claim state, and its customer (via prereview).
+  // project scope + the claim-eligibility rule: its queue, claim state, the
+  // reach/commitment facts (last_call_outcome + callback_date), and its customer
+  // (via prereview).
   const { data: row, error: readErr } = await supabase
     .from('stewardship_outreach')
     .select(`
-      id, queue, claimed_by_producer_id,
+      id, queue, claimed_by_producer_id, last_call_outcome, callback_date,
       customer_prereviews!inner ( decision, customer_id )
     `)
     .eq('id', outreachId)
@@ -123,6 +125,8 @@ export async function POST(request: NextRequest) {
   const pre = (row as unknown as {
     queue: OutreachQueue
     claimed_by_producer_id: string | null
+    last_call_outcome: string | null
+    callback_date: string | null
     customer_prereviews: { decision: string | null; customer_id: string }
   })
 
@@ -138,6 +142,32 @@ export async function POST(request: NextRequest) {
   if (!activity) {
     return Response.json(
       { error: 'This item is in a waiting state and is not actionable work to claim.' },
+      { status: 409 },
+    )
+  }
+
+  // CLAIM-ELIGIBILITY RULE (Angie/Dulce): a claim records that an employee has
+  // SPOKEN WITH the customer AND accepted a specific personal follow-up. It is
+  // NOT a lease on open shared work. The settled rule:
+  //   - sending an email does not claim,
+  //   - calling without reaching does not claim,
+  //   - leaving a voicemail does not claim,
+  //   - even speaking with the customer does not, by itself, claim.
+  // A claim is warranted ONLY once the customer was reached AND a specific
+  // personal follow-up was accepted. In the outreach workflow that moment is the
+  // 'callback' outcome: last_call_outcome = 'callback' with a promised
+  // callback_date (the employee spoke with the customer, who agreed to a
+  // follow-up the employee will personally monitor). Until then the item stays
+  // in the shared queues for either worker. This keeps claiming aligned with a
+  // real personal commitment and prevents claiming never-contacted work.
+  const spokeAndAcceptedFollowUp =
+    pre.last_call_outcome === 'callback' && pre.callback_date != null
+  if (!spokeAndAcceptedFollowUp) {
+    return Response.json(
+      {
+        error:
+          'This item cannot be claimed yet. A customer is claimed only after you have spoken with them and they have agreed to a specific personal follow-up (a scheduled callback). Sending an email, an unanswered call, or a voicemail does not claim the customer — it stays in the shared queue for either of you.',
+      },
       { status: 409 },
     )
   }

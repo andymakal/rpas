@@ -28,7 +28,7 @@ import {
   EARLY_CALL_SPACING_DAYS,
   NONRESPONSIVE_ATTEMPT_THRESHOLD,
 } from './call-cadence'
-import { applyAction, callPopulationOf, deriveFollowUpRouting, type OutreachState } from './queues'
+import { applyAction, callPopulationOf, deriveFollowUpRouting, deriveEmailRouting, type OutreachState } from './queues'
 import {
   groupIntoAttempts,
   countCallAttempts,
@@ -495,4 +495,78 @@ test('a reached call from Ready to Email keeps the item callable and lets form-s
   const formSent = applyAction(state({ queue: 'ready-to-email', last_call_outcome: 'reached' }), { type: 'form-sent' })
   assert.equal(formSent.error, undefined)
   assert.equal(formSent.patch.queue, 'waiting-for-form')
+})
+
+// ── deriveEmailRouting: a newly-added email re-routes an UNTOUCHED opener ─────
+// An email added after intake must surface the item in Ready to Email (the
+// introductory email carries the authorization form), re-derived live from the
+// current email the same way callability is derived live from the phone. It
+// upgrades ONLY an untouched opening item; anything that has progressed is left
+// exactly where it is.
+
+// A minimal input for deriveEmailRouting (the opening ready-to-call "no-email"
+// state intake assigns when a phone but no email was on file).
+function openingCall(partial: Partial<Parameters<typeof deriveEmailRouting>[0]> = {}) {
+  return {
+    queue: 'ready-to-call' as const,
+    call_reason: 'no-email' as const,
+    research_reason: null,
+    last_call_outcome: null,
+    email_sent_at: null,
+    callback_date: null,
+    refused_at: null,
+    has_usable_email: true,
+    ...partial,
+  }
+}
+
+test('deriveEmailRouting: an untouched opening ready-to-call (no-email) with a new email becomes ready-to-email', () => {
+  const patch = deriveEmailRouting(openingCall())
+  assert.equal(patch?.queue, 'ready-to-email')
+  assert.equal(patch?.call_reason, null)
+  assert.equal(patch?.research_reason, null)
+})
+
+test('deriveEmailRouting: an untouched opening research-needed (no-contact) with a new email becomes ready-to-email', () => {
+  const patch = deriveEmailRouting(
+    openingCall({ queue: 'research-needed', call_reason: null, research_reason: 'no-contact' }),
+  )
+  assert.equal(patch?.queue, 'ready-to-email')
+})
+
+test('deriveEmailRouting: no usable email leaves the item where it is', () => {
+  assert.equal(deriveEmailRouting(openingCall({ has_usable_email: false })), null)
+})
+
+test('deriveEmailRouting: an item already in ready-to-email is unchanged', () => {
+  assert.equal(deriveEmailRouting(openingCall({ queue: 'ready-to-email', call_reason: null })), null)
+})
+
+test('deriveEmailRouting: a PROGRESSED item is never rerouted (call placed, email sent, callback promised, or research after bad number)', () => {
+  // A call was placed (voicemail/reached): real work done, do not reset.
+  assert.equal(deriveEmailRouting(openingCall({ last_call_outcome: 'voicemail' })), null)
+  assert.equal(deriveEmailRouting(openingCall({ last_call_outcome: 'reached' })), null)
+  // An intro email already went out.
+  assert.equal(deriveEmailRouting(openingCall({ email_sent_at: '2026-01-01T00:00:00.000Z' })), null)
+  // A promised callback exists (a personal follow-up was accepted).
+  assert.equal(
+    deriveEmailRouting(openingCall({ queue: 'ready-to-call', call_reason: 'callback-due', callback_date: '2026-02-01' })),
+    null,
+  )
+  // Research reached via a bad number (not the no-contact opener) is real
+  // research state, not an untouched opener.
+  assert.equal(
+    deriveEmailRouting(openingCall({ queue: 'research-needed', call_reason: null, research_reason: 'bad-number' })),
+    null,
+  )
+})
+
+test('deriveEmailRouting: a refused item is never rerouted', () => {
+  assert.equal(deriveEmailRouting(openingCall({ refused_at: '2026-01-01T00:00:00.000Z' })), null)
+})
+
+test('deriveEmailRouting: a ready-to-call that is a cadence retry (no-response), not the opener, is not rerouted', () => {
+  // 'no-response' is a lapsed-cadence retry, i.e. a call was already attempted;
+  // only the ORIGINAL opening 'no-email' reason is an untouched opener.
+  assert.equal(deriveEmailRouting(openingCall({ call_reason: 'no-response' })), null)
 })

@@ -24,7 +24,7 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { QUEUE_META, deriveFollowUpRouting, isWaitingFollowUpDue, callPopulationOf, type OutreachQueue, type CallReason } from '@/lib/stewardship/queues'
+import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
 import { createTimeContext } from '@/lib/time'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
@@ -174,6 +174,9 @@ type BoardRow = {
   id: string
   queue: OutreachQueue
   call_reason: string | null
+  research_reason: string | null
+  last_call_outcome: string | null
+  email_sent_at: string | null
   callback_date: string | null
   follow_up_due: string | null
   refused_at: string | null
@@ -383,7 +386,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   const { data: boardData, error: boardErr } = await supabase
     .from('stewardship_outreach')
     .select(`
-      id, queue, call_reason, callback_date, follow_up_due, refused_at, claimed_by_producer_id,
+      id, queue, call_reason, research_reason, last_call_outcome, email_sent_at, callback_date, follow_up_due, refused_at, claimed_by_producer_id,
       customer_prereviews!inner ( decision, customer_id, customers!inner ( phone, email ) )
     `)
     .order('updated_at', { ascending: true })
@@ -415,13 +418,34 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     }
   }
 
-  // READ-ONLY follow-up routing: compute the effective queue the same way the
-  // board route does, without writing (identical to the Daily Direction
-  // composition). Overdue waiting-for-response items count as ready-to-call.
-  const effectiveQueue = (r: BoardRow): OutreachQueue =>
-    (deriveFollowUpRouting({ queue: r.queue, follow_up_due: r.follow_up_due }, now)?.queue as
-      | OutreachQueue
-      | undefined) ?? r.queue
+  // READ-ONLY effective-queue routing, computed the same way the board route
+  // does, without writing (identical to the Daily Direction composition):
+  //   1. Overdue waiting-for-response items count as ready-to-call (follow-up).
+  //   2. An UNTOUCHED opening item whose email became usable after intake counts
+  //      as ready-to-email (email routing). This is the live re-derivation that
+  //      makes a newly-added email surface in Ready to Email without a
+  //      stored-queue backfill — the email analogue of the live callability the
+  //      call population already uses. Only one of the two can apply to a given
+  //      item (follow-up targets waiting-for-response; email targets the two
+  //      untouched opening states), so their order does not matter.
+  const effectiveQueue = (r: BoardRow): OutreachQueue => {
+    const followUp = deriveFollowUpRouting(
+      { queue: r.queue, follow_up_due: r.follow_up_due },
+      now,
+    )?.queue as OutreachQueue | undefined
+    if (followUp) return followUp
+    const emailRouted = deriveEmailRouting({
+      queue: r.queue,
+      call_reason: r.call_reason as CallReason | null,
+      research_reason: r.research_reason as ResearchReason | null,
+      last_call_outcome: r.last_call_outcome as CallOutcome | null,
+      email_sent_at: r.email_sent_at,
+      callback_date: r.callback_date,
+      refused_at: r.refused_at,
+      has_usable_email: !!r.customer_prereviews.customers?.email?.trim(),
+    })?.queue as OutreachQueue | undefined
+    return emailRouted ?? r.queue
+  }
 
   // Tally the shared board PER ITEM. Outreach is split by its actual queue so
   // each source links to the RIGHT queue (ready-to-call vs ready-to-email),

@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { resolveCapabilityProfile, loadWorkFunctions } from '@/lib/capabilities/resolve'
 import { canActOnItem, claimedByOther } from '@/lib/capabilities/work-functions'
-import { QUEUE_META, deriveFollowUpRouting, isWaitingFollowUpDue, callPopulationOf, type OutreachQueue, type CallPopulation, type CallReason } from '@/lib/stewardship/queues'
+import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, type OutreachQueue, type CallPopulation, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 
@@ -117,7 +117,17 @@ export async function GET(request: NextRequest) {
   // A stored-queue filter narrows to one queue. A population filter spans
   // several stored queues (callable items in ready-to-call AND ready-to-email),
   // so it is applied AFTER the derivation below, not as a queue eq here.
-  if (!populationFilter && queueFilter && queueFilter in QUEUE_META) {
+  //
+  // ready-to-email is special: an item's EFFECTIVE queue can be ready-to-email
+  // even when it is STORED as the opening ready-to-call/research-needed, because
+  // an email added after intake upgrades an untouched opening item live
+  // (deriveEmailRouting), the same way follow-up routing promotes an overdue
+  // waiting item. So a ready-to-email filter must be applied in-memory against
+  // the effective queue below, never as a DB eq on the stored column (which
+  // would miss exactly the upgraded items). Every other stored-queue filter is
+  // unaffected by email routing and stays a DB eq for efficiency.
+  const deriveEmailFilter = queueFilter === 'ready-to-email'
+  if (!populationFilter && !deriveEmailFilter && queueFilter && queueFilter in QUEUE_META) {
     query = query.eq('queue', queueFilter)
   }
 
@@ -182,20 +192,39 @@ export async function GET(request: NextRequest) {
   const actorTimeZone = await getActorTimeZone()
 
   const items = rows.map(r => {
+    // The EFFECTIVE queue, re-derived live the same way My Work does: an
+    // untouched opening item whose email became usable after intake is
+    // ready-to-email now (deriveEmailRouting), so the board, its counts, and a
+    // Ready-to-Email filter all reflect the newly-added email without a stored
+    // backfill. (Follow-up promotion of overdue waiting-for-response items is
+    // already persisted up front, so it is not re-derived here.) Only one of the
+    // two routings can apply to a given item, so the email upgrade is a safe
+    // overlay on the stored queue.
+    const emailRouted = deriveEmailRouting({
+      queue: r.queue,
+      call_reason: r.call_reason as CallReason | null,
+      research_reason: r.research_reason as ResearchReason | null,
+      last_call_outcome: r.last_call_outcome as CallOutcome | null,
+      email_sent_at: r.email_sent_at,
+      callback_date: r.callback_date,
+      refused_at: r.refused_at,
+      has_usable_email: !!r.customer_prereviews.customers?.email?.trim(),
+    })?.queue as OutreachQueue | undefined
+    const effectiveQueue: OutreachQueue = emailRouted ?? r.queue
     // The derived call population this item belongs to (callability-based, not
     // its stored queue), using the SAME shared definition My Work counts with.
     // Due status reads from DURABLE row state (call_reason + a due callback),
     // so it survives refreshes and the waiting-to-response -> Ready to Call
     // promotion (which persisted call_reason = 'no-response').
     const population = callPopulationOf({
-      effectiveQueue: r.queue,
+      effectiveQueue,
       callReason: r.call_reason as CallReason | null,
       hasUsablePhone: !!r.customer_prereviews.customers?.phone?.trim(),
       callbackDue: isCallbackDue(r.callback_date, actorTimeZone),
     })
     return {
       id: r.id,
-      queue: r.queue,
+      queue: effectiveQueue,
       call_reason: r.call_reason,
       research_reason: r.research_reason,
       last_call_outcome: r.last_call_outcome,
@@ -261,7 +290,12 @@ export async function GET(request: NextRequest) {
   // unfiltered view (presentation only; never filtered by claim/eligibility).
   const visibleItems = populationFilter
     ? items.filter(it => it.call_population === populationFilter && isActionableToMe(it))
-    : items
+    : deriveEmailFilter
+      ? // A Ready-to-Email filter lists items whose EFFECTIVE queue is
+        // ready-to-email (stored ready-to-email plus the opening items upgraded
+        // live by a newly-added email), which the DB eq could not express.
+        items.filter(it => it.queue === 'ready-to-email')
+      : items
 
   const counts = Object.fromEntries(
     (Object.keys(QUEUE_META) as OutreachQueue[]).map(q => [q, 0]),

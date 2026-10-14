@@ -462,6 +462,56 @@ export function deriveFollowUpRouting(
 }
 
 /**
+ * Deterministic derived routing for an item whose email became usable AFTER
+ * intake.
+ *
+ * The stored `queue` records the recommended FIRST action chosen at intake from
+ * the contact facts known then (initialQueue): email when an email was on file,
+ * else a call, else research. But contact facts change — Contact Review and
+ * later imports fill in a customer's email after the item was already created.
+ * When that happens, the recommended opening action for an item that has NOT
+ * yet started its workflow should become the introductory email (it carries the
+ * authorization form), exactly as it would have at intake had the email been
+ * present. Reads re-derive this live from the current email, the same way the
+ * call population derives callability live from the current phone, so a
+ * newly-added email surfaces in Ready to Email without a stored-queue backfill.
+ *
+ * This ONLY upgrades an UNTOUCHED opening item:
+ *   - stored queue is the opening `ready-to-call` (reason no-email) or
+ *     `research-needed` (reason no-contact) — the two states intake assigns when
+ *     no email was on file;
+ *   - no workflow activity has occurred (no email_sent_at, no last_call_outcome,
+ *     no promised callback_date);
+ *   - not refused.
+ * An item that has advanced (a call was placed, a voicemail left and now
+ * waiting, the form sent, a callback promised, a bad number sent to research)
+ * is NEVER rerouted — its stage reflects real work and the new email simply
+ * becomes an additional usable channel on the live board, not a reset to the
+ * top of the funnel. Returns the effective-queue patch, or null when nothing
+ * changes.
+ */
+export function deriveEmailRouting(
+  state: Pick<
+    OutreachState,
+    'queue' | 'call_reason' | 'research_reason' | 'last_call_outcome' | 'email_sent_at' | 'callback_date'
+  > & { refused_at?: string | null; has_usable_email: boolean },
+): OutreachPatch | null {
+  if (!state.has_usable_email) return null
+  if (state.refused_at) return null
+  // Already emailable: nothing to upgrade.
+  if (state.queue === 'ready-to-email') return null
+  // Only the two OPENING states intake assigns when no email was on file.
+  const isOpeningCall = state.queue === 'ready-to-call' && state.call_reason === 'no-email'
+  const isOpeningResearch = state.queue === 'research-needed' && state.research_reason === 'no-contact'
+  if (!isOpeningCall && !isOpeningResearch) return null
+  // Untouched: no workflow activity has happened yet.
+  if (state.last_call_outcome != null) return null
+  if (state.email_sent_at != null) return null
+  if (state.callback_date != null) return null
+  return { queue: 'ready-to-email', call_reason: null, research_reason: null }
+}
+
+/**
  * Whether a WAITING item (awaiting the signed form or awaiting carrier
  * confirmation) is due for a follow-up chase. Unlike deriveFollowUpRouting this
  * does NOT change the queue — those items are legitimately waiting on the

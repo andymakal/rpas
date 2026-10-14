@@ -29,7 +29,7 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { QUEUE_META, OUTREACH_QUEUES, deriveFollowUpRouting, type OutreachQueue } from '@/lib/stewardship/queues'
+import { QUEUE_META, OUTREACH_QUEUES, deriveFollowUpRouting, deriveEmailRouting, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
 import { createTimeContext } from '@/lib/time'
 import { decideDailyDirection } from './engine'
 import { isCallbackDue } from './business-calendar'
@@ -47,12 +47,15 @@ type BoardRow = {
   id: string
   queue: OutreachQueue
   call_reason: string | null
+  research_reason: string | null
+  last_call_outcome: string | null
+  email_sent_at: string | null
   callback_date: string | null
   follow_up_due: string | null
   refused_at: string | null
   customer_prereviews: {
     decision: string | null
-    customers: { id: string; first_name: string; last_name: string }
+    customers: { id: string; first_name: string; last_name: string; email: string | null }
   }
 }
 
@@ -87,10 +90,10 @@ export async function getDailyDirection(
   const { data, error } = await supabase
     .from('stewardship_outreach')
     .select(`
-      id, queue, call_reason, callback_date, follow_up_due, refused_at,
+      id, queue, call_reason, research_reason, last_call_outcome, email_sent_at, callback_date, follow_up_due, refused_at,
       customer_prereviews!inner (
         decision,
-        customers!inner ( id, first_name, last_name )
+        customers!inner ( id, first_name, last_name, email )
       )
     `)
     .order('updated_at', { ascending: true })
@@ -115,11 +118,25 @@ export async function getDailyDirection(
   // effective queue here keeps the Assistant consistent with the board the
   // operator will see, without duplicating the board's write.
   const effectiveQueue = (r: BoardRow): OutreachQueue => {
-    const patch = deriveFollowUpRouting(
+    const followUp = deriveFollowUpRouting(
       { queue: r.queue, follow_up_due: r.follow_up_due },
       now,
-    )
-    return (patch?.queue as OutreachQueue | undefined) ?? r.queue
+    )?.queue as OutreachQueue | undefined
+    if (followUp) return followUp
+    // An untouched opening item whose email became usable after intake is
+    // ready-to-email now (same live re-derivation the board and My Work use), so
+    // the Assistant counts it as emailable instead of a call/research opener.
+    const emailRouted = deriveEmailRouting({
+      queue: r.queue,
+      call_reason: r.call_reason as CallReason | null,
+      research_reason: r.research_reason as ResearchReason | null,
+      last_call_outcome: r.last_call_outcome as CallOutcome | null,
+      email_sent_at: r.email_sent_at,
+      callback_date: r.callback_date,
+      refused_at: r.refused_at,
+      has_usable_email: !!r.customer_prereviews.customers?.email?.trim(),
+    })?.queue as OutreachQueue | undefined
+    return emailRouted ?? r.queue
   }
 
   // Per-queue counts across all open items, by effective (read-only) queue.
