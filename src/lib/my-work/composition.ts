@@ -28,6 +28,7 @@ import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowU
 import { createTimeContext } from '@/lib/time'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
+import { ensureProjectOnboarding } from '@/lib/stewardship/ensure-onboarding'
 import { buildContactReview, summarizeContactReview } from '@/lib/projects/contact-review'
 import {
   loadWorkFunctions,
@@ -713,6 +714,14 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   if (proj) {
     const projectId = proj.id as string
     const projectName = (proj.name as string) || '1035 Exchange'
+    // Project-level view: account for every active 1035 member in onboarding
+    // (idempotent; preserves existing records) so My Work's counts reflect the
+    // full membership, not only the manually-started subset.
+    try {
+      await ensureProjectOnboarding(supabase, projectId)
+    } catch (e) {
+      console.error('my-work composition: ensureProjectOnboarding failed', e)
+    }
     const workflow = await buildProjectWorkflow(supabase, projectId)
     const summary = summarizeWorkflow(workflow)
     const prepCount = summary.by.operations_prep

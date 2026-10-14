@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
+import { ensureProjectOnboarding } from '@/lib/stewardship/ensure-onboarding'
 
 /**
  * GET /api/projects/[id]/review-1035
@@ -21,6 +22,13 @@ export async function GET(
   const { id } = await params
   const supabase = createAdminClient()
 
+  // Project-level view: account for every active 1035 member in onboarding
+  // (idempotent; preserves existing records) before deriving the workflow.
+  try {
+    await ensureProjectOnboarding(supabase, id)
+  } catch (e) {
+    console.error('review-1035: ensureProjectOnboarding failed', e)
+  }
   const rows = await buildProjectWorkflow(supabase, id)
   return Response.json({ data: { customers: rows, summary: summarizeWorkflow(rows) } })
 }

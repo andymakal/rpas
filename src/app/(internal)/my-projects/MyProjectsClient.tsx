@@ -17,7 +17,7 @@
 import Link from 'next/link'
 import { ArrowRight, Users, AlertTriangle, Play, FolderGit2 } from 'lucide-react'
 import { WorkflowPage, WorkflowHeader, OperationalTag } from '@/components/workflow'
-import { STAGE_LABEL } from '@/lib/my-work/projects'
+import { STAGE_LABEL } from '@/lib/my-work/project-labels'
 import type { MyProjectCard, MyProjectsState } from '@/lib/my-work/projects'
 import type { WorkflowStage } from '@/lib/projects/review-1035'
 

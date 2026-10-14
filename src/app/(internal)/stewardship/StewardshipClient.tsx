@@ -549,7 +549,7 @@ export function StewardshipClient({
       )}
 
       {project
-        ? <StartProjectCapture project={project} onStarted={loadBoard} />
+        ? <ProjectOnboardingNote project={project} />
         : <StartCapture agencies={agencies} onStarted={loadBoard} />}
 
       <div className="mt-6 space-y-6">
@@ -854,48 +854,22 @@ function StartSingleCustomer({ onStarted }: { onStarted: () => void }) {
 // work are reused, not duplicated.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function StartProjectCapture({ project, onStarted }: { project: { id: string; name: string }; onStarted: () => void }) {
-  const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<string | null>(null)
-
-  async function start() {
-    setBusy(true); setResult(null)
-    try {
-      const res = await fetch('/api/stewardship/start', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ project_id: project.id }),
-      })
-      const json = await res.json()
-      if (res.ok) {
-        setResult(`Started ${json.data.started} customer${json.data.started === 1 ? '' : 's'}` +
-          (json.data.skipped ? `, reused ${json.data.skipped} already in progress.` : '.'))
-        onStarted()
-      } else {
-        setResult(json.error ?? 'Could not work this project.')
-      }
-    } catch {
-      setResult('Network error.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
+// Servicing Agent Onboarding is objective-driven: every member of this project
+// is accounted for automatically by MEMBERSHIP, so there is no manual "start"
+// step. Opening this board ensures each member has an onboarding record (adding
+// only the missing ones; existing work and history are preserved and never
+// duplicated), then shows the work. This note replaces the former "Work
+// project" button, which is obsolete.
+function ProjectOnboardingNote({ project }: { project: { id: string; name: string } }) {
   return (
     <section className="rounded-2xl border border-brand-subtle bg-surface-card p-5">
-      <h2 className="text-base font-semibold text-ink">Work this project</h2>
+      <h2 className="text-base font-semibold text-ink">Servicing Agent Onboarding</h2>
       <p className="mt-1 text-sm text-ink-secondary">
-        Starts a stewardship work item for each customer in this project that is not already in
-        progress. Customers with open stewardship work are reused, not duplicated. Each new item
-        routes to Ready to Email, Ready to Call, or Research Needed based on the contact information
-        on file.
+        Every customer in {project.name} is automatically in Servicing Agent Onboarding — no manual
+        start is needed. Each customer&apos;s available work (call, email, text, research, follow-up)
+        is surfaced from their current contact information, outreach history, and the applicable
+        rules. Existing outreach is preserved; nothing is duplicated.
       </p>
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        <WorkflowButton icon={Play} selected disabled={busy} onClick={start}>
-          {busy ? 'Working…' : 'Work project'}
-        </WorkflowButton>
-        {result && <span className="text-sm font-medium text-ink-secondary">{result}</span>}
-      </div>
     </section>
   )
 }

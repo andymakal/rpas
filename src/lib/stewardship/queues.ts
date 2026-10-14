@@ -830,3 +830,32 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
     }
   }
 }
+
+/**
+ * Whether an outreach item may be CLAIMED by an employee.
+ *
+ * Claiming records that an employee has SPOKEN WITH the customer and accepted
+ * responsibility for personal follow-up — it is not a lease on open shared
+ * work, and routine outreach never creates ownership. The settled rule
+ * (Angie/Dulce):
+ *   - a decided item is no longer claimable (it is not open work),
+ *   - sending an email, an unanswered call, or a voicemail does NOT claim,
+ *   - a claim is warranted once the customer has been REACHED — the two
+ *     outcomes that mean "spoke with the customer" are 'reached' and 'callback'
+ *     (a callback is a reach that additionally produced a promised time).
+ * A scheduled callback is explicitly NOT required: reaching the customer is
+ * itself the moment of ownership. A reached customer may sit in an
+ * authorization/carrier WAITING stage (e.g. the form has been sent), which is a
+ * legitimate point to hold a personal commitment, so the stored queue never
+ * bars a claim; only being decided does.
+ *
+ * This is the pure predicate behind POST /api/stewardship/claim (capability and
+ * project-scope checks are layered on top in the route).
+ */
+export function canClaimOutreach(input: {
+  decision: string | null
+  lastCallOutcome: CallOutcome | null
+}): boolean {
+  if (input.decision != null) return false
+  return input.lastCallOutcome === 'reached' || input.lastCallOutcome === 'callback'
+}

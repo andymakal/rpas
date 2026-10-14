@@ -212,6 +212,15 @@ type ReviewRow = {
  * One batched pass: project members -> customers -> all their policies ->
  * project-scoped documents -> project_customer_reviews. No per-customer queries.
  */
+// NOTE on Servicing Agent Onboarding membership: this read model stays a PURE
+// read (no writes, no ZEN/engine dependency) so it remains safe to import from
+// client-adjacent modules. The objective-driven "every active 1035 member is
+// accounted for in onboarding" guarantee is applied by the SERVER callers that
+// present a project-level view (the review board route, the project-scoped
+// stewardship board, and the My Work compositions), which call
+// ensureProjectOnboarding() just before building this workflow. Keeping the
+// ensure in those server entry points — not here — avoids pulling the
+// server-only ZEN engine into any client bundle.
 export async function buildProjectWorkflow(
   supabase: SupabaseClient,
   projectId: string,

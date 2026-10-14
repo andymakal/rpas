@@ -5,6 +5,7 @@ import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { resolveCapabilityProfile, loadWorkFunctions } from '@/lib/capabilities/resolve'
 import { canActOnItem, claimedByOther } from '@/lib/capabilities/work-functions'
 import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, type OutreachQueue, type CallPopulation, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
+import { ensureProjectOnboarding } from '@/lib/stewardship/ensure-onboarding'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 
@@ -47,6 +48,19 @@ export async function GET(request: NextRequest) {
   // project's work. An empty project yields an empty board.
   let projectCustomerIds: Set<string> | null = null
   if (projectId) {
+    // Servicing Agent Onboarding is objective-driven: every active 1035 project
+    // member is accounted for by MEMBERSHIP, not by a manual Start. Ensure the
+    // (idempotent) onboarding records exist before building the project's
+    // board, so a newly-added member surfaces here automatically without an
+    // operator action. Existing records and history are preserved — this only
+    // ADDS the missing ones — so it is safe to run on every project-scoped read.
+    try {
+      await ensureProjectOnboarding(supabase, projectId)
+    } catch (e) {
+      // Never let the auto-ensure break the board read; log and continue with
+      // whatever records already exist.
+      console.error('stewardship board: ensureProjectOnboarding failed', e)
+    }
     const { data: members, error: memberErr } = await supabase
       .from('project_customers')
       .select('customer_id')

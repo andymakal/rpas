@@ -17,6 +17,14 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveProducerForUser } from '@/lib/capabilities/resolve'
 import { buildProjectWorkflow, summarizeWorkflow, type WorkflowStage } from '@/lib/projects/review-1035'
+import { ensureProjectOnboarding } from '@/lib/stewardship/ensure-onboarding'
+import { STAGE_LABEL } from '@/lib/my-work/project-labels'
+
+// Re-export so existing server importers of STAGE_LABEL keep working. The
+// client imports it from '@/lib/my-work/project-labels' directly (that module
+// has no server-only dependency), so STAGE_LABEL no longer drags this
+// server-only composition into the client bundle.
+export { STAGE_LABEL }
 
 /** One participant or escalation contact, for the "responsible people" view. */
 export interface ProjectPerson {
@@ -65,14 +73,6 @@ export interface MyProjectsState {
   employeeName: string | null
   noProfile: boolean
   projects: MyProjectCard[]
-}
-
-const STAGE_LABEL: Record<WorkflowStage, string> = {
-  stewardship: 'Establishing servicing access',
-  operations_prep: 'Operations preparation',
-  bob_evaluation: 'Awaiting determination',
-  ready_for_outreach: 'Ready for Step 4 outreach',
-  complete: 'Complete',
 }
 
 /** The active (non-terminal) stages that can represent a bottleneck. */
@@ -170,6 +170,13 @@ export async function getMyProjects(authUserId: string): Promise<MyProjectsState
     }
     let total = 0
     if (is1035) {
+      // Project-level summary: account for every active 1035 member in
+      // onboarding (idempotent; preserves existing records) before summarizing.
+      try {
+        await ensureProjectOnboarding(supabase, pr.id)
+      } catch (e) {
+        console.error('my-projects: ensureProjectOnboarding failed', e)
+      }
       const workflow = await buildProjectWorkflow(supabase, pr.id)
       const summary = summarizeWorkflow(workflow)
       stageCounts = summary.by
@@ -214,5 +221,3 @@ export async function getMyProjects(authUserId: string): Promise<MyProjectsState
     projects,
   }
 }
-
-export { STAGE_LABEL }
