@@ -189,6 +189,21 @@ export interface ActivityBandVerdict {
  * ZEN-assigned band, its counts, and the sources beneath it. Each activity
  * appears exactly once.
  */
+/**
+ * The per-project aggregate counts for one activity: the same six count fields
+ * the activity carries, restricted to a single project's customers and counting
+ * each customer once. This is the authoritative basis for the Project filter's
+ * headline numbers (see ActivityGroup.projectTotals).
+ */
+export interface ActivityProjectCounts {
+  totalCount: number
+  ownedCount: number
+  availableCount: number
+  claimedByOthersCount: number
+  notEligibleCount: number
+  dueCount: number
+}
+
 export interface ActivityGroup {
   workFunction: WorkFunctionKey
   label: string
@@ -218,6 +233,20 @@ export interface ActivityGroup {
   notEligibleCount: number
   /** How many are a due date-only promised callback (eligible to this employee). */
   dueCount: number
+  /**
+   * The authoritative per-project breakdown of THIS activity's aggregate counts,
+   * keyed by project id, used by the Project filter to show correct headline
+   * numbers. It mirrors the activity-level count fields above (total / owned /
+   * available / claimed / notEligible / due) but restricted to the customers of
+   * one project, and it counts each customer ONCE — including a ready-to-call
+   * customer whose work is only displayed through the informational Calls Due /
+   * Available to Call populations. The client uses this (not a re-sum of the
+   * narrowed sources) for the filtered activity counts, so a project-filtered
+   * total never drops ready-to-call customers and never double-counts a customer
+   * who has several available contact methods. Populated for activities that
+   * carry project work; absent when there is none.
+   */
+  projectTotals?: Record<string, ActivityProjectCounts>
   /** Whether the employee is routably eligible for this activity. */
   isEligible: boolean
   /**

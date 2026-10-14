@@ -52,6 +52,7 @@ import { evaluateActivityBand, buildActivityReason } from './engine'
 import type {
   ActivityFacts,
   ActivityGroup,
+  ActivityProjectCounts,
   FocusNote,
   MyWorkState,
   PriorityBand,
@@ -240,6 +241,29 @@ interface Accum {
    * eligibility or focus to unrelated items.
    */
   projectIds: Set<string>
+  /**
+   * The authoritative per-project aggregate of this activity's counts, keyed by
+   * project id, built from the SAME per-item bucketing as the activity totals
+   * (each customer once, including ready-to-call). This is what the Project
+   * filter reads for its headline numbers, so a filtered total never drops a
+   * ready-to-call customer and never double-counts a customer with multiple
+   * contact methods. Includes both shared-board items (via the per-queue
+   * project partition) and project-scoped activities (operations prep, etc.).
+   */
+  projectTotals: Map<string, ActivityProjectCounts>
+}
+
+/** A mutable per-project count bucket used while aggregating; serialized to the
+ * ActivityProjectCounts shape on the ActivityGroup at the end. */
+function emptyProjectCounts(): ActivityProjectCounts {
+  return { totalCount: 0, ownedCount: 0, availableCount: 0, claimedByOthersCount: 0, notEligibleCount: 0, dueCount: 0 }
+}
+
+/** Add one activity's project bucket, creating it if absent. */
+function projectBucket(a: Accum, projectId: string): ActivityProjectCounts {
+  let b = a.projectTotals.get(projectId)
+  if (!b) { b = emptyProjectCounts(); a.projectTotals.set(projectId, b) }
+  return b
 }
 
 /**
@@ -291,6 +315,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       availableToMe: 0,
       claimedByOthers: 0,
       projectIds: new Set<string>(),
+      projectTotals: new Map<string, ActivityProjectCounts>(),
     })
   }
 
@@ -563,6 +588,23 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         case 'available': pt.availableToMe += 1; break
       }
     })
+
+    // Mirror the SAME per-item bucketing into the activity's authoritative
+    // per-project aggregate. This counts each customer ONCE per project across
+    // every queue (including ready-to-call), independent of which sources are
+    // later emitted or suppressed — so the Project filter's headline total is
+    // correct even though the ready-to-call per-queue source is not displayed.
+    for (const pid of itemProjects) {
+      const b = projectBucket(a, pid)
+      b.totalCount += 1
+      if (cls.bucket === 'notEligible') { b.notEligibleCount += 1; continue }
+      if (cls.countsAsMyDueCallback) b.dueCount += 1
+      switch (cls.bucket) {
+        case 'owned': b.ownedCount += 1; break
+        case 'claimedByOthers': b.claimedByOthersCount += 1; break
+        case 'available': b.availableCount += 1; break
+      }
+    }
 
     if (cls.bucket === 'notEligible') {
       t.notEligible += 1
@@ -880,6 +922,15 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         notEligible: canPickUp ? 0 : count,
         dueToMe: 0,
       })
+      // Mirror into the activity's per-project aggregate so the Project filter's
+      // headline count includes this project-scoped work with the same bucketing
+      // (pickable -> available, otherwise awareness-only notEligible). No claim
+      // model on project-stage work yet, so none is owned or due here.
+      const b = projectBucket(a, projectId)
+      b.totalCount += count
+      if (canPickUp) b.availableCount += count
+      else b.notEligibleCount += count
+
       if (!canPickUp) return // awareness-only: counts to total/awareness only
       a.availableToMe += count
       // Only routable eligibility feeds the eligible-item count (which drives
@@ -1002,6 +1053,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       claimedByOthersCount: a.claimedByOthers,
       notEligibleCount,
       dueCount: a.dueEligible,
+      projectTotals: a.projectTotals.size > 0 ? Object.fromEntries(a.projectTotals) : undefined,
       isEligible: eligible,
       capabilityStatus,
       // Only a routable activity carries a primary/support framing; the
