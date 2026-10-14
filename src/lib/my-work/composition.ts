@@ -28,7 +28,7 @@ import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowU
 import { createTimeContext } from '@/lib/time'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
-import { activeProjectsWithWorkflow } from '@/lib/projects/workflows'
+import { activeProjectsWithWorkflow, onboardingCompleteForPolicies } from '@/lib/projects/workflows'
 import { buildContactReview, summarizeContactReview } from '@/lib/projects/contact-review'
 import {
   loadWorkFunctions,
@@ -420,18 +420,63 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   if (boardErr) throw new Error(`MY WORK board read failed: ${boardErr.message}`)
 
   // Open items only, and never a refused one (explicit refusal stops outreach),
-  // matching the board's suppression.
-  const openRows = ((boardData ?? []) as unknown as BoardRow[]).filter(
+  // matching the board's suppression. This is the DECISION/REFUSED gate; the
+  // onboarding-complete gate is applied just below once policy facts are read.
+  const openRowsBase = ((boardData ?? []) as unknown as BoardRow[]).filter(
     (r) => r.customer_prereviews?.decision == null && r.refused_at == null,
+  )
+
+  // The customers appearing on the open board, used both for the project
+  // membership read and the onboarding-complete derivation below.
+  const boardCustomerIds = Array.from(
+    new Set(openRowsBase.map((r) => r.customer_prereviews.customer_id)),
+  )
+
+  // Onboarding-complete suppression — the SAME authoritative fact the project
+  // board uses (/api/stewardship/route.ts). A customer whose applicable
+  // (permanent) servicing access is confirmed has ADVANCED past onboarding
+  // (into Review Preparation), so a lingering open outreach row for them is NOT
+  // onboarding work and must not be counted or recommended. Completion is
+  // DERIVED from service_policies.sa_status via the one shared predicate
+  // (onboardingCompleteForPolicies), never re-derived here. Only a customer who
+  // actually HAS policies and whose permanent ones are all confirmed is treated
+  // as advanced (matching the board's `policies.length > 0` guard), so a
+  // customer with no known policy is never dropped by accident.
+  const onboardingCompleteCustomerIds = new Set<string>()
+  if (boardCustomerIds.length > 0) {
+    const policiesByCustomer = new Map<string, { product_type: string | null; sa_status: string | null }[]>()
+    for (let i = 0; i < boardCustomerIds.length; i += 300) {
+      const chunk = boardCustomerIds.slice(i, i + 300)
+      const { data: pols } = await supabase
+        .from('service_policies')
+        .select('customer_id, product_type, sa_status, is_test')
+        .in('customer_id', chunk)
+        .eq('is_test', false)
+      for (const p of (pols ?? []) as { customer_id: string; product_type: string | null; sa_status: string | null }[]) {
+        const list = policiesByCustomer.get(p.customer_id) ?? []
+        list.push({ product_type: p.product_type, sa_status: p.sa_status })
+        policiesByCustomer.set(p.customer_id, list)
+      }
+    }
+    for (const [cid, policies] of policiesByCustomer) {
+      if (policies.length > 0 && onboardingCompleteForPolicies(policies)) {
+        onboardingCompleteCustomerIds.add(cid)
+      }
+    }
+  }
+
+  // The final open set: decision/refused gate AND the onboarding-complete gate,
+  // so My Work and the project board count the same onboarding population. Both
+  // the per-queue tally and the call-population pass iterate this set, so the
+  // suppression applies everywhere a customer could be counted.
+  const openRows = openRowsBase.filter(
+    (r) => !onboardingCompleteCustomerIds.has(r.customer_prereviews.customer_id),
   )
 
   // Project association for the open board customers: which project(s) each
   // customer belongs to. This is the ONE extra read that preserves the project
   // link for shared work (no activity is duplicated; the association is metadata
   // on the single shared source). Existing records are the truth.
-  const boardCustomerIds = Array.from(
-    new Set(openRows.map((r) => r.customer_prereviews.customer_id)),
-  )
   const projectsByCustomer = new Map<string, Set<string>>()
   if (boardCustomerIds.length > 0) {
     const { data: memberships } = await supabase
