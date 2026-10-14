@@ -506,6 +506,17 @@ function PlanStepRow({ step, position }: { step: PlanStep; position: number }) {
             <p className="mt-1 max-w-prose text-base leading-relaxed text-ink-secondary">
               {step.reason}
             </p>
+            {/* Attempted-vs-unresolved breakdown — the SAME figures the full
+                work list shows (Research today): how many are still not yet
+                researched vs researched unsuccessfully, so the unresolved
+                population reads clearly even when none are outstanding. */}
+            {step.unresolvedCount != null && (step.unsuccessfulCount ?? 0) > 0 && (
+              <p className="mt-1 text-sm text-ink-supporting">
+                {step.unresolvedCount - (step.unsuccessfulCount ?? 0)} not yet researched
+                {' · '}
+                {step.unsuccessfulCount} researched unsuccessfully — may need an alternative approach
+              </p>
+            )}
           </div>
         </div>
         {step.route && (

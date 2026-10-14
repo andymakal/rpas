@@ -187,7 +187,20 @@ export function deriveMyWorkDirection(state: MyWorkState): MyWorkDirection {
   const fixedTimeCommitments = deriveFixedTimeCommitments(state)
   const projectsWithAvailableWork = countProjectsWithAvailableWork(actionable)
 
-  if (actionable.length === 0) {
+  // Activities that belong in the WORKING PLAN. This is the actionable set plus
+  // any activity that has UNRESOLVED work to keep visible even with zero
+  // outstanding — currently Contact Research with only researched-unsuccessfully
+  // customers left (outstanding 0, unresolved > 0). Such an activity must stay in
+  // the plan so the worker can still see it and try again; it is added in its
+  // existing rank position (activities arrive rank-ordered) and is NOT added to
+  // primary/support/work-mode groups or the quiet decision — only the plan shows it.
+  const hasUnresolvedOnly = (a: ActivityGroup): boolean =>
+    !isActionable(a) && (a.unresolvedCount ?? 0) > 0
+  const planActivities = state.activities.filter(
+    (a) => isActionable(a) || hasUnresolvedOnly(a),
+  )
+
+  if (planActivities.length === 0) {
     return {
       quiet: true,
       fixedTimeCommitments,
@@ -205,7 +218,7 @@ export function deriveMyWorkDirection(state: MyWorkState): MyWorkDirection {
   // sub-populations. This replaces the old co-equal "any of these" options with
   // a single practical plan. It adds no priority of its own — the order is the
   // ZEN+catalog order, and every step's count/route is read from resolved work.
-  const workingPlan = buildWorkingPlan(actionable)
+  const workingPlan = buildWorkingPlan(planActivities)
 
   // Split the actionable activities by how they are routed to the employee.
   // Primary responsibilities and support work are genuinely different framings
@@ -251,6 +264,22 @@ export interface PlanStep {
   reason: string
   /** How many items this step covers (actionable to this employee). */
   count: number
+  /**
+   * The full UNRESOLVED population for this step, counting each customer once —
+   * the same figure the full work list shows (currently Research only). When
+   * present it is the headline the plan displays (so the plan and the full list
+   * agree); the attempted-vs-unresolved split is `unsuccessfulCount`. Absent for
+   * steps that do not distinguish attempted from unresolved, where `count` is the
+   * figure to show.
+   */
+  unresolvedCount?: number
+  /**
+   * Of `unresolvedCount`, how many have been attempted but remain unresolved
+   * (Research: researched unsuccessfully). The not-yet-attempted count is
+   * `unresolvedCount - unsuccessfulCount`. Absent when the step has no such
+   * distinction.
+   */
+  unsuccessfulCount?: number
   /** The direct-action button label (how to begin). */
   actionLabel: string
   /** Where beginning the step goes; null when no reachable route. */
@@ -294,12 +323,21 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
     const emphasis = a.band === 'focus' || a.band === 'exact_time_commitment' || a.band === 'due_callback'
     switch (a.workFunction) {
       case 'research': {
+        // Show the full UNRESOLVED population (outstanding + researched
+        // unsuccessfully), counting each customer once — the SAME total and
+        // breakdown the full work list already carries on the activity. The
+        // recommendation itself is unchanged; this is presentation of the
+        // existing figures. When the activity carries no unresolved distinction
+        // (none recorded), fall back to the actionable count.
+        const unresolved = a.unresolvedCount ?? actionableCountOf(a)
         steps.push({
           key: 'research',
           title: 'Find missing contact information',
           reason:
             'These customers have no usable phone or email on file. Finding a working contact method unblocks every later step.',
-          count: actionableCountOf(a),
+          count: unresolved,
+          unresolvedCount: a.unresolvedCount,
+          unsuccessfulCount: a.unsuccessfulCount,
           actionLabel: 'Start contact research',
           route: primaryRouteFor(a),
           emphasis,

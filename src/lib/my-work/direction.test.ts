@@ -45,6 +45,8 @@ function activity(p: Partial<ActivityGroup> & { band: PriorityBand; rank: number
     reasonCode: p.reasonCode ?? 'eligible_shared_work',
     reason: p.reason ?? 'because reasons',
     totalCount: p.totalCount ?? ownedCount + availableCount,
+    unresolvedCount: p.unresolvedCount,
+    unsuccessfulCount: p.unsuccessfulCount,
     ownedCount,
     availableCount,
     claimedByOthersCount: p.claimedByOthersCount ?? 0,
@@ -209,6 +211,43 @@ test('plan: an actionable band with no items the worker can act on is not in the
   )
   assert.equal(d.quiet, true)
   assert.deepEqual(d.workingPlan, [])
+})
+
+test('plan: Research shows the full unresolved population with the attempted breakdown', () => {
+  const d = deriveMyWorkDirection(
+    state([
+      activity({
+        workFunction: 'research', band: 'shared', rank: 5, label: 'Contact Research',
+        availableCount: 8, totalCount: 8, unresolvedCount: 9, unsuccessfulCount: 1,
+      }),
+    ]),
+  )
+  const step = d.workingPlan.find((s) => s.key === 'research')
+  assert.ok(step)
+  // Headline is the full unresolved population (not the outstanding 8).
+  assert.equal(step!.count, 9)
+  assert.equal(step!.unresolvedCount, 9)
+  assert.equal(step!.unsuccessfulCount, 1)
+})
+
+test('plan: Research stays in the plan when outstanding is zero but unresolved remains', () => {
+  const d = deriveMyWorkDirection(
+    state([
+      activity({
+        workFunction: 'research', band: 'shared', rank: 5, label: 'Contact Research',
+        // Nothing outstanding/actionable, but 3 researched-unsuccessfully remain.
+        availableCount: 0, ownedCount: 0, totalCount: 0,
+        unresolvedCount: 3, unsuccessfulCount: 3,
+        sources: [infoSource('Shared Stewardship board — Research Needed', 0, '/stewardship?queue=research-needed')],
+      }),
+    ]),
+  )
+  assert.equal(d.quiet, false)
+  const step = d.workingPlan.find((s) => s.key === 'research')
+  assert.ok(step, 'research step is present even with zero outstanding')
+  assert.equal(step!.count, 3)
+  assert.equal(step!.unsuccessfulCount, 3)
+  assert.equal(step!.route, '/stewardship?queue=research-needed')
 })
 
 test('direction: Primary and Support are split by the stored routing (routedAs)', () => {
