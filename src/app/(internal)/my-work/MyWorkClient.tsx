@@ -18,7 +18,7 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   Sparkles, ArrowRight, Phone, Mail, Users, CheckCircle2, Lock,
-  NotebookPen, AlertCircle, ListChecks, ChevronRight, SlidersHorizontal,
+  ListChecks, ChevronRight, SlidersHorizontal,
   CalendarClock, FolderOpen,
 } from 'lucide-react'
 import {
@@ -55,8 +55,7 @@ import {
 import {
   deriveMyWorkDirection,
   type MyWorkDirection,
-  type NextActionOption,
-  type WorkModeGroup,
+  type PlanStep,
 } from '@/lib/my-work/direction'
 
 /** The band's human section title and tag tone, driven by ZEN's band. The three
@@ -289,27 +288,16 @@ function WorkFilters({
   )
 }
 
-/** The actionable items for a work mode, read from the already-derived
- * direction (ZEN order preserved). Returns the group or undefined when the mode
- * has no actionable work. */
-function groupFor(direction: MyWorkDirection, mode: WorkMode): WorkModeGroup | undefined {
-  return direction.workModeGroups.find((g) => g.mode === mode)
-}
-
-/** The call queue the Outbound Calls choice opens. Matches the composition's
- * ready-to-call source route; falls back to the shared board's call queue. */
-const CALL_QUEUE_ROUTE = '/stewardship?queue=ready-to-call'
-
 /**
- * The My Work Assistant: an action-first starting point, not a system readout.
- *
- * On arrival it shows (1) any genuine time-specific commitments that need
- * attention, then (2) asks "What would you like to work on?" and offers two
- * prominent choices — Quiet Work and Outbound Calls — with live totals. Picking
- * Quiet Work reveals its activities, counts, and direct actions; picking
- * Outbound Calls opens the call queue. The complete inventory is available via
- * "See All Available Work", not shown up front. GoRules still owns every count
- * and ordering; this only presents the already-derived direction.
+ * The My Work Assistant: a practical working plan, not a system readout. In
+ * order it shows (1) fixed-time commitments, (2) how many active projects have
+ * work available, (3) the Project + Activity filters with a collapsed Mentoring
+ * note on how to choose between them, and (4) the recommended working plan — an
+ * ordered, advisory sequence of concrete steps (what, why, and a direct action).
+ * The complete inventory is available on demand via "See all available work",
+ * not shown up front, so the plan is never repeated by a second always-on list.
+ * GoRules + the catalog working order own the ordering; this only presents the
+ * already-derived direction, which re-derives when a filter changes.
  */
 function MyWorkAssistant({
   state,
@@ -323,440 +311,213 @@ function MyWorkAssistant({
    * briefing the worker is reading. */
   filters: WorkFiltersProps | null
 }) {
-  // Which panel is expanded. 'choose' is the calm default: just the question
-  // and the two choices. Quiet Work and the full inventory expand in place;
-  // Outbound Calls is a direct link, so it needs no expanded state.
-  const [view, setView] = useState<'choose' | 'quiet' | 'all'>('choose')
+  // The complete work inventory is on demand only, so the Assistant leads with
+  // the plan rather than a wall of every item. One boolean controls it.
+  const [showAll, setShowAll] = useState(false)
 
-  // Mentoring (coaching on HOW to work) is a separate, app-wide layer. The
-  // per-choice coaching below renders through MentorGuidance, whose own purple
-  // control is always present; the global toggle only sets its default open
-  // state. Mentoring never changes the Assistant, the counts, or the workflow.
-
-  // Genuine time-specific commitments needing attention now (fixed appointments,
-  // promised callbacks). These are the only things surfaced before the question.
-  const commitments = state.activities.filter(
-    (a) => COMMITMENT_BANDS.has(a.band) && a.ownedCount + a.availableCount > 0,
-  )
-
-  const quiet = groupFor(direction, 'quiet')
-  const calls = groupFor(direction, 'calls')
-  const quietTotal = quiet?.totalActionable ?? 0
-  const callsTotal = calls?.totalActionable ?? 0
-  const nothingToStart = quietTotal === 0 && callsTotal === 0
+  const plan = direction.workingPlan
 
   return (
     <div className="[&>section]:gap-6 [&>section]:p-6 sm:[&>section]:p-7">
-      <AssistantPanel heading={<span className="text-2xl">What would you like to work on?</span>}>
-        {/* Mentoring is toggled app-wide from the sidebar; when on, the coaching
-            notes below appear. The Assistant itself is unchanged either way. */}
+      <AssistantPanel heading={<span className="text-2xl">Your working plan for today</span>}>
+        {/* 1. Fixed-time commitments FIRST. Gray when none are on record (using
+            the established wording); light amber when a real commitment needs
+            attention. These are exempt from the filters upstream, so they stay
+            visible regardless of the current selection. */}
+        <FixedTimeCommitments summary={direction.fixedTimeCommitments} />
 
-        {/* Filters live inside the Assistant, so narrowing to a project or an
-            activity reshapes the briefing and the choices below in place. */}
-        {filters && <WorkFilters {...filters} />}
+        {/* 2. Active projects with work available to this employee — the day's
+            breadth at a glance, reflecting the current filter selection. */}
+        <ActiveProjectsLine count={direction.projectsWithAvailableWork} />
 
-        {/* The concise daily briefing: the honest fixed-time-commitment line and
-            the day's project breadth. Both read already-resolved facts; neither
-            invents a count or a priority. Shown above the question so the worker
-            orients before choosing. */}
-        <DailyBriefing direction={direction} />
+        {/* 3. The Project + Activity filters, with a collapsed Mentoring note
+            explaining how to choose between them. Changing a filter reshapes the
+            plan below in place. */}
+        {filters && (
+          <div className="flex flex-col gap-3">
+            <WorkFilters {...filters} />
+            <MentorGuidance label="How to use these filters">
+              <span className="block">
+                <span className="font-semibold">By project:</span> concentrate on a
+                particular objective, working everything one project needs.
+              </span>
+              <span className="mt-1 block">
+                <span className="font-semibold">By activity:</span> work efficiently
+                through similar tasks across projects.
+              </span>
+            </MentorGuidance>
+          </div>
+        )}
 
-        {/* The GoRules-derived recommended next action: what to start, why, and
-            a direct way to begin. It reads the already-ZEN-ordered direction and
-            re-derives with the filters, so it updates when either filter changes.
-            Advisory only — the employee stays free to pick any available work. */}
-        {direction.nextAction && <NextActionRecommendation nextAction={direction.nextAction} />}
-
-        {/* 1. Commitments first — the only thing shown before the question. */}
-        {commitments.length > 0 && <CommitmentsNotice commitments={commitments} />}
-
-        {nothingToStart ? (
-          <p className="-mt-2 flex items-center gap-2 text-lg leading-relaxed text-ink-secondary">
+        {/* 4. The recommended working plan: an ordered, advisory sequence of
+            concrete steps (what, why, and a direct action). It re-derives with
+            the filters, so it tracks the current selection. */}
+        {plan.length > 0 ? (
+          <WorkingPlan steps={plan} />
+        ) : (
+          <p className="flex items-center gap-2 text-lg leading-relaxed text-ink-secondary">
             <CheckCircle2 className="size-5 text-status-confirmed" aria-hidden />
             Nothing is waiting for you to start right now. You have open capacity.
           </p>
-        ) : (
-          <>
-            {/* 2. The two prominent choices. Outbound Calls is a direct link to
-                the call queue; Quiet Work expands its activities in place. */}
-            <div className="grid gap-4 sm:grid-cols-2">
-              <StartChoice
-                kind="quiet"
-                title="Quiet Work"
-                subtitle="Emails, research, and preparation you can do heads-down."
-                total={quietTotal}
-                totalLabel="available items"
-                selected={view === 'quiet'}
-                onSelect={() => setView(view === 'quiet' ? 'choose' : 'quiet')}
-                mentorNote="Quiet work is yours to pace: pick it up independently whenever time permits."
-              />
-              <StartChoice
-                kind="calls"
-                title="Outbound Calls"
-                subtitle="Customers ready for a call during appropriate calling hours."
-                total={callsTotal}
-                totalLabel="available calls"
-                href={callsTotal > 0 ? (calls?.items[0]?.route ?? CALL_QUEUE_ROUTE) : undefined}
-                mentorNote="Calls depend on the customer: reach out when they are most likely available, not just when you have a free moment."
-              />
-            </div>
-
-            {/* Quiet Work reveal: its activities, counts, and direct actions. */}
-            {view === 'quiet' && quiet && (
-              <div className="rounded-xl border border-surface-border bg-surface-muted p-4">
-                <p className="flex items-center gap-1.5 text-base font-semibold text-ink">
-                  <NotebookPen className="size-4 text-ink-supporting" aria-hidden />
-                  Quiet work available to you
-                </p>
-                <p className="mt-1 text-base leading-relaxed text-ink-supporting">
-                  {WORK_MODE_NOTE.quiet}
-                </p>
-                <ul className="mt-3 space-y-1">
-                  {quiet.items.map((item) => (
-                    <WorkModeItemRow key={`${item.workFunction}-${item.label}`} item={item} />
-                  ))}
-                </ul>
-              </div>
-            )}
-          </>
         )}
 
-        {/* 3. The complete inventory, on demand only. Removed from the initial
-            view so the Assistant helps the worker start rather than displaying
-            everything it knows. */}
+        {/* The complete inventory, on demand only, so the plan is not repeated by
+            a second always-on list of the same work. */}
         <div className="border-t border-surface-border pt-4">
           <button
             type="button"
-            onClick={() => setView(view === 'all' ? 'choose' : 'all')}
+            onClick={() => setShowAll((v) => !v)}
             className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-hover hover:underline"
           >
             <ListChecks className="size-4" aria-hidden />
-            {view === 'all' ? 'Hide full work list' : 'See All Available Work'}
-            <ChevronRight className={cn('size-4 transition-transform', view === 'all' && 'rotate-90')} aria-hidden />
+            {showAll ? 'Hide full work list' : 'See all available work'}
+            <ChevronRight className={cn('size-4 transition-transform', showAll && 'rotate-90')} aria-hidden />
           </button>
         </div>
       </AssistantPanel>
 
       {/* The full inventory renders outside the Assistant panel, below it, only
           when expanded — the same band-grouped activity cards as before. */}
-      {view === 'all' && <FullInventory state={state} />}
+      {showAll && <FullInventory state={state} />}
     </div>
   )
 }
 
 /**
- * The GoRules-derived recommended next action, surfaced in the briefing. It
- * presents the already-ZEN-ranked top action (what to start), the activity's
- * own deterministic reason (why), the actionable count, and a direct link to
- * begin. It adds NO priority of its own — the recommendation and its reason come
- * straight from the Daily Direction derivation, which reads ZEN's ordering.
- *
- * Advisory, never coercive: the heading says this is a suggestion and the
- * employee remains free to choose any available work below. When several
- * activities tie at ZEN's top rank, each is shown as a co-equal option with no
- * invented winner, consistent with the derivation.
+ * Fixed-time commitments, shown first in the plan. Right Path records no
+ * exact-time (clock) commitments yet, so the common case is the honest "none"
+ * line in calm gray — never a claim that the employee has no appointments. When
+ * a genuine commitment IS on record it gets a light-amber attention treatment.
  */
-function NextActionRecommendation({
-  nextAction,
-}: {
-  nextAction: NonNullable<MyWorkDirection['nextAction']>
-}) {
-  const { tied, options } = nextAction
+function FixedTimeCommitments({ summary }: { summary: MyWorkDirection['fixedTimeCommitments'] }) {
+  if (!summary.known) {
+    return (
+      <section
+        aria-label="Fixed-time commitments"
+        className="rounded-xl border border-surface-border bg-surface-muted p-4"
+      >
+        <p className="flex items-center gap-1.5 text-sm font-medium text-ink-supporting">
+          <CalendarClock className="size-4" aria-hidden /> Fixed-time commitments
+        </p>
+        <p className="mt-1 text-base leading-relaxed text-ink-secondary">
+          Right Path does not show any fixed commitments for you today.
+        </p>
+      </section>
+    )
+  }
   return (
     <section
-      aria-label="Recommended next action"
-      className="rounded-2xl border border-brand-subtle bg-brand-wash p-4"
+      aria-label="Fixed-time commitments"
+      className="rounded-xl border border-l-4 border-surface-border border-l-tag-exception-border bg-tag-exception-fill/50 p-4"
     >
-      <p className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-[0.1em] text-brand-hover">
-        <Sparkles className="size-4" aria-hidden />
-        {tied ? 'Recommended next — any of these' : 'Recommended next'}
+      <p className="flex items-center gap-1.5 text-sm font-semibold text-tag-exception-text">
+        <CalendarClock className="size-4" aria-hidden /> Fixed-time commitments
       </p>
-      <ul className="mt-2.5 space-y-2.5">
-        {options.map((opt) => (
-          <NextActionRow key={opt.workFunction} option={opt} />
+      <ul className="mt-2 space-y-1">
+        {summary.items.map((c) => (
+          <li key={c.workFunction} className="flex items-center justify-between gap-3 text-base">
+            <span className="truncate font-medium text-ink">{c.label}</span>
+            {c.route && (
+              <Link
+                href={c.route}
+                className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-hover hover:underline"
+              >
+                Open <ArrowRight className="size-3.5" aria-hidden />
+              </Link>
+            )}
+          </li>
         ))}
       </ul>
-      <p className="mt-2.5 text-sm text-ink-supporting">
-        A suggestion based on current priorities and Today&apos;s Focus. You can
-        start any available work below.
-      </p>
     </section>
   )
 }
 
-/** One recommended-action row: the heading (what), the ZEN reason (why), the
- * actionable count, and a direct link to begin (how). The link is the only
- * interactive element, so beginning the work is one unambiguous action. */
-function NextActionRow({ option }: { option: NextActionOption }) {
-  const count = option.actionableCount
+/** The active-project breadth line: how many distinct projects currently have
+ * work available to this employee. Reflects the current filter selection. */
+function ActiveProjectsLine({ count }: { count: number }) {
   return (
-    <li className="rounded-xl border border-surface-border bg-surface-card p-3.5">
+    <p className="flex items-baseline gap-2 text-base text-ink-secondary">
+      <FolderOpen className="size-4 self-center text-ink-supporting" aria-hidden />
+      <span className="text-xl font-semibold text-ink">{count}</span>
+      <span>
+        {count === 1
+          ? 'active project has work available to you right now.'
+          : 'active projects have work available to you right now.'}
+      </span>
+    </p>
+  )
+}
+
+/**
+ * The recommended working plan: an ordered, advisory list of concrete steps. It
+ * tells the employee WHAT to do, WHY, and gives a direct action. The order is
+ * the GoRules/ZEN priority plus the catalog working order; it does not re-rank.
+ * The copy is explicitly advisory — the employee may work the steps in any
+ * order — and carries no claim/pickup language.
+ */
+function WorkingPlan({ steps }: { steps: PlanStep[] }) {
+  return (
+    <section aria-label="Recommended working plan" className="flex flex-col gap-3">
+      <div>
+        <p className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-[0.1em] text-brand-hover">
+          <Sparkles className="size-4" aria-hidden /> Recommended working plan
+        </p>
+        <p className="mt-1 text-sm text-ink-supporting">
+          A suggested order based on current priorities and Today&apos;s Focus. You
+          can work these in any order.
+        </p>
+      </div>
+      <ol className="flex flex-col gap-2.5">
+        {steps.map((step, i) => (
+          <PlanStepRow key={step.key} step={step} position={i + 1} />
+        ))}
+      </ol>
+    </section>
+  )
+}
+
+/** One plan step: an ordinal, the WHAT title, the WHY reason, a count, and a
+ * single direct action link. The link is the only interactive element. */
+function PlanStepRow({ step, position }: { step: PlanStep; position: number }) {
+  return (
+    <li
+      className={cn(
+        'rounded-xl border bg-surface-card p-4',
+        step.emphasis
+          ? 'border-l-4 border-surface-border border-l-tag-exception-border'
+          : 'border-surface-border',
+      )}
+    >
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-lg font-semibold leading-tight text-ink">{option.heading}</p>
-          {/* The deterministic reason, verbatim from the activity (why). */}
-          <p className="mt-1 max-w-prose text-base leading-relaxed text-ink-secondary">
-            {option.reason}
-          </p>
-          <p className="mt-1 text-sm text-ink-supporting">
-            {count} {count === 1 ? 'item' : 'items'} you can act on
-            {option.dueCount > 0 ? ` · ${option.dueCount} due` : ''}
-          </p>
+        <div className="flex min-w-0 gap-3">
+          <span
+            className="flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-muted text-sm font-semibold text-ink-secondary"
+            aria-hidden
+          >
+            {position}
+          </span>
+          <div className="min-w-0">
+            <p className="text-lg font-semibold leading-tight text-ink">
+              {step.title}
+              <span className="ml-2 text-base font-normal text-ink-supporting">
+                {step.count} {step.count === 1 ? 'customer' : 'customers'}
+              </span>
+            </p>
+            <p className="mt-1 max-w-prose text-base leading-relaxed text-ink-secondary">
+              {step.reason}
+            </p>
+          </div>
         </div>
-        {option.route && (
+        {step.route && (
           <Link
-            href={option.route}
+            href={step.route}
             className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand px-3.5 py-2 text-sm font-semibold text-brand-foreground hover:bg-brand-hover"
           >
-            {option.actionLabel}
+            {step.actionLabel}
             <ArrowRight className="size-4" aria-hidden />
           </Link>
         )}
       </div>
-    </li>
-  )
-}
-
-/**
- * The concise daily briefing shown at the top of the Assistant: two honest
- * orientation lines read from the already-derived direction.
- *
- * 1. Fixed-time commitments. Right Path records no exact-time (clock)
- *    appointments yet, so when none are known we say exactly that — "no
- *    fixed-time appointments on record" — and never claim the employee HAS no
- *    appointments, which Right Path cannot establish. When any are known they
- *    are named with a direct link. Date-only promised callbacks are NOT fixed
- *    appointments; they surface as "needs attention now" below, keeping the IPF
- *    exact-time vs date-only distinction intact.
- * 2. Active-project breadth: how many distinct projects currently have work
- *    available to this employee, so the day's scope is clear at a glance. This
- *    reflects the current filter selection.
- */
-function DailyBriefing({ direction }: { direction: MyWorkDirection }) {
-  const { fixedTimeCommitments: fixed, projectsWithAvailableWork: projectCount } = direction
-  return (
-    <dl className="grid gap-3 sm:grid-cols-2">
-      <div className="rounded-xl border border-surface-border bg-surface-muted p-4">
-        <dt className="flex items-center gap-1.5 text-sm font-medium text-ink-supporting">
-          <CalendarClock className="size-4" aria-hidden /> Fixed-time commitments
-        </dt>
-        {fixed.known ? (
-          <dd className="mt-1.5 space-y-1">
-            {fixed.items.map((c) => (
-              <div key={c.workFunction} className="flex items-center justify-between gap-3 text-base">
-                <span className="truncate font-medium text-ink">{c.label}</span>
-                {c.route ? (
-                  <Link
-                    href={c.route}
-                    className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-hover hover:underline"
-                  >
-                    Open <ArrowRight className="size-3.5" aria-hidden />
-                  </Link>
-                ) : null}
-              </div>
-            ))}
-          </dd>
-        ) : (
-          // Honest absence: we only know Right Path holds none, not that none
-          // exist. Never phrased as "you have no appointments".
-          <dd className="mt-1.5 text-base leading-relaxed text-ink-secondary">
-            Right Path does not show any fixed commitments for you today.
-          </dd>
-        )}
-      </div>
-
-      <div className="rounded-xl border border-surface-border bg-surface-muted p-4">
-        <dt className="flex items-center gap-1.5 text-sm font-medium text-ink-supporting">
-          <FolderOpen className="size-4" aria-hidden /> Active projects with work
-        </dt>
-        <dd className="mt-1.5 flex items-baseline gap-2 text-base text-ink-secondary">
-          <span className="text-2xl font-semibold text-ink">{projectCount}</span>
-          <span>
-            {projectCount === 1
-              ? 'project has work available to you right now.'
-              : 'projects have work available to you right now.'}
-          </span>
-        </dd>
-      </div>
-    </dl>
-  )
-}
-
-/** Time-specific commitments needing attention, shown before the question. Only
- * genuine commitment bands reach here, so this never invents urgency. */
-function CommitmentsNotice({ commitments }: { commitments: ActivityGroup[] }) {
-  return (
-    <section
-      aria-label="Commitments needing attention"
-      className="-mt-2 rounded-xl border border-l-4 border-surface-border border-l-tag-exception-border bg-tag-exception-fill/50 p-4"
-    >
-      <p className="flex items-center gap-1.5 text-base font-semibold text-tag-exception-text">
-        <AlertCircle className="size-5" aria-hidden />
-        Needs attention now
-      </p>
-      <ul className="mt-2 space-y-1">
-        {commitments.map((a) => {
-          const route = a.sources.find((s) => s.ownedByMe + s.availableToMe > 0)?.route ?? a.sources[0]?.route
-          const count = a.dueCount > 0 ? a.dueCount : a.ownedCount + a.availableCount
-          const body = (
-            <>
-              <span className="truncate font-medium text-ink">{a.label}</span>
-              <span className="flex shrink-0 items-center gap-2">
-                <span className="font-semibold text-tag-exception-text">{count}</span>
-                {route && <ArrowRight className="size-4 text-ink-muted" aria-hidden />}
-              </span>
-            </>
-          )
-          return (
-            <li key={a.workFunction}>
-              {route ? (
-                <Link
-                  href={route}
-                  className="flex items-center justify-between gap-3 rounded-lg px-2.5 py-2 text-base hover:bg-tag-exception-fill"
-                >
-                  {body}
-                </Link>
-              ) : (
-                <div className="flex items-center justify-between gap-3 px-2.5 py-2 text-base">{body}</div>
-              )}
-            </li>
-          )
-        })}
-      </ul>
-    </section>
-  )
-}
-
-/**
- * One of the two prominent start choices. 'quiet' is a toggle button that
- * expands its activities in place; 'calls' is a direct link to the call queue.
- * Both lead with a large count so the worker sees the volume at a glance.
- */
-function StartChoice({
-  kind, title, subtitle, total, totalLabel, selected, onSelect, href, mentorNote,
-}: {
-  kind: WorkMode
-  title: string
-  subtitle: string
-  total: number
-  totalLabel: string
-  selected?: boolean
-  onSelect?: () => void
-  href?: string
-  /** Mentor coaching on HOW to approach this work; null when Mentoring is off. */
-  mentorNote?: string | null
-}) {
-  const isCalls = kind === 'calls'
-  const Icon = isCalls ? Phone : NotebookPen
-  const disabled = total === 0
-
-  const inner = (
-    <>
-      <div className="flex items-center justify-between gap-3">
-        <span className="flex items-center gap-2 text-lg font-semibold text-ink">
-          <span
-            className={cn(
-              'flex size-9 items-center justify-center rounded-full',
-              isCalls ? 'bg-brand text-brand-foreground' : 'bg-surface-muted text-ink-secondary',
-            )}
-          >
-            <Icon className="size-5" aria-hidden />
-          </span>
-          {title}
-        </span>
-        <span className="text-right leading-none">
-          <span className="block text-3xl font-semibold text-ink">{total}</span>
-          <span className="mt-1 block text-xs text-ink-supporting">{totalLabel}</span>
-        </span>
-      </div>
-      {/* Assistant copy (WHAT this choice is). */}
-      <p className="mt-3 text-base leading-relaxed text-ink-secondary">{subtitle}</p>
-      <span className="mt-3 inline-flex items-center gap-1.5 text-base font-medium text-brand-hover">
-        {isCalls ? 'Open the call queue' : selected ? 'Hide quiet work' : 'Show quiet work'}
-        <ArrowRight className="size-4" aria-hidden />
-      </span>
-    </>
-  )
-
-  const base = cn(
-    'block w-full rounded-2xl border p-5 text-left transition-colors',
-    disabled
-      ? 'cursor-not-allowed border-surface-border bg-surface-card opacity-60'
-      : isCalls
-        ? 'border-brand-subtle bg-surface-card hover:border-brand-ring hover:bg-brand-wash'
-        : selected
-          ? 'border-brand-ring bg-brand-wash'
-          : 'border-surface-border bg-surface-card hover:border-brand-ring hover:bg-brand-wash',
-  )
-
-  // The clickable card and the Mentor coaching are SIBLINGS, never nested: the
-  // card is a single interactive element (a link for Calls, a toggle button for
-  // Quiet Work), and MentorGuidance carries its own button. Nesting one inside
-  // the other produced invalid interactive nesting, so opening or closing
-  // Mentoring also activated the card (toggling Quiet Work, or navigating away
-  // for Calls). Rendering them as siblings lets the employee open/close
-  // Mentoring without touching the surrounding card.
-  const card = disabled ? (
-    <div className={base} aria-disabled>
-      {inner}
-    </div>
-  ) : href ? (
-    // Outbound Calls opens the queue directly.
-    <Link href={href} className={base}>{inner}</Link>
-  ) : (
-    // Quiet Work toggles its reveal.
-    <button type="button" onClick={onSelect} className={base} aria-pressed={selected}>
-      {inner}
-    </button>
-  )
-
-  return (
-    <div className="flex flex-col gap-3">
-      {card}
-      {/* Mentor coaching (HOW to approach it) — purple, kept visually and
-          semantically distinct from the card. Its own control is always shown;
-          the global Mentoring toggle only sets its default open/closed state.
-          It sits OUTSIDE the card's clickable element on purpose. */}
-      {mentorNote && (
-        <MentorGuidance label="How to approach this">
-          {mentorNote}
-        </MentorGuidance>
-      )}
-    </div>
-  )
-}
-
-/** One quiet-work activity row with its count and a direct action link. */
-function WorkModeItemRow({ item }: { item: WorkModeGroup['items'][number] }) {
-  const isCommitment = COMMITMENT_BANDS.has(item.band)
-  const body = (
-    <>
-      <span className="flex min-w-0 items-center gap-1.5">
-        {isCommitment && <AlertCircle className="size-4 shrink-0 text-tag-exception-text" aria-hidden />}
-        <span className={cn('truncate', isCommitment ? 'font-medium text-ink' : 'text-ink-secondary')}>
-          {item.label}
-        </span>
-      </span>
-      <span className="flex shrink-0 items-center gap-2">
-        <span className={cn('font-semibold', isCommitment ? 'text-tag-exception-text' : 'text-ink')}>
-          {item.actionableCount}
-        </span>
-        {item.route && <ArrowRight className="size-4 text-ink-muted" aria-hidden />}
-      </span>
-    </>
-  )
-  return (
-    <li>
-      {item.route ? (
-        <Link
-          href={item.route}
-          className="flex items-center justify-between gap-3 rounded-lg px-2.5 py-2.5 text-base transition-colors hover:bg-surface-card"
-        >
-          {body}
-        </Link>
-      ) : (
-        <div className="flex items-center justify-between gap-3 px-2.5 py-2.5 text-base">{body}</div>
-      )}
     </li>
   )
 }

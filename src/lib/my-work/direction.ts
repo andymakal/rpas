@@ -67,47 +67,6 @@ function primaryRouteFor(a: ActivityGroup): string | null {
   return (actionable ?? a.sources[0])?.route ?? null
 }
 
-/** How to label the single-action button for a given band. The verb matches the
- * work: owned/shared is "Pick up", a due callback is "Call back", focus is
- * "Work", assist is "Help with". No band invents a clock time. */
-function actionVerb(a: ActivityGroup): string {
-  switch (a.band) {
-    case 'exact_time_commitment':
-      return `Open ${a.label}`
-    case 'due_callback':
-      return `Open ${a.label}`
-    case 'focus':
-      return `Work ${a.label}`
-    case 'owned':
-      return `Continue ${a.label}`
-    case 'assist':
-      return `Help with ${a.label}`
-    case 'shared':
-    default:
-      return `Open ${a.label}`
-  }
-}
-
-/** The Assistant's lead heading for the recommended next action. Action-first,
- * naming the activity, never a ranked channel the data does not justify. */
-function nextActionHeading(a: ActivityGroup): string {
-  switch (a.band) {
-    case 'exact_time_commitment':
-      return `${a.label} needs you now`
-    case 'focus':
-      return `Start with ${a.label}`
-    case 'due_callback':
-      return `${a.label}: promised callbacks are due`
-    case 'owned':
-      return `Continue your ${a.label} work`
-    case 'assist':
-      return `You can help with ${a.label}`
-    case 'shared':
-    default:
-      return `Pick up ${a.label}`
-  }
-}
-
 // ---------------------------------------------------------------------------
 // The serializable direction summary the Assistant renders.
 // ---------------------------------------------------------------------------
@@ -125,28 +84,11 @@ export interface DirectionRow {
   route: string | null
 }
 
-/** One recommended next-action option. When several activities share the top
- * ZEN rank they are equally appropriate, so each is presented as its own option
- * with no invented ordering between them. */
-export interface NextActionOption {
-  workFunction: ActivityGroup['workFunction']
-  label: string
-  band: PriorityBand
-  /** The deterministic reason, reused verbatim from the activity's own
-   * ZEN-derived reason so the Assistant and the activity card never disagree. */
-  reason: string
-  heading: string
-  actionLabel: string
-  route: string | null
-  actionableCount: number
-  dueCount: number
-}
-
 /**
  * The single Daily Direction summary for My Work. 'quiet' mirrors MyWorkState:
- * nothing actionable right now. When not quiet, nextAction describes what to do
- * next; primary and support list the employee's actionable responsibilities
- * split by how the work is routed to them.
+ * nothing actionable right now. When not quiet, workingPlan is the ordered,
+ * advisory sequence of steps to work; primary and support list the employee's
+ * actionable responsibilities split by how the work is routed to them.
  */
 /**
  * The honest fixed-time-commitment summary for the daily briefing. Right Path
@@ -189,19 +131,16 @@ export interface MyWorkDirection {
    */
   projectsWithAvailableWork: number
   /**
-   * The recommended next action, or null when quiet. GoRules ZEN owns the
-   * priority: the options are EVERY actionable activity sharing the highest ZEN
-   * rank. Usually that is one activity (a single recommendation). When more than
-   * one activity ties at the top rank, they are equally appropriate — `tied` is
-   * true and all co-equal options are presented WITHOUT a ranking, rather than
-   * promoting the first catalog entry as the unique winner.
+   * The recommended WORKING PLAN: an ordered, advisory sequence of concrete
+   * steps telling the employee WHAT to do, WHY, and how to begin each. Empty
+   * when quiet. The order is the ZEN priority band plus the catalog working
+   * order the composition already applied (research -> contact review ->
+   * outreach -> operations preparation), with Outreach expanded into
+   * introductory emails, due calls, then other callable customers. It is a
+   * presentation of the already-ranked work, not a competing priority, and the
+   * employee may work the steps in any order.
    */
-  nextAction: {
-    /** True when several activities share the top rank (co-equal choices). */
-    tied: boolean
-    /** The co-equal top-rank options; a single element in the common case. */
-    options: NextActionOption[]
-  } | null
+  workingPlan: PlanStep[]
   /** The employee's PRIMARY responsibilities that currently have actionable
    * work, highest priority first (ZEN rank order preserved). */
   primary: DirectionRow[]
@@ -253,37 +192,20 @@ export function deriveMyWorkDirection(state: MyWorkState): MyWorkDirection {
       quiet: true,
       fixedTimeCommitments,
       projectsWithAvailableWork,
-      nextAction: null,
+      workingPlan: [],
       primary: [],
       support: [],
       workModeGroups: [],
     }
   }
 
-  // The highest-priority rank present among actionable work (lower rank = higher
-  // priority). Every activity at this rank is EQUALLY appropriate: ZEN assigned
-  // them the same priority, so there is no winner among them. Presenting the
-  // first catalog entry as "the" recommendation would invent a ranking ZEN did
-  // not make, so all top-rank activities are offered as co-equal options.
-  const topRank = Math.min(...actionable.map((a) => a.rank))
-  const topActivities = actionable.filter((a) => a.rank === topRank)
-
-  const toOption = (a: ActivityGroup): NextActionOption => ({
-    workFunction: a.workFunction,
-    label: a.label,
-    band: a.band,
-    reason: a.reason,
-    heading: nextActionHeading(a),
-    actionLabel: actionVerb(a),
-    route: primaryRouteFor(a),
-    actionableCount: actionableCountOf(a),
-    dueCount: a.dueCount,
-  })
-
-  const nextAction = {
-    tied: topActivities.length > 1,
-    options: topActivities.map(toOption),
-  }
+  // The recommended WORKING PLAN: an ordered sequence of concrete steps, built
+  // from the activities ZEN already ranked (and the catalog working-order
+  // tiebreak the composition applied), with Outreach expanded into its real
+  // sub-populations. This replaces the old co-equal "any of these" options with
+  // a single practical plan. It adds no priority of its own — the order is the
+  // ZEN+catalog order, and every step's count/route is read from resolved work.
+  const workingPlan = buildWorkingPlan(actionable)
 
   // Split the actionable activities by how they are routed to the employee.
   // Primary responsibilities and support work are genuinely different framings
@@ -305,11 +227,189 @@ export function deriveMyWorkDirection(state: MyWorkState): MyWorkDirection {
     quiet: false,
     fixedTimeCommitments,
     projectsWithAvailableWork,
-    nextAction,
+    workingPlan,
     primary,
     support,
     workModeGroups,
   }
+}
+
+// ---------------------------------------------------------------------------
+// The recommended working plan.
+// ---------------------------------------------------------------------------
+
+/** One concrete step in the recommended working plan: a specific body of work
+ * to do, why it comes where it does, how much of it there is, and a direct
+ * action to begin. Steps are advisory and ordered; the employee may work them
+ * in any order. */
+export interface PlanStep {
+  /** Stable identifier for keys/tests (e.g. 'research', 'outreach:intro'). */
+  key: string
+  /** WHAT to do — a short imperative title. */
+  title: string
+  /** WHY — a short deterministic rationale, never a clock time. */
+  reason: string
+  /** How many items this step covers (actionable to this employee). */
+  count: number
+  /** The direct-action button label (how to begin). */
+  actionLabel: string
+  /** Where beginning the step goes; null when no reachable route. */
+  route: string | null
+  /** True for a genuine commitment/exception step (focus, due calls) so the UI
+   * can give it light emphasis without implying urgency ZEN did not set. */
+  emphasis?: boolean
+}
+
+/** Find an outreach informational sub-population source by its label fragment,
+ * returning its actionable count and route. These are emitted by the
+ * composition (Introductory emails / Calls Due / Available to Call) as
+ * informational sources that do not inflate the activity total. */
+function outreachSubPopulation(
+  outreach: ActivityGroup,
+  match: RegExp,
+): { count: number; route: string | null } | null {
+  const s = outreach.sources.find((src) => src.informational && match.test(src.label))
+  if (!s) return null
+  const count = s.ownedByMe + s.availableToMe
+  if (count <= 0) return null
+  return { count, route: s.route }
+}
+
+/**
+ * Build the ordered working plan from the actionable activities (already in ZEN
+ * rank + catalog working order). Each activity becomes one step, except Outreach
+ * which expands into its real sub-populations in working order: introductory
+ * emails first (efficient initial outreach), then calls — due calls distinguished
+ * from other callable customers. Operations Preparation is its own step, work
+ * that is ready to advance independently of ongoing outreach.
+ *
+ * This introduces NO priority: the activity order is the ZEN+catalog order the
+ * composition produced, and the Outreach sub-steps are a fixed, descriptive
+ * working sequence over the SAME outreach work (not a re-ranking). Counts and
+ * routes are read from the resolved activity/sources.
+ */
+export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
+  const steps: PlanStep[] = []
+  for (const a of actionable) {
+    const emphasis = a.band === 'focus' || a.band === 'exact_time_commitment' || a.band === 'due_callback'
+    switch (a.workFunction) {
+      case 'research': {
+        steps.push({
+          key: 'research',
+          title: 'Find missing contact information',
+          reason:
+            'These customers have no usable phone or email on file. Finding a working contact method unblocks every later step.',
+          count: actionableCountOf(a),
+          actionLabel: 'Start contact research',
+          route: primaryRouteFor(a),
+          emphasis,
+        })
+        break
+      }
+      case 'contact_review': {
+        steps.push({
+          key: 'contact_review',
+          title: 'Complete missing contact details',
+          reason:
+            'These customers are reachable but missing an additional contact method. Filling it in prepares them for outreach.',
+          count: actionableCountOf(a),
+          actionLabel: 'Start contact review',
+          route: primaryRouteFor(a),
+          emphasis,
+        })
+        break
+      }
+      case 'outreach': {
+        // Expand Outreach into its real sub-populations, in working order:
+        // introductory emails, then due calls, then other callable customers.
+        // Each sub-population is read from the composition's informational
+        // sources, so the counts match the board and nothing is double-counted.
+        const intro = outreachSubPopulation(a, /introductory email/i)
+        const callsDue = outreachSubPopulation(a, /calls due/i)
+        const otherCalls = outreachSubPopulation(a, /available to call/i)
+
+        if (intro) {
+          steps.push({
+            key: 'outreach:intro',
+            title: 'Send introductory emails',
+            reason:
+              'A first email (carrying the authorization form) is efficient initial outreach before calling, for customers not yet contacted.',
+            count: intro.count,
+            actionLabel: 'Open Ready to Email',
+            route: intro.route,
+            emphasis,
+          })
+        }
+        if (callsDue) {
+          steps.push({
+            key: 'outreach:calls-due',
+            title: 'Make the calls that are due',
+            reason:
+              'A promised callback or scheduled follow-up has come due for these customers. Due calls come before other calling.',
+            count: callsDue.count,
+            actionLabel: 'Open Calls Due',
+            route: callsDue.route,
+            emphasis: true,
+          })
+        }
+        if (otherCalls) {
+          steps.push({
+            key: 'outreach:calls-other',
+            title: 'Call other reachable customers',
+            reason:
+              'These customers are callable now with no scheduled time. Good calling-hours work once due calls are handled.',
+            count: otherCalls.count,
+            actionLabel: 'Open Available to Call',
+            route: otherCalls.route,
+            emphasis,
+          })
+        }
+        // Fallback: outreach is actionable but carries no recognized sub-
+        // population (e.g. only follow-up chases). Offer the activity directly
+        // so the step is never silently dropped.
+        if (!intro && !callsDue && !otherCalls) {
+          steps.push({
+            key: 'outreach',
+            title: 'Continue outreach',
+            reason: a.reason,
+            count: actionableCountOf(a),
+            actionLabel: 'Open outreach',
+            route: primaryRouteFor(a),
+            emphasis,
+          })
+        }
+        break
+      }
+      case 'operations_prep': {
+        steps.push({
+          key: 'operations_prep',
+          title: 'Advance operations preparation',
+          reason:
+            'This work is ready to move forward now, independently of ongoing outreach.',
+          count: actionableCountOf(a),
+          actionLabel: 'Open operations preparation',
+          route: primaryRouteFor(a),
+          emphasis,
+        })
+        break
+      }
+      default: {
+        // Determination, office support, and any future activity: one plain
+        // step using the activity's own ZEN reason, so nothing is dropped and no
+        // new wording is invented for work without a tailored plan entry.
+        steps.push({
+          key: a.workFunction,
+          title: a.label,
+          reason: a.reason,
+          count: actionableCountOf(a),
+          actionLabel: `Open ${a.label}`,
+          route: primaryRouteFor(a),
+          emphasis,
+        })
+      }
+    }
+  }
+  return steps
 }
 
 // ---------------------------------------------------------------------------

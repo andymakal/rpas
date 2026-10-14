@@ -541,6 +541,18 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     total: 0, ownedByMe: 0, availableToMe: 0, claimedByOthers: 0, notEligible: 0, dueToMe: 0,
   })
   const perQueue = new Map<OutreachQueue, QueueTally>()
+  // INTRODUCTORY EMAILS: the first-touch subset of Ready to Email the employee
+  // can act on. An introductory email is the OPENING servicing-agent email (it
+  // carries the authorization form) sent to a customer whose workflow has not
+  // started yet — effective queue ready-to-email AND no recorded activity
+  // (no email_sent_at, no last_call_outcome, no promised callback_date). A
+  // Ready-to-Email item that has already been emailed or called is NOT an
+  // introduction, so this never assumes every Ready to Email needs an intro.
+  // Counted here (not as a separate pass) so it reuses this loop's eligibility
+  // and claim classification; it is an informational subset of the Outreach
+  // activity and does NOT add to any activity total.
+  let introEmails = 0
+  const introEmailsByProject = new Map<string, number>()
   // The SAME tally, partitioned by the project each item's customer belongs to,
   // so a shared source can report its per-project subset for the Project filter.
   // An item whose customer belongs to no project contributes only to perQueue
@@ -616,6 +628,23 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       claimedBy: rawClaimedBy == null ? null : rawClaimedBy === myProducerId ? 'me' : 'other',
       isDueCallback: isCallDue,
     })
+
+    // Tally an introductory email: effective Ready to Email, untouched (no prior
+    // email send, no call outcome, no promised callback), and actionable by this
+    // employee (owned or available — never a teammate's claimed item). This is a
+    // true subset of the ready-to-email count the activity already carries.
+    const isIntroEmail =
+      q === 'ready-to-email' &&
+      r.email_sent_at == null &&
+      r.last_call_outcome == null &&
+      r.callback_date == null &&
+      (cls.bucket === 'available' || cls.bucket === 'owned')
+    if (isIntroEmail) {
+      introEmails += 1
+      for (const pid of itemProjects) {
+        introEmailsByProject.set(pid, (introEmailsByProject.get(pid) ?? 0) + 1)
+      }
+    }
 
     // Record this item into each project partition it belongs to, with the EXACT
     // same bucketing the agency-wide tally uses below, so a project's filtered
@@ -880,6 +909,46 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
           dueToMe: 0,
           informational: true,
           projectScopes: callScopes(availableToCallByProject, 'available-to-call', false),
+        })
+      }
+
+      // Introductory emails: the first-touch subset of Ready to Email, as an
+      // informational source (it does NOT add to the activity total, which the
+      // per-queue ready-to-email tally already carries). It opens the Ready to
+      // Email queue — the same place the full email population is worked — so the
+      // recommendation is directly reachable. Per-project scopes let the Project
+      // filter show exactly a project's introductory emails.
+      if (introEmails > 0) {
+        const introScopes = ((): Record<string, WorkSourceProjectScope> | undefined => {
+          if (introEmailsByProject.size === 0) return undefined
+          const out: Record<string, WorkSourceProjectScope> = {}
+          for (const [pid, n] of introEmailsByProject) {
+            if (n <= 0) continue
+            out[pid] = {
+              count: n,
+              ownedByMe: 0,
+              availableToMe: n,
+              claimedByOthers: 0,
+              notEligible: 0,
+              dueToMe: 0,
+              route: stewardshipRoute('ready-to-email', pid),
+            }
+          }
+          return Object.keys(out).length > 0 ? out : undefined
+        })()
+        outreach.sources.push({
+          kind: 'stewardship',
+          label: 'Shared Stewardship board — Introductory emails',
+          count: introEmails,
+          route: stewardshipRoute('ready-to-email'),
+          projectId: null,
+          ownedByMe: 0,
+          availableToMe: introEmails,
+          claimedByOthers: 0,
+          notEligible: 0,
+          dueToMe: 0,
+          informational: true,
+          projectScopes: introScopes,
         })
       }
     }
