@@ -24,7 +24,7 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
+import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
 import { createTimeContext } from '@/lib/time'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
@@ -77,7 +77,10 @@ function stewardshipRoute(queue: OutreachQueue, projectId?: string | null): stri
  * exactly the customers the population counted (Rule 1): the same derivation
  * runs on the board route, so the counted and opened sets match.
  */
-function populationRoute(population: 'available-to-call' | 'calls-due', projectId?: string | null): string {
+function populationRoute(
+  population: 'available-to-call' | 'calls-due' | 'introductory-emails',
+  projectId?: string | null,
+): string {
   const base = `${STEWARDSHIP_ROUTE}?population=${encodeURIComponent(population)}`
   return projectId ? `${base}&project_id=${encodeURIComponent(projectId)}` : base
 }
@@ -629,15 +632,18 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       isDueCallback: isCallDue,
     })
 
-    // Tally an introductory email: effective Ready to Email, untouched (no prior
-    // email send, no call outcome, no promised callback), and actionable by this
-    // employee (owned or available — never a teammate's claimed item). This is a
-    // true subset of the ready-to-email count the activity already carries.
+    // Tally an introductory email: the shared first-touch predicate (the SAME
+    // one the board route opens with), AND actionable by this employee (owned or
+    // available — never a teammate's claimed item). A true subset of the
+    // ready-to-email count the activity already carries. `q` is the effective
+    // queue computed above (effectiveQueue), so the email re-derivation applies.
     const isIntroEmail =
-      q === 'ready-to-email' &&
-      r.email_sent_at == null &&
-      r.last_call_outcome == null &&
-      r.callback_date == null &&
+      isIntroductoryEmail({
+        effectiveQueue: q,
+        emailSentAt: r.email_sent_at,
+        lastCallOutcome: r.last_call_outcome as CallOutcome | null,
+        callbackDate: r.callback_date,
+      }) &&
       (cls.bucket === 'available' || cls.bucket === 'owned')
     if (isIntroEmail) {
       introEmails += 1
@@ -931,7 +937,10 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
               claimedByOthers: 0,
               notEligible: 0,
               dueToMe: 0,
-              route: stewardshipRoute('ready-to-email', pid),
+              // Opens exactly this project's introductory-email population on the
+              // board (the SAME first-touch set this counted), not the whole
+              // Ready to Email queue.
+              route: populationRoute('introductory-emails', pid),
             }
           }
           return Object.keys(out).length > 0 ? out : undefined
@@ -940,7 +949,9 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
           kind: 'stewardship',
           label: 'Shared Stewardship board — Introductory emails',
           count: introEmails,
-          route: stewardshipRoute('ready-to-email'),
+          // Opens the introductory-email population (the first-touch subset of
+          // Ready to Email), exactly the customers this counted.
+          route: populationRoute('introductory-emails'),
           projectId: null,
           ownedByMe: 0,
           availableToMe: introEmails,

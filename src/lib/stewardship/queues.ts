@@ -302,6 +302,35 @@ function addDays(iso: string, days: number): string {
  */
 export type CallPopulation = 'calls-due' | 'available-to-call'
 
+/**
+ * Whether an open item is an INTRODUCTORY EMAIL: the first-touch subset of Ready
+ * to Email. The introductory servicing-agent email (which carries the
+ * authorization form) is the OPENING action for a customer whose workflow has
+ * not started — effective queue ready-to-email AND no recorded activity yet (no
+ * email sent, no call outcome, no promised callback). A Ready-to-Email item that
+ * has already been emailed or called is NOT an introduction, so this never
+ * assumes every Ready to Email needs one.
+ *
+ * This is the ONE shared definition both My Work (counting the introductory-email
+ * population) and the board route (opening it) use, so the counted set and the
+ * opened set are always identical — the same contract callPopulationOf gives the
+ * call populations.
+ */
+export function isIntroductoryEmail(input: {
+  /** Effective queue after email re-derivation (deriveEmailRouting applied). */
+  effectiveQueue: OutreachQueue
+  emailSentAt: string | null
+  lastCallOutcome: CallOutcome | null
+  callbackDate: string | null
+}): boolean {
+  return (
+    input.effectiveQueue === 'ready-to-email' &&
+    input.emailSentAt == null &&
+    input.lastCallOutcome == null &&
+    input.callbackDate == null
+  )
+}
+
 export function callPopulationOf(input: {
   /** Effective queue after follow-up promotion (deriveFollowUpRouting applied). */
   effectiveQueue: OutreachQueue

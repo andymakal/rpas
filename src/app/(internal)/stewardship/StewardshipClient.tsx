@@ -107,6 +107,10 @@ type BoardItem = {
   // not its stored queue): 'calls-due' | 'available-to-call' | null. Set by the
   // board route so a population view lists exactly the counted customers.
   call_population?: 'calls-due' | 'available-to-call' | null
+  // Whether this item is in the first-touch introductory-email population (the
+  // untouched subset of Ready to Email). Set by the board route so the
+  // introductory-email population view lists exactly the counted customers.
+  is_intro_email?: boolean
   // Optional soft-lease claim (shared by default; the board is never filtered
   // by it). Reused from the IPF queue-owned-until-claimed model.
   claimed_by_producer_id?: string | null
@@ -119,10 +123,11 @@ type BoardItem = {
   customer_id?: string
 }
 
-/** A derived call action population a My Work link can open on the board. */
-type CallPopulation = 'calls-due' | 'available-to-call'
+/** A derived population a My Work link can open on the board: the two call
+ * populations, plus the first-touch introductory-email subset of Ready to Email. */
+type OpenPopulation = 'calls-due' | 'available-to-call' | 'introductory-emails'
 
-const POPULATION_META: Record<CallPopulation, { label: string; blurb: string }> = {
+const POPULATION_META: Record<OpenPopulation, { label: string; blurb: string }> = {
   'calls-due': {
     label: 'Calls Due',
     blurb: 'Customers with a scheduled call that has come due: a promised callback or an automatic retry.',
@@ -130,6 +135,10 @@ const POPULATION_META: Record<CallPopulation, { label: string; blurb: string }> 
   'available-to-call': {
     label: 'Available to Call',
     blurb: 'Customers with a usable phone who can be called now, not on a scheduled due date.',
+  },
+  'introductory-emails': {
+    label: 'Introductory emails',
+    blurb: 'First-touch customers in Ready to Email: send the introductory servicing-agent email that carries the authorization form.',
   },
 }
 
@@ -300,7 +309,7 @@ export function StewardshipClient({
   // A derived call population view (opened from a My Work "Calls Due" /
   // "Available to Call" link). When set, the board shows exactly that
   // population's customers, fetched from the server with the population filter.
-  const [openPopulation, setOpenPopulation] = useState<CallPopulation | null>(null)
+  const [openPopulation, setOpenPopulation] = useState<OpenPopulation | null>(null)
   const [populationItems, setPopulationItems] = useState<BoardItem[]>([])
   const [populationLoading, setPopulationLoading] = useState(false)
   // Claiming (optional soft lease) is only shown on the actionable outreach
@@ -337,7 +346,11 @@ export function StewardshipClient({
   useEffect(() => {
     if (populationParam === lastAppliedPopulationParam.current) return
     lastAppliedPopulationParam.current = populationParam
-    if (populationParam === 'calls-due' || populationParam === 'available-to-call') {
+    if (
+      populationParam === 'calls-due' ||
+      populationParam === 'available-to-call' ||
+      populationParam === 'introductory-emails'
+    ) {
       setOpenItemId(null)
       setOpenQueue(null)
       setOpenPopulation(populationParam)
@@ -385,7 +398,7 @@ export function StewardshipClient({
   // Fetch the opened call population from the server (which applies the SAME
   // callability + due derivation My Work counts with), so the list is exactly
   // the counted customers regardless of their stored queue.
-  const loadPopulation = useCallback(async (population: CallPopulation) => {
+  const loadPopulation = useCallback(async (population: OpenPopulation) => {
     setPopulationLoading(true)
     try {
       const params = new URLSearchParams({ population })
@@ -494,7 +507,7 @@ export function StewardshipClient({
     return (
       <WorkflowPage>
         <QueueListHeader
-          icon={Phone}
+          icon={openPopulation === 'introductory-emails' ? Mail : Phone}
           label={meta.label}
           count={popItems.length}
           blurb={meta.blurb}

@@ -4,11 +4,19 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { resolveCapabilityProfile, loadWorkFunctions } from '@/lib/capabilities/resolve'
 import { canActOnItem, claimedByOther } from '@/lib/capabilities/work-functions'
-import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, type OutreachQueue, type CallPopulation, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
+import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
 import { initialQueueFromOptions, resolveContactOptions } from '@/lib/stewardship/contact-options'
 import { getProjectWorkflows, projectContainsWorkflow, onboardingCompleteForPolicies } from '@/lib/projects/workflows'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
+
+/**
+ * A derived population a My Work count can open on the board: the two
+ * callability-based call populations, plus the first-touch introductory-email
+ * subset of Ready to Email. Each opens EXACTLY the customers My Work counted,
+ * gated by the same capability + claim rules.
+ */
+type PopulationFilter = 'calls-due' | 'available-to-call' | 'introductory-emails'
 
 /**
  * GET /api/stewardship
@@ -36,11 +44,17 @@ export async function GET(request: NextRequest) {
   const url = new URL(request.url)
   const queueFilter = url.searchParams.get('queue')
   const projectId = url.searchParams.get('project_id')?.trim() || null
-  // A derived ACTION POPULATION to open (callability-based, not a stored queue),
-  // so a My Work population link opens exactly the customers it counted.
+  // A derived ACTION POPULATION to open (callability-based or first-touch, not a
+  // stored queue), so a My Work population link opens exactly the customers it
+  // counted. The two call populations are callability-based; 'introductory-emails'
+  // is the first-touch subset of Ready to Email (shared isIntroductoryEmail
+  // predicate). All three resolve the caller's capability profile below so the
+  // opened set is gated identically to the My Work count.
   const populationParam = url.searchParams.get('population')?.trim() || null
-  const populationFilter: CallPopulation | null =
-    populationParam === 'calls-due' || populationParam === 'available-to-call'
+  const populationFilter: PopulationFilter | null =
+    populationParam === 'calls-due' ||
+    populationParam === 'available-to-call' ||
+    populationParam === 'introductory-emails'
       ? populationParam
       : null
 
@@ -273,6 +287,15 @@ export async function GET(request: NextRequest) {
       hasUsablePhone: !!r.customer_prereviews.customers?.phone?.trim(),
       callbackDue: isCallbackDue(r.callback_date, actorTimeZone),
     })
+    // First-touch introductory-email membership, via the SAME shared predicate
+    // My Work counts with, so the opened introductory-email population equals the
+    // counted one.
+    const introEmail = isIntroductoryEmail({
+      effectiveQueue,
+      emailSentAt: r.email_sent_at,
+      lastCallOutcome: r.last_call_outcome as CallOutcome | null,
+      callbackDate: r.callback_date,
+    })
     return {
       id: r.id,
       queue: effectiveQueue,
@@ -292,6 +315,9 @@ export async function GET(request: NextRequest) {
       // The call action population (null when the item is not a call opportunity).
       // Carried so the board can open a population link exactly as counted.
       call_population: population,
+      // Whether this item is in the first-touch introductory-email population,
+      // carried so the board can open that population exactly as counted.
+      is_intro_email: introEmail,
       prereview_id: r.customer_prereviews.id,
       customer: r.customer_prereviews.customers,
       // Optional soft-lease claim (shared by default). is_mine lets the list mark
@@ -392,6 +418,15 @@ export async function GET(request: NextRequest) {
             carrier_correction: null,
             follow_up_due_now: false,
             call_population: population,
+            // A derived onboarding item is untouched by construction (no email
+            // sent, no call outcome, no callback), so it is an introductory email
+            // exactly when its opening queue is ready-to-email.
+            is_intro_email: isIntroductoryEmail({
+              effectiveQueue,
+              emailSentAt: null,
+              lastCallOutcome: null,
+              callbackDate: null,
+            }),
             prereview_id: null as unknown as string,
             customer: { id: cid, first_name: contact.first_name, last_name: contact.last_name, email: contact.email, phone: contact.phone },
             claimed_by_producer_id: null,
@@ -431,10 +466,18 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // The caller's actionable call items: in a call population, pickable by
-  // capability, and not claimed by another employee. Mirrors My Work exactly.
-  const isActionableToMe = (it: (typeof items)[number]): boolean => {
-    if (!it.call_population) return false
+  // Whether an item belongs to the given derived population: the two call
+  // populations read call_population; the introductory-email population reads the
+  // first-touch flag. One place, so membership is defined identically for the
+  // filter and the count.
+  const inPopulation = (it: (typeof items)[number], pop: PopulationFilter): boolean =>
+    pop === 'introductory-emails' ? it.is_intro_email === true : it.call_population === pop
+
+  // The caller's actionable items for a requested population: in that population,
+  // pickable by capability, and not claimed by another employee. Mirrors My Work
+  // exactly, so the opened set equals the counted set.
+  const isActionableToMe = (it: (typeof items)[number], pop: PopulationFilter): boolean => {
+    if (!inPopulation(it, pop)) return false
     const itemProjects = projectsByCustomer.get(it.customer?.id ?? '') ?? new Set<string>()
     if (!canActOnItem(myProfile, 'outreach', outreachRequiredQual, itemProjects)) return false
     if (claimedByOther(it.claimed_by_producer_id, myProducerId)) return false
@@ -446,7 +489,7 @@ export async function GET(request: NextRequest) {
   // item's stored queue. Without a population filter the board is the unscoped,
   // unfiltered view (presentation only; never filtered by claim/eligibility).
   const visibleItems = populationFilter
-    ? items.filter(it => it.call_population === populationFilter && isActionableToMe(it))
+    ? items.filter(it => isActionableToMe(it, populationFilter))
     : deriveEmailFilter
       ? // A Ready-to-Email filter lists items whose EFFECTIVE queue is
         // ready-to-email (stored ready-to-email plus the opening items upgraded
@@ -464,12 +507,14 @@ export async function GET(request: NextRequest) {
   // sizes (presentation only).
   const populationCounts = populationFilter
     ? {
-        'calls-due': items.filter(it => it.call_population === 'calls-due' && isActionableToMe(it)).length,
-        'available-to-call': items.filter(it => it.call_population === 'available-to-call' && isActionableToMe(it)).length,
+        'calls-due': items.filter(it => isActionableToMe(it, 'calls-due')).length,
+        'available-to-call': items.filter(it => isActionableToMe(it, 'available-to-call')).length,
+        'introductory-emails': items.filter(it => isActionableToMe(it, 'introductory-emails')).length,
       }
     : {
         'calls-due': items.filter(it => it.call_population === 'calls-due').length,
         'available-to-call': items.filter(it => it.call_population === 'available-to-call').length,
+        'introductory-emails': items.filter(it => it.is_intro_email === true).length,
       }
 
   return Response.json({
