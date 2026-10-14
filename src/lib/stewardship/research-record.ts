@@ -15,12 +15,14 @@
  *     any newly available value re-opens the recommendation.
  *
  * Reuse, not reinvention. This records the NOT-FOUND outcome as an ordinary
- * `case_touches` row (the existing customer-history mechanism), identified by a
- * stable machine marker on the note — exactly the pattern the per-channel
- * outreach outcomes already use (see OUTCOME_MARKERS in outreach-attempts.ts).
- * It is NOT an outreach to the customer, so it deliberately uses markers the
- * attempt-history reader does not recognize as a contact attempt; it never
- * inflates the Nonresponsive attempt count.
+ * `case_touches` row (the existing customer-history mechanism) under the
+ * dedicated 'research' touch_type, with the per-method outcome carried on the
+ * note via a stable machine marker — the same device the per-channel outreach
+ * outcomes use (see OUTCOME_MARKERS in outreach-attempts.ts). Because it is
+ * internal research and NOT a customer communication, the 'research' type keeps
+ * it visibly distinct in customer history, and the attempt-history reader (which
+ * counts only genuine outreach channels) never mistakes it for a contact
+ * attempt, so it never inflates the Nonresponsive attempt count.
  *
  * The durable TRUTH that drives recommendations stays simple and self-healing:
  * a method is "settled by research" only while it is BOTH still missing on the
@@ -50,19 +52,18 @@ export const RESEARCH_UNSUCCESSFUL_MARKERS: Record<ResearchMethod, string> = {
 }
 
 /**
- * The `case_touches.touch_type` a research record is stored under. Research is
- * an internal look-up, not a customer contact, but touch_type is a constrained
- * allow-list ('call','voicemail','text','email','missed_appointment','postal').
- * We store the record under the method's natural channel ('email' for email
- * research, 'call' for phone research) so the row is honestly typed; the
- * research marker and prose on the note are what make it a research record, and
- * the attempt-history reader excludes it because the note carries no
- * contact-attempt marker.
+ * The `case_touches.touch_type` a research record is stored under. Internal
+ * contact research is NOT a customer communication, so it is recorded under its
+ * own dedicated 'research' type (added by migration
+ * 20261103000002_case_touches_research_type.sql) rather than mislabeled as a
+ * 'call' or 'email' touch. Customer history can then show it as internal
+ * research, and the attempt-history reader — which counts only genuine outreach
+ * channels (call/voicemail/text/email/postal) — never mistakes it for a contact
+ * attempt. The per-method outcome is still carried on the note marker, so the
+ * recommendation reads are unchanged; email and phone stay independently
+ * tracked by the marker, not by the touch_type.
  */
-const RESEARCH_TOUCH_TYPE: Record<ResearchMethod, string> = {
-  email: 'email',
-  phone: 'call',
-}
+const RESEARCH_TOUCH_TYPE = 'research'
 
 const METHOD_LABEL: Record<ResearchMethod, string> = {
   email: 'email',
@@ -95,7 +96,7 @@ export function buildResearchTouchRows(
   return unique.map((m) => ({
     customer_id: customerId,
     case_id: null,
-    touch_type: RESEARCH_TOUCH_TYPE[m],
+    touch_type: RESEARCH_TOUCH_TYPE,
     notes:
       `Contact research completed: no usable ${METHOD_LABEL[m]} found. ` +
       RESEARCH_UNSUCCESSFUL_MARKERS[m],

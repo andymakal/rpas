@@ -136,6 +136,10 @@ const TOUCH_TYPE_LABELS: Record<string, string> = {
   email:              'Email',
   missed_appointment: 'Missed Appt.',
   postal:             'Postal',
+  // Internal contact research (an eAgent look-up), NOT a customer communication.
+  // Labeled distinctly and colored neutrally so it never reads as outbound
+  // contact in the history.
+  research:           'Contact research',
 }
 
 const TOUCH_COLORS: Record<string, string> = {
@@ -145,6 +149,25 @@ const TOUCH_COLORS: Record<string, string> = {
   email:              'bg-violet-900/50 border-violet-700 text-violet-300',
   missed_appointment: 'bg-red-900/50 border-red-700 text-red-300',
   postal:             'bg-sky-900/50 border-sky-700 text-sky-300',
+  research:           'bg-slate-800 border-slate-600 text-slate-300',
+}
+
+/**
+ * Strip the internal machine markers the onboarding/research writes append to a
+ * touch note (per-channel outcome and research-outcome markers) so the customer
+ * history reads as clean prose. The markers drive the recommendation logic;
+ * they are never meant for human display.
+ */
+function cleanTouchNote(note: string | null): string | null {
+  if (!note) return note
+  const cleaned = note
+    .replace(/\[research-(?:email|phone)-not-found\]/gi, '')
+    .replace(/\[channel-unusable\]/gi, '')
+    .replace(/\[no-contact\]/gi, '')
+    .replace(/\[reached\]/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+  return cleaned.length > 0 ? cleaned : null
 }
 
 function SrStatusBadge({ status }: { status: string }) {
@@ -432,6 +455,7 @@ export function CustomerCardClient({
   touchHistory,
   householdMembers = [],
   onboarding = { active: null, completed: null },
+  researchAgainProjectId = null,
 }: {
   customer:             CustomerDetail
   cases:                LinkedCase[]
@@ -445,6 +469,10 @@ export function CustomerCardClient({
   touchHistory:         TouchHistoryEntry[]
   householdMembers?:    HouseholdMember[]
   onboarding?:          CustomerOnboarding
+  /** When set, the id of an active 1035 project in which this customer has been
+   * researched-not-found. Enables a deliberate "research contact info again"
+   * link into that project's Contact Review task. Null when not applicable. */
+  researchAgainProjectId?: string | null
 }) {
   const router = useRouter()
   const [cases,       setCases]       = useState<LinkedCase[]>(initialCases)
@@ -1648,6 +1676,27 @@ export function CustomerCardClient({
         {/* Servicing-Agent Onboarding — active workflow + completed summary */}
         <OnboardingSection onboarding={onboarding} customerId={customer.id} />
 
+        {/* Research contact info again — the deliberate reopen for a customer
+            whose contact research came up empty and who is therefore kept out of
+            the routine Contact Review list. Reuses the existing Contact Review
+            task via a per-customer deep link; it is not a new queue or screen. */}
+        {researchAgainProjectId && (
+          <Section title="Contact research" icon={Search}>
+            <div className="px-5 py-4">
+              <p className="text-sm text-slate-400">
+                Earlier research found no usable email or phone, so this customer is held out of
+                the routine Contact Review list. You can look again whenever you want.
+              </p>
+              <Link
+                href={`/projects/${researchAgainProjectId}/contact-review?customer_id=${customer.id}`}
+                className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-teal-400 hover:text-teal-300"
+              >
+                Research contact info again <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          </Section>
+        )}
+
         {/* Cases */}
         <Section title="Cases" icon={FolderKanban} count={cases.length}>
           {caseDeleteErr && (
@@ -1799,8 +1848,8 @@ export function CustomerCardClient({
                             <span className="text-xs text-slate-700">{agencyLabel}</span>
                           )}
                         </div>
-                        {t.notes && (
-                          <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{t.notes}</p>
+                        {cleanTouchNote(t.notes) && (
+                          <p className="text-xs text-slate-500 mt-0.5 leading-relaxed">{cleanTouchNote(t.notes)}</p>
                         )}
                       </div>
                     </div>

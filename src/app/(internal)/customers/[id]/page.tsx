@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { generateFlags } from '@/lib/reviews/prep'
 import { getCustomerOnboarding, type CustomerOnboarding } from '@/lib/stewardship/customer-workflows'
+import { researchAgainProjectId } from '@/lib/projects/contact-review'
 import { CustomerCardClient } from './CustomerCardClient'
 
 export type { CustomerOnboarding } from '@/lib/stewardship/customer-workflows'
@@ -346,6 +347,17 @@ export default async function CustomerCardPage({
     onboarding = { active: null, completed: null }
   }
 
+  // Deliberate "research again" entry point: when this customer has been
+  // researched-not-found (and so is suppressed from the routine Contact Review
+  // list) in an active 1035 project, offer a direct link back into that
+  // project's Contact Review task so an employee can look again. Null otherwise.
+  let researchAgainPid: string | null = null
+  try {
+    researchAgainPid = await researchAgainProjectId(supabase, id)
+  } catch {
+    researchAgainPid = null
+  }
+
   return (
     <CustomerCardClient
       customer={customer as CustomerDetail}
@@ -360,6 +372,7 @@ export default async function CustomerCardPage({
       initialNotes={notes}
       householdMembers={householdMembers}
       onboarding={onboarding}
+      researchAgainProjectId={researchAgainPid}
     />
   )
 }

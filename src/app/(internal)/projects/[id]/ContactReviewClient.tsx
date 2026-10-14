@@ -60,7 +60,15 @@ function gapDetail(c: ContactReviewCustomer): string {
   return 'Missing phone'
 }
 
-export function ContactReviewClient({ projectId }: { projectId: string }) {
+export function ContactReviewClient({
+  projectId, initialCustomerId = null,
+}: {
+  projectId: string
+  /** A deliberate deep-link (?customer_id=) to reopen ONE customer's task, even
+   * when they have been researched-not-found and so are suppressed from the
+   * routine list. The research-again path from the customer page. */
+  initialCustomerId?: string | null
+}) {
   // Mentoring is the app-wide "how to do it" coaching layer. The per-section
   // MentorGuidance controls below are always shown; the global toggle (in the
   // shared header) only sets their default open/closed state, so this component
@@ -69,6 +77,10 @@ export function ContactReviewClient({ projectId }: { projectId: string }) {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // A customer reopened by deep-link that is NOT in the suppressed list. Held
+  // separately so the task can open them without re-adding them to the routine
+  // list. Cleared once their contact info is completed.
+  const [reopened, setReopened] = useState<ContactReviewCustomer | null>(null)
 
   // The customer open right now. null means the list is showing.
   const [openId, setOpenId] = useState<string | null>(null)
@@ -81,19 +93,40 @@ export function ContactReviewClient({ projectId }: { projectId: string }) {
   const load = useCallback(async () => {
     setError(null)
     try {
-      const res = await fetch(`/api/projects/${projectId}/contact-review`, { cache: 'no-store' })
+      const url = initialCustomerId
+        ? `/api/projects/${projectId}/contact-review?customer_id=${encodeURIComponent(initialCustomerId)}`
+        : `/api/projects/${projectId}/contact-review`
+      const res = await fetch(url, { cache: 'no-store' })
       const json = await res.json()
       if (!res.ok) { setError(json.error ?? 'Failed to load'); return }
       setRows(json.data.customers as ContactReviewCustomer[])
       setSummary(json.data.summary as Summary)
+      // A deep-linked reopen that is not already in the list: hold it so the
+      // task can open it directly. If it IS in the list (still outstanding),
+      // the list card opens it normally and no separate hold is needed.
+      const reopen = (json.data.reopen ?? null) as ContactReviewCustomer | null
+      if (reopen && !(json.data.customers as ContactReviewCustomer[]).some(c => c.customer_id === reopen.customer_id)) {
+        setReopened(reopen)
+      }
     } catch {
       setError('Network error')
     } finally {
       setLoading(false)
     }
-  }, [projectId])
+  }, [projectId, initialCustomerId])
 
   useEffect(() => { void load() }, [load])
+
+  // Auto-open the deep-linked customer once loaded, so the research-again link
+  // lands straight on their task. Applied once per reopened id.
+  const openedReopenRef = useRef<string | null>(null)
+  useEffect(() => {
+    const target = reopened ?? rows.find(r => r.customer_id === initialCustomerId) ?? null
+    if (!target) return
+    if (openedReopenRef.current === target.customer_id) return
+    openedReopenRef.current = target.customer_id
+    setOpenId(target.customer_id)
+  }, [reopened, rows, initialCustomerId])
 
   // The still-to-do list: project customers missing contact info, minus the
   // ones handled this session. Saved-and-still-incomplete customers stay out of
@@ -104,8 +137,10 @@ export function ContactReviewClient({ projectId }: { projectId: string }) {
   )
 
   const openCustomer = useMemo(
-    () => rows.find(r => r.customer_id === openId) ?? null,
-    [rows, openId],
+    () =>
+      rows.find(r => r.customer_id === openId) ??
+      (reopened && reopened.customer_id === openId ? reopened : null),
+    [rows, openId, reopened],
   )
 
   // Mark a customer handled for this session and advance to the next unhandled
@@ -143,23 +178,34 @@ export function ContactReviewClient({ projectId }: { projectId: string }) {
 
   // ── Single-customer task ───────────────────────────────────────────────────
   if (openId && openCustomer) {
+    // Whether this is the deep-linked reopen (not part of the routine list).
+    const isReopened = !!reopened && reopened.customer_id === openCustomer.customer_id
     return (
       <ContactReviewTask
         key={openCustomer.customer_id}
         projectId={projectId}
         customer={openCustomer}
         remainingCount={remaining.length}
-        onBack={() => setOpenId(null)}
+        onBack={() => { setOpenId(null); if (isReopened) setReopened(null) }}
         onSaved={(updated) => {
           // Reflect the saved values in the local rows so the list/summary stay
-          // accurate without a full reload, then advance.
+          // accurate without a full reload, then advance. A reopened customer is
+          // not in the list, so for them just clear the hold and return to the
+          // list rather than advancing to a next row.
           setRows(prev => prev.map(r => r.customer_id === updated.customer_id
             ? { ...r, email: updated.email, phone: updated.phone,
                 has_email: usable(updated.email), has_phone: usable(updated.phone) }
             : r))
-          markHandledAndAdvance(updated.customer_id)
+          if (isReopened) { setReopened(null); setOpenId(null) }
+          else markHandledAndAdvance(updated.customer_id)
         }}
-        onSkipped={() => markHandledAndAdvance(openCustomer.customer_id)}
+        onSkipped={() => {
+          // Recording another unsuccessful research keeps the customer settled;
+          // the reopened one simply returns to the list, the in-list one
+          // advances to the next.
+          if (isReopened) { setReopened(null); setOpenId(null) }
+          else markHandledAndAdvance(openCustomer.customer_id)
+        }}
       />
     )
   }

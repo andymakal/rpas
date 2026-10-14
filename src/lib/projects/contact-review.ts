@@ -147,6 +147,109 @@ export async function buildContactReview(
   return out
 }
 
+/**
+ * Load ONE project customer as a Contact Review row, bypassing the durable
+ * research suppression. This is the deliberate "research again" path: a customer
+ * who has been researched-not-found is dropped from buildContactReview, so the
+ * routine list cannot reach them, but an employee can still choose to re-check
+ * them. The customer must belong to the project (membership = project_customers)
+ * and not be a test record. Returns null when they are not a project member, do
+ * not exist, or already have both methods (nothing to review). Does not consult
+ * the research record at all — the whole point is to reopen regardless of it.
+ */
+export async function loadContactReviewCustomer(
+  supabase: SupabaseClient,
+  projectId: string,
+  customerId: string,
+): Promise<ContactReviewCustomer | null> {
+  const { data: member } = await supabase
+    .from('project_customers')
+    .select('customer_id')
+    .eq('project_id', projectId)
+    .eq('customer_id', customerId)
+    .maybeSingle()
+  if (!member) return null
+
+  const { data: c } = await supabase
+    .from('customers')
+    .select('id, first_name, last_name, email, phone, is_test')
+    .eq('id', customerId)
+    .maybeSingle()
+  if (!c || (c as CustomerRow).is_test) return null
+
+  const row = c as CustomerRow
+  const hasEmail = usable(row.email)
+  const hasPhone = usable(row.phone)
+  // Both methods present: there is nothing to review or research.
+  if (hasEmail && hasPhone) return null
+
+  return {
+    customer_id: row.id,
+    first_name: row.first_name,
+    last_name: row.last_name,
+    email: row.email,
+    phone: row.phone,
+    has_email: hasEmail,
+    has_phone: hasPhone,
+  }
+}
+
+/**
+ * The deliberate "research again" entry point for a customer, if one applies.
+ *
+ * Returns the id of an active 1035 project the customer belongs to WHEN the
+ * customer is currently settled by research — missing a usable email or phone
+ * AND every still-missing method already researched unsuccessfully — i.e.
+ * exactly the state in which they have been dropped from the routine Contact
+ * Review list. In that state the customer page offers a direct link back into
+ * that project's Contact Review task (?customer_id=) so an employee can choose
+ * to look again. Returns null when the customer is not in such a project, has no
+ * missing method, or still has an outstanding (never-researched) method (they
+ * are already in the routine list and need no special reopen).
+ */
+export async function researchAgainProjectId(
+  supabase: SupabaseClient,
+  customerId: string,
+): Promise<string | null> {
+  const { data: c } = await supabase
+    .from('customers')
+    .select('email, phone, is_test')
+    .eq('id', customerId)
+    .maybeSingle()
+  if (!c || (c as CustomerRow).is_test) return null
+  const hasEmail = usable((c as CustomerRow).email)
+  const hasPhone = usable((c as CustomerRow).phone)
+  if (hasEmail && hasPhone) return null // nothing missing
+
+  // Only when the customer is settled by research (dropped from the list) does a
+  // special reopen link apply; an outstanding method keeps them in the list.
+  const researched = await readResearchedUnsuccessfullyBatch(supabase, [customerId])
+  const research = researched.get(customerId) ?? { email: false, phone: false }
+  if (stillNeedsResearchRecommendation({ hasEmail, hasPhone }, research)) return null
+
+  // Find an active 1035 project the customer belongs to (Contact Review runs on
+  // 1035 projects, gated the same way the Contact Review page is).
+  const { data: memberships } = await supabase
+    .from('project_customers')
+    .select('project_id')
+    .eq('customer_id', customerId)
+  const projectIds = Array.from(
+    new Set(((memberships ?? []) as { project_id: string }[]).map(m => m.project_id)),
+  )
+  if (projectIds.length === 0) return null
+
+  const { data: projects } = await supabase
+    .from('projects')
+    .select('id, status, project_types ( name )')
+    .in('id', projectIds)
+  for (const p of (projects ?? []) as { id: string; status: string | null; project_types: { name: string } | { name: string }[] | null }[]) {
+    const typeRaw = p.project_types
+    const typeName = (Array.isArray(typeRaw) ? typeRaw[0]?.name : typeRaw?.name) ?? ''
+    if (p.status !== 'archived' && /1035/.test(typeName)) return p.id
+  }
+  return null
+}
+
 export function summarizeContactReview(
   rows: ContactReviewCustomer[],
 ): ContactReviewSummary {

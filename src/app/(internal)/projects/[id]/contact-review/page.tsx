@@ -23,10 +23,13 @@ export const dynamic = 'force-dynamic'
  */
 export default async function ProjectContactReviewPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  searchParams: Promise<{ customer_id?: string }>
 }) {
   const { id } = await params
+  const { customer_id } = await searchParams
   const supabase = createAdminClient()
 
   const { data } = await supabase
@@ -64,7 +67,7 @@ export default async function ProjectContactReviewPage({
 
       <WorkflowHeader primary={project.name} secondary="Contact Review" />
 
-      <ContactReviewClient projectId={project.id} />
+      <ContactReviewClient projectId={project.id} initialCustomerId={customer_id ?? null} />
     </WorkflowPage>
   )
 }
