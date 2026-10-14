@@ -343,3 +343,110 @@ async function chunked<T>(items: T[], size: number, fn: (chunk: T[]) => Promise<
     await fn(items.slice(i, i + size))
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Configuration helpers — the smallest sufficient operations the project
+// interface needs to SELECT reusable workflows and wire their dependencies.
+// These are the only writers of workflows / project_workflows. All reads of the
+// catalog + a project's selection flow through here so the UI and the evaluator
+// agree.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** One reusable workflow in the catalog (for the "add workflow" picker). */
+export interface CatalogWorkflow {
+  id: string
+  key: string
+  name: string
+  description: string | null
+  completionMode: 'automatic' | 'manual'
+}
+
+/** The reusable workflow catalog (every definition an operator can select). */
+export async function getWorkflowCatalog(supabase: SupabaseClient): Promise<CatalogWorkflow[]> {
+  const { data, error } = await supabase
+    .from('workflows')
+    .select('id, key, name, description, completion_mode')
+    .order('key', { ascending: true })
+  if (error) return []
+  return ((data ?? []) as { id: string; key: string; name: string; description: string | null; completion_mode: 'automatic' | 'manual' }[])
+    .map((w) => ({ id: w.id, key: w.key, name: w.name, description: w.description, completionMode: w.completion_mode }))
+}
+
+/** Add a workflow to a project (idempotent on the unique project+workflow pair),
+ * appended after the current last position. */
+export async function addProjectWorkflow(
+  supabase: SupabaseClient,
+  projectId: string,
+  workflowId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  // Next position = after the current max for this project.
+  const existing = await getProjectWorkflows(supabase, projectId)
+  if (existing.some((w) => w.workflowId === workflowId)) {
+    return { ok: true } // already present — idempotent
+  }
+  const nextPosition = existing.reduce((max, w) => Math.max(max, w.position), -1) + 1
+  const { error } = await supabase
+    .from('project_workflows')
+    .insert({ project_id: projectId, workflow_id: workflowId, position: nextPosition })
+  if (error) return { ok: false, error: error.message }
+  return { ok: true }
+}
+
+/** Remove a workflow from a project. First clears any gate pointing AT the
+ * removed row (so no dangling dependency remains), then deletes the row. */
+export async function removeProjectWorkflow(
+  supabase: SupabaseClient,
+  projectId: string,
+  projectWorkflowId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  // Clear any gate that referenced the row being removed.
+  const { error: clearErr } = await supabase
+    .from('project_workflows')
+    .update({ gated_by_workflow_id: null })
+    .eq('project_id', projectId)
+    .eq('gated_by_workflow_id', projectWorkflowId)
+  if (clearErr) return { ok: false, error: clearErr.message }
+  const { error } = await supabase
+    .from('project_workflows')
+    .delete()
+    .eq('project_id', projectId)
+    .eq('id', projectWorkflowId)
+  if (error) return { ok: false, error: error.message }
+  return { ok: true }
+}
+
+/**
+ * Set (or clear) which workflow GATES another, within the same project.
+ * `gatedByProjectWorkflowId = null` clears the dependency. Guards against a
+ * self-gate and against a direct cycle (A gates B while B gates A), which are
+ * the only cycles possible with the single-level gate this release supports.
+ */
+export async function setProjectWorkflowGate(
+  supabase: SupabaseClient,
+  projectId: string,
+  projectWorkflowId: string,
+  gatedByProjectWorkflowId: string | null,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (gatedByProjectWorkflowId === projectWorkflowId) {
+    return { ok: false, error: 'A workflow cannot gate itself.' }
+  }
+  const existing = await getProjectWorkflows(supabase, projectId)
+  const target = existing.find((w) => w.id === projectWorkflowId)
+  if (!target) return { ok: false, error: 'Workflow is not part of this project.' }
+  if (gatedByProjectWorkflowId) {
+    const gate = existing.find((w) => w.id === gatedByProjectWorkflowId)
+    if (!gate) return { ok: false, error: 'The gating workflow is not part of this project.' }
+    // Direct-cycle guard: the chosen gate must not itself be gated by the
+    // target (A gates B and B gates A).
+    if (gate.gatedByProjectWorkflowId === projectWorkflowId) {
+      return { ok: false, error: 'That would create a circular dependency between the two workflows.' }
+    }
+  }
+  const { error } = await supabase
+    .from('project_workflows')
+    .update({ gated_by_workflow_id: gatedByProjectWorkflowId })
+    .eq('project_id', projectId)
+    .eq('id', projectWorkflowId)
+  if (error) return { ok: false, error: error.message }
+  return { ok: true }
+}

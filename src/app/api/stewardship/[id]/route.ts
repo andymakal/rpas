@@ -831,48 +831,74 @@ export async function PATCH(
     return Response.json({ data: stillOpen, completed_outreach: false })
   }
 
-  // ── "Form attached and email sent": advance AND record the touch atomically ─
-  // This confirmation is the one place the sent servicing-agent authorization
-  // email becomes durable history (opening Outlook is a separate mailto that
-  // records nothing). Two requirements shape this path:
+  // ── "Servicing-agent authorization email sent": advance AND record the touch ─
+  // This confirmation is the one place the sent authorization email becomes
+  // durable history (opening Outlook is a separate mailto that records nothing).
+  // Emailing is an INDEPENDENT channel, so an email may be sent from any
+  // pre-authorization state (Ready to Email, Ready to Call, Research Needed,
+  // Waiting for Response) OR as a chase while awaiting the form/carrier. Two
+  // requirements shape this path:
   //
-  //   1. A successful confirmation must never silently leave the customer
-  //      without a history entry. The touch is recorded as part of the
-  //      operation; if it fails we surface an error instead of swallowing it.
-  //   2. Repeated or concurrent submits of the SAME confirmation must not create
+  //   1. A successful send must never silently leave the customer without a
+  //      history entry. The touch is recorded as part of the operation; if it
+  //      fails we surface an error instead of swallowing it.
+  //   2. Repeated or concurrent submits of the SAME send must not create
   //      duplicate touches, while a legitimate later email still does.
   //
-  // Both are met by gating on the queue transition itself. The advance
-  // ready-to-email -> waiting-for-response is persisted with a conditional
-  // update scoped to the current queue, so it is atomic at the database: only
-  // the FIRST request to flip the row matches. A duplicate or concurrent submit
-  // (the row already in waiting-for-response) matches zero rows and records
-  // nothing. A later legitimate email must re-enter ready-to-email first, so it
-  // flips the row again and correctly logs a new touch.
-  if (action.type === 'email-sent' && state.queue === 'ready-to-email') {
-    const { data: advancedRows, error: advErr } = await supabase
-      .from('stewardship_outreach')
-      .update(result.patch)
-      .eq('id', id)
-      .eq('queue', 'ready-to-email')
-      .select(OUTREACH_COLUMNS)
-    if (advErr) {
-      console.error('stewardship email-sent advance error:', advErr)
-      return Response.json({ error: advErr.message }, { status: 500 })
-    }
-
-    // Zero rows: another request already advanced this item (duplicate or
-    // concurrent submit). Nothing further to record. Return the current row.
-    if (!advancedRows || advancedRows.length === 0) {
-      const { data: currentRow } = await supabase
+  // When the send ADVANCES the funnel (applyAction returned a queue change out
+  // of the pre-authorization funnel into waiting-for-response), both are met by
+  // a conditional update scoped to the item's CURRENT stored queue: only the
+  // first request to flip the row matches, so a duplicate/concurrent submit
+  // matches zero rows and records nothing. When the send is a CHASE in an
+  // authorization/carrier stage (no queue change), there is no funnel flip to
+  // gate on, so we persist email_sent_at and log the touch directly — a chase
+  // email is a legitimate new history entry each time it is recorded.
+  if (action.type === 'email-sent') {
+    const advancesFunnel = result.patch.queue === 'waiting-for-response'
+    let advanced: OutreachRow | null = null
+    if (advancesFunnel) {
+      const { data: advancedRows, error: advErr } = await supabase
+        .from('stewardship_outreach')
+        .update(result.patch)
+        .eq('id', id)
+        .eq('queue', state.queue) // atomic flip from the item's current queue
+        .select(OUTREACH_COLUMNS)
+      if (advErr) {
+        console.error('stewardship email-sent advance error:', advErr)
+        return Response.json({ error: advErr.message }, { status: 500 })
+      }
+      // Zero rows: another request already advanced this item (duplicate or
+      // concurrent submit). Nothing further to record. Return the current row.
+      if (!advancedRows || advancedRows.length === 0) {
+        const { data: currentRow } = await supabase
+          .from('stewardship_outreach')
+          .select(OUTREACH_COLUMNS)
+          .eq('id', id)
+          .single()
+        return Response.json({ data: currentRow, completed_outreach: false })
+      }
+      advanced = advancedRows[0] as unknown as OutreachRow
+    } else {
+      // Chase email in a non-funnel stage: persist email_sent_at without moving
+      // the queue, then log the touch below.
+      if (Object.keys(result.patch).length > 0) {
+        const { error: updErr } = await supabase
+          .from('stewardship_outreach')
+          .update(result.patch)
+          .eq('id', id)
+        if (updErr) {
+          console.error('stewardship email-sent (chase) patch error:', updErr)
+          return Response.json({ error: updErr.message }, { status: 500 })
+        }
+      }
+      const { data: cur } = await supabase
         .from('stewardship_outreach')
         .select(OUTREACH_COLUMNS)
         .eq('id', id)
         .single()
-      return Response.json({ data: currentRow, completed_outreach: false })
+      advanced = cur as unknown as OutreachRow
     }
 
-    const advanced = advancedRows[0] as unknown as OutreachRow
     const touchedBy = await resolveEmployeeName(supabase)
     const { error: touchErr } = await supabase
       .from('case_touches')
@@ -881,12 +907,12 @@ export async function PATCH(
         case_id:     null,
         touch_type:  'email',
         notes:       '1035 servicing-agent authorization email sent to the customer.',
-        touched_at:  advanced.email_sent_at ?? new Date().toISOString(),
+        touched_at:  advanced?.email_sent_at ?? new Date().toISOString(),
         touched_by:  touchedBy,
       })
     if (touchErr) {
-      // The confirmation must not silently lose its history entry. Surface the
-      // failure so the worker knows to retry rather than believing it logged.
+      // The send must not silently lose its history entry. Surface the failure
+      // so the worker knows to retry rather than believing it logged.
       console.error('stewardship email touch log error:', touchErr)
       return Response.json(
         { error: 'The email was recorded but its history entry could not be saved. Please try again.' },

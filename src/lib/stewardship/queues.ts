@@ -417,6 +417,30 @@ function callOutcomePatch(
 const CALL_FLOW_QUEUES: readonly OutreachQueue[] = ['ready-to-call', 'waiting-for-response', 'ready-to-email']
 
 /**
+ * The PRE-AUTHORIZATION funnel: the states before the signed form is in hand.
+ * In these states calling, emailing, texting, and research are INDEPENDENT
+ * channels — any of them may be used at any time, and recording one may update
+ * the recommended-next-step queue. Once past this funnel (waiting-for-form /
+ * waiting-for-carrier), a contact attempt is a CHASE that records history but
+ * never moves the customer backward through authorization or carrier servicing.
+ * Research Needed is part of the funnel (it is just "we still need usable
+ * contact"), so finding contact there, or emailing/calling a researched
+ * customer, is ordinary pre-authorization work.
+ */
+const PRE_AUTH_QUEUES: readonly OutreachQueue[] = [
+  'ready-to-email',
+  'ready-to-call',
+  'research-needed',
+  'waiting-for-response',
+]
+
+/** Whether the item is still in the pre-authorization funnel (channels are
+ * independent and may reroute the recommended next step). */
+function inPreAuthFunnel(queue: OutreachQueue): boolean {
+  return PRE_AUTH_QUEUES.includes(queue)
+}
+
+/**
  * Apply a call outcome WITHOUT ever moving the customer backward through
  * authorization or carrier servicing. In the pre-authorization call flow
  * (ready-to-call / waiting-for-response / ready-to-email) the outcome drives the
@@ -541,10 +565,18 @@ export function waitingFollowUpDays(queue: OutreachQueue): number {
 export function applyAction(state: OutreachState, action: OutreachAction): TransitionResult {
   switch (action.type) {
     case 'email-sent': {
-      if (state.queue !== 'ready-to-email' && state.queue !== 'waiting-for-response') {
-        return { patch: {}, error: `Cannot send email from ${state.queue}` }
-      }
+      // Emailing is an INDEPENDENT channel: it may be used from anywhere in the
+      // pre-authorization funnel (Ready to Email, Ready to Call, Research
+      // Needed, or Waiting for Response), not only when the stored queue says
+      // "email". The route records email_sent_at regardless; the pure transition
+      // only decides the queue effect.
       const now = new Date().toISOString()
+      if (!inPreAuthFunnel(state.queue)) {
+        // Authorization / carrier stage: an email is a chase on the current
+        // stage. Record the send (email_sent_at via the route) but never move
+        // the customer backward to a waiting-for-response funnel state.
+        return { patch: { email_sent_at: now } }
+      }
       return {
         patch: {
           queue: 'waiting-for-response',
@@ -565,8 +597,12 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
     }
 
     case 'email-bounced': {
-      if (state.queue !== 'ready-to-email' && state.queue !== 'waiting-for-response') {
-        return { patch: {}, error: `Cannot record a bounce from ${state.queue}` }
+      // Recording an email bounce is a usability FACT that can be noted whenever
+      // it happens. In the pre-authorization funnel it reroutes to the next
+      // usable channel; in an authorization/carrier stage it is recorded without
+      // moving the customer backward (the signed form / carrier work stands).
+      if (!inPreAuthFunnel(state.queue)) {
+        return { patch: {} }
       }
       // Settled routing: bounce + usable phone -> Ready to Call (email bounced);
       // bounce + no usable phone -> Research Needed.
@@ -663,19 +699,15 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
     }
 
     case 'form-sent': {
-      // Sending the servicing-agent form (from a reached call or from email).
-      // Entering waiting-for-form schedules a follow-up nudge to chase the
-      // signature (does not change the queue when due; isWaitingFollowUpDue).
-      // Allowed from the whole pre-authorization call flow: Ready to Call and
-      // the waiting-for-response window as before, AND Ready to Email — so a
-      // worker who CALLS FIRST and reaches the customer can proceed directly to
-      // authorization without being forced back through the email step.
-      if (
-        state.queue !== 'ready-to-call' &&
-        state.queue !== 'waiting-for-response' &&
-        state.queue !== 'ready-to-email'
-      ) {
-        return { patch: {}, error: `Cannot send the form from ${state.queue}` }
+      // Sending the servicing-agent form moves the customer out of the
+      // pre-authorization funnel into Waiting for Form (which schedules a
+      // signature-chase nudge). It is allowed from ANYWHERE in the funnel —
+      // Ready to Email, Ready to Call, Research Needed, or Waiting for Response —
+      // because reaching the customer and sending the form is independent of
+      // which channel got us there. From an authorization/carrier stage the form
+      // is already in hand, so re-sending is a no-op (never a backward move).
+      if (!inPreAuthFunnel(state.queue)) {
+        return { patch: {} }
       }
       return {
         patch: {
@@ -687,12 +719,16 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
     }
 
     case 'form-returned': {
-      // The signed form came back on its own after the introductory email (which
-      // already carried the form). Advance to waiting-for-form and record the
-      // RECEIPT directly — WITHOUT recording a second mailing/send. The route
-      // logs no form-sent touch for this transition; it records receipt only.
-      if (state.queue !== 'waiting-for-response') {
-        return { patch: {}, error: `Can only record a returned form while awaiting a reply (from ${state.queue})` }
+      // The signed form came back on its own (the introductory email, or a
+      // mailed form, carried it). This can happen at ANY point in the
+      // pre-authorization funnel — while awaiting a reply, while we were still
+      // calling, or straight from Ready to Email — so it is not locked to the
+      // waiting-for-response state. It advances to waiting-for-form and records
+      // RECEIPT directly, WITHOUT recording a second mailing/send. If the item
+      // is already past the funnel (the form is already in hand or submitted),
+      // this is a no-op rather than a backward move.
+      if (!inPreAuthFunnel(state.queue)) {
+        return { patch: {} }
       }
       return {
         patch: {
@@ -705,14 +741,29 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
     }
 
     case 'research-found': {
-      if (state.queue !== 'research-needed') {
-        return { patch: {}, error: `Cannot record research from ${state.queue}` }
+      // Research is an INDEPENDENT activity: usable contact can be found at any
+      // point in the pre-authorization funnel, not only while sitting in
+      // Research Needed (e.g. finding a better number for a callable customer,
+      // or an email for someone we were calling). It is NEVER a backward move
+      // out of an authorization/carrier stage.
+      if (!inPreAuthFunnel(state.queue)) {
+        return { patch: {} }
       }
+      // If the item has NOT yet started its workflow, finding contact updates
+      // the recommended OPENING channel (the classic Research Needed -> Ready to
+      // Email/Call promotion). If it HAS progressed (an email was sent or a call
+      // placed), the new contact is simply recorded usable — clear any research
+      // reason so it is no longer "needs contact" — without rewinding the stage.
+      const untouched = state.last_call_outcome == null && state.email_sent_at == null
       if (action.found === 'email') {
-        return { patch: { queue: 'ready-to-email', research_reason: null, call_reason: null } }
+        return untouched
+          ? { patch: { queue: 'ready-to-email', research_reason: null, call_reason: null } }
+          : { patch: { research_reason: null } }
       }
       if (action.found === 'phone') {
-        return { patch: { queue: 'ready-to-call', research_reason: null, call_reason: 'no-email' } }
+        return untouched
+          ? { patch: { queue: 'ready-to-call', research_reason: null, call_reason: 'no-email' } }
+          : { patch: { research_reason: null } }
       }
       // nothing usable: stay put. No auto-close.
       return { patch: {} }
@@ -836,26 +887,19 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
  *
  * Claiming records that an employee has SPOKEN WITH the customer and accepted
  * responsibility for personal follow-up — it is not a lease on open shared
- * work, and routine outreach never creates ownership. The settled rule
- * (Angie/Dulce):
- *   - a decided item is no longer claimable (it is not open work),
- *   - sending an email, an unanswered call, or a voicemail does NOT claim,
- *   - a claim is warranted once the customer has been REACHED — the two
- *     outcomes that mean "spoke with the customer" are 'reached' and 'callback'
- *     (a callback is a reach that additionally produced a promised time).
- * A scheduled callback is explicitly NOT required: reaching the customer is
- * itself the moment of ownership. A reached customer may sit in an
- * authorization/carrier WAITING stage (e.g. the form has been sent), which is a
- * legitimate point to hold a personal commitment, so the stored queue never
- * bars a claim; only being decided does.
+ * work. Claiming is VOLUNTARY and carries NO contact prerequisite: an
+ * authorized employee may claim any OPEN item to take personal responsibility
+ * for it, whether or not any prior contact (reach, callback, email, voicemail)
+ * has happened. The only bar is that the work is still open — a DECIDED item is
+ * no longer claimable because it is no longer outreach work. (Authorization to
+ * claim — capability + project scope — and the already-claimed guard are
+ * enforced separately in the route; this predicate is only the open/decided
+ * gate.)
  *
- * This is the pure predicate behind POST /api/stewardship/claim (capability and
- * project-scope checks are layered on top in the route).
+ * This is the pure predicate behind POST /api/stewardship/claim.
  */
 export function canClaimOutreach(input: {
   decision: string | null
-  lastCallOutcome: CallOutcome | null
 }): boolean {
-  if (input.decision != null) return false
-  return input.lastCallOutcome === 'reached' || input.lastCallOutcome === 'callback'
+  return input.decision == null
 }

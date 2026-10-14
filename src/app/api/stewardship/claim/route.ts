@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { resolveProducerForUser } from '@/lib/capabilities/resolve'
-import { canClaimOutreach, type OutreachQueue, type CallOutcome } from '@/lib/stewardship/queues'
+import { canClaimOutreach, type OutreachQueue } from '@/lib/stewardship/queues'
 import type { WorkFunctionKey } from '@/lib/capabilities/work-functions'
 
 /**
@@ -99,14 +99,14 @@ export async function POST(request: NextRequest) {
 
   const supabase = createAdminClient()
 
-  // Read the item with the facts needed to judge actionability + activity +
-  // project scope + the claim-eligibility rule: its queue, claim state, the
-  // reach/commitment facts (last_call_outcome + callback_date), and its customer
-  // (via prereview).
+  // Read the item with the facts needed to judge open/decided state, the
+  // activity (from the queue, for capability scope), the current claim holder,
+  // and the customer (via prereview). No contact/reach facts are needed —
+  // claiming has no contact prerequisite.
   const { data: row, error: readErr } = await supabase
     .from('stewardship_outreach')
     .select(`
-      id, queue, claimed_by_producer_id, last_call_outcome, callback_date,
+      id, queue, claimed_by_producer_id,
       customer_prereviews!inner ( decision, customer_id )
     `)
     .eq('id', outreachId)
@@ -117,30 +117,18 @@ export async function POST(request: NextRequest) {
   const pre = (row as unknown as {
     queue: OutreachQueue
     claimed_by_producer_id: string | null
-    last_call_outcome: string | null
-    callback_date: string | null
     customer_prereviews: { decision: string | null; customer_id: string }
   })
 
-  // CLAIM-ELIGIBILITY (Angie/Dulce) — the settled rule lives in the pure
-  // canClaimOutreach predicate: a decided item is no longer claimable, and a
-  // claim is warranted only once the customer has been REACHED ('reached' or
-  // 'callback'); routine outreach (email, unanswered call, voicemail) does not
-  // claim, and a scheduled callback is NOT required. A reached customer in an
-  // authorization/carrier waiting stage is still claimable (the stored queue is
-  // not a bar). Distinct messages so the two refusals read clearly.
-  if (pre.customer_prereviews.decision != null) {
+  // CLAIMING IS VOLUNTARY, with NO contact prerequisite: an authorized employee
+  // may claim any OPEN item to take personal responsibility for it, whether or
+  // not any prior contact has happened. The only bar is that the work is still
+  // open (canClaimOutreach) — a DECIDED item is no longer outreach work.
+  // (Authorization — capability + project scope — and the already-claimed guard
+  // are enforced below.)
+  if (!canClaimOutreach({ decision: pre.customer_prereviews.decision })) {
     return Response.json(
       { error: 'This work is already decided and is no longer claimable.' },
-      { status: 409 },
-    )
-  }
-  if (!canClaimOutreach({ decision: pre.customer_prereviews.decision, lastCallOutcome: pre.last_call_outcome as CallOutcome | null })) {
-    return Response.json(
-      {
-        error:
-          'This item cannot be claimed yet. A customer is claimed only after you have spoken with them and taken on the follow-up. Sending an email, an unanswered call, or a voicemail does not claim the customer — it stays in the shared queue for either of you.',
-      },
       { status: 409 },
     )
   }
