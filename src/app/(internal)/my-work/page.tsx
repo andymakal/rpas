@@ -23,7 +23,16 @@ export const dynamic = 'force-dynamic'
  * The actor's detected timezone drives the date-only "due today" judgment for
  * promised callbacks, so each employee sees their own day.
  */
-export default async function MyWorkPage() {
+export default async function MyWorkPage({
+  searchParams,
+}: {
+  // Optional deep-link pre-selection: "Work Project" on My Projects opens My
+  // Work with that project already selected in the Project filter. Both filters
+  // are otherwise chosen in the client; only the project pre-select is seeded
+  // from the URL so the deep link survives a reload.
+  searchParams: Promise<{ project_id?: string }>
+}) {
+  const { project_id: initialProjectId } = await searchParams
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -53,5 +62,5 @@ export default async function MyWorkPage() {
     }
   }
 
-  return <MyWorkClient state={state} />
+  return <MyWorkClient state={state} initialProjectId={initialProjectId ?? null} />
 }

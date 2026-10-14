@@ -14,12 +14,19 @@
  * review), so a recommendation is always directly reachable.
  */
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   Sparkles, ArrowRight, Phone, Mail, Users, CheckCircle2, Lock,
-  NotebookPen, AlertCircle, ListChecks, ChevronRight,
+  NotebookPen, AlertCircle, ListChecks, ChevronRight, SlidersHorizontal,
 } from 'lucide-react'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { useMentoring } from '@/lib/mentoring/MentoringProvider'
 import { MentorNote } from '@/lib/mentoring/MentorUi'
 import {
@@ -59,7 +66,42 @@ const BAND_META: Record<PriorityBand, { title: string; tone: OperationalTone }> 
   unlicensed:            { title: 'Needs a license you have not established', tone: 'info' },
 }
 
-export function MyWorkClient({ state }: { state: MyWorkState }) {
+export function MyWorkClient({
+  state,
+  initialProjectId = null,
+}: {
+  state: MyWorkState
+  /** Project pre-selected from a "Work Project" deep link (?project_id=…). */
+  initialProjectId?: string | null
+}) {
+  // Two combinable filters over the SAME resolved work. They narrow what is
+  // shown; they never change eligibility, routes, counts, or ZEN ordering — the
+  // server composition already decided all of that. 'all' means no narrowing.
+  const projectOptions = useMemo(() => projectFilterOptions(state), [state])
+  const activityOptions = useMemo(() => activityFilterOptions(state), [state])
+
+  // Seed the project filter from the deep link, but only when that project is
+  // actually present in the resolved work; otherwise fall back to 'all' so a
+  // stale link never shows an empty view.
+  const seededProject =
+    initialProjectId && projectOptions.some((o) => o.id === initialProjectId)
+      ? initialProjectId
+      : ALL
+  const [projectFilter, setProjectFilter] = useState<string>(seededProject)
+  const [activityFilter, setActivityFilter] = useState<string>(ALL)
+
+  // The filtered state the Assistant and the full inventory render. Fixed-time
+  // commitments are exempt from the filters (a promised callback or scheduled
+  // appointment stays visible regardless of what the worker is filtering to),
+  // per the Right Path rule that a customer commitment is never hidden.
+  const filteredState = useMemo(
+    () => applyWorkFilters(state, projectFilter, activityFilter),
+    [state, projectFilter, activityFilter],
+  )
+
+  const hasFilters = projectOptions.length > 0 || activityOptions.length > 1
+  const filtersActive = projectFilter !== ALL || activityFilter !== ALL
+
   if (state.noProfile) {
     return (
       <WorkflowPage>
@@ -79,19 +121,40 @@ export function MyWorkClient({ state }: { state: MyWorkState }) {
     )
   }
 
-  // Derive the Daily Direction summary from the SAME ready state. This reads
-  // ZEN's already-decided ordering; it does not re-rank or add a data source.
-  const direction = deriveMyWorkDirection(state)
+  // Derive the Daily Direction summary from the FILTERED ready state. This still
+  // reads ZEN's already-decided ordering; it does not re-rank or add a data
+  // source. Filtering only removes activities from view; the order among those
+  // that remain is unchanged.
+  const direction = deriveMyWorkDirection(filteredState)
 
   return (
     <WorkflowPage>
       <WorkflowHeader primary="My Work" />
 
+      {/* Project + Activity filters. They narrow the work shown below; fixed-time
+          commitments stay visible regardless, and every route/count/permission
+          is unchanged. Rendered only when there is something to filter. */}
+      {hasFilters && (
+        <WorkFilters
+          projectOptions={projectOptions}
+          activityOptions={activityOptions}
+          projectFilter={projectFilter}
+          activityFilter={activityFilter}
+          onProjectChange={setProjectFilter}
+          onActivityChange={setActivityFilter}
+          onClear={() => {
+            setProjectFilter(ALL)
+            setActivityFilter(ALL)
+          }}
+          active={filtersActive}
+        />
+      )}
+
       {/* The Assistant: on arrival it helps the worker START, not explains the
           system. It shows any genuine time-specific commitments first, then asks
           what to work on and offers two prominent choices. The full inventory
           is available on demand, not shown up front. */}
-      <MyWorkAssistant state={state} direction={direction} />
+      <MyWorkAssistant state={filteredState} direction={direction} />
 
       {/* Today's Focus banner: temporary management direction, shown as a
           distinct notice below the chooser. It influences ordering; never hides
@@ -122,6 +185,168 @@ export function MyWorkClient({ state }: { state: MyWorkState }) {
         </section>
       )}
     </WorkflowPage>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Project + Activity filtering (client-side, over the already-resolved state).
+//
+// These narrow what My Work SHOWS. They never touch eligibility, claim state,
+// routes, counts, or the ZEN ordering — the server composition owns all of
+// that. A fixed-time commitment is exempt from the filters so a promised
+// callback or scheduled appointment is never hidden.
+// ---------------------------------------------------------------------------
+
+/** Sentinel for an unfiltered selection ("all projects" / "all activities").
+ * A Radix Select item value may not be empty, so a non-empty token is used. */
+const ALL = '__all__'
+
+interface FilterOption {
+  id: string
+  label: string
+}
+
+/** The distinct projects present in the resolved work, by id, with their name
+ * (taken from the project-source label). Drives the Project filter options. */
+function projectFilterOptions(state: MyWorkState): FilterOption[] {
+  const byId = new Map<string, string>()
+  for (const a of state.activities) {
+    for (const s of a.sources) {
+      if (s.projectId && !byId.has(s.projectId)) byId.set(s.projectId, s.label)
+    }
+  }
+  return [...byId.entries()]
+    .map(([id, label]) => ({ id, label }))
+    .sort((x, y) => x.label.localeCompare(y.label))
+}
+
+/** The distinct activities present in the resolved work. Drives the Activity
+ * filter options, in the ZEN rank order the activities already arrived in. */
+function activityFilterOptions(state: MyWorkState): FilterOption[] {
+  const seen = new Set<string>()
+  const out: FilterOption[] = []
+  for (const a of state.activities) {
+    if (seen.has(a.workFunction)) continue
+    seen.add(a.workFunction)
+    out.push({ id: a.workFunction, label: a.label })
+  }
+  return out
+}
+
+/**
+ * Apply the Project and Activity filters to the resolved state, returning a new
+ * MyWorkState that renders exactly the selected work. Both filters combine (AND).
+ * A fixed-time commitment activity is always kept, whatever the filters, so a
+ * genuine customer commitment is never hidden. When a project is selected, each
+ * kept activity's sources are narrowed to that project (a commitment kept only
+ * for its exemption keeps all its sources, so its route still works).
+ */
+function applyWorkFilters(
+  state: MyWorkState,
+  projectFilter: string,
+  activityFilter: string,
+): MyWorkState {
+  if (projectFilter === ALL && activityFilter === ALL) return state
+
+  const activities = state.activities.flatMap((a) => {
+    const isCommitment = COMMITMENT_BANDS.has(a.band)
+    // Commitments are exempt: always shown, with all sources intact.
+    if (isCommitment) return [a]
+
+    const matchesActivity = activityFilter === ALL || a.workFunction === activityFilter
+    if (!matchesActivity) return []
+
+    if (projectFilter === ALL) return [a]
+
+    // Project selected: keep the activity only if it has work in that project,
+    // and narrow its sources to that project so counts and links match the view.
+    const sources = a.sources.filter((s) => s.projectId === projectFilter)
+    if (sources.length === 0) return []
+    return [{ ...a, sources }]
+  })
+
+  return { ...state, activities }
+}
+
+/** The filter bar: Project (all / one) and Activity (all / one), both combinable.
+ * Compact, above the Assistant, with a Clear affordance when a filter is set. */
+function WorkFilters({
+  projectOptions,
+  activityOptions,
+  projectFilter,
+  activityFilter,
+  onProjectChange,
+  onActivityChange,
+  onClear,
+  active,
+}: {
+  projectOptions: FilterOption[]
+  activityOptions: FilterOption[]
+  projectFilter: string
+  activityFilter: string
+  onProjectChange: (v: string) => void
+  onActivityChange: (v: string) => void
+  onClear: () => void
+  active: boolean
+}) {
+  return (
+    <section
+      aria-label="Filter your work"
+      className="flex flex-wrap items-center gap-3 rounded-2xl border border-surface-border bg-surface-card p-4"
+    >
+      <span className="flex items-center gap-1.5 text-sm font-medium text-ink-supporting">
+        <SlidersHorizontal className="size-4" aria-hidden /> Filter
+      </span>
+
+      {projectOptions.length > 0 && (
+        <label className="flex items-center gap-2 text-sm text-ink-secondary">
+          <span className="sr-only">Project</span>
+          <Select value={projectFilter} onValueChange={onProjectChange}>
+            <SelectTrigger className="h-9 min-w-44" aria-label="Project">
+              <SelectValue placeholder="All projects" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All projects</SelectItem>
+              {projectOptions.map((o) => (
+                <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </label>
+      )}
+
+      {activityOptions.length > 1 && (
+        <label className="flex items-center gap-2 text-sm text-ink-secondary">
+          <span className="sr-only">Activity</span>
+          <Select value={activityFilter} onValueChange={onActivityChange}>
+            <SelectTrigger className="h-9 min-w-44" aria-label="Activity">
+              <SelectValue placeholder="All activities" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>All activities</SelectItem>
+              {activityOptions.map((o) => (
+                <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </label>
+      )}
+
+      {active && (
+        <button
+          type="button"
+          onClick={onClear}
+          className="text-sm font-medium text-brand-hover hover:underline"
+        >
+          Clear
+        </button>
+      )}
+
+      <p className="w-full text-xs text-ink-supporting">
+        Filters narrow what you see. Fixed-time commitments stay visible, and
+        every item still opens the same work.
+      </p>
+    </section>
   )
 }
 

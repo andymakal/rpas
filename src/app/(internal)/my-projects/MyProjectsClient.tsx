@@ -85,7 +85,7 @@ function ProjectCard({ project }: { project: MyProjectCard }) {
         <div className="flex items-center gap-3">
           {project.reviewRoute && (
             <Link
-              href={project.reviewRoute}
+              href={`/my-work?project_id=${encodeURIComponent(project.projectId)}`}
               className="inline-flex h-10 items-center gap-2 rounded-xl bg-brand px-4 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand-hover"
             >
               <Play className="size-4" aria-hidden /> Work Project
