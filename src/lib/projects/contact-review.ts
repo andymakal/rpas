@@ -1,4 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import {
+  readResearchedUnsuccessfullyBatch,
+  stillNeedsResearchRecommendation,
+} from '@/lib/stewardship/research-record'
 
 /**
  * Contact Review — project-scoped read model.
@@ -15,6 +19,17 @@ import type { SupabaseClient } from '@supabase/supabase-js'
  * sibling write route) corrects. Membership is exactly project_customers, the
  * same Step 1 population every other project surface reads; nothing here is
  * hardcoded.
+ *
+ * Durable research suppression. A customer whose every still-missing method has
+ * already been researched unsuccessfully (recorded in case_touches, read via the
+ * shared research-record helper) is removed from the list — the look-up was done
+ * and nothing was found, so Contact Review stops re-presenting it on every pass.
+ * This replaces the former session-only, in-memory suppression with a durable
+ * fact that survives reloads and sessions. It is self-healing: a method that
+ * later gets a value is no longer missing, so the customer returns to the list
+ * if the other method is still outstanding; a fully completed customer (both
+ * methods present) was never in the list to begin with. Re-research stays
+ * possible by opening the customer deliberately.
  */
 
 export interface ContactReviewCustomer {
@@ -88,14 +103,27 @@ export async function buildContactReview(
     customers.push(...((data ?? []) as CustomerRow[]))
   })
 
+  // Customers still missing a method, before the durable research suppression.
+  const incomplete = customers.filter((c) => !c.is_test && !(usable(c.email) && usable(c.phone)))
+
+  // Which of those have a recorded unsuccessful-research outcome, read in one
+  // batched pass. A customer whose every still-missing method is settled by
+  // research is dropped below.
+  const researchedByCustomer = await readResearchedUnsuccessfullyBatch(
+    supabase,
+    incomplete.map((c) => c.id),
+  )
+
   const out: ContactReviewCustomer[] = []
-  for (const c of customers) {
-    if (c.is_test) continue
+  for (const c of incomplete) {
     const hasEmail = usable(c.email)
     const hasPhone = usable(c.phone)
-    // The list is exactly those missing EITHER method. A customer with both
-    // usable methods has complete contact info and is not reviewed here.
-    if (hasEmail && hasPhone) continue
+    const researched = researchedByCustomer.get(c.id) ?? { email: false, phone: false }
+    // Keep the customer only while research is still worth recommending: some
+    // still-missing method has NOT yet been researched unsuccessfully. Once
+    // every still-missing method is settled by research, the customer leaves the
+    // list durably (not just for the session).
+    if (!stillNeedsResearchRecommendation({ hasEmail, hasPhone }, researched)) continue
     out.push({
       customer_id: c.id,
       first_name: c.first_name,

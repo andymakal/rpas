@@ -30,6 +30,7 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { QUEUE_META, OUTREACH_QUEUES, deriveFollowUpRouting, deriveEmailRouting, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
+import { readResearchedUnsuccessfullyBatch, stillNeedsResearchRecommendation } from '@/lib/stewardship/research-record'
 import { createTimeContext } from '@/lib/time'
 import { decideDailyDirection } from './engine'
 import { isCallbackDue } from './business-calendar'
@@ -55,7 +56,7 @@ type BoardRow = {
   refused_at: string | null
   customer_prereviews: {
     decision: string | null
-    customers: { id: string; first_name: string; last_name: string; email: string | null }
+    customers: { id: string; first_name: string; last_name: string; email: string | null; phone: string | null }
   }
 }
 
@@ -93,7 +94,7 @@ export async function getDailyDirection(
       id, queue, call_reason, research_reason, last_call_outcome, email_sent_at, callback_date, follow_up_due, refused_at,
       customer_prereviews!inner (
         decision,
-        customers!inner ( id, first_name, last_name, email )
+        customers!inner ( id, first_name, last_name, email, phone )
       )
     `)
     .order('updated_at', { ascending: true })
@@ -139,11 +140,39 @@ export async function getDailyDirection(
     return emailRouted ?? r.queue
   }
 
-  // Per-queue counts across all open items, by effective (read-only) queue.
+  // Research-recommendation dampening. A research-needed item whose every
+  // still-missing contact method has already been researched unsuccessfully is
+  // no longer a research recommendation: the look-up has been done and nothing
+  // was found, so the Assistant must stop surfacing it as research to do. The
+  // item is NOT closed and still exists on the board for a deliberate re-check;
+  // this only removes it from the recommended research count. A newly-added
+  // email or phone makes that method present (no longer missing), which flips
+  // the customer back to still-needing a recommendation on its own.
+  const researchNeededRows = rows.filter((r) => effectiveQueue(r) === 'research-needed')
+  const researchedByCustomer = await readResearchedUnsuccessfullyBatch(
+    supabase,
+    researchNeededRows.map((r) => r.customer_prereviews.customers.id),
+  )
+  const stillRecommendsResearch = (r: BoardRow): boolean => {
+    const c = r.customer_prereviews.customers
+    const researched = researchedByCustomer.get(c.id) ?? { email: false, phone: false }
+    return stillNeedsResearchRecommendation(
+      { hasEmail: !!c.email?.trim(), hasPhone: !!c.phone?.trim() },
+      researched,
+    )
+  }
+
+  // Per-queue counts across all open items, by effective (read-only) queue. A
+  // research-needed item that is settled by research is excluded from the
+  // research count (see above); every other queue is unaffected.
   const counts = Object.fromEntries(
     OUTREACH_QUEUES.map((q) => [q, 0]),
   ) as Record<OutreachQueue, number>
-  for (const r of rows) counts[effectiveQueue(r)] += 1
+  for (const r of rows) {
+    const q = effectiveQueue(r)
+    if (q === 'research-needed' && !stillRecommendsResearch(r)) continue
+    counts[q] += 1
+  }
 
   const queues: QueueCandidate[] = OUTREACH_QUEUES.filter((q) => counts[q] > 0).map((q) => ({
     queue: q,

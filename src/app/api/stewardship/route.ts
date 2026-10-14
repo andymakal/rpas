@@ -6,6 +6,7 @@ import { resolveCapabilityProfile, loadWorkFunctions } from '@/lib/capabilities/
 import { canActOnItem, claimedByOther } from '@/lib/capabilities/work-functions'
 import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
 import { initialQueueFromOptions, resolveContactOptions } from '@/lib/stewardship/contact-options'
+import { readResearchedUnsuccessfullyBatch, stillNeedsResearchRecommendation } from '@/lib/stewardship/research-record'
 import { getProjectWorkflows, projectContainsWorkflow, onboardingCompleteForPolicies } from '@/lib/projects/workflows'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
@@ -442,6 +443,43 @@ export async function GET(request: NextRequest) {
   // Merge derived items into the working set so counts and the list include the
   // members who are actionable from facts alone.
   items.push(...virtualItems)
+
+  // Research-recommendation dampening. A Research Needed item (recorded or
+  // derived) whose every still-missing contact method has already been
+  // researched unsuccessfully is no longer a research recommendation — the
+  // look-up was done and nothing was found — so it is removed from the Research
+  // Needed queue and its count. The customer is NOT closed and keeps every other
+  // surface (project membership, Contact Review, the customer record), where a
+  // deliberate re-check or a newly-found email/phone re-opens the recommendation
+  // on its own (a present value makes the method no longer missing). Only
+  // Research Needed items are affected; outreach/waiting items are untouched.
+  {
+    const researchCustomerIds = items
+      .filter((it) => it.queue === 'research-needed' && !!it.customer?.id)
+      .map((it) => it.customer!.id)
+    if (researchCustomerIds.length > 0) {
+      const researchedByCustomer = await readResearchedUnsuccessfullyBatch(supabase, researchCustomerIds)
+      const settled = new Set<string>()
+      for (const it of items) {
+        if (it.queue !== 'research-needed') continue
+        const c = it.customer
+        if (!c?.id) continue
+        const researched = researchedByCustomer.get(c.id) ?? { email: false, phone: false }
+        const stillRecommend = stillNeedsResearchRecommendation(
+          { hasEmail: !!c.email?.trim(), hasPhone: !!c.phone?.trim() },
+          researched,
+        )
+        if (!stillRecommend) settled.add(it.id ?? `virtual:${c.id}`)
+      }
+      if (settled.size > 0) {
+        const keep = items.filter(
+          (it) => it.queue !== 'research-needed' || !settled.has(it.id ?? `virtual:${it.customer?.id}`),
+        )
+        items.length = 0
+        items.push(...keep)
+      }
+    }
+  }
 
   // A population view opened from a My Work count must list EXACTLY what My Work
   // counted: the callable items in that population that this employee can pick

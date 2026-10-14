@@ -179,8 +179,9 @@ export function ContactReviewClient({ projectId }: { projectId: string }) {
           </p>
           <p className="text-base text-ink-supporting">
             Work straight down the list. Save &amp; Next moves you to the next customer; if eAgent
-            has nothing usable, Nothing Usable &amp; Next keeps you moving. Customers you have
-            already handled this session will not come back around.
+            has nothing usable, Nothing Usable &amp; Next records that research found nothing and
+            keeps you moving. A customer you have handled will not keep coming back on later
+            passes, and anyone whose details later turn up returns to the list automatically.
           </p>
         </div>
         {remaining.length > 0 && (
@@ -211,8 +212,8 @@ export function ContactReviewClient({ projectId }: { projectId: string }) {
       {remaining.length === 0 ? (
         <QueueEmptyState>
           {total === 0
-            ? 'Every customer in this project already has a usable email and phone.'
-            : 'All caught up for this session. Every customer has been handled.'}
+            ? 'Every customer in this project already has a usable email and phone, or has been researched.'
+            : 'All caught up. Every customer has been handled.'}
         </QueueEmptyState>
       ) : (
         <div className="space-y-3">
@@ -340,6 +341,30 @@ function ContactReviewTask({
     }
   }, [hasChanges, emailChanged, phoneChanged, emailBlocks, phoneBlocks, emailEval, phoneEval, projectId, customer.customer_id, onSaved])
 
+  // Nothing Usable & Next now records the unsuccessful research DURABLY (per
+  // still-missing method) before advancing, so the customer stops coming back on
+  // later passes instead of only being hidden for this session. The record is
+  // not a close: the customer keeps everything, and a found value re-opens them.
+  // A failure to record is surfaced and the worker is NOT advanced, so the
+  // outcome is never silently lost.
+  const nothingUsable = useCallback(async () => {
+    setBusy(true); setSaveError(null)
+    try {
+      const res = await fetch(`/api/projects/${projectId}/contact-review/${customer.customer_id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ research_nothing_found: true }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setSaveError(json.error ?? 'Could not record'); return }
+      onSkipped()
+    } catch {
+      setSaveError('Network error')
+    } finally {
+      setBusy(false)
+    }
+  }, [projectId, customer.customer_id, onSkipped])
+
   const emailStatus = usable(customer.email)
   const phoneStatus = usable(customer.phone)
 
@@ -451,14 +476,15 @@ function ContactReviewTask({
               onClick={save}
               disabled={busy || !hasChanges}
             />
-            <WorkflowButton icon={SkipForward} onClick={onSkipped} disabled={busy} className="w-full justify-start">
+            <WorkflowButton icon={SkipForward} onClick={nothingUsable} disabled={busy} className="w-full justify-start">
               Nothing Usable &amp; Next
             </WorkflowButton>
           </div>
 
           <NextNote>
             Save &amp; Next writes only the fields you changed to the customer record and opens the next
-            customer. Nothing Usable &amp; Next leaves the record unchanged and continues.
+            customer. Nothing Usable &amp; Next records that research found nothing usable (so this
+            customer will not keep coming back) and continues.
             {remainingCount > 0
               ? ` ${remainingCount} more after this one.`
               : ' This is the last one in the list.'}

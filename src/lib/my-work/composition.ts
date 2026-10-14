@@ -30,6 +30,7 @@ import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
 import { activeProjectsWithWorkflow, onboardingCompleteForPolicies } from '@/lib/projects/workflows'
 import { buildContactReview, summarizeContactReview } from '@/lib/projects/contact-review'
+import { readResearchedUnsuccessfullyBatch, stillNeedsResearchRecommendation } from '@/lib/stewardship/research-record'
 import {
   loadWorkFunctions,
   resolveCapabilityProfile,
@@ -468,12 +469,37 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     }
   }
 
+  // Research-recommendation dampening (the same rule the board and Daily
+  // Direction apply): a research-needed item whose every still-missing contact
+  // method has already been researched unsuccessfully is no longer research to
+  // recommend, so it is dropped from the counted open set. The customer is not
+  // closed and keeps every other surface (Contact Review, the record) for a
+  // deliberate re-check; a newly-found email/phone re-opens it on its own. Only
+  // research-needed rows are evaluated here, so outreach/waiting are untouched.
+  const researchCandidateIds = openRowsBase
+    .filter((r) => r.queue === 'research-needed')
+    .map((r) => r.customer_prereviews.customer_id)
+  const researchedByCustomer = await readResearchedUnsuccessfullyBatch(supabase, researchCandidateIds)
+  const researchSettledCustomerIds = new Set<string>()
+  for (const r of openRowsBase) {
+    if (r.queue !== 'research-needed') continue
+    const c = r.customer_prereviews.customers
+    const researched = researchedByCustomer.get(r.customer_prereviews.customer_id) ?? { email: false, phone: false }
+    const stillRecommend = stillNeedsResearchRecommendation(
+      { hasEmail: !!c?.email?.trim(), hasPhone: !!c?.phone?.trim() },
+      researched,
+    )
+    if (!stillRecommend) researchSettledCustomerIds.add(r.customer_prereviews.customer_id)
+  }
+
   // The final open set: decision/refused gate AND the onboarding-complete gate,
   // so My Work and the project board count the same onboarding population. Both
   // the per-queue tally and the call-population pass iterate this set, so the
   // suppression applies everywhere a customer could be counted.
   const openRows = openRowsBase.filter(
-    (r) => !onboardingCompleteCustomerIds.has(r.customer_prereviews.customer_id),
+    (r) =>
+      !onboardingCompleteCustomerIds.has(r.customer_prereviews.customer_id) &&
+      !(r.queue === 'research-needed' && researchSettledCustomerIds.has(r.customer_prereviews.customer_id)),
   )
 
   // Project association for the open board customers: which project(s) each

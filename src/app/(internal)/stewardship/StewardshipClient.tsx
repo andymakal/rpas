@@ -1711,13 +1711,15 @@ function ResearchAction({
       </div>
 
       <WorkflowButton disabled={busy}
-        onClick={() => act({ type: 'research-found', found: 'nothing' }, 'Recorded. Stays in Research Needed.')}>
+        onClick={() => act({ type: 'research-found', found: 'nothing' }, 'Research recorded. This customer will not keep resurfacing as research to do.')}>
         Nothing usable yet
       </WorkflowButton>
 
       <NextNote>
         A found value is saved to the customer record (field by field, without overwriting the other)
-        before the customer is routed forward. Nothing is auto-closed.
+        before the customer is routed forward. Nothing usable records that research was completed and
+        found nothing, so it stops being recommended; the customer is not closed, and anyone whose
+        details later turn up returns automatically. You can always research again.
       </NextNote>
     </ActionPanel>
   )

@@ -9,6 +9,13 @@ import { resolveNextCallDate } from '@/lib/stewardship/call-cadence'
 import { resolveContactOptions } from '@/lib/stewardship/contact-options'
 import { OUTCOME_MARKERS, REACHED_MARKER } from '@/lib/stewardship/outreach-attempts'
 import {
+  buildResearchTouchRows,
+  contactMethodsStillMissing,
+  readResearchedUnsuccessfully,
+  methodsSettledByResearch,
+  stillNeedsResearchRecommendation,
+} from '@/lib/stewardship/research-record'
+import {
   evaluateCadenceStatus,
   cadenceRecommendationText,
   NONRESPONSIVE_LABEL,
@@ -185,6 +192,20 @@ export async function GET(
     history.unusableChannels,
   )
 
+  // Whether a still-missing method has already been researched unsuccessfully
+  // (recorded, durable, per method). The task panel uses this to show that
+  // research was completed and to stop implying the same look-up is still owed,
+  // while leaving the research action available for a deliberate retry. A method
+  // with a value on file is never "settled by research" (presence makes it
+  // moot), so a newly-found value re-opens it on its own.
+  const researchedUnsuccessfully = await readResearchedUnsuccessfully(supabase, customerId)
+  const presence = {
+    hasEmail: !!cust.email?.trim(),
+    hasPhone: !!cust.phone?.trim(),
+  }
+  const researchSettled = methodsSettledByResearch(presence, researchedUnsuccessfully)
+  const researchStillRecommended = stillNeedsResearchRecommendation(presence, researchedUnsuccessfully)
+
   // The Nonresponsive advisory counts only genuinely UNSUCCESSFUL attempts (a
   // reached attempt is a success and never counts toward the seven-attempt
   // warning).
@@ -226,6 +247,14 @@ export async function GET(
       // The available contact actions (call / text / email / postal) and whether
       // Contact Research is needed, decided by ZEN from the real contact facts.
       contact_options: contactOptions,
+      // Durable per-method research outcome: which still-missing methods have
+      // been researched unsuccessfully, and whether research is still worth
+      // recommending at all for this customer. Recorded fact, not inferred.
+      research: {
+        email_settled: researchSettled.email,
+        phone_settled: researchSettled.phone,
+        still_recommended: researchStillRecommended,
+      },
       // Grouped outreach-attempt count and the Nonresponsive recommendation when
       // ZEN has flagged the run (null otherwise). Recommendation only.
       outreach_attempts: history.outreachAttempts,
@@ -314,6 +343,35 @@ export async function PATCH(
     if (custErr) {
       console.error('stewardship research contact persist error:', custErr)
       return Response.json({ error: custErr.message }, { status: 500 })
+    }
+  }
+
+  // ── research-found 'nothing': RECORD the unsuccessful research durably ──────
+  // Previously a no-op that left no trace, so the same research was recommended
+  // again on every pass. Now it records, PER MISSING METHOD, that research was
+  // completed with nothing usable found (who + when), as an ordinary
+  // case_touches row with a stable marker. Only the method(s) STILL MISSING are
+  // recorded — a method already on file is not "researched unsuccessfully". The
+  // recommendation surfaces read this fact to stop re-recommending a settled
+  // method, while a found value or a deliberate re-research re-opens it. The
+  // workflow transition stays a no-op (the customer remains in Research Needed;
+  // nothing is auto-closed).
+  if (action.type === 'research-found' && action.found === 'nothing') {
+    const missing = contactMethodsStillMissing({
+      email: row.customer_prereviews.customers?.email ?? null,
+      phone: row.customer_prereviews.customers?.phone ?? null,
+    })
+    if (missing.length > 0) {
+      const touchedBy = await resolveEmployeeName(supabase)
+      const rows = buildResearchTouchRows(customerId, missing, touchedBy)
+      const { error: researchErr } = await supabase.from('case_touches').insert(rows)
+      if (researchErr) {
+        console.error('stewardship research-nothing record error:', researchErr)
+        return Response.json(
+          { error: 'Could not record the research outcome; please try again.' },
+          { status: 500 },
+        )
+      }
     }
   }
 
