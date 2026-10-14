@@ -22,6 +22,7 @@ import {
 } from '@/lib/stewardship/cadence-status'
 import {
   applyAction,
+  deriveEmailRouting,
   type OutreachAction,
   type OutreachState,
   type OutreachQueue,
@@ -218,14 +219,37 @@ export async function GET(
       }
     : null
 
+  // The EFFECTIVE queue, re-derived live from the customer's CURRENT email the
+  // same way the board list does (deriveEmailRouting): an untouched opening item
+  // whose email became usable after intake is an introductory email now, not a
+  // "no-email" call. Without this the task view would switch on the stale stored
+  // queue and show "Call … — No email" for a customer the board correctly lists
+  // under Introductory Emails. The upgrade only applies to untouched openers, so
+  // an advanced item is never rerouted. Only one of the two routings can apply,
+  // so this is a safe overlay on the stored queue, and the returned call_reason/
+  // research_reason are nulled to match the derived ready-to-email state.
+  const emailPatch = deriveEmailRouting({
+    queue: o.queue,
+    call_reason: o.call_reason,
+    research_reason: o.research_reason,
+    last_call_outcome: o.last_call_outcome,
+    email_sent_at: o.email_sent_at,
+    callback_date: o.callback_date,
+    refused_at: o.refused_at,
+    has_usable_email: !!cust.email?.trim(),
+  })
+  const effectiveQueue: OutreachQueue = emailPatch?.queue ?? o.queue
+  const effectiveCallReason: CallReason | null = emailPatch ? (emailPatch.call_reason ?? null) : o.call_reason
+  const effectiveResearchReason: ResearchReason | null = emailPatch ? (emailPatch.research_reason ?? null) : o.research_reason
+
   // requires that confirmation.
   return Response.json({
     data: {
       id: o.id,
       prereview_id: o.prereview_id,
-      queue: o.queue,
-      call_reason: o.call_reason,
-      research_reason: o.research_reason,
+      queue: effectiveQueue,
+      call_reason: effectiveCallReason,
+      research_reason: effectiveResearchReason,
       last_call_outcome: o.last_call_outcome,
       callback_date: o.callback_date,
       email_sent_at: o.email_sent_at,
