@@ -112,6 +112,11 @@ type BoardItem = {
   claimed_by_producer_id?: string | null
   claimed_by_name?: string | null
   is_mine?: boolean
+  // A DERIVED (virtual) onboarding item: the member needs servicing access but
+  // has no recorded outreach row yet. id/prereview_id are null until an operator
+  // acts; the first action materializes the durable record (see materialize()).
+  virtual?: boolean
+  customer_id?: string
 }
 
 /** A derived call action population a My Work link can open on the board. */
@@ -289,6 +294,9 @@ export function StewardshipClient({
   const [loading, setLoading] = useState(true)
   const [openQueue, setOpenQueue] = useState<OutreachQueue | null>(initialQueue)
   const [openItemId, setOpenItemId] = useState<string | null>(initialItemId)
+  // When materializing a derived (virtual) onboarding item on first action, the
+  // customer id being materialized (so its card can show a brief busy state).
+  const [materializingCustomerId, setMaterializingCustomerId] = useState<string | null>(null)
   // A derived call population view (opened from a My Work "Calls Due" /
   // "Available to Call" link). When set, the board shows exactly that
   // population's customers, fetched from the server with the population filter.
@@ -413,6 +421,54 @@ export function StewardshipClient({
     }
   }, [loadBoard, openPopulation, loadPopulation])
 
+  // Materialize a DERIVED (virtual) onboarding item into a durable record on an
+  // operator's FIRST action, then return its outreach id. This is the only
+  // board path that creates a record, and it fires on an explicit action
+  // (opening or claiming the item) — never on a page read.
+  const materialize = useCallback(async (customerId: string): Promise<string | null> => {
+    setMaterializingCustomerId(customerId); setClaimMsg(null)
+    try {
+      const res = await fetch('/api/stewardship/ensure-one', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer_id: customerId }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setClaimMsg(json.error ?? 'Could not start onboarding for this customer.'); return null }
+      return json.data.outreach_id as string
+    } catch {
+      setClaimMsg('Network error.')
+      return null
+    } finally {
+      setMaterializingCustomerId(null)
+    }
+  }, [])
+
+  // Open an item's task screen. A real item opens directly; a derived (virtual)
+  // item is first materialized (create-on-first-action), then opened.
+  const openItem = useCallback(async (it: BoardItem) => {
+    if (it.virtual) {
+      const outreachId = it.customer_id ? await materialize(it.customer_id) : null
+      if (!outreachId) return
+      await loadBoard()
+      setOpenItemId(outreachId)
+      return
+    }
+    setOpenItemId(it.id)
+  }, [materialize, loadBoard])
+
+  // Claim an item. A derived (virtual) item is materialized first (claiming is a
+  // real operator action and may create the record), then claimed.
+  const claimItem = useCallback(async (it: BoardItem, release: boolean) => {
+    let outreachId = it.id
+    if (it.virtual) {
+      const created = it.customer_id ? await materialize(it.customer_id) : null
+      if (!created) return
+      outreachId = created
+    }
+    await claim(outreachId, release)
+  }, [claim, materialize])
+
   if (openItemId) {
     return (
       <StewardshipTask
@@ -457,7 +513,7 @@ export function StewardshipClient({
           ) : (
             popItems.map(it => (
               <CustomerQueueCard
-                key={it.id}
+                key={it.id ?? `virtual:${it.customer_id}`}
                 name={fullName(it.customer)}
                 detail={queueDetail(it)}
                 trailing={
@@ -465,13 +521,13 @@ export function StewardshipClient({
                     {queueTag(it)}
                     <ClaimControl
                       item={it}
-                      busy={claimBusy === it.id}
-                      onClaim={() => claim(it.id, false)}
-                      onRelease={() => claim(it.id, true)}
+                      busy={claimBusy === it.id || (it.virtual === true && materializingCustomerId === it.customer_id)}
+                      onClaim={() => claimItem(it, false)}
+                      onRelease={() => claimItem(it, true)}
                     />
                   </div>
                 }
-                onOpen={() => setOpenItemId(it.id)}
+                onOpen={() => void openItem(it)}
               />
             ))
           )}
@@ -511,7 +567,7 @@ export function StewardshipClient({
           ) : (
             queueItems.map(it => (
               <CustomerQueueCard
-                key={it.id}
+                key={it.id ?? `virtual:${it.customer_id}`}
                 name={fullName(it.customer)}
                 detail={queueDetail(it)}
                 trailing={
@@ -519,13 +575,13 @@ export function StewardshipClient({
                     {queueTag(it)}
                     <ClaimControl
                       item={it}
-                      busy={claimBusy === it.id}
-                      onClaim={() => claim(it.id, false)}
-                      onRelease={() => claim(it.id, true)}
+                      busy={claimBusy === it.id || (it.virtual === true && materializingCustomerId === it.customer_id)}
+                      onClaim={() => claimItem(it, false)}
+                      onRelease={() => claimItem(it, true)}
                     />
                   </div>
                 }
-                onOpen={() => setOpenItemId(it.id)}
+                onOpen={() => void openItem(it)}
               />
             ))
           )}

@@ -65,15 +65,16 @@ export type HandoffResult = {
  * Hand a just-completed onboarding into the existing Initial Analysis
  * preparation process, then mark the pre-review decided ('review_now').
  *
- * Two cases, so the 1035 document-preparation workflow is preserved and NOT
- * duplicated:
+ * Two cases, so a project's own review-preparation workflow is preserved and
+ * NOT duplicated:
  *
- *   - Customer IS in an ACTIVE 1035 project: that project's own
- *     document-preparation workflow (the derived operations_prep stage over
- *     service_policies.sa_status + project_customer_reviews) IS the Initial
- *     Analysis prep. Creating a general policy_review on top would be duplicate
- *     work, so we do NOT create one — the 1035 workflow already surfaces the
- *     prep. We still mark the decision review_now.
+ *   - Customer IS in an ACTIVE project that CONTAINS the Review Preparation
+ *     workflow: that project's own review preparation (the derived
+ *     operations_prep stage over service_policies.sa_status +
+ *     project_customer_reviews) IS the Initial Analysis prep. Creating a general
+ *     policy_review on top would be duplicate work, so we do NOT create one —
+ *     the project workflow already surfaces the prep. We still mark the decision
+ *     review_now.
  *
  *   - Otherwise (non-project onboarding): create ONE policy_review in 'prep'
  *     (prereview_id is UNIQUE — one review per pre-review) covering every
@@ -95,12 +96,12 @@ export async function handoffToInitialAnalysis(
   const policyIds = Array.from(new Set(args.policyIds.filter(Boolean)))
 
   try {
-    // Is the customer in an ACTIVE 1035 project? If so, that project's
-    // document-preparation workflow owns Initial Analysis prep; do not create a
-    // competing general review.
-    const inActive1035 = await customerInActive1035Project(supabase, args.customerId)
+    // Is the customer in an ACTIVE project that contains the Review Preparation
+    // workflow? If so, that project's own review-preparation owns the downstream
+    // prep; do not create a competing general review.
+    const inActiveReviewProject = await customerInActiveReviewProject(supabase, args.customerId)
 
-    if (inActive1035) {
+    if (inActiveReviewProject) {
       result.mode = 'project_prep'
     } else if (policyIds.length === 0) {
       result.mode = 'none'
@@ -167,19 +168,51 @@ export async function handoffToInitialAnalysis(
   }
 }
 
-/** Whether the customer belongs to any ACTIVE (non-archived) 1035 project. */
-async function customerInActive1035Project(
+/**
+ * Whether the customer belongs to an ACTIVE project that CONTAINS the Review
+ * Preparation workflow — i.e. a project whose own review-preparation workflow
+ * owns the downstream prep, so the general handoff must NOT create a competing
+ * review. This is resolved from the project_workflows WIRING (data), never the
+ * project type name.
+ *
+ * Fallback (pre-migration, when the workflow tables are absent): preserve the
+ * prior behavior by testing the seeded "1035 Exchange" project type, so the
+ * handoff branch is unchanged until the migration lands and then becomes
+ * workflow-driven automatically.
+ */
+async function customerInActiveReviewProject(
   supabase: SupabaseClient,
   customerId: string,
 ): Promise<boolean> {
-  const { data } = await supabase
+  // Projects (active) the customer belongs to.
+  const { data: memberships } = await supabase
+    .from('project_customers')
+    .select('project_id, projects!inner ( status )')
+    .eq('customer_id', customerId)
+    .eq('projects.status', 'active')
+  const projectIds = Array.from(
+    new Set(((memberships ?? []) as { project_id: string }[]).map((m) => m.project_id)),
+  )
+  if (projectIds.length === 0) return false
+
+  // Does any of those projects contain the review_preparation workflow?
+  const { data: wired, error } = await supabase
+    .from('project_workflows')
+    .select('project_id, workflows!inner ( key )')
+    .in('project_id', projectIds)
+    .eq('workflows.key', 'review_preparation')
+    .limit(1)
+  if (!error) return (wired ?? []).length > 0
+
+  // Fallback: workflow tables not present yet — preserve the prior 1035-type test.
+  const { data: legacy } = await supabase
     .from('project_customers')
     .select('project_id, projects!inner ( status, project_types!inner ( name ) )')
     .eq('customer_id', customerId)
     .eq('projects.status', 'active')
     .eq('projects.project_types.name', '1035 Exchange')
     .limit(1)
-  return (data ?? []).length > 0
+  return (legacy ?? []).length > 0
 }
 
 /**

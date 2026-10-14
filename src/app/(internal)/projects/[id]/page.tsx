@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft, Users, FolderPlus, Play } from 'lucide-react'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { projectHasWorkflow } from '@/lib/projects/workflows'
 import {
   WorkflowPage,
   WorkflowHeader,
@@ -37,10 +38,14 @@ export default async function ProjectDetailPage({
   const isArchived  = project.status === 'archived'
   const statusLabel = isArchived ? 'Archived' : isCompleted ? 'Completed' : 'Active'
 
-  // The stewardship/capture flow is the 1035 working surface. Only 1035
-  // projects get a "Work Project" action; other project types do not reuse this
-  // flow. Matched on the type name (the seeded type is "1035 Exchange").
-  const is1035 = /1035/.test(project.project_type)
+  // Whether this project exposes the "Work Project" review surface is decided by
+  // the WORKFLOW WIRING — does the project contain the review_preparation
+  // workflow? — not by the project's name or type. Fallback (pre-migration,
+  // tables absent): the prior /1035/ type-name test, so behavior is unchanged
+  // until the migration lands.
+  const hasReviewWorkflow = await projectHasWorkflow(
+    supabase, id, 'review_preparation', /1035/.test(project.project_type),
+  )
 
   // Population summary: how many customers are in the project, and the runs so
   // far (each run is preserved separately).
@@ -94,7 +99,7 @@ export default async function ProjectDetailPage({
                     (Steps 2 & 3: Stewardship servicing access, policy documents,
                     and Bob's determinations) on its own route, keeping the
                     project overview uncluttered. 1035 projects only. */}
-                {is1035 && (
+                {hasReviewWorkflow && (
                   <Link
                     href={`/projects/${project.id}/review`}
                     className="inline-flex h-10 items-center gap-2 rounded-xl bg-teal-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-teal-700"

@@ -233,59 +233,63 @@ export async function ensureOnboardingForCustomers(
   return result
 }
 
+// NOTE: there is deliberately NO "ensure every project member has an onboarding
+// record" function here anymore. Servicing Agent Onboarding is evaluated from
+// facts (membership + policy servicing-access), so a member who needs access is
+// surfaced as actionable WITHOUT a pre-created record and WITHOUT any read-time
+// write (see src/lib/projects/workflows.ts and the stewardship board). A durable
+// stewardship_outreach record is created only when an operator actually acts on
+// a customer, through ensureOnboardingForCustomers (the explicit Start route)
+// or ensureOneCustomerOutreach below (the lazy create-on-first-action path).
+// This is the correction of the earlier "create records on page read" behavior.
+
 /**
- * Ensure every member of an ACTIVE 1035 project is accounted for in Servicing
- * Agent Onboarding. Membership is the trigger — no manual Start is required.
+ * Lazily ensure the onboarding record for ONE customer and return the id of
+ * their OPEN stewardship_outreach row. This is the create-on-first-action seam:
+ * when an operator opens or acts on a derived (not-yet-recorded) onboarding
+ * item, the durable record is created at that moment — never on a plain page
+ * read. Idempotent: if the customer already has an open outreach row, its id is
+ * returned and nothing is created.
  *
- * Resolves the project's `project_customers` (the Step-1 population, never
- * modified here), loads each member's contact facts, and ensures the onboarding
- * record exists. Idempotent: members already in open onboarding are skipped, so
- * existing records and history are preserved and nothing is duplicated. The
- * caller decides when to run this (it is invoked automatically when the
- * project's onboarding surface is read); it only ever ADDS the missing records.
- *
- * Returns null when the project is not an active 1035 project (nothing to do).
+ * Returns { outreachId } on success, or { error } when the customer cannot be
+ * started (not found, test record, or no known policy to pursue).
  */
-export async function ensureProjectOnboarding(
+export async function ensureOneCustomerOutreach(
   supabase: SupabaseClient,
-  projectId: string,
-): Promise<EnsureResult | null> {
-  // Only an ACTIVE 1035 Exchange project drives automatic onboarding. An
-  // archived project is read-only and must not launch new work.
-  const { data: project } = await supabase
-    .from('projects')
-    .select('id, status, project_types!inner ( name )')
-    .eq('id', projectId)
-    .eq('status', 'active')
-    .eq('project_types.name', '1035 Exchange')
+  customerId: string,
+): Promise<{ outreachId: string } | { error: string }> {
+  const { data: cust, error: custErr } = await supabase
+    .from('customers')
+    .select('id, email, phone, agency_id, is_test')
+    .eq('id', customerId)
     .maybeSingle()
-  if (!project) return null
+  if (custErr) return { error: custErr.message }
+  if (!cust) return { error: 'Customer not found' }
+  const c = cust as { id: string; email: string | null; phone: string | null; agency_id: string | null; is_test: boolean }
+  if (c.is_test) return { error: 'Customer is a test record' }
 
-  const { data: members } = await supabase
-    .from('project_customers')
-    .select('customer_id')
-    .eq('project_id', projectId)
-  const memberIds = Array.from(
-    new Set(((members ?? []) as { customer_id: string }[]).map((m) => m.customer_id)),
+  await ensureOnboardingForCustomers(
+    supabase,
+    [{ id: c.id, email: c.email, phone: c.phone, source_agency_id: c.agency_id }],
+    { policyFilterAgencyId: null },
   )
-  if (memberIds.length === 0) return { started: 0, skipped: 0, skippedNoPolicy: 0 }
 
-  const candidates: Candidate[] = []
-  type CustomerRow = { id: string; email: string | null; phone: string | null; agency_id: string | null }
-  await chunked(memberIds, 200, async (chunk) => {
-    const { data } = await supabase
-      .from('customers')
-      .select('id, email, phone, agency_id, is_test')
-      .in('id', chunk)
-      .eq('is_test', false)
-    for (const c of (data ?? []) as CustomerRow[]) {
-      candidates.push({ id: c.id, email: c.email, phone: c.phone, source_agency_id: c.agency_id })
-    }
-  })
-
-  // Project / single-customer path: take ALL of each member's known policies
-  // (no agency-book narrowing), exactly like the project Start path.
-  return ensureOnboardingForCustomers(supabase, candidates, { policyFilterAgencyId: null })
+  // Resolve the OPEN outreach row for this customer (whether created just now or
+  // pre-existing). open pre-review -> its outreach row.
+  const { data: pre } = await supabase
+    .from('customer_prereviews')
+    .select('id')
+    .eq('customer_id', customerId)
+    .is('decision', null)
+    .maybeSingle()
+  if (!pre) return { error: 'Could not start onboarding for this customer (no open work item).' }
+  const { data: outreach } = await supabase
+    .from('stewardship_outreach')
+    .select('id')
+    .eq('prereview_id', (pre as { id: string }).id)
+    .maybeSingle()
+  if (!outreach) return { error: 'Could not start onboarding for this customer (no outreach record; the customer may have no known policy).' }
+  return { outreachId: (outreach as { id: string }).id }
 }
 
 async function chunked<T>(items: T[], size: number, fn: (chunk: T[]) => Promise<void>): Promise<void> {

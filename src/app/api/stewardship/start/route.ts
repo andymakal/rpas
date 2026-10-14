@@ -7,17 +7,16 @@ import { ensureOnboardingForCustomers } from '@/lib/stewardship/ensure-onboardin
 /**
  * POST /api/stewardship/start
  *
- * Manually ensure Servicing-Agent Onboarding records for a selected cohort.
+ * Explicitly create Servicing-Agent Onboarding records for a selected cohort.
  *
- * This is the OPERATOR-INITIATED entry point. It is no longer the only way a
- * customer enters onboarding: active 1035 project members are accounted for
- * automatically by membership (see ensureProjectOnboarding, invoked when the
- * project's onboarding surface is read). This route remains for the agency-book
- * and ad-hoc single-customer cohorts that are NOT a project population, and for
- * an operator who wants to kick the ensure explicitly. It shares the SAME
- * idempotent creation logic (ensureOnboardingForCustomers), so a manual Start
- * and the automatic membership ensure can never diverge, and neither one
- * duplicates an existing open onboarding record.
+ * This is an OPERATOR-INITIATED action, not a prerequisite for onboarding to be
+ * evaluated: a project member who needs access is already actionable from the
+ * facts (membership + policy servicing-access), with no record required and no
+ * record created on read. This route exists for the cases where an operator
+ * wants to create the durable outreach records up front for a cohort — an
+ * agency book, a project population, or a single customer. It is idempotent
+ * (ensureOnboardingForCustomers): it never duplicates an existing open
+ * onboarding record and preserves any existing outreach history.
  *
  * Body (exactly one of agency_id / project_id / customer_id):
  *   { agency_id: string, customer_ids?: string[] }

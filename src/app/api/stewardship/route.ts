@@ -5,7 +5,8 @@ import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { resolveCapabilityProfile, loadWorkFunctions } from '@/lib/capabilities/resolve'
 import { canActOnItem, claimedByOther } from '@/lib/capabilities/work-functions'
 import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, type OutreachQueue, type CallPopulation, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
-import { ensureProjectOnboarding } from '@/lib/stewardship/ensure-onboarding'
+import { initialQueueFromOptions, resolveContactOptions } from '@/lib/stewardship/contact-options'
+import { getProjectWorkflows, projectContainsWorkflow, onboardingCompleteForPolicies } from '@/lib/projects/workflows'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 
@@ -48,19 +49,11 @@ export async function GET(request: NextRequest) {
   // project's work. An empty project yields an empty board.
   let projectCustomerIds: Set<string> | null = null
   if (projectId) {
-    // Servicing Agent Onboarding is objective-driven: every active 1035 project
-    // member is accounted for by MEMBERSHIP, not by a manual Start. Ensure the
-    // (idempotent) onboarding records exist before building the project's
-    // board, so a newly-added member surfaces here automatically without an
-    // operator action. Existing records and history are preserved — this only
-    // ADDS the missing ones — so it is safe to run on every project-scoped read.
-    try {
-      await ensureProjectOnboarding(supabase, projectId)
-    } catch (e) {
-      // Never let the auto-ensure break the board read; log and continue with
-      // whatever records already exist.
-      console.error('stewardship board: ensureProjectOnboarding failed', e)
-    }
+    // Servicing Agent Onboarding is objective-driven and evaluated from facts.
+    // The board NEVER creates records on read: a member who needs access is
+    // surfaced from membership + policy facts (see the derived population
+    // below), and a durable stewardship_outreach row is created only when an
+    // operator actually acts on the customer — not by opening this page.
     const { data: members, error: memberErr } = await supabase
       .from('project_customers')
       .select('customer_id')
@@ -172,16 +165,60 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // When this project runs the Servicing Agent Onboarding workflow, onboarding
+  // COMPLETION is a derived fact (applicable permanent access confirmed), not
+  // the presence/absence of a record. So a member whose onboarding is already
+  // complete has ADVANCED past onboarding and must not appear on the onboarding
+  // board — even if a lingering outreach row exists for them (e.g. access was
+  // confirmed outside the outreach flow). We compute that derived-complete set
+  // once and use it to suppress such rows below and to skip them when surfacing
+  // derived (virtual) items. No writes; purely a read-time derivation.
+  const projectHasOnboarding = projectId
+    ? projectContainsWorkflow(await getProjectWorkflows(supabase, projectId), 'servicing_agent_onboarding')
+    : false
+  const onboardingCompleteMemberIds = new Set<string>()
+  if (projectId && projectCustomerIds && projectHasOnboarding) {
+    const memberIdList = Array.from(projectCustomerIds)
+    for (let i = 0; i < memberIdList.length; i += 300) {
+      const chunk = memberIdList.slice(i, i + 300)
+      const { data: pols } = await supabase
+        .from('service_policies')
+        .select('customer_id, product_type, sa_status, is_test')
+        .in('customer_id', chunk)
+        .eq('is_test', false)
+      const byCust = new Map<string, { product_type: string | null; sa_status: string | null }[]>()
+      for (const p of (pols ?? []) as { customer_id: string; product_type: string | null; sa_status: string | null }[]) {
+        const list = byCust.get(p.customer_id) ?? []
+        list.push({ product_type: p.product_type, sa_status: p.sa_status })
+        byCust.set(p.customer_id, list)
+      }
+      for (const cid of chunk) {
+        const policies = byCust.get(cid) ?? []
+        // A member with no known policy has nothing to onboard; onboardingComplete
+        // returns true for them, but they are not surfaced as work anyway. Only
+        // members WITH policies that are all-confirmed count as "advanced".
+        if (policies.length > 0 && onboardingCompleteForPolicies(policies)) {
+          onboardingCompleteMemberIds.add(cid)
+        }
+      }
+    }
+  }
+
   // Only open items (decision still null) belong on the outreach board. A
   // decided pre-review is no longer stewardship/outreach work. A REFUSED item is
   // suppressed from the board until it is deliberately reopened (an explicit
   // refusal stops outreach). When a project scope is set, also drop any item
   // whose customer is not in the project, so both the list and the counts below
-  // reflect only this project's work.
+  // reflect only this project's work. Finally, drop any item whose customer's
+  // onboarding is DERIVED-COMPLETE (they have advanced to review preparation),
+  // so a lingering record never contradicts the authoritative servicing-access
+  // fact.
   const rows = ((data ?? []) as unknown as Row[]).filter(r => {
     if (r.customer_prereviews?.decision != null) return false
     if (r.refused_at != null) return false
-    if (projectCustomerIds && !projectCustomerIds.has(r.customer_prereviews.customers.id)) return false
+    const cid = r.customer_prereviews.customers.id
+    if (projectCustomerIds && !projectCustomerIds.has(cid)) return false
+    if (onboardingCompleteMemberIds.has(cid)) return false
     return true
   })
 
@@ -262,8 +299,114 @@ export async function GET(request: NextRequest) {
       claimed_by_producer_id: r.claimed_by_producer_id,
       claimed_by_name: r.claimed_by_producer_id ? (nameByProducerId.get(r.claimed_by_producer_id) ?? null) : null,
       is_mine: !!r.claimed_by_producer_id && r.claimed_by_producer_id === myProducerId,
+      // Not a derived item: this is a real, recorded outreach row.
+      virtual: false as boolean,
+      customer_id: r.customer_prereviews.customers.id,
     }
   })
+
+  // DERIVED (virtual) onboarding items — project-scoped only.
+  //
+  // Servicing Agent Onboarding is evaluated from facts: when the project
+  // contains the onboarding workflow, EVERY member whose applicable servicing
+  // access is not yet confirmed is actionable — even if no outreach record
+  // exists yet. We surface those members here as DERIVED items (id: null,
+  // virtual: true) computed purely from membership + policy facts. No record is
+  // created by this read; the client materializes the durable row on first
+  // action via /api/stewardship/ensure-one.
+  //
+  // This is what makes a member needing access actionable WITHOUT a manual
+  // start, while still never writing on a page read. Members whose onboarding is
+  // already COMPLETE (access confirmed) are not surfaced — they have advanced to
+  // review preparation. Members who already have a recorded outreach row are
+  // represented by that row above and are not duplicated here.
+  const virtualItems: typeof items = []
+  if (projectId && projectCustomerIds && projectCustomerIds.size > 0 && projectHasOnboarding) {
+    {
+      // Members needing access = project members minus those already represented
+      // by a recorded (open, non-refused) outreach row, minus those whose
+      // onboarding is derived-COMPLETE (already advanced). No duplication, and
+      // completed members are never resurfaced.
+      const recordedCustomerIds = new Set(items.map(it => it.customer_id))
+      const memberIds = Array.from(projectCustomerIds).filter(
+        id => !recordedCustomerIds.has(id) && !onboardingCompleteMemberIds.has(id),
+      )
+      if (memberIds.length > 0) {
+        // Policy facts for onboarding completion + the derived opening action.
+        const policiesByCustomer = new Map<string, { product_type: string | null; sa_status: string | null }[]>()
+        const contactByCustomer = new Map<string, { email: string | null; phone: string | null; first_name: string; last_name: string }>()
+        for (let i = 0; i < memberIds.length; i += 300) {
+          const chunk = memberIds.slice(i, i + 300)
+          const [{ data: pols }, { data: custs }] = await Promise.all([
+            supabase
+              .from('service_policies')
+              .select('customer_id, product_type, sa_status, is_test')
+              .in('customer_id', chunk)
+              .eq('is_test', false),
+            supabase
+              .from('customers')
+              .select('id, first_name, last_name, email, phone, is_test')
+              .in('id', chunk)
+              .eq('is_test', false),
+          ])
+          for (const p of (pols ?? []) as { customer_id: string; product_type: string | null; sa_status: string | null }[]) {
+            const list = policiesByCustomer.get(p.customer_id) ?? []
+            list.push({ product_type: p.product_type, sa_status: p.sa_status })
+            policiesByCustomer.set(p.customer_id, list)
+          }
+          for (const c of (custs ?? []) as { id: string; first_name: string; last_name: string; email: string | null; phone: string | null }[]) {
+            contactByCustomer.set(c.id, { email: c.email, phone: c.phone, first_name: c.first_name, last_name: c.last_name })
+          }
+        }
+
+        for (const cid of memberIds) {
+          const contact = contactByCustomer.get(cid)
+          if (!contact) continue // test record or missing — not surfaced
+          const policies = policiesByCustomer.get(cid) ?? []
+          if (policies.length === 0) continue // no known policy: nothing to pursue
+          // Already complete (access confirmed): advanced past onboarding, not surfaced.
+          if (onboardingCompleteForPolicies(policies)) continue
+
+          // The recommended opening action, derived from live contact facts the
+          // same way a created record would be.
+          const options = await resolveContactOptions({ email: contact.email, phone: contact.phone })
+          const route = initialQueueFromOptions(options)
+          const effectiveQueue = route.queue as OutreachQueue
+          const population = callPopulationOf({
+            effectiveQueue,
+            callReason: route.call_reason as CallReason | null,
+            hasUsablePhone: !!contact.phone?.trim(),
+            callbackDue: false,
+          })
+          virtualItems.push({
+            id: null as unknown as string,
+            queue: effectiveQueue,
+            call_reason: route.call_reason,
+            research_reason: route.research_reason,
+            last_call_outcome: null,
+            callback_date: null,
+            email_sent_at: null,
+            follow_up_due: null,
+            form_received_at: null,
+            submitted_at: null,
+            carrier_correction: null,
+            follow_up_due_now: false,
+            call_population: population,
+            prereview_id: null as unknown as string,
+            customer: { id: cid, first_name: contact.first_name, last_name: contact.last_name, email: contact.email, phone: contact.phone },
+            claimed_by_producer_id: null,
+            claimed_by_name: null,
+            is_mine: false,
+            virtual: true as boolean,
+            customer_id: cid,
+          })
+        }
+      }
+    }
+  }
+  // Merge derived items into the working set so counts and the list include the
+  // members who are actionable from facts alone.
+  items.push(...virtualItems)
 
   // A population view opened from a My Work count must list EXACTLY what My Work
   // counted: the callable items in that population that this employee can pick

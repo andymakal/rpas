@@ -17,7 +17,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveProducerForUser } from '@/lib/capabilities/resolve'
 import { buildProjectWorkflow, summarizeWorkflow, type WorkflowStage } from '@/lib/projects/review-1035'
-import { ensureProjectOnboarding } from '@/lib/stewardship/ensure-onboarding'
+import { projectHasWorkflow } from '@/lib/projects/workflows'
 import { STAGE_LABEL } from '@/lib/my-work/project-labels'
 
 // Re-export so existing server importers of STAGE_LABEL keep working. The
@@ -160,23 +160,22 @@ export async function getMyProjects(authUserId: string): Promise<MyProjectsState
   }[]) {
     const pt = Array.isArray(pr.project_types) ? pr.project_types[0] : pr.project_types
     const projectType = pt?.name ?? ''
-    const is1035 = /1035/.test(projectType)
+    // Whether this project runs the derived review workflow is decided by the
+    // WORKFLOW WIRING (does it contain review_preparation?), not the type name.
+    // Fallback (pre-migration): the prior /1035/ type-name test, so behavior is
+    // unchanged until the migration lands. No records are created here.
+    const hasReviewWorkflow = await projectHasWorkflow(
+      supabase, pr.id, 'review_preparation', /1035/.test(projectType),
+    )
 
-    // Progress + bottleneck from the derived 1035 workflow (the SAME read the
-    // project surface uses). For non-1035 projects (none yet) the derived stage
-    // model does not apply; show totals only.
+    // Progress + bottleneck from the derived project workflow (the SAME read the
+    // project surface uses). For projects without the review workflow the
+    // derived stage model does not apply; show totals only.
     let stageCounts: Record<WorkflowStage, number> = {
       stewardship: 0, operations_prep: 0, bob_evaluation: 0, ready_for_outreach: 0, complete: 0,
     }
     let total = 0
-    if (is1035) {
-      // Project-level summary: account for every active 1035 member in
-      // onboarding (idempotent; preserves existing records) before summarizing.
-      try {
-        await ensureProjectOnboarding(supabase, pr.id)
-      } catch (e) {
-        console.error('my-projects: ensureProjectOnboarding failed', e)
-      }
+    if (hasReviewWorkflow) {
       const workflow = await buildProjectWorkflow(supabase, pr.id)
       const summary = summarizeWorkflow(workflow)
       stageCounts = summary.by
@@ -211,7 +210,7 @@ export async function getMyProjects(authUserId: string): Promise<MyProjectsState
       owner: (participantsByProject.get(pr.id) ?? []).find((x) => x.role === 'owner') ?? null,
       escalation: escalationByProject.get(pr.id) ?? [],
       route: `/projects/${pr.id}`,
-      reviewRoute: is1035 && pr.status !== 'archived' ? `/projects/${pr.id}/review` : null,
+      reviewRoute: hasReviewWorkflow && pr.status !== 'archived' ? `/projects/${pr.id}/review` : null,
     })
   }
 

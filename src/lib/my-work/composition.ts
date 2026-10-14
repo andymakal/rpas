@@ -28,7 +28,7 @@ import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowU
 import { createTimeContext } from '@/lib/time'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
-import { ensureProjectOnboarding } from '@/lib/stewardship/ensure-onboarding'
+import { activeProjectsWithWorkflow } from '@/lib/projects/workflows'
 import { buildContactReview, summarizeContactReview } from '@/lib/projects/contact-review'
 import {
   loadWorkFunctions,
@@ -703,25 +703,30 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   // (operations_prep) and Bob's determination (determination). Stewardship-stage
   // customers are already represented by the shared board above, so they are not
   // double-counted here.
-  const { data: proj } = await supabase
-    .from('projects')
-    .select('id, name, project_types!inner ( name )')
-    .eq('status', 'active')
-    .eq('project_types.name', '1035 Exchange')
-    .limit(1)
-    .maybeSingle()
+  // Which project owns the review-preparation work is resolved from the
+  // WORKFLOW WIRING (data), not the project type name: the first ACTIVE project
+  // that contains the review_preparation workflow. Fallback (pre-migration, when
+  // the workflow tables are absent): the seeded "1035 Exchange" active project,
+  // so behavior is unchanged until the migration lands. No records are created
+  // here — the counts are DERIVED from facts.
+  let proj: { id: string; name: string } | null = null
+  const reviewProjects = await activeProjectsWithWorkflow(supabase, 'review_preparation')
+  if (reviewProjects === null) {
+    const { data: legacy } = await supabase
+      .from('projects')
+      .select('id, name, project_types!inner ( name )')
+      .eq('status', 'active')
+      .eq('project_types.name', '1035 Exchange')
+      .limit(1)
+      .maybeSingle()
+    proj = legacy ? { id: legacy.id as string, name: legacy.name as string } : null
+  } else {
+    proj = reviewProjects[0] ?? null
+  }
 
   if (proj) {
-    const projectId = proj.id as string
-    const projectName = (proj.name as string) || '1035 Exchange'
-    // Project-level view: account for every active 1035 member in onboarding
-    // (idempotent; preserves existing records) so My Work's counts reflect the
-    // full membership, not only the manually-started subset.
-    try {
-      await ensureProjectOnboarding(supabase, projectId)
-    } catch (e) {
-      console.error('my-work composition: ensureProjectOnboarding failed', e)
-    }
+    const projectId = proj.id
+    const projectName = proj.name || 'Review Preparation'
     const workflow = await buildProjectWorkflow(supabase, projectId)
     const summary = summarizeWorkflow(workflow)
     const prepCount = summary.by.operations_prep
