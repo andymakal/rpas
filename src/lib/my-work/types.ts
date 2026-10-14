@@ -202,6 +202,17 @@ export interface ActivityProjectCounts {
   claimedByOthersCount: number
   notEligibleCount: number
   dueCount: number
+  /**
+   * Attempted-vs-unresolved presentation (currently populated only for the
+   * Research activity), restricted to this project and counting each customer
+   * once. `unresolvedCount` is the full unresolved population (outstanding +
+   * researched-unsuccessfully); `unsuccessfulCount` is the researched-but-nothing
+   * -found subset. `totalCount` stays the OUTSTANDING count, so the recommendation
+   * (band, available/owned) is unchanged. Absent for activities that have no such
+   * distinction yet.
+   */
+  unresolvedCount?: number
+  unsuccessfulCount?: number
 }
 
 export interface ActivityGroup {
@@ -214,8 +225,31 @@ export interface ActivityGroup {
   reasonCode: string
   /** Short deterministic human reason for the band. */
   reason: string
-  /** Total open items across all sources for this activity (recorded once). */
+  /**
+   * Total OUTSTANDING open items across all sources for this activity (recorded
+   * once). This is the actionable, recommended work: it drives the ZEN band and
+   * the available/owned breakdown, and for Research it deliberately EXCLUDES
+   * customers whose research already came up empty (so the recommendation is
+   * never inflated by already-researched holdovers).
+   */
   totalCount: number
+  /**
+   * The full UNRESOLVED population for this activity, counting each customer
+   * once — the same population the working queue shows. For Research this is
+   * outstanding (totalCount) PLUS the researched-unsuccessfully customers, so the
+   * summary can present "N customers" with the attempted-vs-unresolved breakdown
+   * while the recommendation above stays outstanding-only. Absent (undefined)
+   * for activities that do not yet distinguish attempted from unresolved, where
+   * the unresolved population simply equals totalCount.
+   */
+  unresolvedCount?: number
+  /**
+   * Of unresolvedCount, how many have been attempted but remain unresolved — for
+   * Research, researched unsuccessfully (nothing usable found). The outstanding
+   * ("not yet researched") count is unresolvedCount - unsuccessfulCount, which
+   * equals totalCount. Absent when the activity has no such distinction yet.
+   */
+  unsuccessfulCount?: number
   /** How many of those the signed-in employee has claimed (owned). */
   ownedCount: number
   /**

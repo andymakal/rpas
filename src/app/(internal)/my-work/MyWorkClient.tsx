@@ -526,7 +526,7 @@ function PlanStepRow({ step, position }: { step: PlanStep; position: number }) {
  * when the worker asks for the full list. Preserves the GoRules band ordering. */
 function FullInventory({ state }: { state: MyWorkState }) {
   const bands = groupByBand(state.activities)
-  if (state.quiet && state.activities.every((a) => a.totalCount === 0)) {
+  if (state.quiet && state.activities.every((a) => a.totalCount === 0 && (a.unresolvedCount ?? 0) === 0)) {
     return (
       <div className="flex items-center gap-2 rounded-2xl border border-surface-border bg-surface-card p-6 text-base text-ink-secondary">
         <CheckCircle2 className="size-5 text-status-confirmed" aria-hidden />
@@ -620,17 +620,34 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
           )}
         </div>
 
-        {/* Count summary: total, with owned/shared split so sharing is visible.
-            The number is a strong neutral by default; it takes the brand accent
-            only for a genuine commitment/exception, so teal signals emphasis
-            rather than coating every card. */}
+        {/* Count summary. The headline is the full UNRESOLVED population the
+            working queue shows (outstanding + attempted-but-unresolved), so the
+            summary and the queue agree. When an activity distinguishes attempted
+            from unresolved (unresolvedCount present — Research today), a
+            breakdown line separates the two so they are not confused; the number
+            otherwise falls back to the outstanding total. The number is a strong
+            neutral by default; it takes the brand accent only for a genuine
+            commitment/exception, so teal signals emphasis rather than coating
+            every card. */}
         <div className="shrink-0 text-right">
           <p className={cn(
             'text-3xl font-semibold leading-none',
             isCommitment ? 'text-tag-exception-text' : 'text-ink',
-          )}>{activity.totalCount}</p>
+          )}>{activity.unresolvedCount ?? activity.totalCount}</p>
+          {/* Attempted-vs-unresolved breakdown: how many are still outstanding
+              vs attempted but unresolved. Shown whenever the activity carries the
+              distinction, so a zero-outstanding activity still reads clearly
+              (e.g. "0 not yet researched · 3 researched unsuccessfully"). */}
+          {activity.unresolvedCount != null && (activity.unsuccessfulCount ?? 0) > 0 && (
+            <p className="mt-1 text-xs text-ink-supporting">
+              {activity.unresolvedCount - (activity.unsuccessfulCount ?? 0)} not yet researched
+              {' · '}
+              {activity.unsuccessfulCount} researched unsuccessfully
+            </p>
+          )}
           {/* Distinct claim states for THIS employee: never conflate another
-              teammate's claimed work with free shared work. */}
+              teammate's claimed work with free shared work. Tied to the
+              outstanding, actionable work (the recommended total). */}
           <p className="mt-1 text-xs text-ink-supporting">
             {activity.ownedCount > 0 && `${activity.ownedCount} yours · `}
             {activity.availableCount} available
@@ -639,6 +656,16 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
           </p>
         </div>
       </div>
+
+      {/* When some work has been attempted but remains unresolved, explain that
+          it may need a different approach — so the researched-unsuccessfully
+          customers read as "try something else", not fresh outstanding work. */}
+      {activity.unresolvedCount != null && (activity.unsuccessfulCount ?? 0) > 0 && (
+        <p className="mt-2 max-w-prose text-xs leading-relaxed text-ink-supporting">
+          {activity.unsuccessfulCount} researched unsuccessfully — nothing usable found yet. These
+          may need an alternative approach; they stay in the queue so you can try again.
+        </p>
+      )}
 
       {/* Sources: each business activity appears once, with its sources listed
           beneath it, so the same activity across projects is not duplicated.

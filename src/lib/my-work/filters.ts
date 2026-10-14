@@ -130,6 +130,12 @@ export function reaggregateForProject(
       ...a,
       sources,
       totalCount: authoritative.totalCount,
+      // Narrow the attempted-vs-unresolved figures to the project too, so a
+      // project-filtered Research summary shows that project's population and
+      // breakdown rather than the agency-wide one. Absent when the project
+      // carries no such distinction.
+      unresolvedCount: authoritative.unresolvedCount,
+      unsuccessfulCount: authoritative.unsuccessfulCount,
       ownedCount: authoritative.ownedCount,
       availableCount: authoritative.availableCount,
       claimedByOthersCount: authoritative.claimedByOthersCount,

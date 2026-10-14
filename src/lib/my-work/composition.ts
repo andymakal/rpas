@@ -239,6 +239,16 @@ interface Accum {
   /** Eligible to me but claimed by ANOTHER employee. */
   claimedByOthers: number
   /**
+   * Attempted-vs-unresolved presentation (populated only for Research today).
+   * `unresolved` is the full unresolved population (each customer once) the
+   * working queue shows; `unsuccessful` is the researched-but-nothing-found
+   * subset. `total` above stays OUTSTANDING, so the recommendation is unchanged;
+   * these drive only the summary's population figure and breakdown. Zero for
+   * every activity that does not carry the distinction.
+   */
+  unresolved: number
+  unsuccessful: number
+  /**
    * Every project this activity's work belongs to (union across items). Used
    * ONLY for display (the sources already name their project) and for deciding
    * whether to surface an empty, focus-directed activity; never to grant
@@ -260,7 +270,7 @@ interface Accum {
 /** A mutable per-project count bucket used while aggregating; serialized to the
  * ActivityProjectCounts shape on the ActivityGroup at the end. */
 function emptyProjectCounts(): ActivityProjectCounts {
-  return { totalCount: 0, ownedCount: 0, availableCount: 0, claimedByOthersCount: 0, notEligibleCount: 0, dueCount: 0 }
+  return { totalCount: 0, ownedCount: 0, availableCount: 0, claimedByOthersCount: 0, notEligibleCount: 0, dueCount: 0, unresolvedCount: 0, unsuccessfulCount: 0 }
 }
 
 /** Add one activity's project bucket, creating it if absent. */
@@ -318,6 +328,8 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       owned: 0,
       availableToMe: 0,
       claimedByOthers: 0,
+      unresolved: 0,
+      unsuccessful: 0,
       projectIds: new Set<string>(),
       projectTotals: new Map<string, ActivityProjectCounts>(),
     })
@@ -502,6 +514,26 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       !(r.queue === 'research-needed' && researchSettledCustomerIds.has(r.customer_prereviews.customer_id)),
   )
 
+  // The full UNRESOLVED research population, for the Research activity summary.
+  // The per-item tally below counts only OUTSTANDING research (openRows drops the
+  // settled rows, keeping the recommendation clean). But the summary must show
+  // the whole unresolved population the Research Needed queue shows — outstanding
+  // PLUS researched-unsuccessfully — with each customer counted once. We derive
+  // that here from openRowsBase (the research-needed rows surviving the
+  // onboarding gate), independently of the recommendation tally, and record it
+  // on the research accumulator and its per-project buckets. The customer's
+  // project membership is read from projectsByCustomer (populated just below), so
+  // this accumulation is deferred until after that map is built.
+  const researchUnresolvedCustomerIds = new Set<string>()
+  const researchUnsuccessfulCustomerIds = new Set<string>()
+  for (const r of openRowsBase) {
+    if (r.queue !== 'research-needed') continue
+    const cid = r.customer_prereviews.customer_id
+    if (onboardingCompleteCustomerIds.has(cid)) continue // advanced past onboarding
+    researchUnresolvedCustomerIds.add(cid)
+    if (researchSettledCustomerIds.has(cid)) researchUnsuccessfulCustomerIds.add(cid)
+  }
+
   // Project association for the open board customers: which project(s) each
   // customer belongs to. This is the ONE extra read that preserves the project
   // link for shared work (no activity is duplicated; the association is metadata
@@ -516,6 +548,26 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       const set = projectsByCustomer.get(m.customer_id) ?? new Set<string>()
       set.add(m.project_id)
       projectsByCustomer.set(m.customer_id, set)
+    }
+  }
+
+  // Record the unresolved research population (each customer once) on the
+  // Research activity and its per-project buckets, so the summary shows the full
+  // population with its outstanding-vs-unsuccessful breakdown while the tally
+  // below keeps driving the recommendation from outstanding only.
+  {
+    const research = acc.get('research')
+    if (research) {
+      for (const cid of researchUnresolvedCustomerIds) {
+        const unsuccessful = researchUnsuccessfulCustomerIds.has(cid)
+        research.unresolved += 1
+        if (unsuccessful) research.unsuccessful += 1
+        for (const pid of projectsByCustomer.get(cid) ?? new Set<string>()) {
+          const b = projectBucket(research, pid)
+          b.unresolvedCount = (b.unresolvedCount ?? 0) + 1
+          if (unsuccessful) b.unsuccessfulCount = (b.unsuccessfulCount ?? 0) + 1
+        }
+      }
     }
   }
 
@@ -991,6 +1043,58 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     }
   }
 
+  // 3c. Keep Research directly accessible when outstanding research has reached
+  // zero but unresolved customers remain (only researched-unsuccessfully left).
+  // The per-queue loop emits a research source only when there is OUTSTANDING
+  // work (t.total > 0), so with zero outstanding the activity would have no link
+  // into the queue. Emit a research source here in that case, linking to the
+  // Research Needed queue (project-scoped when the employee is eligible only via
+  // a project), so the summary stays clickable and lands on the same queue that
+  // shows the researched-unsuccessfully customers. Its count is the unresolved
+  // population; it is informational so it never feeds the (zero) outstanding
+  // total.
+  {
+    const research = acc.get('research')
+    if (research && research.unresolved > 0 && !research.sources.some((s) => s.kind === 'stewardship')) {
+      const scopedProjects = scopedProjectsFor('research')
+      const eligibleViaProjectOnly = !agencyWideEligible('research') && scopedProjects.size > 0
+      const linkProjectId = eligibleViaProjectOnly
+        ? ([...scopedProjects].find((pid) => research.projectIds.has(pid)) ?? null)
+        : null
+      const scopes = ((): Record<string, WorkSourceProjectScope> | undefined => {
+        const out: Record<string, WorkSourceProjectScope> = {}
+        for (const [pid, pc] of research.projectTotals) {
+          const n = pc.unresolvedCount ?? 0
+          if (n <= 0) continue
+          out[pid] = {
+            count: n,
+            ownedByMe: 0,
+            availableToMe: 0,
+            claimedByOthers: 0,
+            notEligible: 0,
+            dueToMe: 0,
+            route: stewardshipRoute('research-needed', pid),
+          }
+        }
+        return Object.keys(out).length > 0 ? out : undefined
+      })()
+      research.sources.push({
+        kind: 'stewardship',
+        label: `Shared Stewardship board — ${QUEUE_LABEL['research-needed']}`,
+        count: research.unresolved,
+        route: linkProjectId ? stewardshipRoute('research-needed', linkProjectId) : stewardshipRoute('research-needed'),
+        projectId: linkProjectId,
+        ownedByMe: 0,
+        availableToMe: 0,
+        claimedByOthers: 0,
+        notEligible: 0,
+        dueToMe: 0,
+        informational: true,
+        projectScopes: scopes,
+      })
+    }
+  }
+
   // 4. The 1035 project workflow (the SAME derived read the project surface
   // uses). Map its derived per-customer stages onto activities: operations prep
   // (operations_prep) and Bob's determination (determination). Stewardship-stage
@@ -1157,7 +1261,12 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
 
     // Drop activities with no work that are not a directed focus for this
     // eligible employee. (An ineligible, empty activity is simply not shown.)
-    if (a.total === 0 && !(focusElevated && eligible)) continue
+    // "No work" means no OUTSTANDING items AND no unresolved population: an
+    // activity whose outstanding count has reached zero but still has unresolved
+    // customers (e.g. Research with only researched-unsuccessfully customers
+    // left) stays visible and directly accessible, as long as unresolved work
+    // remains.
+    if (a.total === 0 && a.unresolved === 0 && !(focusElevated && eligible)) continue
 
     // The employee's capability STANDING for this activity, across the scopes it
     // touches. This distinguishes the non-routable situations so each routes
@@ -1199,6 +1308,12 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         label: a.label,
       }),
       totalCount: a.total,
+      // The full unresolved population and its attempted-unsuccessful subset,
+      // carried only when the activity actually distinguishes them (Research
+      // today). Left undefined otherwise, so a reader treats unresolved as equal
+      // to the outstanding total.
+      unresolvedCount: a.unresolved > 0 ? a.unresolved : undefined,
+      unsuccessfulCount: a.unresolved > 0 ? a.unsuccessful : undefined,
       ownedCount: a.owned,
       availableCount: a.availableToMe,
       claimedByOthersCount: a.claimedByOthers,
@@ -1229,7 +1344,13 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   // awareness-only (unassigned / unlicensed) or empty. Assist-capable work is
   // actionable (the employee may pick it up), so it does NOT count as quiet.
   const AWARENESS_BANDS = new Set<PriorityBand>(['unassigned', 'unlicensed'])
-  const quiet = activities.every((a) => AWARENESS_BANDS.has(a.band) || a.totalCount === 0)
+  // An activity is "empty" for quiet purposes only when it has neither
+  // outstanding work nor any unresolved population to keep visible. Research
+  // with only researched-unsuccessfully customers left (outstanding 0, unresolved
+  // > 0) is still work the employee can see and revisit, so it is not quiet.
+  const activityIsEmpty = (a: ActivityGroup): boolean =>
+    a.totalCount === 0 && (a.unresolvedCount ?? 0) === 0
+  const quiet = activities.every((a) => AWARENESS_BANDS.has(a.band) || activityIsEmpty(a))
 
   const projectNameById = new Map<string, string>()
   for (const a of activities)
