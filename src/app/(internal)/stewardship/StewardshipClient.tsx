@@ -111,6 +111,11 @@ type BoardItem = {
   // untouched subset of Ready to Email). Set by the board route so the
   // introductory-email population view lists exactly the counted customers.
   is_intro_email?: boolean
+  // Research Needed only: true when every still-missing contact method has been
+  // researched unsuccessfully. The item stays in the queue (not dropped), sorts
+  // below outstanding research, and shows "Research unsuccessful — Try again".
+  // Set by the board route.
+  research_unsuccessful?: boolean
   // Optional soft-lease claim (shared by default; the board is never filtered
   // by it). Reused from the IPF queue-owned-until-claimed model.
   claimed_by_producer_id?: string | null
@@ -300,6 +305,12 @@ export function StewardshipClient({
   const [counts, setCounts] = useState<Record<OutreachQueue, number>>(
     Object.fromEntries(OUTREACH_QUEUES.map(q => [q, 0])) as Record<OutreachQueue, number>,
   )
+  // Research Needed split: outstanding (still to do, drives the tile count) and
+  // unsuccessful (researched, nothing found — kept visible for a deliberate
+  // retry). Reported by the board route so the two are never conflated.
+  const [researchCounts, setResearchCounts] = useState<{ outstanding: number; unsuccessful: number }>(
+    { outstanding: 0, unsuccessful: 0 },
+  )
   const [loading, setLoading] = useState(true)
   const [openQueue, setOpenQueue] = useState<OutreachQueue | null>(initialQueue)
   const [openItemId, setOpenItemId] = useState<string | null>(initialItemId)
@@ -387,6 +398,9 @@ export function StewardshipClient({
       if (res.ok) {
         setItems(json.data.items as BoardItem[])
         setCounts(json.data.counts as Record<OutreachQueue, number>)
+        if (json.data.research_counts) {
+          setResearchCounts(json.data.research_counts as { outstanding: number; unsuccessful: number })
+        }
       }
     } finally {
       setLoading(false)
@@ -557,16 +571,34 @@ export function StewardshipClient({
     // destination queue. This is a presentation sort only; it changes no
     // workflow state and no queue placement. "Today" is judged on the business
     // calendar, matching the Assistant.
+    //
+    // In Research Needed, outstanding research (still to do) sorts ABOVE research
+    // that already came up empty ("Research unsuccessful — Try again"), so the
+    // actionable work leads and the already-researched holdovers trail without
+    // being removed from the queue.
     const queueItems = items
       .filter(i => i.queue === openQueue)
-      .sort((a, b) => dueCallbackRank(a, actorTimeZone) - dueCallbackRank(b, actorTimeZone))
+      .sort((a, b) => {
+        if (openQueue === 'research-needed') {
+          const ra = a.research_unsuccessful ? 1 : 0
+          const rb = b.research_unsuccessful ? 1 : 0
+          if (ra !== rb) return ra - rb
+        }
+        return dueCallbackRank(a, actorTimeZone) - dueCallbackRank(b, actorTimeZone)
+      })
+    // Research Needed carries a split count in its header so outstanding and
+    // unsuccessful are distinguished at a glance; every other queue shows its
+    // plain list length.
+    const headerBlurb = openQueue === 'research-needed'
+      ? `${researchCounts.outstanding} still to research${researchCounts.unsuccessful > 0 ? ` · ${researchCounts.unsuccessful} researched, nothing found` : ''}`
+      : meta.blurb
     return (
       <WorkflowPage>
         <QueueListHeader
           icon={QUEUE_ICON[openQueue]}
           label={meta.label}
           count={queueItems.length}
-          blurb={meta.blurb}
+          blurb={headerBlurb}
           onBack={() => setOpenQueue(null)}
         />
         {claimMsg && (
@@ -647,7 +679,7 @@ export function StewardshipClient({
 function queueDetail(it: BoardItem): string {
   switch (it.queue) {
     case 'ready-to-call': return it.call_reason ? callReasonLabel(it.call_reason) : 'Ready to call'
-    case 'research-needed': return 'Needs usable contact'
+    case 'research-needed': return it.research_unsuccessful ? 'Researched — nothing found yet' : 'Needs usable contact'
     case 'waiting-for-response': return it.follow_up_due ? `Follow-up ${shortDate(it.follow_up_due)}` : 'Awaiting reply'
     case 'waiting-for-form': return 'Form sent'
     case 'waiting-for-carrier': return it.carrier_correction ? 'Carrier correction needed' : 'Submitted to carrier'
@@ -656,6 +688,12 @@ function queueDetail(it: BoardItem): string {
 }
 
 function queueTag(it: BoardItem) {
+  // A researched-not-found customer stays in Research Needed, flagged so the
+  // worker sees it is a deliberate retry (not fresh outstanding work). Opening
+  // it returns to the same research task.
+  if (it.queue === 'research-needed' && it.research_unsuccessful) {
+    return <OperationalTag tone="info">Research unsuccessful — Try again</OperationalTag>
+  }
   if (it.queue === 'waiting-for-carrier' && it.carrier_correction) {
     return <OperationalTag tone="exception">Correction</OperationalTag>
   }

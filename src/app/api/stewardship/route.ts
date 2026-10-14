@@ -319,6 +319,9 @@ export async function GET(request: NextRequest) {
       // Whether this item is in the first-touch introductory-email population,
       // carried so the board can open that population exactly as counted.
       is_intro_email: introEmail,
+      // Research outcome: set below for research-needed items whose every
+      // still-missing method has been researched unsuccessfully. Default false.
+      research_unsuccessful: false as boolean,
       prereview_id: r.customer_prereviews.id,
       customer: r.customer_prereviews.customers,
       // Optional soft-lease claim (shared by default). is_mine lets the list mark
@@ -428,6 +431,7 @@ export async function GET(request: NextRequest) {
               lastCallOutcome: null,
               callbackDate: null,
             }),
+            research_unsuccessful: false as boolean,
             prereview_id: null as unknown as string,
             customer: { id: cid, first_name: contact.first_name, last_name: contact.last_name, email: contact.email, phone: contact.phone },
             claimed_by_producer_id: null,
@@ -444,40 +448,40 @@ export async function GET(request: NextRequest) {
   // members who are actionable from facts alone.
   items.push(...virtualItems)
 
-  // Research-recommendation dampening. A Research Needed item (recorded or
-  // derived) whose every still-missing contact method has already been
-  // researched unsuccessfully is no longer a research recommendation — the
-  // look-up was done and nothing was found — so it is removed from the Research
-  // Needed queue and its count. The customer is NOT closed and keeps every other
-  // surface (project membership, Contact Review, the customer record), where a
-  // deliberate re-check or a newly-found email/phone re-opens the recommendation
-  // on its own (a present value makes the method no longer missing). Only
-  // Research Needed items are affected; outreach/waiting items are untouched.
+  // Research outcome marking. A Research Needed item (recorded or derived) whose
+  // every still-missing contact method has already been researched
+  // unsuccessfully is no longer OUTSTANDING research — the look-up was done and
+  // nothing was found. It is NOT dropped from the queue: it stays visible in
+  // Research Needed, flagged research_unsuccessful so the UI can show
+  // "Research unsuccessful — Try again", sort it below the outstanding ones, and
+  // reopen the SAME research task on click. The customer is never closed and
+  // keeps every other surface; a deliberate re-check or a newly-found value
+  // clears the flag on its own (a present value makes the method no longer
+  // missing). Only Research Needed items are evaluated; outreach/waiting are
+  // untouched. My Work's recommended outstanding-research count excludes these
+  // (its own composition applies the same rule), so the recommendation stays
+  // clean while the queue keeps the customer reachable.
+  let researchOutstanding = 0
+  let researchUnsuccessful = 0
   {
     const researchCustomerIds = items
       .filter((it) => it.queue === 'research-needed' && !!it.customer?.id)
       .map((it) => it.customer!.id)
-    if (researchCustomerIds.length > 0) {
-      const researchedByCustomer = await readResearchedUnsuccessfullyBatch(supabase, researchCustomerIds)
-      const settled = new Set<string>()
-      for (const it of items) {
-        if (it.queue !== 'research-needed') continue
-        const c = it.customer
-        if (!c?.id) continue
-        const researched = researchedByCustomer.get(c.id) ?? { email: false, phone: false }
-        const stillRecommend = stillNeedsResearchRecommendation(
-          { hasEmail: !!c.email?.trim(), hasPhone: !!c.phone?.trim() },
-          researched,
-        )
-        if (!stillRecommend) settled.add(it.id ?? `virtual:${c.id}`)
-      }
-      if (settled.size > 0) {
-        const keep = items.filter(
-          (it) => it.queue !== 'research-needed' || !settled.has(it.id ?? `virtual:${it.customer?.id}`),
-        )
-        items.length = 0
-        items.push(...keep)
-      }
+    const researchedByCustomer = researchCustomerIds.length > 0
+      ? await readResearchedUnsuccessfullyBatch(supabase, researchCustomerIds)
+      : new Map<string, { email: boolean; phone: boolean }>()
+    for (const it of items) {
+      if (it.queue !== 'research-needed') continue
+      const c = it.customer
+      if (!c?.id) { researchOutstanding += 1; continue }
+      const researched = researchedByCustomer.get(c.id) ?? { email: false, phone: false }
+      const stillRecommend = stillNeedsResearchRecommendation(
+        { hasEmail: !!c.email?.trim(), hasPhone: !!c.phone?.trim() },
+        researched,
+      )
+      it.research_unsuccessful = !stillRecommend
+      if (stillRecommend) researchOutstanding += 1
+      else researchUnsuccessful += 1
     }
   }
 
@@ -539,6 +543,12 @@ export async function GET(request: NextRequest) {
     (Object.keys(QUEUE_META) as OutreachQueue[]).map(q => [q, 0]),
   ) as Record<OutreachQueue, number>
   for (const it of items) counts[it.queue] += 1
+  // The Research Needed board TILE shows the OUTSTANDING count — research still
+  // to do — so the headline recommendation is never inflated by customers whose
+  // research already came up empty. The unsuccessful ones remain in the opened
+  // list (sorted below, flagged "Try again"); the split is reported separately
+  // in research_counts so the two are distinguished rather than confused.
+  counts['research-needed'] = researchOutstanding
   // Population counts for the board header. In a population view they reflect the
   // caller-actionable sets (eligible + unclaimed), matching My Work's counts and
   // the list length above. In the unscoped board they are the raw population
@@ -560,6 +570,11 @@ export async function GET(request: NextRequest) {
       items: visibleItems,
       counts,
       population_counts: populationCounts,
+      // Research Needed split: outstanding (still to do, = counts.research-needed)
+      // and unsuccessful (researched, nothing found — kept visible for a
+      // deliberate retry). Reported distinctly so the queue never conflates the
+      // actionable recommendation with the already-researched holdovers.
+      research_counts: { outstanding: researchOutstanding, unsuccessful: researchUnsuccessful },
       my_producer_id: myProducerId,
     },
   })
