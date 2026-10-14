@@ -56,6 +56,7 @@ import type {
   MyWorkState,
   PriorityBand,
   WorkSource,
+  WorkSourceProjectScope,
 } from './types'
 
 const STEWARDSHIP_ROUTE = '/stewardship'
@@ -466,7 +467,30 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
      * actionable items, never counted on top of them. */
     dueToMe: number
   }
+  const emptyTally = (): QueueTally => ({
+    total: 0, ownedByMe: 0, availableToMe: 0, claimedByOthers: 0, notEligible: 0, dueToMe: 0,
+  })
   const perQueue = new Map<OutreachQueue, QueueTally>()
+  // The SAME tally, partitioned by the project each item's customer belongs to,
+  // so a shared source can report its per-project subset for the Project filter.
+  // An item whose customer belongs to no project contributes only to perQueue
+  // (agency-wide), never to a project partition — unrelated work stays out of a
+  // project's filtered view. An item in several projects counts under each.
+  const perQueueProject = new Map<OutreachQueue, Map<string, QueueTally>>()
+  const bumpProjectTally = (
+    queue: OutreachQueue,
+    itemProjects: Set<string>,
+    apply: (t: QueueTally) => void,
+  ) => {
+    if (itemProjects.size === 0) return
+    let byProject = perQueueProject.get(queue)
+    if (!byProject) { byProject = new Map<string, QueueTally>(); perQueueProject.set(queue, byProject) }
+    for (const pid of itemProjects) {
+      const pt = byProject.get(pid) ?? emptyTally()
+      apply(pt)
+      byProject.set(pid, pt)
+    }
+  }
   for (const r of openRows) {
     const q = effectiveQueue(r)
     // A waiting item (awaiting the signed form or carrier confirmation) is NOT
@@ -490,7 +514,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     const itemProjects = projectsByCustomer.get(r.customer_prereviews.customer_id) ?? new Set<string>()
     for (const pid of itemProjects) a.projectIds.add(pid)
 
-    const t = perQueue.get(sourceQueue) ?? { total: 0, ownedByMe: 0, availableToMe: 0, claimedByOthers: 0, notEligible: 0, dueToMe: 0 }
+    const t = perQueue.get(sourceQueue) ?? emptyTally()
     t.total += 1
     a.total += 1
 
@@ -521,6 +545,23 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       assistCapable: activityCapabilityStatus(activity, itemProjects) === 'assist',
       claimedBy: rawClaimedBy == null ? null : rawClaimedBy === myProducerId ? 'me' : 'other',
       isDueCallback: isCallDue,
+    })
+
+    // Record this item into each project partition it belongs to, with the EXACT
+    // same bucketing the agency-wide tally uses below, so a project's filtered
+    // counts are a true subset of the shared source rather than a separate
+    // derivation. Project tallies own their own total (they start empty), so the
+    // full set of increments is applied here. An item with no project touches no
+    // partition, keeping unrelated work out of every project's filtered view.
+    bumpProjectTally(sourceQueue, itemProjects, (pt) => {
+      pt.total += 1
+      if (cls.bucket === 'notEligible') { pt.notEligible += 1; return }
+      if (cls.countsAsMyDueCallback) pt.dueToMe += 1
+      switch (cls.bucket) {
+        case 'owned': pt.ownedByMe += 1; break
+        case 'claimedByOthers': pt.claimedByOthers += 1; break
+        case 'available': pt.availableToMe += 1; break
+      }
     })
 
     if (cls.bucket === 'notEligible') {
@@ -588,6 +629,29 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
 
     const route = linkProjectId ? stewardshipRoute(q, linkProjectId) : stewardshipRoute(q)
 
+    // Per-project breakdown of THIS queue source, for the Project filter. Each
+    // entry opens exactly that project's subset of the queue on the board
+    // (?project_id=…), with counts that are a true subset of this source. A
+    // source with no project items simply carries no scopes.
+    const scopesForQueue = (queue: OutreachQueue): Record<string, WorkSourceProjectScope> | undefined => {
+      const byProject = perQueueProject.get(queue)
+      if (!byProject || byProject.size === 0) return undefined
+      const out: Record<string, WorkSourceProjectScope> = {}
+      for (const [pid, pt] of byProject) {
+        if (pt.total === 0) continue
+        out[pid] = {
+          count: pt.total,
+          ownedByMe: pt.ownedByMe,
+          availableToMe: pt.availableToMe,
+          claimedByOthers: pt.claimedByOthers,
+          notEligible: pt.notEligible,
+          dueToMe: pt.dueToMe,
+          route: stewardshipRoute(queue, pid),
+        }
+      }
+      return Object.keys(out).length > 0 ? out : undefined
+    }
+
     // The call population (Calls Due + Available to Call) is NOT emitted from the
     // per-queue tally, because callability is independent of the stored queue: a
     // customer with a usable phone is callable even while they sit in Ready to
@@ -616,6 +680,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       claimedByOthers: t.claimedByOthers,
       notEligible: t.notEligible,
       dueToMe: t.dueToMe,
+      projectScopes: scopesForQueue(q),
     })
   }
 
@@ -636,6 +701,13 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     if (outreach) {
       let callsDue = 0
       let availableToCall = 0
+      // Per-project subsets of the two call populations, so the Project filter
+      // can show exactly a project's callable work. Keyed by project id.
+      const callsDueByProject = new Map<string, number>()
+      const availableToCallByProject = new Map<string, number>()
+      const bumpCall = (m: Map<string, number>, projects: Set<string>) => {
+        for (const pid of projects) m.set(pid, (m.get(pid) ?? 0) + 1)
+      }
       for (const r of openRows) {
         // The shared call-population definition (also used by the board route) so
         // the counted set and the opened set always match.
@@ -660,8 +732,32 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         if (!canActOnItem(profile, 'outreach', requiredQualByActivity.get('outreach') ?? null, itemProjects)) continue
         if (claimedByOther(r.claimed_by_producer_id, myProducerId)) continue
 
-        if (population === 'calls-due') callsDue += 1
-        else availableToCall += 1
+        if (population === 'calls-due') { callsDue += 1; bumpCall(callsDueByProject, itemProjects) }
+        else { availableToCall += 1; bumpCall(availableToCallByProject, itemProjects) }
+      }
+
+      // Build per-project scopes for a call population: each entry opens exactly
+      // that project's slice of the population on the board, counts matching.
+      const callScopes = (
+        byProject: Map<string, number>,
+        population: 'calls-due' | 'available-to-call',
+        due: boolean,
+      ): Record<string, WorkSourceProjectScope> | undefined => {
+        if (byProject.size === 0) return undefined
+        const out: Record<string, WorkSourceProjectScope> = {}
+        for (const [pid, n] of byProject) {
+          if (n <= 0) continue
+          out[pid] = {
+            count: n,
+            ownedByMe: 0,
+            availableToMe: n,
+            claimedByOthers: 0,
+            notEligible: 0,
+            dueToMe: due ? n : 0,
+            route: populationRoute(population, pid),
+          }
+        }
+        return Object.keys(out).length > 0 ? out : undefined
       }
 
       if (callsDue > 0) {
@@ -678,6 +774,8 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
           claimedByOthers: 0,
           notEligible: 0,
           dueToMe: callsDue,
+          informational: true,
+          projectScopes: callScopes(callsDueByProject, 'calls-due', true),
         })
       }
       if (availableToCall > 0) {
@@ -693,6 +791,8 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
           claimedByOthers: 0,
           notEligible: 0,
           dueToMe: 0,
+          informational: true,
+          projectScopes: callScopes(availableToCallByProject, 'available-to-call', false),
         })
       }
     }

@@ -44,7 +44,7 @@ import {
   WORK_MODE_NOTE,
   type WorkMode,
 } from '@/lib/my-work/guidance'
-import type { ActivityGroup, MyWorkState, PriorityBand } from '@/lib/my-work/types'
+import type { ActivityGroup, MyWorkState, PriorityBand, WorkSource } from '@/lib/my-work/types'
 import {
   deriveMyWorkDirection,
   type MyWorkDirection,
@@ -206,17 +206,27 @@ interface FilterOption {
   label: string
 }
 
-/** The distinct projects present in the resolved work, by id, with their name
- * (taken from the project-source label). Drives the Project filter options. */
+/**
+ * The distinct projects present in the resolved work. A project surfaces two
+ * ways: as a project-scoped source (kind 'project', whose label is the project
+ * name) and as the per-project breakdown of a SHARED stewardship source
+ * (projectScopes), whose customers belong to the project even though the source
+ * itself is agency-wide. Both must make the project filterable, otherwise shared
+ * outreach/research for a project would be invisible to the filter. The human
+ * name comes from the project-kind source; a project seen only through a shared
+ * scope falls back to a generic label (there is one active project today, and it
+ * always has project-kind sources, so this fallback is not normally reached). */
 function projectFilterOptions(state: MyWorkState): FilterOption[] {
-  const byId = new Map<string, string>()
+  const names = new Map<string, string>()
+  const ids = new Set<string>()
   for (const a of state.activities) {
     for (const s of a.sources) {
-      if (s.projectId && !byId.has(s.projectId)) byId.set(s.projectId, s.label)
+      if (s.projectId) { ids.add(s.projectId); if (s.kind === 'project') names.set(s.projectId, s.label) }
+      if (s.projectScopes) for (const pid of Object.keys(s.projectScopes)) ids.add(pid)
     }
   }
-  return [...byId.entries()]
-    .map(([id, label]) => ({ id, label }))
+  return [...ids]
+    .map((id) => ({ id, label: names.get(id) ?? 'Project' }))
     .sort((x, y) => x.label.localeCompare(y.label))
 }
 
@@ -234,12 +244,77 @@ function activityFilterOptions(state: MyWorkState): FilterOption[] {
 }
 
 /**
+ * Narrow a single source to a selected project. A source belongs to the project
+ * if it is that project's own scoped source (projectId match) OR it is a shared
+ * source carrying a per-project breakdown for it (projectScopes[pid]). In the
+ * shared case the returned source adopts the project-scoped counts and route, so
+ * the filtered view shows exactly that project's slice with the right numbers
+ * and a link that opens that slice. Returns null when the source has no work in
+ * the project (so unrelated shared work is excluded).
+ */
+function sourceForProject(s: WorkSource, projectId: string): WorkSource | null {
+  if (s.projectId === projectId) return s
+  const scope = s.projectScopes?.[projectId]
+  if (!scope) return null
+  return {
+    ...s,
+    count: scope.count,
+    route: scope.route,
+    projectId,
+    ownedByMe: scope.ownedByMe,
+    availableToMe: scope.availableToMe,
+    claimedByOthers: scope.claimedByOthers,
+    notEligible: scope.notEligible,
+    dueToMe: scope.dueToMe,
+  }
+}
+
+/** Recompute an activity's aggregate counts from a narrowed set of sources, so
+ * the activity-level numbers (and the derived Daily Direction) match exactly the
+ * sources shown under the project filter. Mirrors how the composition aggregates
+ * per-source tallies into the activity. Sources never overlap on a customer
+ * within a project scope for these count fields, so a straight sum is correct. */
+function reaggregate(a: ActivityGroup, sources: WorkSource[]): ActivityGroup {
+  let total = 0, owned = 0, available = 0, claimed = 0, notEligible = 0, due = 0
+  for (const s of sources) {
+    // Informational sub-populations (Outreach Calls Due / Available to Call) are
+    // already counted by another source, so they never add to the aggregate —
+    // the same rule the composition applies when it builds the unfiltered total.
+    if (s.informational) continue
+    total += s.count
+    owned += s.ownedByMe
+    available += s.availableToMe
+    claimed += s.claimedByOthers
+    notEligible += s.notEligible
+    due += s.dueToMe
+  }
+  return {
+    ...a,
+    sources,
+    totalCount: total,
+    ownedCount: owned,
+    availableCount: available,
+    claimedByOthersCount: claimed,
+    notEligibleCount: notEligible,
+    dueCount: due,
+  }
+}
+
+/**
  * Apply the Project and Activity filters to the resolved state, returning a new
  * MyWorkState that renders exactly the selected work. Both filters combine (AND).
+ *
  * A fixed-time commitment activity is always kept, whatever the filters, so a
- * genuine customer commitment is never hidden. When a project is selected, each
- * kept activity's sources are narrowed to that project (a commitment kept only
- * for its exemption keeps all its sources, so its route still works).
+ * genuine customer commitment is never hidden.
+ *
+ * When a project is selected, each kept activity's sources are narrowed to that
+ * project — including SHARED stewardship outreach/research sources whose
+ * customers belong to the project (via each source's projectScopes), not only
+ * sources whose projectId already matches. Narrowed shared sources adopt the
+ * project-scoped counts and route, and the activity's aggregate counts are
+ * recomputed from the narrowed sources, so counts and links correspond to the
+ * selected project and exclude unrelated work. ZEN ordering is untouched: this
+ * removes activities/sources from view but never re-ranks what remains.
  */
 function applyWorkFilters(
   state: MyWorkState,
@@ -258,11 +333,14 @@ function applyWorkFilters(
 
     if (projectFilter === ALL) return [a]
 
-    // Project selected: keep the activity only if it has work in that project,
-    // and narrow its sources to that project so counts and links match the view.
-    const sources = a.sources.filter((s) => s.projectId === projectFilter)
+    // Project selected: keep the sources that belong to the project (own scoped
+    // source OR a shared source's per-project slice), adopting the project's
+    // counts/route, then re-aggregate the activity from exactly those sources.
+    const sources = a.sources
+      .map((s) => sourceForProject(s, projectFilter))
+      .filter((s): s is WorkSource => s !== null)
     if (sources.length === 0) return []
-    return [{ ...a, sources }]
+    return [reaggregate(a, sources)]
   })
 
   return { ...state, activities }

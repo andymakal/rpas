@@ -73,7 +73,54 @@ export interface WorkSource {
    * sources that carry no scheduled-due distinction.
    */
   dueToMe: number
+  /**
+   * The project subset of this source, keyed by project id, for the Project
+   * filter. A SHARED stewardship source carries work for many customers, some of
+   * whom belong to a project even though the source itself is agency-wide
+   * (projectId null). This records, per project, the portion of THIS source that
+   * belongs to that project's customers: the project-scoped counts and a
+   * project-scoped route that opens exactly that subset on the board.
+   *
+   * It is additive metadata only — the top-level counts/route are unchanged, so
+   * the unfiltered view is identical. When the Project filter selects project P,
+   * the client shows projectScopes[P] (counts + route) and drops any source with
+   * no entry for P, so the filtered view shows exactly P's work with correct
+   * counts and links. A project source (kind 'project') is inherently scoped, so
+   * it does not need this; it is populated for shared sources that span projects.
+   */
+  projectScopes?: Record<string, WorkSourceProjectScope>
+  /** True for an informational sub-population (Outreach Calls Due / Available to
+   * Call) that is already counted by another source and so must not be summed
+   * into the activity aggregate. See the note above WorkSourceProjectScope. */
+  informational?: boolean
 }
+
+/**
+ * The project-scoped subset of a shared WorkSource: the counts and route for
+ * exactly one project's customers within that source. Mirrors the WorkSource
+ * count fields so the client can substitute them wholesale when a project is
+ * selected, keeping displayed counts and links aligned to the selection.
+ */
+export interface WorkSourceProjectScope {
+  count: number
+  ownedByMe: number
+  availableToMe: number
+  claimedByOthers: number
+  notEligible: number
+  dueToMe: number
+  /** A route that opens exactly this project's subset of the source. */
+  route: string
+}
+
+/**
+ * Whether a source is an INFORMATIONAL sub-population that must NOT contribute to
+ * its activity's aggregate counts. The Outreach Calls Due / Available to Call
+ * sources are callability views over items already counted once by the per-queue
+ * tally, so the composition does not add them to the activity total. The client
+ * needs the same distinction when it re-aggregates an activity under the Project
+ * filter, otherwise those items would be double-counted. Undefined/false means a
+ * normal counted source.
+ */
 
 /**
  * The priority band ZEN assigned to an activity group. Lower rank = higher
