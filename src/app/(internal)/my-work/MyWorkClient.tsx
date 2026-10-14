@@ -55,6 +55,7 @@ import {
 import {
   deriveMyWorkDirection,
   type MyWorkDirection,
+  type NextActionOption,
   type WorkModeGroup,
 } from '@/lib/my-work/direction'
 
@@ -360,6 +361,12 @@ function MyWorkAssistant({
             orients before choosing. */}
         <DailyBriefing direction={direction} />
 
+        {/* The GoRules-derived recommended next action: what to start, why, and
+            a direct way to begin. It reads the already-ZEN-ordered direction and
+            re-derives with the filters, so it updates when either filter changes.
+            Advisory only — the employee stays free to pick any available work. */}
+        {direction.nextAction && <NextActionRecommendation nextAction={direction.nextAction} />}
+
         {/* 1. Commitments first — the only thing shown before the question. */}
         {commitments.length > 0 && <CommitmentsNotice commitments={commitments} />}
 
@@ -434,6 +441,79 @@ function MyWorkAssistant({
           when expanded — the same band-grouped activity cards as before. */}
       {view === 'all' && <FullInventory state={state} />}
     </div>
+  )
+}
+
+/**
+ * The GoRules-derived recommended next action, surfaced in the briefing. It
+ * presents the already-ZEN-ranked top action (what to start), the activity's
+ * own deterministic reason (why), the actionable count, and a direct link to
+ * begin. It adds NO priority of its own — the recommendation and its reason come
+ * straight from the Daily Direction derivation, which reads ZEN's ordering.
+ *
+ * Advisory, never coercive: the heading says this is a suggestion and the
+ * employee remains free to choose any available work below. When several
+ * activities tie at ZEN's top rank, each is shown as a co-equal option with no
+ * invented winner, consistent with the derivation.
+ */
+function NextActionRecommendation({
+  nextAction,
+}: {
+  nextAction: NonNullable<MyWorkDirection['nextAction']>
+}) {
+  const { tied, options } = nextAction
+  return (
+    <section
+      aria-label="Recommended next action"
+      className="rounded-2xl border border-brand-subtle bg-brand-wash p-4"
+    >
+      <p className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-[0.1em] text-brand-hover">
+        <Sparkles className="size-4" aria-hidden />
+        {tied ? 'Recommended next — any of these' : 'Recommended next'}
+      </p>
+      <ul className="mt-2.5 space-y-2.5">
+        {options.map((opt) => (
+          <NextActionRow key={opt.workFunction} option={opt} />
+        ))}
+      </ul>
+      <p className="mt-2.5 text-sm text-ink-supporting">
+        A suggestion based on current priorities and Today&apos;s Focus. You can
+        start any available work below.
+      </p>
+    </section>
+  )
+}
+
+/** One recommended-action row: the heading (what), the ZEN reason (why), the
+ * actionable count, and a direct link to begin (how). The link is the only
+ * interactive element, so beginning the work is one unambiguous action. */
+function NextActionRow({ option }: { option: NextActionOption }) {
+  const count = option.actionableCount
+  return (
+    <li className="rounded-xl border border-surface-border bg-surface-card p-3.5">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-lg font-semibold leading-tight text-ink">{option.heading}</p>
+          {/* The deterministic reason, verbatim from the activity (why). */}
+          <p className="mt-1 max-w-prose text-base leading-relaxed text-ink-secondary">
+            {option.reason}
+          </p>
+          <p className="mt-1 text-sm text-ink-supporting">
+            {count} {count === 1 ? 'item' : 'items'} you can act on
+            {option.dueCount > 0 ? ` · ${option.dueCount} due` : ''}
+          </p>
+        </div>
+        {option.route && (
+          <Link
+            href={option.route}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand px-3.5 py-2 text-sm font-semibold text-brand-foreground hover:bg-brand-hover"
+          >
+            {option.actionLabel}
+            <ArrowRight className="size-4" aria-hidden />
+          </Link>
+        )}
+      </div>
+    </li>
   )
 }
 
@@ -591,15 +671,6 @@ function StartChoice({
       </div>
       {/* Assistant copy (WHAT this choice is). */}
       <p className="mt-3 text-base leading-relaxed text-ink-secondary">{subtitle}</p>
-      {/* Mentor coaching (HOW to approach it) — purple, kept visually and
-          semantically distinct from the Assistant copy. Its own control is
-          always shown; the global Mentoring toggle only sets its default
-          open/closed state. */}
-      {mentorNote && (
-        <MentorGuidance className="mt-3" label="How to approach this">
-          {mentorNote}
-        </MentorGuidance>
-      )}
       <span className="mt-3 inline-flex items-center gap-1.5 text-base font-medium text-brand-hover">
         {isCalls ? 'Open the call queue' : selected ? 'Hide quiet work' : 'Show quiet work'}
         <ArrowRight className="size-4" aria-hidden />
@@ -618,20 +689,40 @@ function StartChoice({
           : 'border-surface-border bg-surface-card hover:border-brand-ring hover:bg-brand-wash',
   )
 
-  if (disabled) {
-    return (
-      <div className={base} aria-disabled>
-        {inner}
-      </div>
-    )
-  }
-  // Outbound Calls opens the queue directly; Quiet Work toggles its reveal.
-  return href ? (
+  // The clickable card and the Mentor coaching are SIBLINGS, never nested: the
+  // card is a single interactive element (a link for Calls, a toggle button for
+  // Quiet Work), and MentorGuidance carries its own button. Nesting one inside
+  // the other produced invalid interactive nesting, so opening or closing
+  // Mentoring also activated the card (toggling Quiet Work, or navigating away
+  // for Calls). Rendering them as siblings lets the employee open/close
+  // Mentoring without touching the surrounding card.
+  const card = disabled ? (
+    <div className={base} aria-disabled>
+      {inner}
+    </div>
+  ) : href ? (
+    // Outbound Calls opens the queue directly.
     <Link href={href} className={base}>{inner}</Link>
   ) : (
+    // Quiet Work toggles its reveal.
     <button type="button" onClick={onSelect} className={base} aria-pressed={selected}>
       {inner}
     </button>
+  )
+
+  return (
+    <div className="flex flex-col gap-3">
+      {card}
+      {/* Mentor coaching (HOW to approach it) — purple, kept visually and
+          semantically distinct from the card. Its own control is always shown;
+          the global Mentoring toggle only sets its default open/closed state.
+          It sits OUTSIDE the card's clickable element on purpose. */}
+      {mentorNote && (
+        <MentorGuidance label="How to approach this">
+          {mentorNote}
+        </MentorGuidance>
+      )}
+    </div>
   )
 }
 
