@@ -243,6 +243,65 @@ export function evaluateWorkflowForCustomer(args: {
 type PolicyFact = { customer_id: string; product_type: string | null; sa_status: string | null }
 
 /**
+ * Resolve the states of a project's workflows for ONE customer, honoring the
+ * gate dependency REGARDLESS of the order the workflows are listed in.
+ *
+ * This is the pure core of the per-customer evaluation (no DB), extracted so the
+ * order-independence guarantee is directly testable. Gates are resolved along
+ * the actual dependency edge with memoization + cycle protection, so a
+ * prerequisite that appears AFTER its dependent in the list still gates it
+ * correctly and a valid dependency never leaves a customer incorrectly blocked.
+ *
+ * `policies` + `reviewDetermined` are the facts the typed strategies consume
+ * (see evaluateWorkflowForCustomer).
+ */
+export function evaluateWorkflowsForCustomer(args: {
+  customerId: string
+  workflows: ProjectWorkflow[]
+  policies: { product_type: string | null; sa_status: string | null }[]
+  reviewDetermined: boolean
+}): WorkflowCustomerState[] {
+  const { customerId, workflows, policies, reviewDetermined } = args
+  const pwById = new Map(workflows.map((w) => [w.id, w]))
+  const completeMemo = new Map<string, boolean>()
+  const inProgress = new Set<string>()
+
+  const completeOf = (w: ProjectWorkflow): boolean => {
+    const memoized = completeMemo.get(w.id)
+    if (memoized !== undefined) return memoized
+    if (inProgress.has(w.id)) return false // cycle guard
+    inProgress.add(w.id)
+    const { status } = evaluateWorkflowForCustomer({
+      workflowKey: w.key,
+      gateComplete: gateCompleteOf(w),
+      policies,
+      reviewDetermined,
+    })
+    inProgress.delete(w.id)
+    const isComplete = status === 'complete'
+    completeMemo.set(w.id, isComplete)
+    return isComplete
+  }
+
+  const gateCompleteOf = (w: ProjectWorkflow): boolean => {
+    if (!w.gatedByProjectWorkflowId) return true
+    const gate = pwById.get(w.gatedByProjectWorkflowId)
+    if (!gate) return true // dangling reference: no real prerequisite
+    return completeOf(gate)
+  }
+
+  return workflows.map((w) => {
+    const { status, reason } = evaluateWorkflowForCustomer({
+      workflowKey: w.key,
+      gateComplete: gateCompleteOf(w),
+      policies,
+      reviewDetermined,
+    })
+    return { customerId, projectWorkflowId: w.id, workflowKey: w.key, status, reason }
+  })
+}
+
+/**
  * Evaluate EVERY contained workflow for EVERY project member, independently per
  * customer, honoring the per-customer gate between workflows. Reads membership
  * and the customers' policy facts; performs no writes.
@@ -296,43 +355,18 @@ export async function evaluateProjectWorkflows(
 
   const determined = options?.determinedCustomerIds ?? new Set<string>()
 
-  // Evaluate workflows in dependency order. Because a gate references another
-  // project_workflows row, we resolve each workflow's gating COMPLETE flag per
-  // customer from the states already computed in this pass. project_workflows is
-  // ordered by position and a gate points "upstream", so a single ordered pass
-  // (gates before gated) resolves correctly for the standard wiring.
-  const pwById = new Map(workflows.map((w) => [w.id, w]))
-
+  // Resolve each member's workflow states via the pure, ORDER-INDEPENDENT
+  // resolver (gates followed along the real dependency edge, not by position).
   for (const cid of memberIds) {
-    const policies = policiesByCustomer.get(cid) ?? []
-    const states: WorkflowCustomerState[] = []
-    const completeByPwId = new Map<string, boolean>()
-    for (const w of workflows) {
-      // Resolve the gate's completeness for this customer from states computed
-      // earlier in this ordered pass.
-      let gateComplete = true
-      if (w.gatedByProjectWorkflowId) {
-        gateComplete = completeByPwId.get(w.gatedByProjectWorkflowId) ?? false
-        // Defensive: if the gate wasn't evaluated yet (unexpected ordering),
-        // treat it as incomplete so a gated workflow never opens prematurely.
-        if (!pwById.has(w.gatedByProjectWorkflowId)) gateComplete = true
-      }
-      const { status, reason } = evaluateWorkflowForCustomer({
-        workflowKey: w.key,
-        gateComplete,
-        policies,
-        reviewDetermined: determined.has(cid),
-      })
-      completeByPwId.set(w.id, status === 'complete')
-      states.push({
+    byCustomer.set(
+      cid,
+      evaluateWorkflowsForCustomer({
         customerId: cid,
-        projectWorkflowId: w.id,
-        workflowKey: w.key,
-        status,
-        reason,
-      })
-    }
-    byCustomer.set(cid, states)
+        workflows,
+        policies: policiesByCustomer.get(cid) ?? [],
+        reviewDetermined: determined.has(cid),
+      }),
+    )
   }
 
   return { workflows, byCustomer }
