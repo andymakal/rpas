@@ -982,22 +982,29 @@ export async function PATCH(
     }
 
     const touchedBy = await resolveEmployeeName(supabase)
+    // Record the actual delivery channel. The introductory servicing-agent form
+    // can go out by email OR by postal mail (the worker's chosen
+    // form_delivery_method). A postal send must be recorded as a postal touch,
+    // not as an email, so history reflects what really happened.
+    const isPostal = row.form_delivery_method === 'postal'
     const { error: touchErr } = await supabase
       .from('case_touches')
       .insert({
         customer_id: customerId,
         case_id:     null,
-        touch_type:  'email',
-        notes:       '1035 servicing-agent authorization email sent to the customer.',
+        touch_type:  isPostal ? 'postal' : 'email',
+        notes:       isPostal
+          ? '1035 servicing-agent authorization letter mailed to the customer by postal mail.'
+          : '1035 servicing-agent authorization email sent to the customer.',
         touched_at:  advanced?.email_sent_at ?? new Date().toISOString(),
         touched_by:  touchedBy,
       })
     if (touchErr) {
       // The send must not silently lose its history entry. Surface the failure
       // so the worker knows to retry rather than believing it logged.
-      console.error('stewardship email touch log error:', touchErr)
+      console.error('stewardship send touch log error:', touchErr)
       return Response.json(
-        { error: 'The email was recorded but its history entry could not be saved. Please try again.' },
+        { error: 'The send was recorded but its history entry could not be saved. Please try again.' },
         { status: 500 },
       )
     }

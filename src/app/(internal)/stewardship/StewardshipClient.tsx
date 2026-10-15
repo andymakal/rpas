@@ -497,9 +497,39 @@ export function StewardshipClient({
   }, [claim, materialize])
 
   if (openItemId) {
+    // The ordered list of OTHER customers in the same activity, so the task
+    // screen can advance to the next one (used by Introductory Emails' fast
+    // "Next customer" flow). Prefer the opened intro-email population; otherwise
+    // fall back to the open Ready to Email queue list. Only real (non-virtual)
+    // items can be opened directly, so virtuals are excluded here.
+    const activitySource =
+      openPopulation === 'introductory-emails'
+        ? populationItems.slice().sort((a, b) => dueCallbackRank(a, actorTimeZone) - dueCallbackRank(b, actorTimeZone))
+        : openQueue === 'ready-to-email'
+          ? items.filter(i => i.queue === 'ready-to-email').sort((a, b) => dueCallbackRank(a, actorTimeZone) - dueCallbackRank(b, actorTimeZone))
+          : []
+    const siblingIds = activitySource
+      .map(it => it.id)
+      .filter((id): id is string => !!id && id !== openItemId)
+
+    const advanceToNext = () => {
+      const nextId = siblingIds[0] ?? null
+      if (nextId) {
+        setOpenItemId(nextId)
+      } else {
+        // Last customer in the activity: fall back to the activity list.
+        setOpenItemId(null)
+      }
+      void loadBoard()
+      if (openPopulation) void loadPopulation(openPopulation)
+    }
+
     return (
       <StewardshipTask
+        key={openItemId}
         itemId={openItemId}
+        hasNextInActivity={siblingIds.length > 0}
+        onAdvanceToNext={advanceToNext}
         onBack={() => {
           setOpenItemId(null)
           void loadBoard()
@@ -985,7 +1015,16 @@ function ProjectOnboardingNote({ project }: { project: { id: string; name: strin
 // Task screen — one outreach item, dispatched by queue.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function StewardshipTask({ itemId, onBack }: { itemId: string; onBack: () => void }) {
+function StewardshipTask({
+  itemId, onBack, hasNextInActivity = false, onAdvanceToNext,
+}: {
+  itemId: string
+  onBack: () => void
+  /** Whether another customer remains in this activity to advance to. */
+  hasNextInActivity?: boolean
+  /** Open the next customer in this activity (Introductory Emails fast flow). */
+  onAdvanceToNext?: () => void
+}) {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
@@ -998,7 +1037,11 @@ function StewardshipTask({ itemId, onBack }: { itemId: string; onBack: () => voi
 
   useEffect(() => { void load() }, [load])
 
-  const act = useCallback(async (action: unknown, successNote?: string) => {
+  const act = useCallback(async (
+    action: unknown,
+    successNote?: string,
+    opts?: { advanceToNext?: boolean },
+  ) => {
     setBusy(true); setNote(null)
     try {
       const res = await fetch(`/api/stewardship/${itemId}`, {
@@ -1014,6 +1057,15 @@ function StewardshipTask({ itemId, onBack }: { itemId: string; onBack: () => voi
         onBack()
         return
       }
+      // Introductory Emails fast flow: a successful send removes this customer
+      // from the activity, so instead of reloading the (now departed) item we
+      // open the next customer in the activity. Falls back to the activity list
+      // when this was the last one.
+      if (opts?.advanceToNext) {
+        if (onAdvanceToNext) onAdvanceToNext()
+        else onBack()
+        return
+      }
       if (successNote) setNote(successNote)
       await load()
     } catch {
@@ -1021,7 +1073,7 @@ function StewardshipTask({ itemId, onBack }: { itemId: string; onBack: () => voi
     } finally {
       setBusy(false)
     }
-  }, [itemId, load, onBack])
+  }, [itemId, load, onBack, onAdvanceToNext])
 
   if (!detail) {
     return (
@@ -1040,17 +1092,55 @@ function StewardshipTask({ itemId, onBack }: { itemId: string; onBack: () => voi
       <TaskShell
         header={<SlimTaskHeader onBack={onBack} backLabel="All queues" />}
         action={
-          <TaskAction detail={detail} request={request} busy={busy} note={note} act={act} />
+          <TaskAction
+            detail={detail} request={request} busy={busy} note={note} act={act}
+            hasNextInActivity={hasNextInActivity}
+          />
         }
         context={
-          <>
-            <CustomerContext detail={detail} busy={busy} act={act} />
-            <RecordAttemptPanel detail={detail} busy={busy} act={act} />
-            <HoldingsContext request={request} context={context} />
-          </>
+          <StewardshipContextPanel detail={detail} request={request} context={context} busy={busy} act={act} />
         }
       />
     </WorkflowPage>
+  )
+}
+
+/**
+ * The Introductory Emails activity: a Ready to Email item the worker has NOT
+ * reached by phone, so the next step is the first-touch introductory email that
+ * carries the authorization form. This screen is streamlined for fast,
+ * continuous processing (send, record, next customer), so the right-panel
+ * verification and attempt-recording tools — which belong to the call/research
+ * activities — are intentionally hidden here. They remain available on every
+ * other activity.
+ */
+function isIntroductoryEmailActivity(detail: Detail): boolean {
+  return detail.queue === 'ready-to-email' && detail.last_call_outcome !== 'reached'
+}
+
+/**
+ * The right-side context panel for an outreach task. Always shows the customer
+ * information and the servicing request/policy information. The customer-
+ * verified contact box and the record-an-attempt panel are shown on every
+ * activity EXCEPT Introductory Emails, which is streamlined for fast sending;
+ * both capabilities stay fully available on the call and research activities.
+ */
+function StewardshipContextPanel({
+  detail, request, context, busy, act,
+}: {
+  detail: Detail
+  request: Holding[]
+  context: Holding[]
+  busy: boolean
+  act: (action: unknown, successNote?: string) => void
+}) {
+  const introEmail = isIntroductoryEmailActivity(detail)
+  return (
+    <>
+      <CustomerContext detail={detail} busy={busy} act={act} showVerification={!introEmail} />
+      {!introEmail && <RecordAttemptPanel detail={detail} busy={busy} act={act} />}
+      <HoldingsContext request={request} context={context} />
+    </>
   )
 }
 
@@ -1059,13 +1149,14 @@ function StewardshipTask({ itemId, onBack }: { itemId: string; onBack: () => voi
  * owns its own copy, controls, and transitions; the dispatcher only routes.
  */
 function TaskAction({
-  detail, request, busy, note, act,
+  detail, request, busy, note, act, hasNextInActivity = false,
 }: {
   detail: Detail
   request: Holding[]
   busy: boolean
   note: string | null
-  act: (action: unknown, successNote?: string) => void
+  act: (action: unknown, successNote?: string, opts?: { advanceToNext?: boolean }) => void
+  hasNextInActivity?: boolean
 }) {
   const name = fullName(detail.customer)
 
@@ -1096,6 +1187,7 @@ function TaskAction({
         return (
           <ReadyToEmailAction
             detail={detail} request={request} name={name} busy={busy} noteBox={noteBox} act={act}
+            hasNextInActivity={hasNextInActivity}
           />
         )
       case 'ready-to-call':
@@ -1304,17 +1396,18 @@ function ServicingFormDelivery({
  * /api/servicing-agent-change generator) so the worker has it ready to attach.
  */
 function ReadyToEmailAction({
-  detail, request, name, busy, noteBox, act,
+  detail, request, name, busy, noteBox, act, hasNextInActivity = false,
 }: {
   detail: Detail
   request: Holding[]
   name: string
   busy: boolean
   noteBox: React.ReactNode
-  act: (action: unknown, successNote?: string) => void
+  // Advancement to the next customer flows through act({ advanceToNext: true });
+  // the parent task supplies the actual navigation.
+  act: (action: unknown, successNote?: string, opts?: { advanceToNext?: boolean }) => void
+  hasNextInActivity?: boolean
 }) {
-  const customerHasAddress = !!(streetLine(detail.customer) && detail.customer.city && detail.customer.state && detail.customer.zip)
-
   // If the worker has already CALLED and REACHED this customer (recorded as an
   // attempt from the context panel), the right next step is to send the
   // servicing-agent AUTHORIZATION form directly, not an introductory email. The
@@ -1348,8 +1441,22 @@ function ReadyToEmailAction({
     )
   }
 
+  // The Introductory Emails activity: a first-touch send streamlined for fast,
+  // continuous processing. Postal is available as an alternative to email; the
+  // heading and confirm button take postal wording when it is selected. The
+  // confirm records the completed send in history, preserves the existing
+  // follow-up scheduling, removes this customer from the activity, and opens the
+  // next customer automatically.
+  const method: 'email' | 'postal' = detail.form_delivery_method ?? 'email'
+  const heading = method === 'postal'
+    ? `Send an introductory letter to ${name}.`
+    : `Send an introductory email to ${name}.`
+  // "— Next customer" only when another customer remains to advance to;
+  // otherwise it is simply the completion confirmation.
+  const nextSuffix = hasNextInActivity ? ' \u2014 Next customer' : ''
+
   return (
-    <ActionPanel heading={`Reach out to ${name}`}>
+    <ActionPanel heading={heading}>
       {noteBox}
       <ServicingFormDelivery
         detail={detail}
@@ -1357,24 +1464,15 @@ function ReadyToEmailAction({
         name={name}
         busy={busy}
         act={act}
-        confirmLabelFor={m => (m === 'postal' ? 'Form mailed to customer' : 'Form attached and email sent')}
-        onConfirm={m => act({ type: 'email-sent' },
-          m === 'postal' ? 'Form mailed. Moved to Waiting for Response.' : 'Email sent. Moved to Waiting for Response.')}
+        confirmLabelFor={m => (m === 'postal'
+          ? `Letter printed and mailed${nextSuffix}`
+          : `Form attached and email sent${nextSuffix}`)}
+        onConfirm={m => act(
+          { type: 'email-sent' },
+          m === 'postal' ? 'Introductory letter recorded.' : 'Introductory email recorded.',
+          { advanceToNext: true },
+        )}
       />
-      <WorkflowButton
-        icon={MailX}
-        disabled={busy}
-        onClick={() => act({ type: 'email-bounced' },
-          detail.customer.phone ? 'Bounce recorded. Moved to Ready to Call.' : 'Bounce recorded. Moved to Research Needed.')}
-      >
-        Email bounced
-      </WorkflowButton>
-      <NextNote>
-        Generate the form, send it (email: attach in Outlook; postal: print and mail the packet
-        {customerHasAddress ? '' : ' once a mailing address is on file'}), then record it. Recording it moves
-        {' '}{detail.customer.first_name} to Waiting for Response. A bounce routes to Ready to Call when a phone
-        is on file, or Research Needed when it is not. Nothing is sent or closed automatically.
-      </NextNote>
     </ActionPanel>
   )
 }
@@ -1888,14 +1986,24 @@ function RequiredSignatureConfirm({
 // ─────────────────────────────────────────────────────────────────────────────
 
 function CustomerContext({
-  detail, busy, act,
+  detail, busy, act, showVerification = true,
 }: {
   detail: Detail
   busy: boolean
   act: (action: unknown, successNote?: string) => void
+  /** Whether to show the customer-verified contact checkboxes. Hidden on the
+   *  Introductory Emails activity, where verification is not part of the task. */
+  showVerification?: boolean
 }) {
   const c = detail.customer
-  const addr = [streetLine(c), [c.city, c.state].filter(Boolean).join(', '), c.zip].filter(Boolean).join(' \u00b7 ')
+  // The complete mailing address, as separate lines so it stays legible and is
+  // never truncated (street on one line; city, state, ZIP on the next). It is
+  // shown in a dedicated block below the compact header fields, because the
+  // header's field cells truncate to a single line by design.
+  const street = streetLine(c)
+  const cityStateZip = [[c.city, c.state].filter(Boolean).join(', '), c.zip].filter(Boolean).join(' ')
+  const addrLines = [street, cityStateZip].filter(Boolean)
+  const hasAddress = addrLines.length > 0
   // A customer-verified value reads as green ("confirmed"); on file but
   // unverified reads as amber ("on file, not confirmed"); missing reads red.
   const fieldStatus = (present: boolean, verifiedAt: string | null) =>
@@ -1904,7 +2012,7 @@ function CustomerContext({
       : { tone: 'missing' as const, label: 'Missing' }
   const emailS = fieldStatus(!!c.email, detail.email_verified_at)
   const phoneS = fieldStatus(!!c.phone, detail.phone_verified_at)
-  const addrS = fieldStatus(!!addr, detail.address_verified_at)
+  const addrS = fieldStatus(hasAddress, detail.address_verified_at)
   const fields: ContextField[] = [
     {
       label: 'Email', value: c.email ?? 'Not on file', empty: !c.email,
@@ -1915,14 +2023,31 @@ function CustomerContext({
       statusTone: phoneS.tone, statusIcon: Phone, statusLabel: phoneS.label,
     },
     {
-      label: 'Address', value: addr || 'Not on file', empty: !addr,
+      // Compact summary in the header grid; the full address is shown in full
+      // below so it is never truncated.
+      label: 'Address', value: hasAddress ? 'See below' : 'Not on file', empty: !hasAddress,
       statusTone: addrS.tone, statusIcon: Building2, statusLabel: addrS.label,
     },
   ]
   return (
     <>
       <ContextHeader eyebrow="Stewardship" title={fullName(c)} fields={fields} />
-      <ContactVerification detail={detail} busy={busy} act={act} />
+      {/* Complete mailing address, legible and on multiple lines. */}
+      <div className="rounded-xl border border-surface-border bg-surface-card p-4">
+        <p className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-ink-supporting">
+          <Building2 className="size-4 text-ink-supporting" aria-hidden /> Mailing address
+        </p>
+        {hasAddress ? (
+          <address className="mt-2 not-italic text-base leading-relaxed text-ink">
+            {addrLines.map((line, i) => (
+              <span key={i} className="block">{line}</span>
+            ))}
+          </address>
+        ) : (
+          <p className="mt-2 text-base italic text-ink-muted">No mailing address on file.</p>
+        )}
+      </div>
+      {showVerification && <ContactVerification detail={detail} busy={busy} act={act} />}
     </>
   )
 }
@@ -2204,23 +2329,23 @@ function FormCoverage({ request }: { request: Holding[] }) {
  */
 function FormAttachmentDirective({ request }: { request: Holding[] }) {
   return (
-    <div className="space-y-2 rounded-xl border border-amber-300 bg-amber-50 p-4">
-      <p className="flex items-start gap-2 text-base font-semibold text-amber-900">
-        <PenLine className="mt-0.5 size-4 shrink-0" aria-hidden />
+    <div className="space-y-3 rounded-xl border-2 border-amber-400 bg-amber-50 p-5">
+      <p className="flex items-start gap-3 text-xl font-bold leading-snug text-amber-900">
+        <PenLine className="mt-1 size-6 shrink-0" aria-hidden />
         Attach the servicing-agent authorization form in Outlook before you send.
       </p>
-      <p className="text-sm text-amber-900">
+      <p className="text-lg leading-relaxed text-amber-900">
         The email states a form is attached, but it is not attached automatically. Attach the approved
         authorization form for the carrier on this account. If you do not have the correct form, obtain it
-        before sending — do not send without it.
+        before sending. Do not send without it.
       </p>
       {request.length > 0 && (
-        <div className="space-y-1.5 rounded-lg border border-amber-200 bg-white/70 p-3">
-          <p className="text-xs font-semibold uppercase tracking-wide text-amber-900">One form covers</p>
+        <div className="space-y-2 rounded-lg border border-amber-300 bg-white/70 p-4">
+          <p className="text-sm font-bold uppercase tracking-wide text-amber-900">One form covers</p>
           {request.map(h => (
-            <div key={h.id} className="flex items-center gap-2 text-base text-slate-900">
+            <div key={h.id} className="flex items-center gap-2 text-lg text-slate-900">
               <span className="font-mono">{h.policy_number}</span>
-              <span className="text-sm text-slate-600">{h.product_type ?? 'Policy'}</span>
+              <span className="text-base text-slate-600">{h.product_type ?? 'Policy'}</span>
             </div>
           ))}
         </div>
