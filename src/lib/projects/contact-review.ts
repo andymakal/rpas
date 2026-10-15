@@ -41,6 +41,18 @@ export interface ContactReviewCustomer {
   phone: string | null
   has_email: boolean
   has_phone: boolean
+  /** Full mailing address + verification timestamps, so the shared editable
+   * CustomerContactCard can render and correct the whole contact surface (not
+   * just email/phone) straight from this one read. All live on the customers
+   * row; nothing new is introduced. */
+  street: string | null
+  address_line1: string | null
+  city: string | null
+  state: string | null
+  zip: string | null
+  email_verified_at: string | null
+  phone_verified_at: string | null
+  address_verified_at: string | null
   /** Any one policy number already on file for this customer, shown so the
    * worker can search Gateway by last name + policy number. null when the
    * customer has no policy on file. */
@@ -63,8 +75,22 @@ type CustomerRow = {
   last_name: string | null
   email: string | null
   phone: string | null
+  street: string | null
+  address_line1: string | null
+  city: string | null
+  state: string | null
+  zip: string | null
+  email_verified_at: string | null
+  phone_verified_at: string | null
+  address_verified_at: string | null
   is_test: boolean
 }
+
+/** The columns both loaders read for a Contact Review row. Includes the mailing
+ * address and verification timestamps the shared CustomerContactCard needs. */
+const CUSTOMER_SELECT =
+  'id, first_name, last_name, email, phone, street, address_line1, city, state, zip, ' +
+  'email_verified_at, phone_verified_at, address_verified_at, is_test'
 
 const usable = (v: string | null): boolean => !!v && v.trim().length > 0
 
@@ -131,9 +157,9 @@ export async function buildContactReview(
   await chunked(customerIds, 300, async chunk => {
     const { data } = await supabase
       .from('customers')
-      .select('id, first_name, last_name, email, phone, is_test')
+      .select(CUSTOMER_SELECT)
       .in('id', chunk)
-    customers.push(...((data ?? []) as CustomerRow[]))
+    customers.push(...((data ?? []) as unknown as CustomerRow[]))
   })
 
   // Customers still missing a method, before the durable research suppression.
@@ -171,6 +197,14 @@ export async function buildContactReview(
       phone: c.phone,
       has_email: hasEmail,
       has_phone: hasPhone,
+      street: c.street,
+      address_line1: c.address_line1,
+      city: c.city,
+      state: c.state,
+      zip: c.zip,
+      email_verified_at: c.email_verified_at,
+      phone_verified_at: c.phone_verified_at,
+      address_verified_at: c.address_verified_at,
       policy_number: policyByCustomer.get(c.id) ?? null,
     })
   }
@@ -212,12 +246,12 @@ export async function loadContactReviewCustomer(
 
   const { data: c } = await supabase
     .from('customers')
-    .select('id, first_name, last_name, email, phone, is_test')
+    .select(CUSTOMER_SELECT)
     .eq('id', customerId)
     .maybeSingle()
-  if (!c || (c as CustomerRow).is_test) return null
+  if (!c || (c as unknown as CustomerRow).is_test) return null
 
-  const row = c as CustomerRow
+  const row = c as unknown as CustomerRow
   const hasEmail = usable(row.email)
   const hasPhone = usable(row.phone)
   // Both methods present: there is nothing to review or research.
@@ -233,6 +267,14 @@ export async function loadContactReviewCustomer(
     phone: row.phone,
     has_email: hasEmail,
     has_phone: hasPhone,
+    street: row.street,
+    address_line1: row.address_line1,
+    city: row.city,
+    state: row.state,
+    zip: row.zip,
+    email_verified_at: row.email_verified_at,
+    phone_verified_at: row.phone_verified_at,
+    address_verified_at: row.address_verified_at,
     policy_number: policyByCustomer.get(row.id) ?? null,
   }
 }

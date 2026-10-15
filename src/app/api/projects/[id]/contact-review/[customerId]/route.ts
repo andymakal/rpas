@@ -39,8 +39,10 @@ async function resolveEmployeeName(admin: AdminClient): Promise<string | null> {
  *   a field absent from the body is left exactly as it was, so existing
  *   information is preserved unless the worker actually changed it.
  *   - A present string sets/overwrites that field (trimmed; empty string clears
- *     it to NULL).
- *   - An omitted field is not written at all.
+ *     it to NULL). A CHANGED value also clears that field's prior customer
+ *     verification (*_verified_at -> null), the same contract the shared
+ *     CustomerContactCard route applies.
+ *   - An omitted or unchanged field is not written at all.
  *
  * NOT FOUND — Body: { research_nothing_found: true }
  *   Records, PER STILL-MISSING METHOD, that contact research was completed with
@@ -133,23 +135,30 @@ export async function PATCH(
   // cannot bypass the UI. An empty value clears the field to NULL; an invalid
   // value (e.g. a phone that is not an unambiguous 10 US digits) is rejected
   // with 400 and nothing is written.
-  const patch: { email?: string | null; phone?: string | null } = {}
-  if (Object.prototype.hasOwnProperty.call(body, 'email')) {
+  const patch: {
+    email?: string | null; phone?: string | null
+    email_verified_at?: null; phone_verified_at?: null
+  } = {}
+  const wantEmail = Object.prototype.hasOwnProperty.call(body, 'email')
+  const wantPhone = Object.prototype.hasOwnProperty.call(body, 'phone')
+  let emailValue: string | null = null
+  let phoneValue: string | null = null
+  if (wantEmail) {
     const r = normalizeEmailInput(typeof body.email === 'string' ? body.email : null)
     if (r.status === 'invalid') {
       return Response.json({ error: r.reason ?? 'Invalid email address.' }, { status: 400 })
     }
-    patch.email = r.value // valid canonical value, or null when empty
+    emailValue = r.value // valid canonical value, or null when empty
   }
-  if (Object.prototype.hasOwnProperty.call(body, 'phone')) {
+  if (wantPhone) {
     const r = normalizePhoneInput(typeof body.phone === 'string' ? body.phone : null)
     if (r.status === 'invalid') {
       return Response.json({ error: r.reason ?? 'Invalid phone number.' }, { status: 400 })
     }
-    patch.phone = r.value // valid canonical value, or null when empty
+    phoneValue = r.value // valid canonical value, or null when empty
   }
 
-  if (Object.keys(patch).length === 0) {
+  if (!wantEmail && !wantPhone) {
     return Response.json({ error: 'Provide email and/or phone to save' }, { status: 400 })
   }
 
@@ -166,12 +175,52 @@ export async function PATCH(
     return Response.json({ error: 'Customer is not in this project.' }, { status: 404 })
   }
 
+  // Read the current values so we only write a field that actually changed, and
+  // so a change can clear that field's prior customer-verification — the same
+  // contract the shared CustomerContactCard route applies. A value the customer
+  // confirmed is no longer the confirmed value once it is edited, so its
+  // *_verified_at is reset to null in the same write.
+  const { data: before, error: beforeErr } = await supabase
+    .from('customers')
+    .select('id, email, phone')
+    .eq('id', customerId)
+    .eq('is_test', false)
+    .maybeSingle<{ id: string; email: string | null; phone: string | null }>()
+  if (beforeErr) {
+    console.error('contact-review customer read error:', beforeErr)
+    return Response.json({ error: beforeErr.message }, { status: 500 })
+  }
+  if (!before) {
+    return Response.json({ error: 'Customer not found.' }, { status: 404 })
+  }
+
+  if (wantEmail && (emailValue ?? null) !== (before.email ?? null)) {
+    patch.email = emailValue
+    patch.email_verified_at = null
+  }
+  if (wantPhone && (phoneValue ?? null) !== (before.phone ?? null)) {
+    patch.phone = phoneValue
+    patch.phone_verified_at = null
+  }
+
+  // Nothing actually changed: return the current record (including the verified
+  // columns) so the caller can refresh without a special case.
+  if (Object.keys(patch).length === 0) {
+    const { data: current } = await supabase
+      .from('customers')
+      .select('id, first_name, last_name, email, phone, email_verified_at, phone_verified_at, address_verified_at')
+      .eq('id', customerId)
+      .eq('is_test', false)
+      .maybeSingle()
+    return Response.json({ data: current })
+  }
+
   const { data: updated, error: updErr } = await supabase
     .from('customers')
     .update(patch)
     .eq('id', customerId)
     .eq('is_test', false)
-    .select('id, first_name, last_name, email, phone')
+    .select('id, first_name, last_name, email, phone, email_verified_at, phone_verified_at, address_verified_at')
     .maybeSingle()
   if (updErr) {
     console.error('contact-review customer update error:', updErr)

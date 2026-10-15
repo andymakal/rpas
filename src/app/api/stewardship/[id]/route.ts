@@ -20,6 +20,7 @@ import {
   cadenceRecommendationText,
   NONRESPONSIVE_LABEL,
 } from '@/lib/stewardship/cadence-status'
+import { normalizeEmailInput, normalizePhoneInput } from '@/lib/contact-input'
 import {
   applyAction,
   deriveEmailRouting,
@@ -352,14 +353,35 @@ export async function PATCH(
   // Field-level: write only the found fact, never overwrite the other. Refuse
   // to advance on a blank value.
   if (action.type === 'research-found' && (action.found === 'email' || action.found === 'phone')) {
-    const value = (action.found === 'email' ? body.action?.email : body.action?.phone)?.trim()
-    if (!value) {
+    const raw = action.found === 'email' ? body.action?.email : body.action?.phone
+    // Run the found value through the shared contact-input normalization, the
+    // same rules the forms and the CustomerContactCard route apply, so a value
+    // that reaches the customer record here is canonical and validated. An
+    // unusable value is refused and nothing is written or routed.
+    const r = action.found === 'email'
+      ? normalizeEmailInput(typeof raw === 'string' ? raw : null)
+      : normalizePhoneInput(typeof raw === 'string' ? raw : null)
+    if (r.status !== 'valid' || !r.value) {
       return Response.json(
-        { error: `A ${action.found} value is required to route this customer forward` },
+        { error: r.reason ?? `A usable ${action.found} value is required to route this customer forward` },
         { status: 400 },
       )
     }
-    const field = action.found === 'email' ? { email: value } : { phone: value }
+
+    // Write only the found method, never overwriting the other, and clear that
+    // field's prior customer-verification on a real change — the same contract
+    // the shared CustomerContactCard route applies. A confirmed value that is
+    // then changed is no longer the value the customer confirmed.
+    const existing = action.found === 'email'
+      ? row.customer_prereviews.customers?.email ?? null
+      : row.customer_prereviews.customers?.phone ?? null
+    const changed = (r.value ?? null) !== (existing ?? null)
+    const field: Record<string, string | null> = action.found === 'email'
+      ? { email: r.value }
+      : { phone: r.value }
+    if (changed) {
+      field[action.found === 'email' ? 'email_verified_at' : 'phone_verified_at'] = null
+    }
     const { error: custErr } = await supabase
       .from('customers')
       .update(field)

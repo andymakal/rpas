@@ -38,6 +38,8 @@ export {
   AssistantPanel,
 } from './panels'
 
+export { GatewayLookup } from './GatewayLookup'
+
 export {
   CustomerContactCard,
   type CustomerContact,

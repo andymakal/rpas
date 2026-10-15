@@ -19,19 +19,15 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Loader2, Mail, Phone, Copy, Check, Save, SkipForward,
-  ClipboardCheck, UserRound, FileText,
+  Loader2, Save, SkipForward, ClipboardCheck, UserRound,
 } from 'lucide-react'
 import {
   TaskShell, ActionPanel, PrimaryAction, WorkflowButton, NextNote,
-  ContextHeader, type ContextField, SlimTaskHeader, AssistantPanel,
+  SlimTaskHeader, AssistantPanel, GatewayLookup,
+  CustomerContactCard, type CustomerContact,
   QueueListHeader, CustomerQueueCard, QueueEmptyState,
 } from '@/components/workflow'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
-import {
-  normalizeEmailInput, normalizePhoneInput, formatPhoneAsTyped,
-  type ContactFieldResult,
-} from '@/lib/contact-input'
 
 type ContactReviewCustomer = {
   customer_id: string
@@ -41,6 +37,14 @@ type ContactReviewCustomer = {
   phone: string | null
   has_email: boolean
   has_phone: boolean
+  street: string | null
+  address_line1: string | null
+  city: string | null
+  state: string | null
+  zip: string | null
+  email_verified_at: string | null
+  phone_verified_at: string | null
+  address_verified_at: string | null
   policy_number: string | null
 }
 
@@ -188,17 +192,39 @@ export function ContactReviewClient({
         customer={openCustomer}
         remainingCount={remaining.length}
         onBack={() => { setOpenId(null); if (isReopened) setReopened(null) }}
-        onSaved={(updated) => {
-          // Reflect the saved values in the local rows so the list/summary stay
-          // accurate without a full reload, then advance. A reopened customer is
-          // not in the list, so for them just clear the hold and return to the
-          // list rather than advancing to a next row.
-          setRows(prev => prev.map(r => r.customer_id === updated.customer_id
-            ? { ...r, email: updated.email, phone: updated.phone,
-                has_email: usable(updated.email), has_phone: usable(updated.phone) }
+        onContactChange={(updated) => {
+          // The shared card persisted a contact change for this customer. Fold
+          // the authoritative record back into the local rows so the list and
+          // summary stay accurate without a reload. This does NOT advance — the
+          // worker advances deliberately with Save & Next.
+          setRows(prev => prev.map(r => r.customer_id === updated.id
+            ? { ...r,
+                email: updated.email, phone: updated.phone,
+                has_email: usable(updated.email), has_phone: usable(updated.phone),
+                street: updated.street, address_line1: updated.address_line1 ?? r.address_line1,
+                city: updated.city, state: updated.state, zip: updated.zip,
+                email_verified_at: updated.email_verified_at,
+                phone_verified_at: updated.phone_verified_at,
+                address_verified_at: updated.address_verified_at }
             : r))
+          setReopened(prev => prev && prev.customer_id === updated.id
+            ? { ...prev,
+                email: updated.email, phone: updated.phone,
+                has_email: usable(updated.email), has_phone: usable(updated.phone),
+                street: updated.street, address_line1: updated.address_line1 ?? prev.address_line1,
+                city: updated.city, state: updated.state, zip: updated.zip,
+                email_verified_at: updated.email_verified_at,
+                phone_verified_at: updated.phone_verified_at,
+                address_verified_at: updated.address_verified_at }
+            : prev)
+        }}
+        onSaved={() => {
+          // Save & Next: the card has already written any edits to the customer
+          // record; this advances the session. A reopened customer is not in the
+          // list, so for them just clear the hold and return to the list rather
+          // than advancing to a next row.
           if (isReopened) { setReopened(null); setOpenId(null) }
-          else markHandledAndAdvance(updated.customer_id)
+          else markHandledAndAdvance(openCustomer.customer_id)
         }}
         onSkipped={() => {
           // Recording another unsuccessful research keeps the customer settled;
@@ -218,6 +244,17 @@ export function ContactReviewClient({
   return (
     <section className="space-y-5">
       <AssistantPanel heading="Complete the contact information Gateway is missing">
+        {/* Mentoring (HOW), separate from the Assistant (WHAT), sits immediately
+            ABOVE the instructions it explains — never at the bottom. Its own
+            purple control is always shown; the global Mentoring toggle only sets
+            its default open/closed state, and employees can toggle this section
+            independently. */}
+        <MentorGuidance label="How to find a match">
+          Search Gateway with the customer&apos;s last name and policy number together — the policy
+          number is the surest way to land on the right record. If the policy number finds nothing,
+          try the last name alone, then confirm the date of birth before you copy any email or
+          phone back here.
+        </MentorGuidance>
         <div className="space-y-3 text-lg leading-relaxed text-ink-secondary">
           <p>
             The Cassidy import left these customers without a complete way to reach them.
@@ -238,16 +275,6 @@ export function ContactReviewClient({
             onClick={() => setOpenId(remaining[0].customer_id)}
           />
         )}
-        {/* Mentoring (HOW), separate from the Assistant (WHAT). Its own purple
-            control is always shown; the global Mentoring toggle only sets its
-            default open/closed state, and employees can toggle this section
-            independently. */}
-        <MentorGuidance label="How to find a match">
-          Search Gateway with the customer&apos;s last name and policy number together — the policy
-          number is the surest way to land on the right record. If the policy number finds nothing,
-          try the last name alone, then confirm the date of birth before you copy any email or
-          phone back here.
-        </MentorGuidance>
       </AssistantPanel>
 
       <QueueListHeader
@@ -280,126 +307,56 @@ export function ContactReviewClient({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ContactReviewTask — one customer: current contact, Copy Last Name / Copy
-// Policy Number for the Gateway look-up, edit, advance.
+// ContactReviewTask — one customer. The left ActionPanel carries the Mentoring,
+// the shared Gateway look-up, and the Save & Next / Nothing Usable progression;
+// the right column is the shared, editable CustomerContactCard, which owns the
+// contact capture and writes straight to the customer record.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/** Map a Contact Review row onto the shared card's customer shape. Every field
+ * already lives on the row; the card reads and corrects the customer record. */
+function toCardCustomer(c: ContactReviewCustomer): CustomerContact {
+  return {
+    id: c.customer_id,
+    first_name: c.first_name,
+    last_name: c.last_name,
+    email: c.email,
+    phone: c.phone,
+    street: c.street,
+    address_line1: c.address_line1,
+    city: c.city,
+    state: c.state,
+    zip: c.zip,
+    email_verified_at: c.email_verified_at,
+    phone_verified_at: c.phone_verified_at,
+    address_verified_at: c.address_verified_at,
+  }
+}
+
 function ContactReviewTask({
-  projectId, customer, remainingCount, onBack, onSaved, onSkipped,
+  projectId, customer, remainingCount, onBack, onSaved, onSkipped, onContactChange,
 }: {
   projectId: string
   customer: ContactReviewCustomer
   remainingCount: number
   onBack: () => void
-  onSaved: (updated: { customer_id: string; email: string | null; phone: string | null }) => void
+  /** Save & Next — advance the session. The card has already persisted edits. */
+  onSaved: () => void
+  /** Nothing Usable & Next — the durable research record was written; advance. */
   onSkipped: () => void
+  /** The card persisted a contact change; keep the list/summary in sync. */
+  onContactChange: (updated: CustomerContact) => void
 }) {
   const name = fullName(customer)
-  const lastName = (customer.last_name ?? '').trim()
-  const policyNumber = (customer.policy_number ?? '').trim()
-  const hasPolicyNumber = policyNumber.length > 0
-
-  // Inputs start from the stored values so existing information is preserved
-  // unless the worker changes it. Email and phone are edited independently.
-  const [email, setEmail] = useState(customer.email ?? '')
-  // Editable phone always displays in the (XXX) XXX-XXXX standard, including
-  // the initial stored value, via the shared formatter.
-  const [phone, setPhone] = useState(formatPhoneAsTyped(customer.phone ?? ''))
-  // Per-field normalization result, recomputed when the worker leaves a field.
-  // null means "not yet evaluated" (unchanged from the stored value).
-  const [emailResult, setEmailResult] = useState<ContactFieldResult | null>(null)
-  const [phoneResult, setPhoneResult] = useState<ContactFieldResult | null>(null)
-  // Which copy button last fired, so only that one shows its confirmed state.
-  const [copiedField, setCopiedField] = useState<'last' | 'policy' | null>(null)
   const [busy, setBusy] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current) }, [])
-
-  const copyValue = useCallback((field: 'last' | 'policy', value: string) => {
-    void navigator.clipboard.writeText(value)
-    setCopiedField(field)
-    if (copyTimer.current) clearTimeout(copyTimer.current)
-    copyTimer.current = setTimeout(() => setCopiedField(null), 2000)
-  }, [])
-
-  // Normalize on blur so pasted values are cleaned in place: the field shows
-  // the canonical value, and an invalid number/address surfaces a message
-  // rather than being quietly saved. Empty clears the field (allowed).
-  const handleEmailBlur = useCallback(() => {
-    const r = normalizeEmailInput(email)
-    setEmailResult(r)
-    if (r.status === 'valid') setEmail(r.value ?? '')
-    else if (r.status === 'empty') setEmail('')
-  }, [email])
-
-  const handlePhoneBlur = useCallback(() => {
-    const r = normalizePhoneInput(phone)
-    setPhoneResult(r)
-    if (r.status === 'valid') setPhone(r.value ?? '')
-    else if (r.status === 'empty') setPhone('')
-  }, [phone])
-
-  // The canonical value each field would save, derived from the latest text so
-  // Save works even if the worker never blurred (e.g. pressed Enter / clicked
-  // straight through). This is the single source of truth for both the change
-  // check and the request body.
-  const emailEval = useMemo(() => normalizeEmailInput(email), [email])
-  const phoneEval = useMemo(() => normalizePhoneInput(phone), [phone])
-
-  // Which fields the worker actually changed. Compare on the raw typed text vs.
-  // the stored value (trimmed) so any edit, including fixing formatting, is a
-  // change, but an untouched field is never sent and its stored value is kept.
-  // Only changed fields are written; the normalized candidate is what we send.
-  const emailChanged = email.trim() !== (customer.email ?? '').trim()
-  const phoneChanged = phone.trim() !== (customer.phone ?? '').trim()
-  const hasChanges = emailChanged || phoneChanged
-
-  // A changed field with content must be valid before it can be saved. An
-  // empty changed field is a valid "clear", so only non-empty invalids block.
-  const emailBlocks = emailChanged && emailEval.status === 'invalid'
-  const phoneBlocks = phoneChanged && phoneEval.status === 'invalid'
-
-  const save = useCallback(async () => {
-    if (!hasChanges) return
-    // Re-evaluate at save time and surface any validity message, so a worker
-    // who never blurred still sees why an invalid value is refused. An invalid
-    // changed field blocks the save entirely; nothing is written.
-    if (emailChanged) setEmailResult(emailEval)
-    if (phoneChanged) setPhoneResult(phoneEval)
-    if (emailBlocks || phoneBlocks) return
-    setBusy(true); setSaveError(null)
-    const body: { email?: string | null; phone?: string | null } = {}
-    // Send the normalized canonical value; empty clears the field to null.
-    if (emailChanged) body.email = emailEval.value
-    if (phoneChanged) body.phone = phoneEval.value
-    try {
-      const res = await fetch(`/api/projects/${projectId}/contact-review/${customer.customer_id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })
-      const json = await res.json()
-      if (!res.ok) { setSaveError(json.error ?? 'Could not save'); return }
-      onSaved({
-        customer_id: customer.customer_id,
-        email: json.data.email ?? null,
-        phone: json.data.phone ?? null,
-      })
-    } catch {
-      setSaveError('Network error')
-    } finally {
-      setBusy(false)
-    }
-  }, [hasChanges, emailChanged, phoneChanged, emailBlocks, phoneBlocks, emailEval, phoneEval, projectId, customer.customer_id, onSaved])
-
-  // Nothing Usable & Next now records the unsuccessful research DURABLY (per
+  // Nothing Usable & Next records the unsuccessful research DURABLY (per
   // still-missing method) before advancing, so the customer stops coming back on
   // later passes instead of only being hidden for this session. The record is
   // not a close: the customer keeps everything, and a found value re-opens them.
   // A failure to record is surfaced and the worker is NOT advanced, so the
-  // outcome is never silently lost.
+  // outcome is never silently lost. It records no contact attempt.
   const nothingUsable = useCallback(async () => {
     setBusy(true); setSaveError(null)
     try {
@@ -418,127 +375,42 @@ function ContactReviewTask({
     }
   }, [projectId, customer.customer_id, onSkipped])
 
-  const emailStatus = usable(customer.email)
-  const phoneStatus = usable(customer.phone)
-
-  const contextFields: ContextField[] = [
-    {
-      label: 'Email on file',
-      value: emailStatus ? customer.email : 'Not on file',
-      empty: !emailStatus,
-      statusTone: emailStatus ? 'known' : 'missing',
-      statusIcon: Mail,
-      statusLabel: emailStatus ? 'Email on file (not customer-confirmed)' : 'No email on file',
-    },
-    {
-      label: 'Phone on file',
-      value: phoneStatus ? customer.phone : 'Not on file',
-      empty: !phoneStatus,
-      statusTone: phoneStatus ? 'known' : 'missing',
-      statusIcon: Phone,
-      statusLabel: phoneStatus ? 'Phone on file (not customer-confirmed)' : 'No phone on file',
-    },
-  ]
-
   return (
     <TaskShell
       header={<SlimTaskHeader onBack={onBack} backLabel="Back to the list" />}
       action={
         <ActionPanel heading={`Complete contact for ${name}`}>
+          {/* Mentoring (HOW) sits immediately ABOVE the instructions it explains
+              — the Gateway look-up and contact capture below — never at the
+              bottom. Its own purple control is always shown; the global toggle
+              only sets the default open/closed state. */}
+          <MentorGuidance label="How to fill contact info">
+            Search Gateway with the last name and policy number together — the policy number lands
+            you on the right record fastest. Enter one usable method and move on; you do not need
+            both. A phone with no email is still progress. Only overwrite a value on the card to the
+            right when you are confident Gateway is right.
+          </MentorGuidance>
+
           {/* Why this is here — a prominent, high-contrast operational reason. */}
           <div className="flex items-center gap-2 rounded-xl border border-status-missing-border bg-status-missing-soft p-4 text-lg text-status-missing-strong">
             <UserRound className="size-5 shrink-0" aria-hidden /> {gapDetail(customer)}. Look this customer up in Gateway.
           </div>
 
-          {/* Step 1: copy the last name and policy number for the Gateway search. */}
-          <div className="space-y-3 rounded-xl border border-surface-border bg-surface-muted/40 p-4">
-            <p className="text-base font-semibold text-ink-secondary">1. Search Gateway</p>
+          {/* Step 1: the shared Gateway look-up — last name + policy number with
+              Copy buttons, identical to the Stewardship research task. */}
+          <GatewayLookup
+            lastName={customer.last_name}
+            fallbackName={name}
+            policyNumber={customer.policy_number}
+          />
 
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-xl font-semibold text-ink">{lastName || name}</span>
-              <WorkflowButton
-                icon={copiedField === 'last' ? Check : Copy}
-                selected={copiedField === 'last'}
-                onClick={() => copyValue('last', lastName)}
-                disabled={!lastName}
-              >
-                {copiedField === 'last' ? 'Last name copied' : 'Copy Last Name'}
-              </WorkflowButton>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              {hasPolicyNumber ? (
-                <>
-                  <span className="font-mono text-xl font-semibold text-ink">{policyNumber}</span>
-                  <WorkflowButton
-                    icon={copiedField === 'policy' ? Check : Copy}
-                    selected={copiedField === 'policy'}
-                    onClick={() => copyValue('policy', policyNumber)}
-                  >
-                    {copiedField === 'policy' ? 'Policy number copied' : 'Copy Policy Number'}
-                  </WorkflowButton>
-                </>
-              ) : (
-                <span className="inline-flex items-center gap-2 rounded-lg border border-surface-border bg-surface-card px-3 py-1.5 text-base text-ink-supporting">
-                  <FileText className="size-4 shrink-0" aria-hidden /> No policy number on file — search by last name
-                </span>
-              )}
-            </div>
-
-            <p className="text-base text-ink-supporting">
-              Search Gateway with the last name and policy number, then type what you find below.
-            </p>
-          </div>
-
-          {/* Step 2: enter / correct email and phone independently. */}
-          <div className="space-y-4 rounded-xl border border-surface-border bg-surface-card p-4">
-            <p className="text-base font-semibold text-ink-secondary">2. Enter what Gateway shows</p>
-
-            <div className="space-y-1.5">
-              <label htmlFor="cr-email" className="flex items-center gap-1.5 text-base font-medium text-ink-secondary">
-                <Mail className="size-4" aria-hidden /> Email
-              </label>
-              <input
-                id="cr-email"
-                type="email"
-                value={email}
-                onChange={e => { setEmail(e.target.value); if (emailResult) setEmailResult(null) }}
-                onBlur={handleEmailBlur}
-                placeholder="name@example.com"
-                aria-invalid={emailResult?.status === 'invalid' || undefined}
-                className={`w-full rounded-lg border px-3 py-2.5 text-lg text-ink focus:outline-none focus:ring-2 ${
-                  emailResult?.status === 'invalid'
-                    ? 'border-status-missing-border focus:border-status-missing-border focus:ring-status-missing-soft'
-                    : 'border-surface-border-strong focus:border-brand-ring focus:ring-brand-wash'
-                }`}
-              />
-              {emailResult?.status === 'invalid' && emailResult.reason && (
-                <p className="text-base text-status-missing-strong">{emailResult.reason}</p>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <label htmlFor="cr-phone" className="flex items-center gap-1.5 text-base font-medium text-ink-secondary">
-                <Phone className="size-4" aria-hidden /> Phone
-              </label>
-              <input
-                id="cr-phone"
-                type="tel"
-                value={phone}
-                onChange={e => { setPhone(formatPhoneAsTyped(e.target.value)); if (phoneResult) setPhoneResult(null) }}
-                onBlur={handlePhoneBlur}
-                placeholder="215-555-0100"
-                aria-invalid={phoneResult?.status === 'invalid' || undefined}
-                className={`w-full rounded-lg border px-3 py-2.5 text-lg text-ink focus:outline-none focus:ring-2 ${
-                  phoneResult?.status === 'invalid'
-                    ? 'border-status-missing-border focus:border-status-missing-border focus:ring-status-missing-soft'
-                    : 'border-surface-border-strong focus:border-brand-ring focus:ring-brand-wash'
-                }`}
-              />
-              {phoneResult?.status === 'invalid' && phoneResult.reason && (
-                <p className="text-base text-status-missing-strong">{phoneResult.reason}</p>
-              )}
-            </div>
+          {/* Step 2 is the editable Customer Contact card on the right: enter or
+              correct email, phone, and mailing address there. It writes straight
+              to the customer record and clears a value's verification when it
+              changes. */}
+          <div className="rounded-xl border border-surface-border bg-surface-muted/40 p-4 text-base text-ink-supporting">
+            Enter what Gateway shows on the Customer Contact card to the right. Each field saves on
+            its own; a phone with no email is still progress.
           </div>
 
           {saveError && (
@@ -547,13 +419,15 @@ function ContactReviewTask({
             </p>
           )}
 
-          {/* The two advancing actions. */}
+          {/* The two advancing actions. Save & Next advances to the next
+              customer (edits are already persisted by the card); Nothing Usable
+              & Next records the unsuccessful research durably and continues. */}
           <div className="space-y-3">
             <PrimaryAction
               icon={Save}
-              label={busy ? 'Saving…' : 'Save & Next'}
-              onClick={save}
-              disabled={busy || !hasChanges}
+              label="Save & Next"
+              onClick={onSaved}
+              disabled={busy}
             />
             <WorkflowButton icon={SkipForward} onClick={nothingUsable} disabled={busy} className="w-full justify-start">
               Nothing Usable &amp; Next
@@ -561,30 +435,20 @@ function ContactReviewTask({
           </div>
 
           <NextNote>
-            Save &amp; Next writes only the fields you changed to the customer record and opens the next
-            customer. Nothing Usable &amp; Next records that research found nothing usable (so this
-            customer will not keep coming back) and continues.
+            Edit email, phone, and address on the Customer Contact card to the right; each change
+            saves on its own. Save &amp; Next opens the next customer. Nothing Usable &amp; Next
+            records that research found nothing usable (so this customer will not keep coming back)
+            and continues.
             {remainingCount > 0
               ? ` ${remainingCount} more after this one.`
               : ' This is the last one in the list.'}
           </NextNote>
-
-          {/* Mentoring (HOW), consistent with the list view and the other
-              workflows. Its own purple control is always shown; the global
-              toggle only sets the default open/closed state. */}
-          <MentorGuidance label="How to fill contact info">
-            Search Gateway with the last name and policy number together — the policy number lands
-            you on the right record fastest. Enter one usable method and move on; you do not need
-            both. A phone with no email is still progress. Only overwrite a value here when you are
-            confident Gateway is right.
-          </MentorGuidance>
         </ActionPanel>
       }
       context={
-        <ContextHeader
-          eyebrow="Contact Review"
-          title={name}
-          fields={contextFields}
+        <CustomerContactCard
+          customer={toCardCustomer(customer)}
+          onChange={onContactChange}
         />
       }
     />
