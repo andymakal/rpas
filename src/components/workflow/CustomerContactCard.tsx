@@ -117,11 +117,14 @@ function toneFor(present: boolean, verifiedAt: string | null): Tone {
   return verifiedAt ? 'confirmed' : 'known'
 }
 
-/** The status icon per tone. Distinct SHAPES so the meaning survives without
- * color: a check for verified, a question-shield for on-file, a warning
- * triangle for missing. The accessible label carries the meaning in words. */
+/** The status presentation per tone. Distinct SHAPES so the meaning survives
+ * without color: a check for verified, a question-shield for on-file, a warning
+ * triangle for missing. `color` is applied uniformly to the status icon, the
+ * contact icon, and the field label so a field reads as one colored unit; the
+ * accessible label carries the meaning in words. Shared between the field
+ * headings and the status key so both stay identical. */
 const STATUS_META: Record<Tone, { label: string; icon: typeof ShieldQuestion; color: string }> = {
-  confirmed: { label: 'Customer verified', icon: CheckCircle2, color: 'text-status-confirmed' },
+  confirmed: { label: 'Verified', icon: CheckCircle2, color: 'text-status-confirmed' },
   known: { label: 'On file, not verified', icon: ShieldQuestion, color: 'text-status-known' },
   missing: { label: 'Missing', icon: AlertTriangle, color: 'text-status-missing' },
 }
@@ -215,8 +218,9 @@ export function CustomerContactCard({
       {/* Mentoring (HOW): always-visible purple control, expanded by the global
           Mentoring preference. */}
       <MentorGuidance label="About these fields" className="mt-2">
-        Changes here update customer information throughout Right Path. Check Customer Verified
-        only when the customer has confirmed the information is correct.
+        Changes here update customer information throughout Right Path. Check Verified only when the
+        customer has confirmed the information is correct, including when they confirm it in an email
+        response.
       </MentorGuidance>
 
       {error && (
@@ -225,8 +229,9 @@ export function CustomerContactCard({
         </p>
       )}
 
-      {/* Three compact sections in one card: no inner borders, no dividers. */}
-      <div className="mt-3 divide-y divide-surface-divider">
+      {/* Three compact sections in one card. The dividers use the stronger
+          surface border token so they read clearly against the white card. */}
+      <div className="mt-3 divide-y divide-surface-border-strong">
         <EmailRow
           present={emailPresent}
           verifiedAt={record.email_verified_at}
@@ -263,7 +268,29 @@ export function CustomerContactCard({
           onVerify={(v) => toggleVerify('address', v)}
         />
       </div>
+
+      <ContactStatusKey />
     </section>
+  )
+}
+
+/** The compact status key at the foot of the card: the same Lucide icons and
+ * colors as the field headings, so green / amber / red read consistently. */
+function ContactStatusKey() {
+  const order: Tone[] = ['confirmed', 'known', 'missing']
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-surface-border-strong pt-2.5 text-sm text-ink-supporting">
+      {order.map((tone) => {
+        const meta = STATUS_META[tone]
+        const Icon = meta.icon
+        return (
+          <span key={tone} className="inline-flex items-center gap-1.5">
+            <Icon className={cn('size-4 shrink-0', meta.color)} aria-hidden />
+            {meta.label}
+          </span>
+        )
+      })}
+    </div>
   )
 }
 
@@ -292,7 +319,7 @@ function VerifyCheckbox({
         onChange={(e) => onChange(e.target.checked)}
         className="size-4 rounded border-slate-400 text-teal-600 focus:ring-teal-500 disabled:opacity-40"
       />
-      <span>Customer Verified</span>
+      <span>Verified</span>
       {busy && <Loader2 className="size-3.5 animate-spin text-ink-muted" aria-hidden />}
     </label>
   )
@@ -322,11 +349,13 @@ function SectionShell({
   return (
     <div className="py-3 first:pt-0 last:pb-0">
       <div className="flex items-center justify-between gap-3">
-        <p className="flex items-center gap-2 text-base font-semibold text-ink">
-          {/* Status icon: large enough to recognize at a glance; shape + label
-              carry the meaning, not color alone. */}
-          <StatusIcon className={cn('size-6 shrink-0', status.color)} aria-label={status.label} role="img" />
-          <ContactIcon className="size-4 shrink-0 text-ink-supporting" aria-hidden />
+        {/* The status indicator, contact icon, and label all take the status
+            color so the heading reads as one colored unit. Both icons are the
+            same ~20px size; the status shape + accessible label carry meaning
+            without relying on color. */}
+        <p className={cn('flex items-center gap-2 text-base font-semibold', status.color)}>
+          <StatusIcon className="size-5 shrink-0" aria-label={status.label} role="img" />
+          <ContactIcon className="size-5 shrink-0" aria-hidden />
           {label}
         </p>
         <VerifyCheckbox

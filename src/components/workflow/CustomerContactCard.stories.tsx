@@ -18,13 +18,14 @@ import {
  *
  * The reusable customer-contact surface: the customer's name is the card
  * heading, with an expandable Mentoring tip beneath it, over one card holding
- * three compact sections — Email, Phone, Mailing Address. Each section heading
- * pairs a large status icon (yellow shield-question = on file not verified,
- * green check-circle = customer verified, red warning = missing) with the
- * contact icon and label, and carries the Customer Verified checkbox at the
- * right; the full value sits beneath with Edit at its right. "Missing" marks an
- * absent value. Status meaning never relies on color alone — each icon is a
- * distinct shape with an accessible label.
+ * three compact sections — Email, Phone, Mailing Address. In each section the
+ * status indicator, contact icon, and field label share one status color (green
+ * = verified, amber = on file not verified, red = missing); the value stays in
+ * normal high-contrast text. The Verified checkbox sits on the heading line at
+ * the right, the full value beneath with Edit at its right, and "Missing" marks
+ * an absent value. A compact key at the foot repeats the three icons and
+ * colors. Status meaning never relies on color alone — each icon is a distinct
+ * shape with an accessible label.
  *
  * STORYBOOK-ONLY. These stories inject an in-memory `onPersist`, so editing and
  * verifying work interactively without any database or API. The rules the real
@@ -123,14 +124,14 @@ function Interactive({ initial, mentoringOn = true }: { initial: CustomerContact
   return <CustomerContactCard customer={record} onPersist={onPersist} />
 }
 
-/** Complete information on file, none of it customer-verified yet (all yellow
- * shield-question). The Mentoring tip is expanded. */
+/** Complete information on file, none of it verified yet: each section (icons +
+ * label) reads amber. The Mentoring tip is expanded. */
 export const Complete: Story = {
   render: () => <Interactive initial={base} />,
 }
 
-/** Everything missing: each section shows the red warning icon and "Missing",
- * and the Customer Verified checkbox is disabled until a usable value is saved. */
+/** Everything missing: each section (icons + label) reads red with "Missing",
+ * and the Verified checkbox is disabled until a usable value is saved. */
 export const Missing: Story = {
   render: () => (
     <Interactive
@@ -150,9 +151,8 @@ export const Missing: Story = {
   ),
 }
 
-/** All three fields customer-verified: each shows the green check-circle.
- * Editing any value here clears that field's verification (try it — the icon
- * drops back to the yellow shield-question). */
+/** All three fields verified: each section reads green. Editing any value here
+ * clears that field's verification (try it — the section drops back to amber). */
 export const Verified: Story = {
   render: () => (
     <Interactive
@@ -167,11 +167,11 @@ export const Verified: Story = {
 }
 
 /**
- * A mixed, partially complete record: a verified phone (green check-circle), an
- * unverified email (yellow shield-question), and a missing mailing address (red
- * warning). Open any field's Edit to see the independent editors — email and
- * phone each on their own, the address as a single street / city / state / ZIP
- * group with Save and Cancel.
+ * A mixed, partially complete record showing all three status colors at once: a
+ * verified phone (green), an unverified email (amber), and a missing mailing
+ * address (red). Open any field's Edit to see the independent editors — email
+ * and phone each on their own, the address as a single street / city / state /
+ * ZIP group with Save and Cancel.
  */
 export const Editing: Story = {
   render: () => (
