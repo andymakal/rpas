@@ -1188,7 +1188,6 @@ function StewardshipCustomerContact({
   }
   return (
     <CustomerContactCard
-      heading="Customer contact"
       customer={customer}
       onChange={(u) => setDetail(prev => prev ? {
         ...prev,

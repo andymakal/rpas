@@ -10,12 +10,19 @@
  * anywhere the existing contact display can be replaced.
  *
  * Display
- *   - Customer name on top, then email / phone / mailing address stacked.
- *   - Values are shown in full and never truncated. A field with no usable value
- *     reads "Missing".
- *   - Each field carries a status cue: green = Customer Verified, yellow = On
- *     File — Not Verified, red = Missing or Unusable. Never color alone (icon +
- *     text accompany every cue), with a compact legend at the foot of the card.
+ *   - The customer's name is the card heading, with an expandable Mentoring tip
+ *     beneath it.
+ *   - One outer card holds three compact sections: Email, Phone, Mailing
+ *     Address. Each section heading pairs a large status icon (yellow
+ *     shield-question = on file not verified, green check-circle = customer
+ *     verified, red warning = missing) with the field's contact icon (Mail /
+ *     Phone / MapPin) and label, and carries the Customer Verified checkbox at
+ *     the right.
+ *   - The complete value shows beneath the heading in full (never truncated,
+ *     the mailing address on two lines), with Edit at its right. A field with no
+ *     usable value reads "Missing".
+ *   - Status meaning never relies on color alone: each status icon is a distinct
+ *     shape, and its accessible label states the meaning.
  *
  * Editing
  *   - Email and phone edit independently; the mailing address edits as one group
@@ -38,9 +45,11 @@
 
 import { useCallback, useMemo, useState } from 'react'
 import {
-  Mail, Phone, MapPin, Pencil, Check, X, Loader2, ShieldCheck, CircleAlert, ShieldQuestion,
+  Mail, Phone, MapPin, Pencil, Check, X, Loader2,
+  ShieldQuestion, CheckCircle2, AlertTriangle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import {
   normalizeEmailInput, normalizePhoneInput, formatPhoneAsTyped,
   type ContactFieldResult,
@@ -108,25 +117,13 @@ function toneFor(present: boolean, verifiedAt: string | null): Tone {
   return verifiedAt ? 'confirmed' : 'known'
 }
 
-const TONE_META: Record<Tone, { label: string; icon: typeof ShieldCheck; dot: string; chip: string }> = {
-  confirmed: {
-    label: 'Customer Verified',
-    icon: ShieldCheck,
-    dot: 'bg-status-confirmed',
-    chip: 'border-status-confirmed-border bg-status-confirmed-soft text-status-confirmed-strong',
-  },
-  known: {
-    label: 'On File — Not Verified',
-    icon: ShieldQuestion,
-    dot: 'bg-status-known',
-    chip: 'border-status-known-border bg-status-known-soft text-status-known-strong',
-  },
-  missing: {
-    label: 'Missing or Unusable',
-    icon: CircleAlert,
-    dot: 'bg-status-missing',
-    chip: 'border-status-missing-border bg-status-missing-soft text-status-missing-strong',
-  },
+/** The status icon per tone. Distinct SHAPES so the meaning survives without
+ * color: a check for verified, a question-shield for on-file, a warning
+ * triangle for missing. The accessible label carries the meaning in words. */
+const STATUS_META: Record<Tone, { label: string; icon: typeof ShieldQuestion; color: string }> = {
+  confirmed: { label: 'Customer verified', icon: CheckCircle2, color: 'text-status-confirmed' },
+  known: { label: 'On file, not verified', icon: ShieldQuestion, color: 'text-status-known' },
+  missing: { label: 'Missing', icon: AlertTriangle, color: 'text-status-missing' },
 }
 
 // ── Component ──────────────────────────────────────────────────────────────
@@ -135,7 +132,6 @@ export function CustomerContactCard({
   customer,
   onChange,
   onPersist,
-  heading,
   className,
 }: {
   customer: CustomerContact
@@ -145,8 +141,6 @@ export function CustomerContactCard({
   /** Inject persistence. Omit to PATCH /api/customers/[id]/contact. Must resolve
    * with the full updated record. */
   onPersist?: (customerId: string, payload: ContactPersistPayload) => Promise<CustomerContact>
-  /** Optional small eyebrow over the name (e.g. "Customer contact"). */
-  heading?: string
   className?: string
 }) {
   // The card holds the current record locally so the display updates the instant
@@ -211,27 +205,29 @@ export function CustomerContactCard({
   return (
     <section
       className={cn(
-        'space-y-4 rounded-2xl border border-surface-border bg-surface-card p-5 font-workflow',
+        'rounded-2xl border border-surface-border bg-surface-card p-4 font-workflow',
         className,
       )}
     >
-      <header className="space-y-0.5">
-        {heading && (
-          <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">{heading}</p>
-        )}
-        <h3 className="text-xl font-semibold text-ink">{fullName(record)}</h3>
-      </header>
+      {/* The customer's name IS the card heading (~22px). */}
+      <h3 className="text-[22px] font-semibold leading-tight text-ink">{fullName(record)}</h3>
+
+      {/* Mentoring (HOW): always-visible purple control, expanded by the global
+          Mentoring preference. */}
+      <MentorGuidance label="About these fields" className="mt-2">
+        Changes here update customer information throughout Right Path. Check Customer Verified
+        only when the customer has confirmed the information is correct.
+      </MentorGuidance>
 
       {error && (
-        <p className="rounded-lg border border-status-missing-border bg-status-missing-soft px-3 py-2 text-sm text-status-missing-strong">
+        <p className="mt-3 rounded-lg border border-status-missing-border bg-status-missing-soft px-3 py-2 text-base text-status-missing-strong">
           {error}
         </p>
       )}
 
-      <div className="space-y-3">
+      {/* Three compact sections in one card: no inner borders, no dividers. */}
+      <div className="mt-3 divide-y divide-surface-divider">
         <EmailRow
-          icon={Mail}
-          label="Email"
           present={emailPresent}
           verifiedAt={record.email_verified_at}
           value={record.email}
@@ -244,8 +240,6 @@ export function CustomerContactCard({
         />
 
         <PhoneRow
-          icon={Phone}
-          label="Phone"
           present={phonePresent}
           verifiedAt={record.phone_verified_at}
           value={record.phone}
@@ -269,26 +263,11 @@ export function CustomerContactCard({
           onVerify={(v) => toggleVerify('address', v)}
         />
       </div>
-
-      <ContactStatusKey />
     </section>
   )
 }
 
-// ── Shared row chrome ─────────────────────────────────────────────────────────
-
-function StatusChip({ tone }: { tone: Tone }) {
-  const meta = TONE_META[tone]
-  const Icon = meta.icon
-  return (
-    <span
-      className={cn('inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium', meta.chip)}
-      role="status"
-    >
-      <Icon className="size-3.5" aria-hidden /> {meta.label}
-    </span>
-  )
-}
+// ── Shared section chrome ─────────────────────────────────────────────────────
 
 function VerifyCheckbox({
   checked, disabled, busy, onChange,
@@ -301,7 +280,7 @@ function VerifyCheckbox({
   return (
     <label
       className={cn(
-        'flex items-center gap-2 text-sm font-medium',
+        'flex shrink-0 items-center gap-2 text-base font-medium',
         disabled ? 'cursor-not-allowed text-ink-muted' : 'cursor-pointer text-ink-secondary',
       )}
       title={disabled ? 'A missing or unusable value cannot be marked verified.' : undefined}
@@ -319,60 +298,66 @@ function VerifyCheckbox({
   )
 }
 
-function RowShell({
-  icon: Icon, label, tone, present, verifiedAt, busy, canEdit = true, onEdit, onVerify, children,
+/**
+ * One contact section inside the shared card. The heading line pairs the large
+ * status icon and the contact icon with the field label, and holds the Customer
+ * Verified checkbox at the right. The value line shows the full value with Edit
+ * at the right. Compact vertical rhythm; no inner card border.
+ */
+function SectionShell({
+  contactIcon: ContactIcon, label, tone, present, verifiedAt, busy, onEdit, onVerify, children,
 }: {
-  icon: typeof Mail
+  contactIcon: typeof Mail
   label: string
   tone: Tone
   present: boolean
   verifiedAt: string | null
   busy: boolean
-  canEdit?: boolean
   onEdit: () => void
   onVerify: (v: boolean) => void
   children: React.ReactNode
 }) {
+  const status = STATUS_META[tone]
+  const StatusIcon = status.icon
   return (
-    <div className="rounded-xl border border-surface-border bg-surface-muted/30 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <p className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-ink-supporting">
-          <span className={cn('inline-block size-2 rounded-full', TONE_META[tone].dot)} aria-hidden />
-          <Icon className="size-4 text-ink-supporting" aria-hidden /> {label}
+    <div className="py-3 first:pt-0 last:pb-0">
+      <div className="flex items-center justify-between gap-3">
+        <p className="flex items-center gap-2 text-base font-semibold text-ink">
+          {/* Status icon: large enough to recognize at a glance; shape + label
+              carry the meaning, not color alone. */}
+          <StatusIcon className={cn('size-6 shrink-0', status.color)} aria-label={status.label} role="img" />
+          <ContactIcon className="size-4 shrink-0 text-ink-supporting" aria-hidden />
+          {label}
         </p>
-        <StatusChip tone={tone} />
+        <VerifyCheckbox
+          checked={!!verifiedAt}
+          disabled={!present}
+          busy={busy}
+          onChange={onVerify}
+        />
       </div>
 
-      <div className="mt-2">{children}</div>
-
-      {canEdit && (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-surface-divider pt-3">
-          <VerifyCheckbox
-            checked={!!verifiedAt}
-            disabled={!present}
-            busy={busy}
-            onChange={onVerify}
-          />
-          <button
-            type="button"
-            onClick={onEdit}
-            disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-3 py-1.5 text-sm font-medium text-ink-secondary hover:bg-surface-muted disabled:opacity-40"
-          >
-            <Pencil className="size-3.5" aria-hidden /> Edit
-          </button>
-        </div>
-      )}
+      <div className="mt-1.5 flex items-start justify-between gap-3">
+        <div className="min-w-0">{children}</div>
+        <button
+          type="button"
+          onClick={onEdit}
+          disabled={busy}
+          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-2.5 py-1 text-base font-medium text-ink-secondary hover:bg-surface-muted disabled:opacity-40"
+        >
+          <Pencil className="size-3.5" aria-hidden /> Edit
+        </button>
+      </div>
     </div>
   )
 }
 
-/** The value line: full value or an explicit "Missing". Never truncated. */
+/** The value line (~18px): full value, or an explicit "Missing". Never truncated. */
 function ValueText({ value, present }: { value: string | null; present: boolean }) {
   if (!present) {
-    return <p className="text-base font-medium text-status-missing-strong">Missing</p>
+    return <p className="text-lg font-medium text-status-missing-strong">Missing</p>
   }
-  return <p className="break-words text-base text-ink">{value}</p>
+  return <p className="break-words text-lg text-ink">{value}</p>
 }
 
 function EditActions({ busy, onCancel }: { busy: boolean; onCancel: () => void }) {
@@ -381,7 +366,7 @@ function EditActions({ busy, onCancel }: { busy: boolean; onCancel: () => void }
       <button
         type="submit"
         disabled={busy}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-sm font-semibold text-brand-foreground hover:bg-brand-hover disabled:opacity-50"
+        className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-base font-semibold text-brand-foreground hover:bg-brand-hover disabled:opacity-50"
       >
         {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
         Save
@@ -390,7 +375,7 @@ function EditActions({ busy, onCancel }: { busy: boolean; onCancel: () => void }
         type="button"
         onClick={onCancel}
         disabled={busy}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-3 py-1.5 text-sm font-medium text-ink-secondary hover:bg-surface-muted disabled:opacity-40"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-3 py-1.5 text-base font-medium text-ink-secondary hover:bg-surface-muted disabled:opacity-40"
       >
         <X className="size-3.5" aria-hidden /> Cancel
       </button>
@@ -400,7 +385,7 @@ function EditActions({ busy, onCancel }: { busy: boolean; onCancel: () => void }
 
 const inputCls = (invalid: boolean) =>
   cn(
-    'w-full rounded-lg border px-3 py-2 text-base text-ink focus:outline-none focus:ring-2',
+    'w-full rounded-lg border px-3 py-2 text-lg text-ink focus:outline-none focus:ring-2',
     invalid
       ? 'border-status-missing-border focus:border-status-missing-border focus:ring-status-missing-soft'
       : 'border-surface-border-strong focus:border-brand-ring focus:ring-brand-wash',
@@ -409,10 +394,8 @@ const inputCls = (invalid: boolean) =>
 // ── Email ──────────────────────────────────────────────────────────────────
 
 function EmailRow({
-  icon, label, present, verifiedAt, value, editing, busy, onEdit, onCancel, onSave, onVerify,
+  present, verifiedAt, value, editing, busy, onEdit, onCancel, onSave, onVerify,
 }: {
-  icon: typeof Mail
-  label: string
   present: boolean
   verifiedAt: string | null
   value: string | null
@@ -432,10 +415,10 @@ function EmailRow({
 
   if (!editing) {
     return (
-      <RowShell icon={icon} label={label} tone={tone} present={present} verifiedAt={verifiedAt}
+      <SectionShell contactIcon={Mail} label="Email" tone={tone} present={present} verifiedAt={verifiedAt}
         busy={busy} onEdit={open} onVerify={onVerify}>
         <ValueText value={value} present={present} />
-      </RowShell>
+      </SectionShell>
     )
   }
 
@@ -447,8 +430,8 @@ function EmailRow({
   }
 
   return (
-    <form onSubmit={submit} className="rounded-xl border border-brand-subtle bg-surface-card p-4">
-      <label htmlFor="cc-email" className="flex items-center gap-1.5 text-sm font-semibold text-ink-secondary">
+    <form onSubmit={submit} className="py-3 first:pt-0 last:pb-0">
+      <label htmlFor="cc-email" className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
         <Mail className="size-4" aria-hidden /> Edit email
       </label>
       <input
@@ -460,12 +443,12 @@ function EmailRow({
         onBlur={() => setResult(normalizeEmailInput(draft))}
         placeholder="name@example.com"
         aria-invalid={result?.status === 'invalid' || undefined}
-        className={cn('mt-2', inputCls(result?.status === 'invalid'))}
+        className={cn('mt-1.5', inputCls(result?.status === 'invalid'))}
       />
       {result?.status === 'invalid' && result.reason && (
-        <p className="mt-1.5 text-sm text-status-missing-strong">{result.reason}</p>
+        <p className="mt-1.5 text-base text-status-missing-strong">{result.reason}</p>
       )}
-      <div className="mt-3"><EditActions busy={busy} onCancel={onCancel} /></div>
+      <div className="mt-2.5"><EditActions busy={busy} onCancel={onCancel} /></div>
     </form>
   )
 }
@@ -473,10 +456,8 @@ function EmailRow({
 // ── Phone ──────────────────────────────────────────────────────────────────
 
 function PhoneRow({
-  icon, label, present, verifiedAt, value, editing, busy, onEdit, onCancel, onSave, onVerify,
+  present, verifiedAt, value, editing, busy, onEdit, onCancel, onSave, onVerify,
 }: {
-  icon: typeof Phone
-  label: string
   present: boolean
   verifiedAt: string | null
   value: string | null
@@ -495,10 +476,10 @@ function PhoneRow({
 
   if (!editing) {
     return (
-      <RowShell icon={icon} label={label} tone={tone} present={present} verifiedAt={verifiedAt}
+      <SectionShell contactIcon={Phone} label="Phone" tone={tone} present={present} verifiedAt={verifiedAt}
         busy={busy} onEdit={open} onVerify={onVerify}>
         <ValueText value={value} present={present} />
-      </RowShell>
+      </SectionShell>
     )
   }
 
@@ -510,8 +491,8 @@ function PhoneRow({
   }
 
   return (
-    <form onSubmit={submit} className="rounded-xl border border-brand-subtle bg-surface-card p-4">
-      <label htmlFor="cc-phone" className="flex items-center gap-1.5 text-sm font-semibold text-ink-secondary">
+    <form onSubmit={submit} className="py-3 first:pt-0 last:pb-0">
+      <label htmlFor="cc-phone" className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
         <Phone className="size-4" aria-hidden /> Edit phone
       </label>
       <input
@@ -523,12 +504,12 @@ function PhoneRow({
         onBlur={() => setResult(normalizePhoneInput(draft))}
         placeholder="(215) 555-0100"
         aria-invalid={result?.status === 'invalid' || undefined}
-        className={cn('mt-2', inputCls(result?.status === 'invalid'))}
+        className={cn('mt-1.5', inputCls(result?.status === 'invalid'))}
       />
       {result?.status === 'invalid' && result.reason && (
-        <p className="mt-1.5 text-sm text-status-missing-strong">{result.reason}</p>
+        <p className="mt-1.5 text-base text-status-missing-strong">{result.reason}</p>
       )}
-      <div className="mt-3"><EditActions busy={busy} onCancel={onCancel} /></div>
+      <div className="mt-2.5"><EditActions busy={busy} onCancel={onCancel} /></div>
     </form>
   )
 }
@@ -564,16 +545,17 @@ function AddressRow({
 
   if (!editing) {
     return (
-      <RowShell icon={MapPin} label="Mailing address" tone={tone} present={present} verifiedAt={verifiedAt}
+      <SectionShell contactIcon={MapPin} label="Mailing Address" tone={tone} present={present} verifiedAt={verifiedAt}
         busy={busy} onEdit={open} onVerify={onVerify}>
         {present ? (
-          <address className="not-italic text-base leading-relaxed text-ink">
+          // The complete mailing address on two lines: street, then city/state/ZIP.
+          <address className="not-italic text-lg leading-snug text-ink">
             {lines.map((line, i) => <span key={i} className="block break-words">{line}</span>)}
           </address>
         ) : (
-          <p className="text-base font-medium text-status-missing-strong">Missing</p>
+          <p className="text-lg font-medium text-status-missing-strong">Missing</p>
         )}
-      </RowShell>
+      </SectionShell>
     )
   }
 
@@ -589,56 +571,38 @@ function AddressRow({
   }
 
   return (
-    <form onSubmit={submit} className="rounded-xl border border-brand-subtle bg-surface-card p-4">
-      <p className="flex items-center gap-1.5 text-sm font-semibold text-ink-secondary">
+    <form onSubmit={submit} className="py-3 first:pt-0 last:pb-0">
+      <p className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
         <MapPin className="size-4" aria-hidden /> Edit mailing address
       </p>
-      <div className="mt-2 space-y-2">
+      <div className="mt-1.5 space-y-2">
         <div>
-          <label htmlFor="cc-street" className="text-xs font-medium uppercase tracking-wide text-ink-supporting">Street</label>
+          <label htmlFor="cc-street" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">Street</label>
           <input id="cc-street" autoFocus value={street} onChange={(e) => setStreet(e.target.value)}
             placeholder="123 Main St" className={cn('mt-1', inputCls(false))} />
         </div>
         <div>
-          <label htmlFor="cc-city" className="text-xs font-medium uppercase tracking-wide text-ink-supporting">City</label>
+          <label htmlFor="cc-city" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">City</label>
           <input id="cc-city" value={city} onChange={(e) => setCity(e.target.value)}
             placeholder="Philadelphia" className={cn('mt-1', inputCls(false))} />
         </div>
         <div className="flex gap-2">
           <div className="w-24">
-            <label htmlFor="cc-state" className="text-xs font-medium uppercase tracking-wide text-ink-supporting">State</label>
+            <label htmlFor="cc-state" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">State</label>
             <input id="cc-state" value={stateVal} onChange={(e) => setStateVal(e.target.value)}
               maxLength={2} placeholder="PA" className={cn('mt-1 uppercase', inputCls(false))} />
           </div>
           <div className="flex-1">
-            <label htmlFor="cc-zip" className="text-xs font-medium uppercase tracking-wide text-ink-supporting">ZIP</label>
+            <label htmlFor="cc-zip" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">ZIP</label>
             <input id="cc-zip" value={zip} onChange={(e) => setZip(e.target.value)}
               placeholder="19103" className={cn('mt-1', inputCls(false))} />
           </div>
         </div>
       </div>
-      <p className="mt-2 text-xs text-ink-supporting">
+      <p className="mt-1.5 text-sm text-ink-supporting">
         A mailing address needs street, city, state, and ZIP to be usable and verifiable.
       </p>
-      <div className="mt-3"><EditActions busy={busy} onCancel={onCancel} /></div>
+      <div className="mt-2.5"><EditActions busy={busy} onCancel={onCancel} /></div>
     </form>
-  )
-}
-
-// ── Legend ───────────────────────────────────────────────────────────────────
-
-/** The card's own compact status key. Self-contained and source-agnostic: it
- * states what each color means without referencing any external system. */
-function ContactStatusKey() {
-  const order: Tone[] = ['confirmed', 'known', 'missing']
-  return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-surface-divider pt-2.5 text-xs text-ink-supporting">
-      {order.map((tone) => (
-        <span key={tone} className="inline-flex items-center gap-1.5">
-          <span className={cn('inline-block size-2.5 rounded-full', TONE_META[tone].dot)} aria-hidden />
-          {TONE_META[tone].label}
-        </span>
-      ))}
-    </div>
   )
 }

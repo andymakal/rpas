@@ -1,7 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { WorkflowSurface } from './index'
+import {
+  MentoringProvider,
+  MENTORING_STORAGE_KEY,
+} from '@/lib/mentoring/MentoringProvider'
+import { MentorToggle } from '@/lib/mentoring/MentorUi'
 import {
   CustomerContactCard,
   type CustomerContact,
@@ -11,16 +16,21 @@ import {
 /**
  * Workflow Design System — Customer Contact.
  *
- * The reusable customer-contact surface: name on top, then email, phone, and
- * mailing address stacked and shown in full. Each field carries a green / yellow
- * / red status (Customer Verified / On File — Not Verified / Missing or
- * Unusable), an independent Edit action, and a Customer Verified checkbox.
- * Email and phone edit on their own; the mailing address edits as one group.
+ * The reusable customer-contact surface: the customer's name is the card
+ * heading, with an expandable Mentoring tip beneath it, over one card holding
+ * three compact sections — Email, Phone, Mailing Address. Each section heading
+ * pairs a large status icon (yellow shield-question = on file not verified,
+ * green check-circle = customer verified, red warning = missing) with the
+ * contact icon and label, and carries the Customer Verified checkbox at the
+ * right; the full value sits beneath with Edit at its right. "Missing" marks an
+ * absent value. Status meaning never relies on color alone — each icon is a
+ * distinct shape with an accessible label.
  *
  * STORYBOOK-ONLY. These stories inject an in-memory `onPersist`, so editing and
  * verifying work interactively without any database or API. The rules the real
  * card enforces are reproduced here: a changed value clears its verification,
- * and a missing/unusable value cannot be verified.
+ * and a missing/unusable value cannot be verified. A Mentoring toggle is shown
+ * above the card so the expandable Mentoring tip can be exercised.
  */
 const base: CustomerContact = {
   id: 'demo-customer',
@@ -48,9 +58,13 @@ const meta = {
   decorators: [
     (Story) => (
       <WorkflowSurface className="min-h-screen p-6">
-        <div className="mx-auto max-w-md">
-          <Story />
-        </div>
+        <MentoringProvider>
+          <div className="mx-auto max-w-md space-y-3">
+            {/* The Mentoring tip inside the card follows this global preference. */}
+            <div className="flex justify-end"><MentorToggle /></div>
+            <Story />
+          </div>
+        </MentoringProvider>
       </WorkflowSurface>
     ),
   ],
@@ -63,9 +77,17 @@ type Story = StoryObj<typeof meta>
  * An in-memory persistence stub that mirrors the server rules: a save that
  * changes a value clears that field's verification; a verify toggle stamps or
  * clears the timestamp. Keeps the card fully interactive in isolation.
+ *
+ * `mentoringOn` seeds the shared Mentoring preference so a story can show the
+ * tip expanded by default without the reviewer toggling it first.
  */
-function Interactive({ initial }: { initial: CustomerContact }) {
+function Interactive({ initial, mentoringOn = true }: { initial: CustomerContact; mentoringOn?: boolean }) {
   const [record, setRecord] = useState<CustomerContact>(initial)
+
+  // Seed the browser-scoped Mentoring preference before the provider hydrates.
+  useEffect(() => {
+    try { window.localStorage.setItem(MENTORING_STORAGE_KEY, mentoringOn ? 'on' : 'off') } catch { /* ignore */ }
+  }, [mentoringOn])
 
   const onPersist = async (
     _id: string,
@@ -98,16 +120,17 @@ function Interactive({ initial }: { initial: CustomerContact }) {
     return next
   }
 
-  return <CustomerContactCard heading="Customer contact" customer={record} onPersist={onPersist} />
+  return <CustomerContactCard customer={record} onPersist={onPersist} />
 }
 
-/** Complete information on file, none of it customer-verified yet (all yellow). */
+/** Complete information on file, none of it customer-verified yet (all yellow
+ * shield-question). The Mentoring tip is expanded. */
 export const Complete: Story = {
   render: () => <Interactive initial={base} />,
 }
 
-/** Everything missing: each field reads red and "Missing", and verification is
- * blocked until a usable value is saved. */
+/** Everything missing: each section shows the red warning icon and "Missing",
+ * and the Customer Verified checkbox is disabled until a usable value is saved. */
 export const Missing: Story = {
   render: () => (
     <Interactive
@@ -127,8 +150,9 @@ export const Missing: Story = {
   ),
 }
 
-/** All three fields customer-verified: each reads green. Editing any value here
- * clears that field's verification (try it — the field drops back to yellow). */
+/** All three fields customer-verified: each shows the green check-circle.
+ * Editing any value here clears that field's verification (try it — the icon
+ * drops back to the yellow shield-question). */
 export const Verified: Story = {
   render: () => (
     <Interactive
@@ -143,10 +167,11 @@ export const Verified: Story = {
 }
 
 /**
- * A mixed, partially complete record: a verified phone (green), an unverified
- * email (yellow), and a missing mailing address (red). Open any field's Edit to
- * see the independent editors — email and phone each on their own, the address
- * as a single street / city / state / ZIP group with Save and Cancel.
+ * A mixed, partially complete record: a verified phone (green check-circle), an
+ * unverified email (yellow shield-question), and a missing mailing address (red
+ * warning). Open any field's Edit to see the independent editors — email and
+ * phone each on their own, the address as a single street / city / state / ZIP
+ * group with Save and Cancel.
  */
 export const Editing: Story = {
   render: () => (
