@@ -42,4 +42,6 @@ export {
   CustomerContactCard,
   type CustomerContact,
   type ContactPersistPayload,
+  type ContactCardAppearance,
+  type ColorChoice,
 } from './CustomerContactCard'

@@ -79,6 +79,105 @@ export interface CustomerContact {
 
 type ContactFieldKey = 'email' | 'phone' | 'address'
 
+// ── Appearance (presentation-only, Storybook-driven) ─────────────────────────
+
+/** Which color a recolorable element takes. `status` = the field's green/amber/
+ * red status token (the production default for the icons); `black` = plain
+ * black, independent of status. */
+export type ColorChoice = 'status' | 'black'
+
+/**
+ * Optional presentation configuration for the card. It is purely cosmetic:
+ * it changes color assignment and font sizing, never behavior, data, or the
+ * payloads sent to `onPersist`. Omitting it (or any field) reproduces the
+ * production appearance exactly — the two status/contact icons take the status
+ * color, the field label reads dark ink, and every font size is the component's
+ * own default. It exists so the Design Playground can drive the REAL component
+ * through Storybook controls without a fork; production call sites never pass it.
+ */
+export interface ContactCardAppearance {
+  /** Color of the per-field status indicator (the shape icon). Default `status`. */
+  statusIndicatorColor?: ColorChoice
+  /** Color of the per-field contact icon (Mail / Phone / MapPin). Default `status`. */
+  contactIconColor?: ColorChoice
+  /** Color of the per-field label text (Email / Phone / Mailing Address). Default `black`. */
+  fieldLabelColor?: ColorChoice
+  /** Master multiplier applied to every scalable text role. Default 1. */
+  fontScale?: number
+  /** Extra multiplier for the customer name heading. Default 1. */
+  nameScale?: number
+  /** Extra multiplier for the field labels. Default 1. */
+  labelScale?: number
+  /** Extra multiplier for the contact values. Default 1. */
+  valueScale?: number
+  /** Extra multiplier for buttons and the Verified labels. Default 1. */
+  controlScale?: number
+}
+
+const DEFAULT_APPEARANCE: Required<ContactCardAppearance> = {
+  statusIndicatorColor: 'status',
+  contactIconColor: 'status',
+  fieldLabelColor: 'black',
+  fontScale: 1,
+  nameScale: 1,
+  labelScale: 1,
+  valueScale: 1,
+  controlScale: 1,
+}
+
+/** The resolved, non-cosmetic-by-default view the component actually renders
+ * from, plus the derived per-role px font sizes. When the appearance equals the
+ * default, `isDefault` is true and the component renders exactly as before (no
+ * inline font-size styles, no color overrides). */
+interface ResolvedAppearance {
+  statusIndicatorColor: ColorChoice
+  contactIconColor: ColorChoice
+  fieldLabelColor: ColorChoice
+  /** The default font px for each role, defined here so JSX stays declarative.
+   * These mirror the Tailwind utilities the card uses: name text-[22px],
+   * label text-base (16), value text-lg (18), control text-base (16),
+   * supporting text-sm (14). */
+  nameFontPx: number
+  labelFontPx: number
+  valueFontPx: number
+  controlFontPx: number
+  supportingFontPx: number
+  isDefault: boolean
+}
+
+function resolveAppearance(a?: ContactCardAppearance): ResolvedAppearance {
+  const r = { ...DEFAULT_APPEARANCE, ...a }
+  const isDefault =
+    r.statusIndicatorColor === DEFAULT_APPEARANCE.statusIndicatorColor &&
+    r.contactIconColor === DEFAULT_APPEARANCE.contactIconColor &&
+    r.fieldLabelColor === DEFAULT_APPEARANCE.fieldLabelColor &&
+    r.fontScale === 1 && r.nameScale === 1 && r.labelScale === 1 &&
+    r.valueScale === 1 && r.controlScale === 1
+  return {
+    statusIndicatorColor: r.statusIndicatorColor,
+    contactIconColor: r.contactIconColor,
+    fieldLabelColor: r.fieldLabelColor,
+    nameFontPx: 22 * r.fontScale * r.nameScale,
+    labelFontPx: 16 * r.fontScale * r.labelScale,
+    valueFontPx: 18 * r.fontScale * r.valueScale,
+    controlFontPx: 16 * r.fontScale * r.controlScale,
+    supportingFontPx: 14 * r.fontScale * r.labelScale,
+    isDefault,
+  }
+}
+
+/** A font-size style for a role, or undefined when appearance is default so the
+ * Tailwind size class alone governs (keeps production output byte-identical). */
+function fontStyle(ap: ResolvedAppearance, px: number): React.CSSProperties | undefined {
+  return ap.isDefault ? undefined : { fontSize: `${px.toFixed(3)}px` }
+}
+
+/** Resolve an icon/label color: the status token color (`statusColor`) when the
+ * choice is `status`, or an explicit black override when the choice is `black`. */
+function colorClass(choice: ColorChoice, statusColor: string): string {
+  return choice === 'black' ? 'text-black' : statusColor
+}
+
 /** The request the card would send. Exposed so a host (or Storybook) can supply
  * its own persistence and still exercise the exact same payloads. */
 export type ContactPersistPayload =
@@ -136,6 +235,7 @@ export function CustomerContactCard({
   onChange,
   onPersist,
   className,
+  appearance,
 }: {
   customer: CustomerContact
   /** Called with the authoritative updated record after any successful write,
@@ -145,7 +245,12 @@ export function CustomerContactCard({
    * with the full updated record. */
   onPersist?: (customerId: string, payload: ContactPersistPayload) => Promise<CustomerContact>
   className?: string
+  /** Presentation-only overrides (color assignment + font sizing). Omit for the
+   * production appearance. Used by the Design Playground to tune the REAL card.
+   * Never affects behavior, data, or `onPersist` payloads. */
+  appearance?: ContactCardAppearance
 }) {
+  const ap = useMemo(() => resolveAppearance(appearance), [appearance])
   // The card holds the current record locally so the display updates the instant
   // a write returns, without the host round-tripping a reload.
   const [record, setRecord] = useState<CustomerContact>(customer)
@@ -213,7 +318,12 @@ export function CustomerContactCard({
       )}
     >
       {/* The customer's name IS the card heading (~22px). */}
-      <h3 className="text-[22px] font-semibold leading-tight text-ink">{fullName(record)}</h3>
+      <h3
+        className="text-[22px] font-semibold leading-tight text-ink"
+        style={fontStyle(ap, ap.nameFontPx)}
+      >
+        {fullName(record)}
+      </h3>
 
       {/* Mentoring (HOW): always-visible purple control, expanded by the global
           Mentoring preference. */}
@@ -238,6 +348,7 @@ export function CustomerContactCard({
           value={record.email}
           editing={editing === 'email'}
           busy={busyField === 'email'}
+          appearance={ap}
           onEdit={() => { setError(null); setEditing('email') }}
           onCancel={() => setEditing(null)}
           onSave={(email) => saveField({ field: 'email', email })}
@@ -250,6 +361,7 @@ export function CustomerContactCard({
           value={record.phone}
           editing={editing === 'phone'}
           busy={busyField === 'phone'}
+          appearance={ap}
           onEdit={() => { setError(null); setEditing('phone') }}
           onCancel={() => setEditing(null)}
           onSave={(phone) => saveField({ field: 'phone', phone })}
@@ -262,6 +374,7 @@ export function CustomerContactCard({
           record={record}
           editing={editing === 'address'}
           busy={busyField === 'address'}
+          appearance={ap}
           onEdit={() => { setError(null); setEditing('address') }}
           onCancel={() => setEditing(null)}
           onSave={(a) => saveField({ field: 'address', ...a })}
@@ -269,23 +382,31 @@ export function CustomerContactCard({
         />
       </div>
 
-      <ContactStatusKey />
+      <ContactStatusKey appearance={ap} />
     </section>
   )
 }
 
 /** The compact status key at the foot of the card: the same Lucide icons and
  * colors as the field headings, so green / amber / red read consistently. */
-function ContactStatusKey() {
+function ContactStatusKey({ appearance }: { appearance: ResolvedAppearance }) {
   const order: Tone[] = ['confirmed', 'known', 'missing']
   return (
-    <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-surface-border-strong pt-2.5 text-sm text-ink-supporting">
+    <div
+      className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-surface-border-strong pt-2.5 text-sm text-ink-supporting"
+      style={fontStyle(appearance, appearance.supportingFontPx)}
+    >
       {order.map((tone) => {
         const meta = STATUS_META[tone]
         const Icon = meta.icon
+        // The key repeats the status indicator, so it follows the status-indicator
+        // color choice.
         return (
           <span key={tone} className="inline-flex items-center gap-1.5">
-            <Icon className={cn('size-4 shrink-0', meta.color)} aria-hidden />
+            <Icon
+              className={cn('size-4 shrink-0', colorClass(appearance.statusIndicatorColor, meta.color))}
+              aria-hidden
+            />
             {meta.label}
           </span>
         )
@@ -297,12 +418,13 @@ function ContactStatusKey() {
 // ── Shared section chrome ─────────────────────────────────────────────────────
 
 function VerifyCheckbox({
-  checked, disabled, busy, onChange,
+  checked, disabled, busy, onChange, appearance,
 }: {
   checked: boolean
   disabled: boolean
   busy: boolean
   onChange: (v: boolean) => void
+  appearance: ResolvedAppearance
 }) {
   return (
     <label
@@ -310,6 +432,7 @@ function VerifyCheckbox({
         'flex shrink-0 items-center gap-2 text-base font-medium',
         disabled ? 'cursor-not-allowed text-ink-muted' : 'cursor-pointer text-ink-secondary',
       )}
+      style={fontStyle(appearance, appearance.controlFontPx)}
       title={disabled ? 'A missing or unusable value cannot be marked verified.' : undefined}
     >
       <input
@@ -332,7 +455,7 @@ function VerifyCheckbox({
  * at the right. Compact vertical rhythm; no inner card border.
  */
 function SectionShell({
-  contactIcon: ContactIcon, label, tone, present, verifiedAt, busy, onEdit, onVerify, children,
+  contactIcon: ContactIcon, label, tone, present, verifiedAt, busy, appearance, onEdit, onVerify, children,
 }: {
   contactIcon: typeof Mail
   label: string
@@ -340,28 +463,43 @@ function SectionShell({
   present: boolean
   verifiedAt: string | null
   busy: boolean
+  appearance: ResolvedAppearance
   onEdit: () => void
   onVerify: (v: boolean) => void
   children: React.ReactNode
 }) {
   const status = STATUS_META[tone]
   const StatusIcon = status.icon
+  // Default: both icons take the status color and the label reads dark ink. Each
+  // is independently recolorable to black via the appearance config.
+  const labelColor = appearance.fieldLabelColor === 'black' ? 'text-black' : 'text-ink'
   return (
     <div className="py-3 first:pt-0 last:pb-0">
       <div className="flex items-center justify-between gap-3">
         {/* The status indicator and contact icon take the status color (green /
-            amber / red); the label text reads in the standard dark ink. Both
-            icons are the same ~20px size; the status shape + accessible label
-            carry meaning without relying on color. */}
-        <p className="flex items-center gap-2 text-base font-semibold text-ink">
-          <StatusIcon className={cn('size-5 shrink-0', status.color)} aria-label={status.label} role="img" />
-          <ContactIcon className={cn('size-5 shrink-0', status.color)} aria-hidden />
+            amber / red) by default; the label text reads in the standard dark
+            ink. Both icons are the same ~20px size; the status shape +
+            accessible label carry meaning without relying on color. */}
+        <p
+          className={cn('flex items-center gap-2 text-base font-semibold', labelColor)}
+          style={fontStyle(appearance, appearance.labelFontPx)}
+        >
+          <StatusIcon
+            className={cn('size-5 shrink-0', colorClass(appearance.statusIndicatorColor, status.color))}
+            aria-label={status.label}
+            role="img"
+          />
+          <ContactIcon
+            className={cn('size-5 shrink-0', colorClass(appearance.contactIconColor, status.color))}
+            aria-hidden
+          />
           {label}
         </p>
         <VerifyCheckbox
           checked={!!verifiedAt}
           disabled={!present}
           busy={busy}
+          appearance={appearance}
           onChange={onVerify}
         />
       </div>
@@ -372,6 +510,7 @@ function SectionShell({
           type="button"
           onClick={onEdit}
           disabled={busy}
+          style={fontStyle(appearance, appearance.controlFontPx)}
           className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-2.5 py-1 text-base font-medium text-ink-secondary hover:bg-surface-muted disabled:opacity-40"
         >
           <Pencil className="size-3.5" aria-hidden /> Edit
@@ -382,19 +521,22 @@ function SectionShell({
 }
 
 /** The value line (~18px): full value, or an explicit "Missing". Never truncated. */
-function ValueText({ value, present }: { value: string | null; present: boolean }) {
+function ValueText({ value, present, appearance }: { value: string | null; present: boolean; appearance: ResolvedAppearance }) {
+  const style = fontStyle(appearance, appearance.valueFontPx)
   if (!present) {
-    return <p className="text-lg font-medium text-status-missing-strong">Missing</p>
+    return <p className="text-lg font-medium text-status-missing-strong" style={style}>Missing</p>
   }
-  return <p className="break-words text-lg text-ink">{value}</p>
+  return <p className="break-words text-lg text-ink" style={style}>{value}</p>
 }
 
-function EditActions({ busy, onCancel }: { busy: boolean; onCancel: () => void }) {
+function EditActions({ busy, onCancel, appearance }: { busy: boolean; onCancel: () => void; appearance: ResolvedAppearance }) {
+  const style = fontStyle(appearance, appearance.controlFontPx)
   return (
     <div className="flex items-center gap-2">
       <button
         type="submit"
         disabled={busy}
+        style={style}
         className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-base font-semibold text-brand-foreground hover:bg-brand-hover disabled:opacity-50"
       >
         {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
@@ -404,6 +546,7 @@ function EditActions({ busy, onCancel }: { busy: boolean; onCancel: () => void }
         type="button"
         onClick={onCancel}
         disabled={busy}
+        style={style}
         className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-3 py-1.5 text-base font-medium text-ink-secondary hover:bg-surface-muted disabled:opacity-40"
       >
         <X className="size-3.5" aria-hidden /> Cancel
@@ -423,13 +566,14 @@ const inputCls = (invalid: boolean) =>
 // ── Email ──────────────────────────────────────────────────────────────────
 
 function EmailRow({
-  present, verifiedAt, value, editing, busy, onEdit, onCancel, onSave, onVerify,
+  present, verifiedAt, value, editing, busy, appearance, onEdit, onCancel, onSave, onVerify,
 }: {
   present: boolean
   verifiedAt: string | null
   value: string | null
   editing: boolean
   busy: boolean
+  appearance: ResolvedAppearance
   onEdit: () => void
   onCancel: () => void
   onSave: (email: string | null) => void
@@ -445,8 +589,8 @@ function EmailRow({
   if (!editing) {
     return (
       <SectionShell contactIcon={Mail} label="Email" tone={tone} present={present} verifiedAt={verifiedAt}
-        busy={busy} onEdit={open} onVerify={onVerify}>
-        <ValueText value={value} present={present} />
+        busy={busy} appearance={appearance} onEdit={open} onVerify={onVerify}>
+        <ValueText value={value} present={present} appearance={appearance} />
       </SectionShell>
     )
   }
@@ -477,7 +621,7 @@ function EmailRow({
       {result?.status === 'invalid' && result.reason && (
         <p className="mt-1.5 text-base text-status-missing-strong">{result.reason}</p>
       )}
-      <div className="mt-2.5"><EditActions busy={busy} onCancel={onCancel} /></div>
+      <div className="mt-2.5"><EditActions busy={busy} onCancel={onCancel} appearance={appearance} /></div>
     </form>
   )
 }
@@ -485,13 +629,14 @@ function EmailRow({
 // ── Phone ──────────────────────────────────────────────────────────────────
 
 function PhoneRow({
-  present, verifiedAt, value, editing, busy, onEdit, onCancel, onSave, onVerify,
+  present, verifiedAt, value, editing, busy, appearance, onEdit, onCancel, onSave, onVerify,
 }: {
   present: boolean
   verifiedAt: string | null
   value: string | null
   editing: boolean
   busy: boolean
+  appearance: ResolvedAppearance
   onEdit: () => void
   onCancel: () => void
   onSave: (phone: string | null) => void
@@ -506,8 +651,8 @@ function PhoneRow({
   if (!editing) {
     return (
       <SectionShell contactIcon={Phone} label="Phone" tone={tone} present={present} verifiedAt={verifiedAt}
-        busy={busy} onEdit={open} onVerify={onVerify}>
-        <ValueText value={value} present={present} />
+        busy={busy} appearance={appearance} onEdit={open} onVerify={onVerify}>
+        <ValueText value={value} present={present} appearance={appearance} />
       </SectionShell>
     )
   }
@@ -538,7 +683,7 @@ function PhoneRow({
       {result?.status === 'invalid' && result.reason && (
         <p className="mt-1.5 text-base text-status-missing-strong">{result.reason}</p>
       )}
-      <div className="mt-2.5"><EditActions busy={busy} onCancel={onCancel} /></div>
+      <div className="mt-2.5"><EditActions busy={busy} onCancel={onCancel} appearance={appearance} /></div>
     </form>
   )
 }
@@ -546,13 +691,14 @@ function PhoneRow({
 // ── Mailing address (edited as one group) ─────────────────────────────────────
 
 function AddressRow({
-  present, verifiedAt, record, editing, busy, onEdit, onCancel, onSave, onVerify,
+  present, verifiedAt, record, editing, busy, appearance, onEdit, onCancel, onSave, onVerify,
 }: {
   present: boolean
   verifiedAt: string | null
   record: CustomerContact
   editing: boolean
   busy: boolean
+  appearance: ResolvedAppearance
   onEdit: () => void
   onCancel: () => void
   onSave: (a: { street: string | null; city: string | null; state: string | null; zip: string | null }) => void
@@ -575,14 +721,14 @@ function AddressRow({
   if (!editing) {
     return (
       <SectionShell contactIcon={MapPin} label="Mailing Address" tone={tone} present={present} verifiedAt={verifiedAt}
-        busy={busy} onEdit={open} onVerify={onVerify}>
+        busy={busy} appearance={appearance} onEdit={open} onVerify={onVerify}>
         {present ? (
           // The complete mailing address on two lines: street, then city/state/ZIP.
-          <address className="not-italic text-lg leading-snug text-ink">
+          <address className="not-italic text-lg leading-snug text-ink" style={fontStyle(appearance, appearance.valueFontPx)}>
             {lines.map((line, i) => <span key={i} className="block break-words">{line}</span>)}
           </address>
         ) : (
-          <p className="text-lg font-medium text-status-missing-strong">Missing</p>
+          <p className="text-lg font-medium text-status-missing-strong" style={fontStyle(appearance, appearance.valueFontPx)}>Missing</p>
         )}
       </SectionShell>
     )
@@ -631,7 +777,7 @@ function AddressRow({
       <p className="mt-1.5 text-sm text-ink-supporting">
         A mailing address needs street, city, state, and ZIP to be usable and verifiable.
       </p>
-      <div className="mt-2.5"><EditActions busy={busy} onCancel={onCancel} /></div>
+      <div className="mt-2.5"><EditActions busy={busy} onCancel={onCancel} appearance={appearance} /></div>
     </form>
   )
 }
