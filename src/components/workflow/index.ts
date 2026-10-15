@@ -37,3 +37,9 @@ export {
   SlimTaskHeader,
   AssistantPanel,
 } from './panels'
+
+export {
+  CustomerContactCard,
+  type CustomerContact,
+  type ContactPersistPayload,
+} from './CustomerContactCard'

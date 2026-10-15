@@ -21,6 +21,7 @@ import {
   QueueSection, QueueRow, QueueListHeader, CustomerQueueCard, QueueEmptyState,
   TaskShell, SlimTaskHeader, ContextHeader, type ContextField,
   ActionPanel, PrimaryAction, WorkflowButton, NextNote, OperationalTag,
+  CustomerContactCard, type CustomerContact,
 } from '@/components/workflow'
 import {
   QUEUE_META, OUTREACH_QUEUES,
@@ -1098,7 +1099,7 @@ function StewardshipTask({
           />
         }
         context={
-          <StewardshipContextPanel detail={detail} request={request} context={context} busy={busy} act={act} />
+          <StewardshipContextPanel detail={detail} request={request} context={context} busy={busy} act={act} setDetail={setDetail} />
         }
       />
     </WorkflowPage>
@@ -1126,21 +1127,87 @@ function isIntroductoryEmailActivity(detail: Detail): boolean {
  * both capabilities stay fully available on the call and research activities.
  */
 function StewardshipContextPanel({
-  detail, request, context, busy, act,
+  detail, request, context, busy, act, setDetail,
 }: {
   detail: Detail
   request: Holding[]
   context: Holding[]
   busy: boolean
   act: (action: unknown, successNote?: string) => void
+  setDetail: React.Dispatch<React.SetStateAction<Detail | null>>
 }) {
   const introEmail = isIntroductoryEmailActivity(detail)
   return (
     <>
-      <CustomerContext detail={detail} busy={busy} act={act} showVerification={!introEmail} />
+      {introEmail ? (
+        // Introductory Emails uses the shared reusable Customer Contact card for
+        // the whole contact surface — identity, email, phone, and the complete
+        // mailing address, each with its own status, edit, and customer-verified
+        // control — replacing the former separate contact box and mailing-address
+        // box. It writes straight to the customer record via the shared route and
+        // keeps the surrounding task in sync through onChange.
+        <StewardshipCustomerContact detail={detail} setDetail={setDetail} />
+      ) : (
+        <CustomerContext detail={detail} busy={busy} act={act} showVerification />
+      )}
       {!introEmail && <RecordAttemptPanel detail={detail} busy={busy} act={act} />}
       <HoldingsContext request={request} context={context} />
     </>
+  )
+}
+
+/**
+ * The Introductory Emails contact surface: the shared CustomerContactCard bound
+ * to this outreach item's customer. Maps the stewardship Detail onto the card's
+ * customer shape and folds any saved/verified change back into the task's Detail
+ * so the rest of the screen (and the Introductory Emails fast flow) stays
+ * consistent without a reload. The card itself persists to the shared
+ * /api/customers/[id]/contact route.
+ */
+function StewardshipCustomerContact({
+  detail, setDetail,
+}: {
+  detail: Detail
+  setDetail: React.Dispatch<React.SetStateAction<Detail | null>>
+}) {
+  const c = detail.customer
+  const customer: CustomerContact = {
+    id: c.id,
+    first_name: c.first_name,
+    last_name: c.last_name,
+    email: c.email,
+    phone: c.phone,
+    street: c.street,
+    address_line1: c.address_line1,
+    city: c.city,
+    state: c.state,
+    zip: c.zip,
+    email_verified_at: detail.email_verified_at,
+    phone_verified_at: detail.phone_verified_at,
+    address_verified_at: detail.address_verified_at,
+  }
+  return (
+    <CustomerContactCard
+      heading="Customer contact"
+      customer={customer}
+      onChange={(u) => setDetail(prev => prev ? {
+        ...prev,
+        email_verified_at: u.email_verified_at,
+        phone_verified_at: u.phone_verified_at,
+        address_verified_at: u.address_verified_at,
+        customer: {
+          ...prev.customer,
+          // Name is not edited by this card; keep the existing (non-null) values.
+          email: u.email,
+          phone: u.phone,
+          street: u.street,
+          address_line1: u.address_line1 ?? prev.customer.address_line1,
+          city: u.city,
+          state: u.state,
+          zip: u.zip,
+        },
+      } : prev)}
+    />
   )
 }
 

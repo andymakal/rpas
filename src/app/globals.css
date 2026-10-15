@@ -92,6 +92,9 @@
   --status-known:            oklch(0.769 0.188 70.08);   /* amber-500 solid dot */
   --status-known-fill:       oklch(0.962 0.059 95.617);  /* amber-100 */
   --status-known-foreground: oklch(0.555 0.163 48.998);  /* amber-700 */
+  --status-known-soft:       oklch(0.987 0.022 95.277);  /* amber-50 panel */
+  --status-known-border:     oklch(0.924 0.12 95.746);   /* amber-200 */
+  --status-known-strong:     oklch(0.473 0.137 46.201);  /* amber-800 text */
 
   /* missing / blocked → rose */
   --status-missing:            oklch(0.645 0.246 16.439); /* rose-500 solid dot */
@@ -167,6 +170,9 @@
   --color-status-known: var(--status-known);
   --color-status-known-fill: var(--status-known-fill);
   --color-status-known-foreground: var(--status-known-foreground);
+  --color-status-known-soft: var(--status-known-soft);
+  --color-status-known-border: var(--status-known-border);
+  --color-status-known-strong: var(--status-known-strong);
   --color-status-missing: var(--status-missing);
   --color-status-missing-fill: var(--status-missing-fill);
   --color-status-missing-foreground: var(--status-missing-foreground);
