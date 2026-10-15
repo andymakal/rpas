@@ -114,18 +114,20 @@ export type EditPlacement = 'value' | 'row' | 'bottom'
 /** Horizontal alignment of a field's content. */
 export type AlignChoice = 'left' | 'center' | 'right'
 
-/** How the Mentoring block behaves. `shown` keeps it present (its own control
- * governs expand/collapse per the global toggle); `expanded`/`collapsed` force
- * the body open or closed; `hidden` removes it entirely. */
-export type MentoringMode = 'shown' | 'expanded' | 'collapsed' | 'hidden'
-
 /**
  * Optional presentation configuration for the card. Purely cosmetic: it changes
  * visibility, color assignment, typography, icon sizing, layout arrangement, and
- * chrome — never behavior, data, or the payloads sent to `onPersist`. Omitting
- * it (or any field) reproduces the production appearance exactly. It exists so
- * the Design Playground can drive the REAL component through Storybook controls
- * without a fork; production call sites never pass it.
+ * chrome — never behavior, data, or the payloads sent to `onPersist`. Any field
+ * left out falls back to the component's APPROVED permanent defaults (see
+ * `APPROVED_DEFAULTS`), so omitting the whole prop (as production call sites do)
+ * renders the approved design. It exists so the Design Playground can drive the
+ * REAL component through Storybook controls without a fork, and so the approved
+ * look is expressed once as data rather than scattered across screens.
+ *
+ * Mentoring is deliberately NOT configurable here: it is settled behavior (the
+ * one shared MentorGuidance, always shown, expanded when the global Mentoring
+ * preference is on and collapsed when off, independently toggleable), not an
+ * appearance choice.
  *
  * Convention for reuse: this is the shared shape for a workflow component's
  * presentation lab. A sibling component (e.g. Customer History) should expose an
@@ -140,7 +142,6 @@ export interface ContactCardAppearance {
   showVerifiedCheckbox?: boolean
   showEditButton?: boolean
   showStatusKey?: boolean
-  mentoring?: MentoringMode
 
   // ── Colors (status token vs plain black, independently) ───────────────────
   statusIndicatorColor?: ColorChoice
@@ -217,6 +218,10 @@ export interface ContactCardAppearance {
   controlRadiusPx?: number
 }
 
+/** The neutral scalar baseline (the original plain-Tailwind look). The approved
+ * design layers over this via `APPROVED_DEFAULTS`; it is kept separate so
+ * `isDefault` can still recognize the untouched Tailwind baseline (no inline
+ * styles) when the Playground is reset all the way to neutral. */
 const DEFAULT_APPEARANCE: Required<Omit<ContactCardAppearance,
   'fontFamily' | 'statusIconPxOverride' | 'contactIconPxOverride' |
   'verifyBoxPxOverride' | 'editIconPxOverride' | 'cardBorderColor' |
@@ -228,7 +233,6 @@ const DEFAULT_APPEARANCE: Required<Omit<ContactCardAppearance,
   showVerifiedCheckbox: true,
   showEditButton: true,
   showStatusKey: true,
-  mentoring: 'shown',
   statusIndicatorColor: 'status',
   contactIconColor: 'status',
   fieldLabelColor: 'black',
@@ -258,6 +262,42 @@ const DEFAULT_APPEARANCE: Required<Omit<ContactCardAppearance,
   controlRadiusPx: 8,
 }
 
+/**
+ * The APPROVED permanent default appearance for the shared card. This is the
+ * single source of truth for the production look; every call site that passes
+ * no `appearance` renders exactly this, and the Playground opens on it.
+ *
+ * Color choices use Right Path CSS color tokens (not literal Tailwind class
+ * names): `--brand` is the teal-600 brand accent, `--text-secondary` is the
+ * slate-700 ink tier. The copied design named Tailwind palette steps; those map
+ * to these existing tokens rather than being pasted as literal color strings.
+ *
+ * Values the approved design pins (everything else inherits the neutral
+ * baseline, so values/controls/other spacing are unchanged):
+ *   - Status indicator hidden; contact icons kept with green/amber/red status
+ *     color; field labels black.
+ *   - Customer name 150% of its 22px base (→ 33px), bold, teal-600 (`--brand`).
+ *   - Card border 1px slate-700; section dividers slate-700; radius 16; padding
+ *     16; field spacing 6; section padding 12.
+ */
+const BRAND_TOKEN = 'var(--brand)' // teal-600
+const SLATE_700_TOKEN = 'var(--text-secondary)' // slate-700
+
+const APPROVED_DEFAULTS: ContactCardAppearance = {
+  showStatusIndicator: false,
+  nameScale: 1.5,
+  nameWeight: 'bold',
+  nameColor: BRAND_TOKEN,
+  cardBorderPx: 1,
+  cardBorderColor: SLATE_700_TOKEN,
+  cardRadiusPx: 16,
+  cardPaddingPx: 16,
+  fieldSpacingPx: 6,
+  sectionPaddingPx: 12,
+  showDividers: true,
+  dividerColor: SLATE_700_TOKEN,
+}
+
 /** The resolved view the component renders from. When the appearance equals the
  * default, `isDefault` is true and the component renders exactly as before: no
  * inline styles, no overrides, byte-identical to the current production output. */
@@ -269,7 +309,6 @@ interface ResolvedAppearance {
   showVerifiedCheckbox: boolean
   showEditButton: boolean
   showStatusKey: boolean
-  mentoring: MentoringMode
   // colors
   statusIndicatorColor: ColorChoice
   contactIconColor: ColorChoice
@@ -287,6 +326,7 @@ interface ResolvedAppearance {
   controlFontPx: number
   verifyFontPx: number
   mentoringFontPx: number
+  mentoringOverridden: boolean
   statusKeyFontPx: number
   supportingFontPx: number
   nameWeight: WeightChoice
@@ -326,87 +366,97 @@ const BASE = { name: 22, label: 16, value: 18, control: 16, supporting: 14 }
 const ICON_BASE = { status: 20, contact: 20, verify: 16, edit: 14 }
 
 function resolveAppearance(a?: ContactCardAppearance): ResolvedAppearance {
-  const r = { ...DEFAULT_APPEARANCE, ...a }
-  const isDefault =
-    !a ||
-    (r.showStatusIndicator && r.showContactIcon && r.showFieldLabel &&
-      r.showVerifiedCheckbox && r.showEditButton && r.showStatusKey &&
-      r.mentoring === 'shown' &&
-      r.statusIndicatorColor === 'status' && r.contactIconColor === 'status' &&
-      r.fieldLabelColor === 'black' &&
-      a.fontFamily === undefined &&
-      r.fontScale === 1 && r.nameScale === 1 && r.labelScale === 1 &&
-      r.valueScale === 1 && r.controlScale === 1 && r.verifyScale === 1 &&
-      r.mentoringScale === 1 && r.statusKeyScale === 1 &&
-      r.nameWeight === 'default' && r.labelWeight === 'default' &&
-      r.valueWeight === 'default' && r.controlWeight === 'default' &&
-      a.nameColor === undefined && a.valueColor === undefined &&
-      a.verifyColor === undefined && a.mentoringColor === undefined &&
-      a.statusKeyColor === undefined &&
-      r.iconScale === 1 &&
-      a.statusIconPxOverride === undefined && a.contactIconPxOverride === undefined &&
-      a.verifyBoxPxOverride === undefined && a.editIconPxOverride === undefined &&
-      r.verifiedPlacement === 'heading' && r.editPlacement === 'value' &&
-      r.fieldAlign === 'left' && r.fieldSpacingPx === 6 && r.sectionPaddingPx === 12 &&
-      r.cardBorderPx === 1 && a.cardBorderColor === undefined &&
-      r.cardRadiusPx === 16 && r.cardPaddingPx === 16 &&
-      a.cardBackground === undefined && r.showDividers &&
-      a.dividerColor === undefined && r.controlBorderPx === 1 &&
-      r.controlRadiusPx === 8)
+  // Merge order: neutral Tailwind baseline, then the APPROVED permanent design,
+  // then any explicit override (the Playground). Omitting `appearance` therefore
+  // yields the approved design, which is the production look.
+  const m = { ...DEFAULT_APPEARANCE, ...APPROVED_DEFAULTS, ...a }
 
-  const labelPx = BASE.label * r.fontScale * r.labelScale
-  const controlPx = BASE.control * r.fontScale * r.controlScale
-  const verifyPx = BASE.control * r.fontScale * r.verifyScale
+  // `isDefault` means "resolves to the untouched plain-Tailwind baseline", used
+  // only to skip inline styling. The approved design differs from that baseline
+  // (hidden status indicator, teal bold name, slate-700 chrome), so this is true
+  // only when the Playground is reset all the way back to neutral.
+  const isDefault =
+    m.showStatusIndicator && m.showContactIcon && m.showFieldLabel &&
+    m.showVerifiedCheckbox && m.showEditButton && m.showStatusKey &&
+    m.statusIndicatorColor === 'status' && m.contactIconColor === 'status' &&
+    m.fieldLabelColor === 'black' &&
+    m.fontFamily === undefined &&
+    m.fontScale === 1 && m.nameScale === 1 && m.labelScale === 1 &&
+    m.valueScale === 1 && m.controlScale === 1 && m.verifyScale === 1 &&
+    m.mentoringScale === 1 && m.statusKeyScale === 1 &&
+    m.nameWeight === 'default' && m.labelWeight === 'default' &&
+    m.valueWeight === 'default' && m.controlWeight === 'default' &&
+    m.nameColor === undefined && m.valueColor === undefined &&
+    m.verifyColor === undefined && m.mentoringColor === undefined &&
+    m.statusKeyColor === undefined &&
+    m.iconScale === 1 &&
+    m.statusIconPxOverride === undefined && m.contactIconPxOverride === undefined &&
+    m.verifyBoxPxOverride === undefined && m.editIconPxOverride === undefined &&
+    m.verifiedPlacement === 'heading' && m.editPlacement === 'value' &&
+    m.fieldAlign === 'left' && m.fieldSpacingPx === 6 && m.sectionPaddingPx === 12 &&
+    m.cardBorderPx === 1 && m.cardBorderColor === undefined &&
+    m.cardRadiusPx === 16 && m.cardPaddingPx === 16 &&
+    m.cardBackground === undefined && m.showDividers &&
+    m.dividerColor === undefined && m.controlBorderPx === 1 &&
+    m.controlRadiusPx === 8
+
+  const labelPx = BASE.label * m.fontScale * m.labelScale
+  const controlPx = BASE.control * m.fontScale * m.controlScale
+  const verifyPx = BASE.control * m.fontScale * m.verifyScale
 
   return {
-    showStatusIndicator: r.showStatusIndicator,
-    showContactIcon: r.showContactIcon,
-    showFieldLabel: r.showFieldLabel,
-    showVerifiedCheckbox: r.showVerifiedCheckbox,
-    showEditButton: r.showEditButton,
-    showStatusKey: r.showStatusKey,
-    mentoring: r.mentoring,
-    statusIndicatorColor: r.statusIndicatorColor,
-    contactIconColor: r.contactIconColor,
-    fieldLabelColor: r.fieldLabelColor,
-    nameColor: a?.nameColor,
-    valueColor: a?.valueColor,
-    verifyColor: a?.verifyColor,
-    mentoringColor: a?.mentoringColor,
-    statusKeyColor: a?.statusKeyColor,
-    fontFamily: a?.fontFamily,
-    nameFontPx: BASE.name * r.fontScale * r.nameScale,
+    showStatusIndicator: m.showStatusIndicator,
+    showContactIcon: m.showContactIcon,
+    showFieldLabel: m.showFieldLabel,
+    showVerifiedCheckbox: m.showVerifiedCheckbox,
+    showEditButton: m.showEditButton,
+    showStatusKey: m.showStatusKey,
+    statusIndicatorColor: m.statusIndicatorColor,
+    contactIconColor: m.contactIconColor,
+    fieldLabelColor: m.fieldLabelColor,
+    nameColor: m.nameColor,
+    valueColor: m.valueColor,
+    verifyColor: m.verifyColor,
+    mentoringColor: m.mentoringColor,
+    statusKeyColor: m.statusKeyColor,
+    fontFamily: m.fontFamily,
+    nameFontPx: BASE.name * m.fontScale * m.nameScale,
     labelFontPx: labelPx,
-    valueFontPx: BASE.value * r.fontScale * r.valueScale,
+    valueFontPx: BASE.value * m.fontScale * m.valueScale,
     controlFontPx: controlPx,
     verifyFontPx: verifyPx,
-    mentoringFontPx: BASE.value * r.fontScale * r.mentoringScale,
-    statusKeyFontPx: BASE.supporting * r.fontScale * r.statusKeyScale,
-    supportingFontPx: BASE.supporting * r.fontScale * r.labelScale,
-    nameWeight: r.nameWeight,
-    labelWeight: r.labelWeight,
-    valueWeight: r.valueWeight,
-    controlWeight: r.controlWeight,
+    // Mentoring body matches the shared MentorGuidance body (text-base, 16px).
+    mentoringFontPx: 16 * m.fontScale * m.mentoringScale,
+    // True only when a mentoring-specific presentation override is active, so the
+    // approved default leaves the shared Mentoring tip visually untouched.
+    mentoringOverridden:
+      m.mentoringColor !== undefined || m.mentoringScale !== 1 || m.fontScale !== 1,
+    statusKeyFontPx: BASE.supporting * m.fontScale * m.statusKeyScale,
+    supportingFontPx: BASE.supporting * m.fontScale * m.labelScale,
+    nameWeight: m.nameWeight,
+    labelWeight: m.labelWeight,
+    valueWeight: m.valueWeight,
+    controlWeight: m.controlWeight,
     // Icons scale proportionally with their associated text unless an explicit
     // px override is given. The master iconScale multiplies either way.
-    statusIconPx: (a?.statusIconPxOverride ?? ICON_BASE.status * (labelPx / BASE.label)) * r.iconScale,
-    contactIconPx: (a?.contactIconPxOverride ?? ICON_BASE.contact * (labelPx / BASE.label)) * r.iconScale,
-    verifyBoxPx: (a?.verifyBoxPxOverride ?? ICON_BASE.verify * (verifyPx / BASE.control)) * r.iconScale,
-    editIconPx: (a?.editIconPxOverride ?? ICON_BASE.edit * (controlPx / BASE.control)) * r.iconScale,
-    verifiedPlacement: r.verifiedPlacement,
-    editPlacement: r.editPlacement,
-    fieldAlign: r.fieldAlign,
-    fieldSpacingPx: r.fieldSpacingPx,
-    sectionPaddingPx: r.sectionPaddingPx,
-    cardBorderPx: r.cardBorderPx,
-    cardBorderColor: a?.cardBorderColor,
-    cardRadiusPx: r.cardRadiusPx,
-    cardPaddingPx: r.cardPaddingPx,
-    cardBackground: a?.cardBackground,
-    showDividers: r.showDividers,
-    dividerColor: a?.dividerColor,
-    controlBorderPx: r.controlBorderPx,
-    controlRadiusPx: r.controlRadiusPx,
+    statusIconPx: (m.statusIconPxOverride ?? ICON_BASE.status * (labelPx / BASE.label)) * m.iconScale,
+    contactIconPx: (m.contactIconPxOverride ?? ICON_BASE.contact * (labelPx / BASE.label)) * m.iconScale,
+    verifyBoxPx: (m.verifyBoxPxOverride ?? ICON_BASE.verify * (verifyPx / BASE.control)) * m.iconScale,
+    editIconPx: (m.editIconPxOverride ?? ICON_BASE.edit * (controlPx / BASE.control)) * m.iconScale,
+    verifiedPlacement: m.verifiedPlacement,
+    editPlacement: m.editPlacement,
+    fieldAlign: m.fieldAlign,
+    fieldSpacingPx: m.fieldSpacingPx,
+    sectionPaddingPx: m.sectionPaddingPx,
+    cardBorderPx: m.cardBorderPx,
+    cardBorderColor: m.cardBorderColor,
+    cardRadiusPx: m.cardRadiusPx,
+    cardPaddingPx: m.cardPaddingPx,
+    cardBackground: m.cardBackground,
+    showDividers: m.showDividers,
+    dividerColor: m.dividerColor,
+    controlBorderPx: m.controlBorderPx,
+    controlRadiusPx: m.controlRadiusPx,
     isDefault,
   }
 }
@@ -423,14 +473,28 @@ function weightClass(w: WeightChoice): string {
   return w === 'default' ? '' : WEIGHT_CLASS[w]
 }
 
-/** A text style for a role: inline font-size (and optional color) when appearance
- * is non-default, else undefined so the Tailwind size class alone governs. */
+/** Numeric CSS font-weight for a role, or undefined to leave the base class.
+ * Emitting the weight inline (rather than only a utility class) guarantees it
+ * overrides a role's base `font-semibold`/`font-medium` class regardless of
+ * stylesheet order. */
+const WEIGHT_VALUE: Record<Exclude<WeightChoice, 'default'>, number> = {
+  normal: 400, medium: 500, semibold: 600, bold: 700,
+}
+function weightValue(w: WeightChoice): number | undefined {
+  return w === 'default' ? undefined : WEIGHT_VALUE[w]
+}
+
+/** A text style for a role: inline font-size (plus optional color/weight) when
+ * appearance is non-default, else undefined so the Tailwind size class alone
+ * governs. */
 function textStyle(
-  ap: ResolvedAppearance, px: number, color?: string,
+  ap: ResolvedAppearance, px: number, color?: string, weight?: WeightChoice,
 ): React.CSSProperties | undefined {
   if (ap.isDefault) return undefined
   const s: React.CSSProperties = { fontSize: `${px.toFixed(3)}px` }
   if (color) s.color = color
+  const w = weight && weightValue(weight)
+  if (w) s.fontWeight = w
   return s
 }
 
@@ -599,20 +663,20 @@ export function CustomerContactCard({
         background: ap.cardBackground ?? 'var(--surface-card)',
       }}
     >
-      {/* The customer's name IS the card heading (~22px). */}
+      {/* The customer's name IS the card heading. The approved default renders
+          it at 150% (33px), bold, in the teal brand token; the Playground can
+          override any of those. */}
       <h3
         className={cn('text-[22px] font-semibold leading-tight text-ink', weightClass(ap.nameWeight))}
-        style={textStyle(ap, ap.nameFontPx, ap.nameColor)}
+        style={textStyle(ap, ap.nameFontPx, ap.nameColor, ap.nameWeight)}
       >
         {fullName(record)}
       </h3>
 
-      {/* Mentoring (HOW): a purple control whose body expands by the global
-          Mentoring preference. The appearance can force it open/closed, restyle
-          it, or hide it entirely. */}
-      {ap.mentoring !== 'hidden' && (
-        <ContactMentoring appearance={ap} />
-      )}
+      {/* Mentoring (HOW): the shared purple control, always shown. Its body
+          expands/collapses by the global Mentoring preference and the employee
+          can toggle it. This is settled behavior, never hidden or forced. */}
+      <ContactMentoring appearance={ap} />
 
       {error && (
         <p className="mt-3 rounded-lg border border-status-missing-border bg-status-missing-soft px-3 py-2 text-base text-status-missing-strong">
@@ -676,14 +740,17 @@ export function CustomerContactCard({
 }
 
 /**
- * The Mentoring block. Always the ONE shared `MentorGuidance` disclosure — no
- * duplicate Mentoring component. The appearance only layers presentation on top:
- *   - font-size / color overrides apply in every mode, including the normal
- *     "Shown" mode (not just the forced states);
- *   - "Shown" follows the global Mentoring toggle exactly, as before;
- *   - "Expanded" / "Collapsed" force the default open state via the shared
- *     component's optional `defaultOpen`, while the employee can still toggle it.
- * The "Hidden" case is handled by the caller (the block is not rendered).
+ * The Mentoring block — settled behavior, not a configurable appearance choice.
+ * It is always the ONE shared `MentorGuidance` disclosure: always shown, its
+ * body expanded when the global Mentoring preference is on and collapsed when
+ * off, and independently toggleable by the employee. The card never hides it or
+ * forces its open state.
+ *
+ * The only thing appearance layers on is presentation (font-size / color), which
+ * the Playground exposes for experimentation; `defaultOpen` is intentionally
+ * left unset so the global toggle alone governs the initial open state. When the
+ * appearance is the untouched neutral baseline, the shared disclosure is used
+ * verbatim.
  */
 function ContactMentoring({ appearance }: { appearance: ResolvedAppearance }) {
   const body =
@@ -691,8 +758,9 @@ function ContactMentoring({ appearance }: { appearance: ResolvedAppearance }) {
     'customer has confirmed the information is correct, including when they confirm it in an email ' +
     'response.'
 
-  // Default appearance: the untouched shared disclosure (production look).
-  if (appearance.isDefault) {
+  // Unless a mentoring-specific presentation override is active, render the
+  // shared disclosure verbatim — the approved default does not restyle it.
+  if (!appearance.mentoringOverridden) {
     return (
       <MentorGuidance label="About these fields" className="mt-2">
         {body}
@@ -700,25 +768,17 @@ function ContactMentoring({ appearance }: { appearance: ResolvedAppearance }) {
     )
   }
 
-  // Forced open/closed only for the explicit expanded/collapsed modes; "shown"
-  // leaves defaultOpen undefined so the global toggle governs, as before.
-  const defaultOpen =
-    appearance.mentoring === 'expanded' ? true
-    : appearance.mentoring === 'collapsed' ? false
-    : undefined
-
-  // Presentation overrides apply in every mode, so font-size and color work in
-  // normal Shown mode too. The header uses a label-sized role; the body uses the
-  // mentoring role size. Both honor the optional mentoring color.
+  // Presentation-only overrides (size / color); open state still follows the
+  // global Mentoring toggle because defaultOpen is left undefined. Styles are
+  // forced via the ap even when isDefault, so pass explicit inline values.
   const color = appearance.mentoringColor
-  const headerStyle = textStyle(appearance, appearance.statusKeyFontPx, color)
-  const bodyStyle = textStyle(appearance, appearance.mentoringFontPx, color)
-
+  const headerStyle: React.CSSProperties = { fontSize: `${appearance.statusKeyFontPx.toFixed(3)}px` }
+  const bodyStyle: React.CSSProperties = { fontSize: `${appearance.mentoringFontPx.toFixed(3)}px` }
+  if (color) { headerStyle.color = color; bodyStyle.color = color }
   return (
     <MentorGuidance
       label="About these fields"
       className="mt-2"
-      defaultOpen={defaultOpen}
       headerStyle={headerStyle}
       bodyStyle={bodyStyle}
     >

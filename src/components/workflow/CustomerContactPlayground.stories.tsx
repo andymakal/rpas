@@ -12,7 +12,6 @@ import {
   type VerifiedPlacement,
   type EditPlacement,
   type AlignChoice,
-  type MentoringMode,
 } from './CustomerContactCard'
 import {
   PlaygroundStage,
@@ -39,12 +38,23 @@ import {
  * the Controls panel and every switch, slider, selector, and color picker
  * re-renders the real card immediately — no rebuild, redeploy, or Kiro step.
  *
- * Nothing here changes the component's production defaults, its source, or any
- * customer record. The card runs on an in-memory `onPersist` (identical rules to
- * the app: a changed value clears its verification; a missing value cannot be
- * verified), so editing and verifying stay fully interactive and side-effect
- * free. The `appearance` prop is presentation-only; omitting it (as every
- * production call site does) yields the exact current look.
+ * The playground OPENS on the approved permanent defaults (the same look every
+ * production call site now renders by omitting `appearance`): hidden status
+ * indicator, status-colored contact icons, black labels, a 150% bold teal
+ * customer name, a 1px slate-700 card border and slate-700 dividers. The
+ * controls remain for future experimentation; they override the approved
+ * defaults non-destructively.
+ *
+ * Nothing here changes the component's source or any customer record. The card
+ * runs on an in-memory `onPersist` (identical rules to the app: a changed value
+ * clears its verification; a missing value cannot be verified), so editing and
+ * verifying stay fully interactive and side-effect free. The `appearance` prop
+ * is presentation-only.
+ *
+ * Mentoring is intentionally NOT a control here: it is settled behavior (always
+ * shown, expanded when the global Mentoring preference is on and collapsed when
+ * off, independently toggleable). The size/color of the Mentoring tip can still
+ * be nudged under Typography / Colors.
  *
  * The pinned "Copy Selected Design" button captures ALL current appearance and
  * layout choices as readable plain text to hand to ChatGPT for a permanent
@@ -120,7 +130,6 @@ interface PlaygroundArgs {
   showVerifiedCheckbox: boolean
   showEditButton: boolean
   showStatusKey: boolean
-  mentoring: MentoringMode
 
   // Colors
   statusIndicatorColor: ColorChoice
@@ -173,25 +182,29 @@ interface PlaygroundArgs {
   controlRadiusPx: number
 }
 
-/** Defaults mirror the production component exactly, so the playground opens on
- * the real current appearance. The `0` px-override sentinels mean "no override"
- * (icons scale with their text); the empty color strings mean "use the role
- * default". */
+/** The approved permanent defaults, expressed as Right Path CSS color tokens so
+ * the color controls display them and they are not literal Tailwind names:
+ * `var(--brand)` is teal-600 and `var(--text-secondary)` is slate-700. These
+ * match APPROVED_DEFAULTS in the component, so the playground opens on exactly
+ * the production look. The `0` px-override sentinels mean "no override" (icons
+ * scale with their text); empty color strings mean "use the role default". */
+const BRAND_TEAL = 'var(--brand)'
+const SLATE_700 = 'var(--text-secondary)'
+
 const DEFAULT_ARGS: PlaygroundArgs = {
   contactState: 'onfile',
 
-  showStatusIndicator: true,
+  showStatusIndicator: false,
   showContactIcon: true,
   showFieldLabel: true,
   showVerifiedCheckbox: true,
   showEditButton: true,
   showStatusKey: true,
-  mentoring: 'shown',
 
   statusIndicatorColor: 'status',
   contactIconColor: 'status',
   fieldLabelColor: 'black',
-  nameColor: '',
+  nameColor: BRAND_TEAL,
   valueColor: '',
   verifyColor: '',
   mentoringColor: '',
@@ -199,14 +212,14 @@ const DEFAULT_ARGS: PlaygroundArgs = {
 
   fontFamily: '',
   fontScale: 1,
-  nameScale: 1,
+  nameScale: 1.5,
   labelScale: 1,
   valueScale: 1,
   controlScale: 1,
   verifyScale: 1,
   mentoringScale: 1,
   statusKeyScale: 1,
-  nameWeight: 'default',
+  nameWeight: 'bold',
   labelWeight: 'default',
   valueWeight: 'default',
   controlWeight: 'default',
@@ -224,12 +237,12 @@ const DEFAULT_ARGS: PlaygroundArgs = {
   sectionPaddingPx: 12,
 
   cardBorderPx: 1,
-  cardBorderColor: '',
+  cardBorderColor: SLATE_700,
   cardRadiusPx: 16,
   cardPaddingPx: 16,
   cardBackground: '',
   showDividers: true,
-  dividerColor: '',
+  dividerColor: SLATE_700,
   controlBorderPx: 1,
   controlRadiusPx: 8,
 }
@@ -247,7 +260,6 @@ function appearanceFromArgs(a: PlaygroundArgs): ContactCardAppearance {
     showVerifiedCheckbox: a.showVerifiedCheckbox,
     showEditButton: a.showEditButton,
     showStatusKey: a.showStatusKey,
-    mentoring: a.mentoring,
 
     statusIndicatorColor: a.statusIndicatorColor,
     contactIconColor: a.contactIconColor,
@@ -325,7 +337,6 @@ function describeDesign(a: PlaygroundArgs): string {
         { label: 'Verified checkbox', value: yn(a.showVerifiedCheckbox) },
         { label: 'Edit button', value: yn(a.showEditButton) },
         { label: 'Status key', value: yn(a.showStatusKey) },
-        { label: 'Mentoring', value: a.mentoring },
       ],
     },
     {
@@ -458,12 +469,6 @@ const argTypes = {
   showVerifiedCheckbox: toggleControl('Verified checkbox'),
   showEditButton: toggleControl('Edit button'),
   showStatusKey: toggleControl('Status key'),
-  mentoring: choiceControl<MentoringMode>(
-    'Mentoring',
-    ['shown', 'expanded', 'collapsed', 'hidden'],
-    { shown: 'Shown', expanded: 'Expanded', collapsed: 'Collapsed', hidden: 'Hidden' },
-    'Visibility',
-  ),
 
   statusIndicatorColor: statusOrBlackControl('Status indicator'),
   contactIconColor: statusOrBlackControl('Contact icon'),

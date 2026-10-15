@@ -48,5 +48,4 @@ export {
   type VerifiedPlacement,
   type EditPlacement,
   type AlignChoice,
-  type MentoringMode,
 } from './CustomerContactCard'
