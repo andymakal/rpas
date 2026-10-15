@@ -41,12 +41,23 @@
  * Persistence is injectable so the card is testable and Storybook-friendly:
  *   - Omit `onPersist` and the card calls PATCH /api/customers/[id]/contact.
  *   - Provide `onPersist` (e.g. in Storybook) to intercept writes.
+ *
+ * Appearance (presentation-only, Storybook-driven)
+ *   - A single optional `appearance` prop drives every cosmetic choice the Design
+ *     Playground exposes: element visibility, per-role typography (family, size,
+ *     weight, color), icon sizing with proportional-to-text scaling plus
+ *     independent overrides, layout arrangement of the Verified checkbox and Edit
+ *     button, card/control chrome (borders, dividers, backgrounds, rounding,
+ *     spacing, padding), and the Mentoring block.
+ *   - It never changes behavior, data, or the payloads sent to `onPersist`.
+ *     Omitting it (as every production call site does) reproduces the current
+ *     production look exactly — see `resolveAppearance`/`isDefault`.
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Mail, Phone, MapPin, Pencil, Check, X, Loader2,
-  ShieldQuestion, CheckCircle2, AlertTriangle,
+  ShieldQuestion, CheckCircle2, AlertTriangle, GraduationCap, ChevronDown,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
@@ -86,35 +97,138 @@ type ContactFieldKey = 'email' | 'phone' | 'address'
  * black, independent of status. */
 export type ColorChoice = 'status' | 'black'
 
+/** A font-weight choice for a text role. `default` leaves the component's own
+ * weight class in place (so production output is unchanged). */
+export type WeightChoice = 'default' | 'normal' | 'medium' | 'semibold' | 'bold'
+
+/** Where the Customer Verified checkbox sits relative to its field. `heading` =
+ * the production placement, on the label line at the right. `value` = beneath
+ * the value. `bottom` = pulled to a shared bottom row with Edit. */
+export type VerifiedPlacement = 'heading' | 'value' | 'bottom'
+
+/** Where the Edit control sits. `value` = the production placement, beside the
+ * value at the right. `row` = on its own row beneath the value. `bottom` = a
+ * shared bottom row with Verified. */
+export type EditPlacement = 'value' | 'row' | 'bottom'
+
+/** Horizontal alignment of a field's content. */
+export type AlignChoice = 'left' | 'center' | 'right'
+
+/** How the Mentoring block behaves. `shown` keeps it present (its own control
+ * governs expand/collapse per the global toggle); `expanded`/`collapsed` force
+ * the body open or closed; `hidden` removes it entirely. */
+export type MentoringMode = 'shown' | 'expanded' | 'collapsed' | 'hidden'
+
 /**
- * Optional presentation configuration for the card. It is purely cosmetic:
- * it changes color assignment and font sizing, never behavior, data, or the
- * payloads sent to `onPersist`. Omitting it (or any field) reproduces the
- * production appearance exactly — the two status/contact icons take the status
- * color, the field label reads dark ink, and every font size is the component's
- * own default. It exists so the Design Playground can drive the REAL component
- * through Storybook controls without a fork; production call sites never pass it.
+ * Optional presentation configuration for the card. Purely cosmetic: it changes
+ * visibility, color assignment, typography, icon sizing, layout arrangement, and
+ * chrome — never behavior, data, or the payloads sent to `onPersist`. Omitting
+ * it (or any field) reproduces the production appearance exactly. It exists so
+ * the Design Playground can drive the REAL component through Storybook controls
+ * without a fork; production call sites never pass it.
+ *
+ * Convention for reuse: this is the shared shape for a workflow component's
+ * presentation lab. A sibling component (e.g. Customer History) should expose an
+ * analogous `appearance` prop and reuse the Storybook control factory in
+ * `./playground-controls` so the next playground is assembly, not reinvention.
  */
 export interface ContactCardAppearance {
-  /** Color of the per-field status indicator (the shape icon). Default `status`. */
+  // ── Visibility (each element independently shown/hidden) ──────────────────
+  showStatusIndicator?: boolean
+  showContactIcon?: boolean
+  showFieldLabel?: boolean
+  showVerifiedCheckbox?: boolean
+  showEditButton?: boolean
+  showStatusKey?: boolean
+  mentoring?: MentoringMode
+
+  // ── Colors (status token vs plain black, independently) ───────────────────
   statusIndicatorColor?: ColorChoice
-  /** Color of the per-field contact icon (Mail / Phone / MapPin). Default `status`. */
   contactIconColor?: ColorChoice
-  /** Color of the per-field label text (Email / Phone / Mailing Address). Default `black`. */
   fieldLabelColor?: ColorChoice
+
+  // ── Typography ────────────────────────────────────────────────────────────
+  /** CSS font-family applied to the whole card. Default: the component's own. */
+  fontFamily?: string
   /** Master multiplier applied to every scalable text role. Default 1. */
   fontScale?: number
-  /** Extra multiplier for the customer name heading. Default 1. */
+  /** Per-role size multipliers (on top of the master scale). Default 1 each. */
   nameScale?: number
-  /** Extra multiplier for the field labels. Default 1. */
   labelScale?: number
-  /** Extra multiplier for the contact values. Default 1. */
   valueScale?: number
-  /** Extra multiplier for buttons and the Verified labels. Default 1. */
   controlScale?: number
+  verifyScale?: number
+  mentoringScale?: number
+  statusKeyScale?: number
+  /** Per-role weight overrides. Default `default` (leave existing weight). */
+  nameWeight?: WeightChoice
+  labelWeight?: WeightChoice
+  valueWeight?: WeightChoice
+  controlWeight?: WeightChoice
+  /** Per-role color overrides as any CSS color. Omit to keep the role default. */
+  nameColor?: string
+  valueColor?: string
+  verifyColor?: string
+  mentoringColor?: string
+  statusKeyColor?: string
+
+  // ── Icon sizing ───────────────────────────────────────────────────────────
+  /** Master icon multiplier. Icons scale with their associated text by default;
+   * this scales every icon on top of that. Default 1. */
+  iconScale?: number
+  /** Independent override (px) for the status/contact heading icons. When set it
+   * replaces the text-proportional size. */
+  statusIconPxOverride?: number
+  contactIconPxOverride?: number
+  /** Independent override (px) for the Verified checkbox box. Default scales with
+   * the verify label. */
+  verifyBoxPxOverride?: number
+  /** Independent override (px) for the Edit pencil icon. Default scales with the
+   * Edit button text. */
+  editIconPxOverride?: number
+
+  // ── Layout ────────────────────────────────────────────────────────────────
+  verifiedPlacement?: VerifiedPlacement
+  editPlacement?: EditPlacement
+  fieldAlign?: AlignChoice
+  /** Vertical gap (px) between the stacked parts within a field. Default 6. */
+  fieldSpacingPx?: number
+  /** Vertical padding (px) above/below each field section. Default 12. */
+  sectionPaddingPx?: number
+
+  // ── Appearance / chrome ───────────────────────────────────────────────────
+  /** Card border width (px). Default 1. 0 removes the border. */
+  cardBorderPx?: number
+  /** Card border color (any CSS color). Default: the surface-border token. */
+  cardBorderColor?: string
+  /** Card corner radius (px). Default 16 (rounded-2xl). */
+  cardRadiusPx?: number
+  /** Card inner padding (px). Default 16 (p-4). */
+  cardPaddingPx?: number
+  /** Card background (any CSS color). Default: the surface-card token (white). */
+  cardBackground?: string
+  /** Show the dividers between field sections. Default true. */
+  showDividers?: boolean
+  /** Divider color (any CSS color). Default: the surface-border-strong token. */
+  dividerColor?: string
+  /** Border on the Edit / control buttons (px). Default 1. */
+  controlBorderPx?: number
+  /** Control corner radius (px). Default 8 (rounded-lg). */
+  controlRadiusPx?: number
 }
 
-const DEFAULT_APPEARANCE: Required<ContactCardAppearance> = {
+const DEFAULT_APPEARANCE: Required<Omit<ContactCardAppearance,
+  'fontFamily' | 'statusIconPxOverride' | 'contactIconPxOverride' |
+  'verifyBoxPxOverride' | 'editIconPxOverride' | 'cardBorderColor' |
+  'cardBackground' | 'dividerColor' | 'nameColor' | 'valueColor' |
+  'verifyColor' | 'mentoringColor' | 'statusKeyColor'>> = {
+  showStatusIndicator: true,
+  showContactIcon: true,
+  showFieldLabel: true,
+  showVerifiedCheckbox: true,
+  showEditButton: true,
+  showStatusKey: true,
+  mentoring: 'shown',
   statusIndicatorColor: 'status',
   contactIconColor: 'status',
   fieldLabelColor: 'black',
@@ -123,53 +237,212 @@ const DEFAULT_APPEARANCE: Required<ContactCardAppearance> = {
   labelScale: 1,
   valueScale: 1,
   controlScale: 1,
+  verifyScale: 1,
+  mentoringScale: 1,
+  statusKeyScale: 1,
+  nameWeight: 'default',
+  labelWeight: 'default',
+  valueWeight: 'default',
+  controlWeight: 'default',
+  iconScale: 1,
+  verifiedPlacement: 'heading',
+  editPlacement: 'value',
+  fieldAlign: 'left',
+  fieldSpacingPx: 6,
+  sectionPaddingPx: 12,
+  cardBorderPx: 1,
+  cardRadiusPx: 16,
+  cardPaddingPx: 16,
+  showDividers: true,
+  controlBorderPx: 1,
+  controlRadiusPx: 8,
 }
 
-/** The resolved, non-cosmetic-by-default view the component actually renders
- * from, plus the derived per-role px font sizes. When the appearance equals the
- * default, `isDefault` is true and the component renders exactly as before (no
- * inline font-size styles, no color overrides). */
+/** The resolved view the component renders from. When the appearance equals the
+ * default, `isDefault` is true and the component renders exactly as before: no
+ * inline styles, no overrides, byte-identical to the current production output. */
 interface ResolvedAppearance {
+  // visibility
+  showStatusIndicator: boolean
+  showContactIcon: boolean
+  showFieldLabel: boolean
+  showVerifiedCheckbox: boolean
+  showEditButton: boolean
+  showStatusKey: boolean
+  mentoring: MentoringMode
+  // colors
   statusIndicatorColor: ColorChoice
   contactIconColor: ColorChoice
   fieldLabelColor: ColorChoice
-  /** The default font px for each role, defined here so JSX stays declarative.
-   * These mirror the Tailwind utilities the card uses: name text-[22px],
-   * label text-base (16), value text-lg (18), control text-base (16),
-   * supporting text-sm (14). */
+  nameColor?: string
+  valueColor?: string
+  verifyColor?: string
+  mentoringColor?: string
+  statusKeyColor?: string
+  // typography
+  fontFamily?: string
   nameFontPx: number
   labelFontPx: number
   valueFontPx: number
   controlFontPx: number
+  verifyFontPx: number
+  mentoringFontPx: number
+  statusKeyFontPx: number
   supportingFontPx: number
+  nameWeight: WeightChoice
+  labelWeight: WeightChoice
+  valueWeight: WeightChoice
+  controlWeight: WeightChoice
+  // icon sizing (resolved px, already including iconScale)
+  statusIconPx: number
+  contactIconPx: number
+  verifyBoxPx: number
+  editIconPx: number
+  // layout
+  verifiedPlacement: VerifiedPlacement
+  editPlacement: EditPlacement
+  fieldAlign: AlignChoice
+  fieldSpacingPx: number
+  sectionPaddingPx: number
+  // chrome
+  cardBorderPx: number
+  cardBorderColor?: string
+  cardRadiusPx: number
+  cardPaddingPx: number
+  cardBackground?: string
+  showDividers: boolean
+  dividerColor?: string
+  controlBorderPx: number
+  controlRadiusPx: number
   isDefault: boolean
 }
+
+// Baseline px per role, mirroring the Tailwind utilities the card uses:
+// name text-[22px], label text-base (16), value text-lg (18),
+// control text-base (16), supporting/status-key text-sm (14).
+const BASE = { name: 22, label: 16, value: 18, control: 16, supporting: 14 }
+// Baseline icon px, mirroring size-5 (20) headings, size-4 (16) checkbox,
+// size-3.5 (14) edit pencil.
+const ICON_BASE = { status: 20, contact: 20, verify: 16, edit: 14 }
 
 function resolveAppearance(a?: ContactCardAppearance): ResolvedAppearance {
   const r = { ...DEFAULT_APPEARANCE, ...a }
   const isDefault =
-    r.statusIndicatorColor === DEFAULT_APPEARANCE.statusIndicatorColor &&
-    r.contactIconColor === DEFAULT_APPEARANCE.contactIconColor &&
-    r.fieldLabelColor === DEFAULT_APPEARANCE.fieldLabelColor &&
-    r.fontScale === 1 && r.nameScale === 1 && r.labelScale === 1 &&
-    r.valueScale === 1 && r.controlScale === 1
+    !a ||
+    (r.showStatusIndicator && r.showContactIcon && r.showFieldLabel &&
+      r.showVerifiedCheckbox && r.showEditButton && r.showStatusKey &&
+      r.mentoring === 'shown' &&
+      r.statusIndicatorColor === 'status' && r.contactIconColor === 'status' &&
+      r.fieldLabelColor === 'black' &&
+      a.fontFamily === undefined &&
+      r.fontScale === 1 && r.nameScale === 1 && r.labelScale === 1 &&
+      r.valueScale === 1 && r.controlScale === 1 && r.verifyScale === 1 &&
+      r.mentoringScale === 1 && r.statusKeyScale === 1 &&
+      r.nameWeight === 'default' && r.labelWeight === 'default' &&
+      r.valueWeight === 'default' && r.controlWeight === 'default' &&
+      a.nameColor === undefined && a.valueColor === undefined &&
+      a.verifyColor === undefined && a.mentoringColor === undefined &&
+      a.statusKeyColor === undefined &&
+      r.iconScale === 1 &&
+      a.statusIconPxOverride === undefined && a.contactIconPxOverride === undefined &&
+      a.verifyBoxPxOverride === undefined && a.editIconPxOverride === undefined &&
+      r.verifiedPlacement === 'heading' && r.editPlacement === 'value' &&
+      r.fieldAlign === 'left' && r.fieldSpacingPx === 6 && r.sectionPaddingPx === 12 &&
+      r.cardBorderPx === 1 && a.cardBorderColor === undefined &&
+      r.cardRadiusPx === 16 && r.cardPaddingPx === 16 &&
+      a.cardBackground === undefined && r.showDividers &&
+      a.dividerColor === undefined && r.controlBorderPx === 1 &&
+      r.controlRadiusPx === 8)
+
+  const labelPx = BASE.label * r.fontScale * r.labelScale
+  const controlPx = BASE.control * r.fontScale * r.controlScale
+  const verifyPx = BASE.control * r.fontScale * r.verifyScale
+
   return {
+    showStatusIndicator: r.showStatusIndicator,
+    showContactIcon: r.showContactIcon,
+    showFieldLabel: r.showFieldLabel,
+    showVerifiedCheckbox: r.showVerifiedCheckbox,
+    showEditButton: r.showEditButton,
+    showStatusKey: r.showStatusKey,
+    mentoring: r.mentoring,
     statusIndicatorColor: r.statusIndicatorColor,
     contactIconColor: r.contactIconColor,
     fieldLabelColor: r.fieldLabelColor,
-    nameFontPx: 22 * r.fontScale * r.nameScale,
-    labelFontPx: 16 * r.fontScale * r.labelScale,
-    valueFontPx: 18 * r.fontScale * r.valueScale,
-    controlFontPx: 16 * r.fontScale * r.controlScale,
-    supportingFontPx: 14 * r.fontScale * r.labelScale,
+    nameColor: a?.nameColor,
+    valueColor: a?.valueColor,
+    verifyColor: a?.verifyColor,
+    mentoringColor: a?.mentoringColor,
+    statusKeyColor: a?.statusKeyColor,
+    fontFamily: a?.fontFamily,
+    nameFontPx: BASE.name * r.fontScale * r.nameScale,
+    labelFontPx: labelPx,
+    valueFontPx: BASE.value * r.fontScale * r.valueScale,
+    controlFontPx: controlPx,
+    verifyFontPx: verifyPx,
+    mentoringFontPx: BASE.value * r.fontScale * r.mentoringScale,
+    statusKeyFontPx: BASE.supporting * r.fontScale * r.statusKeyScale,
+    supportingFontPx: BASE.supporting * r.fontScale * r.labelScale,
+    nameWeight: r.nameWeight,
+    labelWeight: r.labelWeight,
+    valueWeight: r.valueWeight,
+    controlWeight: r.controlWeight,
+    // Icons scale proportionally with their associated text unless an explicit
+    // px override is given. The master iconScale multiplies either way.
+    statusIconPx: (a?.statusIconPxOverride ?? ICON_BASE.status * (labelPx / BASE.label)) * r.iconScale,
+    contactIconPx: (a?.contactIconPxOverride ?? ICON_BASE.contact * (labelPx / BASE.label)) * r.iconScale,
+    verifyBoxPx: (a?.verifyBoxPxOverride ?? ICON_BASE.verify * (verifyPx / BASE.control)) * r.iconScale,
+    editIconPx: (a?.editIconPxOverride ?? ICON_BASE.edit * (controlPx / BASE.control)) * r.iconScale,
+    verifiedPlacement: r.verifiedPlacement,
+    editPlacement: r.editPlacement,
+    fieldAlign: r.fieldAlign,
+    fieldSpacingPx: r.fieldSpacingPx,
+    sectionPaddingPx: r.sectionPaddingPx,
+    cardBorderPx: r.cardBorderPx,
+    cardBorderColor: a?.cardBorderColor,
+    cardRadiusPx: r.cardRadiusPx,
+    cardPaddingPx: r.cardPaddingPx,
+    cardBackground: a?.cardBackground,
+    showDividers: r.showDividers,
+    dividerColor: a?.dividerColor,
+    controlBorderPx: r.controlBorderPx,
+    controlRadiusPx: r.controlRadiusPx,
     isDefault,
   }
 }
 
-/** A font-size style for a role, or undefined when appearance is default so the
- * Tailwind size class alone governs (keeps production output byte-identical). */
+const WEIGHT_CLASS: Record<Exclude<WeightChoice, 'default'>, string> = {
+  normal: 'font-normal',
+  medium: 'font-medium',
+  semibold: 'font-semibold',
+  bold: 'font-bold',
+}
+
+/** Weight class override for a role, or '' to leave the existing class in place. */
+function weightClass(w: WeightChoice): string {
+  return w === 'default' ? '' : WEIGHT_CLASS[w]
+}
+
+/** A text style for a role: inline font-size (and optional color) when appearance
+ * is non-default, else undefined so the Tailwind size class alone governs. */
+function textStyle(
+  ap: ResolvedAppearance, px: number, color?: string,
+): React.CSSProperties | undefined {
+  if (ap.isDefault) return undefined
+  const s: React.CSSProperties = { fontSize: `${px.toFixed(3)}px` }
+  if (color) s.color = color
+  return s
+}
+
+/** Backwards-compatible helper kept for the value/address renderers. */
 function fontStyle(ap: ResolvedAppearance, px: number): React.CSSProperties | undefined {
   return ap.isDefault ? undefined : { fontSize: `${px.toFixed(3)}px` }
+}
+
+/** Icon style: an explicit px size when non-default, else undefined so the
+ * size-* class governs. */
+function iconStyle(ap: ResolvedAppearance, px: number): React.CSSProperties | undefined {
+  return ap.isDefault ? undefined : { width: `${px.toFixed(2)}px`, height: `${px.toFixed(2)}px` }
 }
 
 /** Resolve an icon/label color: the status token color (`statusColor`) when the
@@ -245,9 +518,9 @@ export function CustomerContactCard({
    * with the full updated record. */
   onPersist?: (customerId: string, payload: ContactPersistPayload) => Promise<CustomerContact>
   className?: string
-  /** Presentation-only overrides (color assignment + font sizing). Omit for the
-   * production appearance. Used by the Design Playground to tune the REAL card.
-   * Never affects behavior, data, or `onPersist` payloads. */
+  /** Presentation-only overrides. Omit for the production appearance. Used by the
+   * Design Playground to tune the REAL card. Never affects behavior, data, or
+   * `onPersist` payloads. */
   appearance?: ContactCardAppearance
 }) {
   const ap = useMemo(() => resolveAppearance(appearance), [appearance])
@@ -316,22 +589,30 @@ export function CustomerContactCard({
         'rounded-2xl border border-surface-border bg-surface-card p-4 font-workflow',
         className,
       )}
+      style={ap.isDefault ? undefined : {
+        fontFamily: ap.fontFamily,
+        borderWidth: `${ap.cardBorderPx}px`,
+        borderStyle: 'solid',
+        borderColor: ap.cardBorderColor ?? 'var(--surface-border)',
+        borderRadius: `${ap.cardRadiusPx}px`,
+        padding: `${ap.cardPaddingPx}px`,
+        background: ap.cardBackground ?? 'var(--surface-card)',
+      }}
     >
       {/* The customer's name IS the card heading (~22px). */}
       <h3
-        className="text-[22px] font-semibold leading-tight text-ink"
-        style={fontStyle(ap, ap.nameFontPx)}
+        className={cn('text-[22px] font-semibold leading-tight text-ink', weightClass(ap.nameWeight))}
+        style={textStyle(ap, ap.nameFontPx, ap.nameColor)}
       >
         {fullName(record)}
       </h3>
 
-      {/* Mentoring (HOW): always-visible purple control, expanded by the global
-          Mentoring preference. */}
-      <MentorGuidance label="About these fields" className="mt-2">
-        Changes here update customer information throughout Right Path. Check Verified only when the
-        customer has confirmed the information is correct, including when they confirm it in an email
-        response.
-      </MentorGuidance>
+      {/* Mentoring (HOW): a purple control whose body expands by the global
+          Mentoring preference. The appearance can force it open/closed, restyle
+          it, or hide it entirely. */}
+      {ap.mentoring !== 'hidden' && (
+        <ContactMentoring appearance={ap} />
+      )}
 
       {error && (
         <p className="mt-3 rounded-lg border border-status-missing-border bg-status-missing-soft px-3 py-2 text-base text-status-missing-strong">
@@ -341,7 +622,12 @@ export function CustomerContactCard({
 
       {/* Three compact sections in one card. The dividers use the stronger
           surface border token so they read clearly against the white card. */}
-      <div className="mt-3 divide-y divide-surface-border-strong">
+      <div
+        className={cn('mt-3', ap.isDefault && 'divide-y divide-surface-border-strong')}
+        style={ap.isDefault ? undefined : {
+          borderColor: ap.dividerColor ?? 'var(--surface-border-strong)',
+        }}
+      >
         <EmailRow
           present={emailPresent}
           verifiedAt={record.email_verified_at}
@@ -349,6 +635,7 @@ export function CustomerContactCard({
           editing={editing === 'email'}
           busy={busyField === 'email'}
           appearance={ap}
+          first
           onEdit={() => { setError(null); setEditing('email') }}
           onCancel={() => setEditing(null)}
           onSave={(email) => saveField({ field: 'email', email })}
@@ -375,6 +662,7 @@ export function CustomerContactCard({
           editing={editing === 'address'}
           busy={busyField === 'address'}
           appearance={ap}
+          last
           onEdit={() => { setError(null); setEditing('address') }}
           onCancel={() => setEditing(null)}
           onSave={(a) => saveField({ field: 'address', ...a })}
@@ -382,8 +670,81 @@ export function CustomerContactCard({
         />
       </div>
 
-      <ContactStatusKey appearance={ap} />
+      {ap.showStatusKey && <ContactStatusKey appearance={ap} />}
     </section>
+  )
+}
+
+/** The Mentoring block. In the default appearance it is the standard shared
+ * MentorGuidance disclosure. When appearance forces expand/collapse or restyles
+ * it, a self-contained disclosure is rendered so the Playground can show the
+ * forced state and tuned typography/spacing. */
+function ContactMentoring({ appearance }: { appearance: ResolvedAppearance }) {
+  const body =
+    'Changes here update customer information throughout Right Path. Check Verified only when the ' +
+    'customer has confirmed the information is correct, including when they confirm it in an email ' +
+    'response.'
+
+  if (appearance.isDefault || appearance.mentoring === 'shown') {
+    return (
+      <MentorGuidance label="About these fields" className="mt-2">
+        {body}
+      </MentorGuidance>
+    )
+  }
+
+  const forcedOpen = appearance.mentoring === 'expanded'
+  return (
+    <ForcedMentorDisclosure
+      label="About these fields"
+      open={forcedOpen}
+      appearance={appearance}
+    >
+      {body}
+    </ForcedMentorDisclosure>
+  )
+}
+
+/** A Mentoring disclosure whose open state is forced by the appearance, with
+ * tunable typography/color. Mirrors the shared MentorGuidance look (purple
+ * identity, GraduationCap, chevron) so forcing a state does not change the
+ * visual language. */
+function ForcedMentorDisclosure({
+  label, open: forcedOpen, appearance, children,
+}: {
+  label: string
+  open: boolean
+  appearance: ResolvedAppearance
+  children: React.ReactNode
+}) {
+  const [open, setOpen] = useState(forcedOpen)
+  // Re-seed from the forced state whenever it changes (Playground control).
+  useEffect(() => { setOpen(forcedOpen) }, [forcedOpen])
+  const textColor = appearance.mentoringColor
+  return (
+    <div className="mt-2 rounded-lg border border-purple-200 bg-purple-50/60">
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm font-semibold text-purple-700"
+        style={textStyle(appearance, appearance.statusKeyFontPx, textColor)}
+      >
+        <span className="flex items-center gap-1.5">
+          <GraduationCap className="size-4 shrink-0" style={iconStyle(appearance, appearance.statusIconPx * 0.8)} aria-hidden />
+          {label}
+        </span>
+        <ChevronDown className={cn('size-4 shrink-0 transition-transform', open && 'rotate-180')} aria-hidden />
+      </button>
+      {open && (
+        <div
+          className="px-3 pb-3 text-base leading-relaxed text-purple-700"
+          style={textStyle(appearance, appearance.mentoringFontPx, textColor)}
+        >
+          {children}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -394,7 +755,7 @@ function ContactStatusKey({ appearance }: { appearance: ResolvedAppearance }) {
   return (
     <div
       className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-surface-border-strong pt-2.5 text-sm text-ink-supporting"
-      style={fontStyle(appearance, appearance.supportingFontPx)}
+      style={textStyle(appearance, appearance.statusKeyFontPx, appearance.statusKeyColor)}
     >
       {order.map((tone) => {
         const meta = STATUS_META[tone]
@@ -405,6 +766,7 @@ function ContactStatusKey({ appearance }: { appearance: ResolvedAppearance }) {
           <span key={tone} className="inline-flex items-center gap-1.5">
             <Icon
               className={cn('size-4 shrink-0', colorClass(appearance.statusIndicatorColor, meta.color))}
+              style={iconStyle(appearance, appearance.statusIconPx * 0.8)}
               aria-hidden
             />
             {meta.label}
@@ -432,7 +794,7 @@ function VerifyCheckbox({
         'flex shrink-0 items-center gap-2 text-base font-medium',
         disabled ? 'cursor-not-allowed text-ink-muted' : 'cursor-pointer text-ink-secondary',
       )}
-      style={fontStyle(appearance, appearance.controlFontPx)}
+      style={textStyle(appearance, appearance.verifyFontPx, appearance.verifyColor)}
       title={disabled ? 'A missing or unusable value cannot be marked verified.' : undefined}
     >
       <input
@@ -441,6 +803,7 @@ function VerifyCheckbox({
         disabled={disabled || busy}
         onChange={(e) => onChange(e.target.checked)}
         className="size-4 rounded border-slate-400 text-teal-600 focus:ring-teal-500 disabled:opacity-40"
+        style={iconStyle(appearance, appearance.verifyBoxPx)}
       />
       <span>Verified</span>
       {busy && <Loader2 className="size-3.5 animate-spin text-ink-muted" aria-hidden />}
@@ -448,14 +811,45 @@ function VerifyCheckbox({
   )
 }
 
+function EditButton({
+  busy, onEdit, appearance,
+}: {
+  busy: boolean
+  onEdit: () => void
+  appearance: ResolvedAppearance
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onEdit}
+      disabled={busy}
+      style={{
+        ...(textStyle(appearance, appearance.controlFontPx) ?? {}),
+        ...(appearance.isDefault ? {} : {
+          borderWidth: `${appearance.controlBorderPx}px`,
+          borderRadius: `${appearance.controlRadiusPx}px`,
+        }),
+      }}
+      className={cn(
+        'inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-2.5 py-1 text-base font-medium text-ink-secondary hover:bg-surface-muted disabled:opacity-40',
+        weightClass(appearance.controlWeight),
+      )}
+    >
+      <Pencil className="size-3.5" style={iconStyle(appearance, appearance.editIconPx)} aria-hidden /> Edit
+    </button>
+  )
+}
+
 /**
  * One contact section inside the shared card. The heading line pairs the large
- * status icon and the contact icon with the field label, and holds the Customer
- * Verified checkbox at the right. The value line shows the full value with Edit
- * at the right. Compact vertical rhythm; no inner card border.
+ * status icon and the contact icon with the field label. The Verified checkbox
+ * and Edit button are placed per the appearance's layout choices: Verified on
+ * the heading / beneath the value / on a bottom row; Edit beside the value / on
+ * its own row / on a bottom row.
  */
 function SectionShell({
-  contactIcon: ContactIcon, label, tone, present, verifiedAt, busy, appearance, onEdit, onVerify, children,
+  contactIcon: ContactIcon, label, tone, present, verifiedAt, busy, appearance, first, last,
+  onEdit, onVerify, children,
 }: {
   contactIcon: typeof Mail
   label: string
@@ -464,69 +858,123 @@ function SectionShell({
   verifiedAt: string | null
   busy: boolean
   appearance: ResolvedAppearance
+  first?: boolean
+  last?: boolean
   onEdit: () => void
   onVerify: (v: boolean) => void
   children: React.ReactNode
 }) {
   const status = STATUS_META[tone]
   const StatusIcon = status.icon
-  // Default: both icons take the status color and the label reads dark ink. Each
-  // is independently recolorable to black via the appearance config.
   const labelColor = appearance.fieldLabelColor === 'black' ? 'text-black' : 'text-ink'
+  const ap = appearance
+
+  const verify = ap.showVerifiedCheckbox ? (
+    <VerifyCheckbox
+      checked={!!verifiedAt}
+      disabled={!present}
+      busy={busy}
+      appearance={ap}
+      onChange={onVerify}
+    />
+  ) : null
+
+  const edit = ap.showEditButton ? (
+    <EditButton busy={busy} onEdit={onEdit} appearance={ap} />
+  ) : null
+
+  const verifyOnHeading = ap.verifiedPlacement === 'heading'
+  const verifyOnValue = ap.verifiedPlacement === 'value'
+  const verifyOnBottom = ap.verifiedPlacement === 'bottom'
+  const editOnValue = ap.editPlacement === 'value'
+  const editOnRow = ap.editPlacement === 'row'
+  const editOnBottom = ap.editPlacement === 'bottom'
+
+  // Container style carries field-section padding, inner spacing, divider.
+  const containerStyle: React.CSSProperties | undefined = ap.isDefault
+    ? undefined
+    : {
+        paddingTop: first ? 0 : `${ap.sectionPaddingPx}px`,
+        paddingBottom: last ? 0 : `${ap.sectionPaddingPx}px`,
+        ...(ap.showDividers && !first
+          ? { borderTopWidth: '1px', borderTopStyle: 'solid', borderTopColor: ap.dividerColor ?? 'var(--surface-border-strong)' }
+          : {}),
+      }
+
+  const gap = ap.isDefault ? undefined : { marginTop: `${ap.fieldSpacingPx}px` }
+  const headingLabel = ap.showFieldLabel ? label : null
+
+  // Alignment: left (default) keeps the full-width justify-between rows. Center
+  // and right turn the section into a flex column aligned to that edge, with the
+  // rows sized to content so they visibly shift. Only diverges when non-default.
+  const aligned = !ap.isDefault && ap.fieldAlign !== 'left'
+  const rootCls = aligned
+    ? cn('flex flex-col py-3 first:pt-0 last:pb-0', ap.fieldAlign === 'center' ? 'items-center text-center' : 'items-end text-right')
+    : 'py-3 first:pt-0 last:pb-0'
+  // When aligned, rows hug their content; when not, they span full width.
+  const rowCls = aligned ? 'flex items-center gap-3' : 'flex items-center justify-between gap-3'
+  const valueRowCls = aligned ? 'flex flex-col gap-1.5' : 'flex items-start justify-between gap-3'
+
   return (
-    <div className="py-3 first:pt-0 last:pb-0">
-      <div className="flex items-center justify-between gap-3">
-        {/* The status indicator and contact icon take the status color (green /
-            amber / red) by default; the label text reads in the standard dark
-            ink. Both icons are the same ~20px size; the status shape +
-            accessible label carry meaning without relying on color. */}
+    <div className={rootCls} style={containerStyle}>
+      {/* Heading row: status + contact icons + label on the left; Verified at
+          the right only when its placement is `heading`. */}
+      <div className={rowCls}>
         <p
-          className={cn('flex items-center gap-2 text-base font-semibold', labelColor)}
-          style={fontStyle(appearance, appearance.labelFontPx)}
+          className={cn('flex items-center gap-2 text-base font-semibold', labelColor, weightClass(ap.labelWeight))}
+          style={textStyle(ap, ap.labelFontPx)}
         >
-          <StatusIcon
-            className={cn('size-5 shrink-0', colorClass(appearance.statusIndicatorColor, status.color))}
-            aria-label={status.label}
-            role="img"
-          />
-          <ContactIcon
-            className={cn('size-5 shrink-0', colorClass(appearance.contactIconColor, status.color))}
-            aria-hidden
-          />
-          {label}
+          {ap.showStatusIndicator && (
+            <StatusIcon
+              className={cn('size-5 shrink-0', colorClass(ap.statusIndicatorColor, status.color))}
+              style={iconStyle(ap, ap.statusIconPx)}
+              aria-label={status.label}
+              role="img"
+            />
+          )}
+          {ap.showContactIcon && (
+            <ContactIcon
+              className={cn('size-5 shrink-0', colorClass(ap.contactIconColor, status.color))}
+              style={iconStyle(ap, ap.contactIconPx)}
+              aria-hidden
+            />
+          )}
+          {headingLabel}
         </p>
-        <VerifyCheckbox
-          checked={!!verifiedAt}
-          disabled={!present}
-          busy={busy}
-          appearance={appearance}
-          onChange={onVerify}
-        />
+        {verifyOnHeading && verify}
       </div>
 
-      <div className="mt-1.5 flex items-start justify-between gap-3">
-        <div className="min-w-0">{children}</div>
-        <button
-          type="button"
-          onClick={onEdit}
-          disabled={busy}
-          style={fontStyle(appearance, appearance.controlFontPx)}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-2.5 py-1 text-base font-medium text-ink-secondary hover:bg-surface-muted disabled:opacity-40"
-        >
-          <Pencil className="size-3.5" aria-hidden /> Edit
-        </button>
+      {/* Value row: the value; Edit at the right only when its placement is
+          `value`; Verified beneath the value when its placement is `value`. */}
+      <div className={valueRowCls} style={gap}>
+        <div className="min-w-0">
+          {children}
+          {verifyOnValue && <div className="mt-1.5">{verify}</div>}
+        </div>
+        {editOnValue && edit}
       </div>
+
+      {/* Edit on its own row. */}
+      {editOnRow && edit && <div style={gap}>{edit}</div>}
+
+      {/* Shared bottom row for whichever of Verified / Edit chose `bottom`. */}
+      {(verifyOnBottom || editOnBottom) && (
+        <div className="flex items-center justify-between gap-3" style={gap}>
+          {verifyOnBottom ? verify : <span />}
+          {editOnBottom ? edit : <span />}
+        </div>
+      )}
     </div>
   )
 }
 
 /** The value line (~18px): full value, or an explicit "Missing". Never truncated. */
 function ValueText({ value, present, appearance }: { value: string | null; present: boolean; appearance: ResolvedAppearance }) {
-  const style = fontStyle(appearance, appearance.valueFontPx)
+  const style = textStyle(appearance, appearance.valueFontPx, appearance.valueColor)
   if (!present) {
-    return <p className="text-lg font-medium text-status-missing-strong" style={style}>Missing</p>
+    return <p className={cn('text-lg font-medium text-status-missing-strong', weightClass(appearance.valueWeight))} style={fontStyle(appearance, appearance.valueFontPx)}>Missing</p>
   }
-  return <p className="break-words text-lg text-ink" style={style}>{value}</p>
+  return <p className={cn('break-words text-lg text-ink', weightClass(appearance.valueWeight))} style={style}>{value}</p>
 }
 
 function EditActions({ busy, onCancel, appearance }: { busy: boolean; onCancel: () => void; appearance: ResolvedAppearance }) {
@@ -566,7 +1014,7 @@ const inputCls = (invalid: boolean) =>
 // ── Email ──────────────────────────────────────────────────────────────────
 
 function EmailRow({
-  present, verifiedAt, value, editing, busy, appearance, onEdit, onCancel, onSave, onVerify,
+  present, verifiedAt, value, editing, busy, appearance, first, onEdit, onCancel, onSave, onVerify,
 }: {
   present: boolean
   verifiedAt: string | null
@@ -574,6 +1022,7 @@ function EmailRow({
   editing: boolean
   busy: boolean
   appearance: ResolvedAppearance
+  first?: boolean
   onEdit: () => void
   onCancel: () => void
   onSave: (email: string | null) => void
@@ -589,7 +1038,7 @@ function EmailRow({
   if (!editing) {
     return (
       <SectionShell contactIcon={Mail} label="Email" tone={tone} present={present} verifiedAt={verifiedAt}
-        busy={busy} appearance={appearance} onEdit={open} onVerify={onVerify}>
+        busy={busy} appearance={appearance} first={first} onEdit={open} onVerify={onVerify}>
         <ValueText value={value} present={present} appearance={appearance} />
       </SectionShell>
     )
@@ -691,7 +1140,7 @@ function PhoneRow({
 // ── Mailing address (edited as one group) ─────────────────────────────────────
 
 function AddressRow({
-  present, verifiedAt, record, editing, busy, appearance, onEdit, onCancel, onSave, onVerify,
+  present, verifiedAt, record, editing, busy, appearance, last, onEdit, onCancel, onSave, onVerify,
 }: {
   present: boolean
   verifiedAt: string | null
@@ -699,6 +1148,7 @@ function AddressRow({
   editing: boolean
   busy: boolean
   appearance: ResolvedAppearance
+  last?: boolean
   onEdit: () => void
   onCancel: () => void
   onSave: (a: { street: string | null; city: string | null; state: string | null; zip: string | null }) => void
@@ -721,14 +1171,14 @@ function AddressRow({
   if (!editing) {
     return (
       <SectionShell contactIcon={MapPin} label="Mailing Address" tone={tone} present={present} verifiedAt={verifiedAt}
-        busy={busy} appearance={appearance} onEdit={open} onVerify={onVerify}>
+        busy={busy} appearance={appearance} last={last} onEdit={open} onVerify={onVerify}>
         {present ? (
           // The complete mailing address on two lines: street, then city/state/ZIP.
-          <address className="not-italic text-lg leading-snug text-ink" style={fontStyle(appearance, appearance.valueFontPx)}>
+          <address className={cn('not-italic text-lg leading-snug text-ink', weightClass(appearance.valueWeight))} style={textStyle(appearance, appearance.valueFontPx, appearance.valueColor)}>
             {lines.map((line, i) => <span key={i} className="block break-words">{line}</span>)}
           </address>
         ) : (
-          <p className="text-lg font-medium text-status-missing-strong" style={fontStyle(appearance, appearance.valueFontPx)}>Missing</p>
+          <p className={cn('text-lg font-medium text-status-missing-strong', weightClass(appearance.valueWeight))} style={fontStyle(appearance, appearance.valueFontPx)}>Missing</p>
         )}
       </SectionShell>
     )

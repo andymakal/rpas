@@ -44,4 +44,9 @@ export {
   type ContactPersistPayload,
   type ContactCardAppearance,
   type ColorChoice,
+  type WeightChoice,
+  type VerifiedPlacement,
+  type EditPlacement,
+  type AlignChoice,
+  type MentoringMode,
 } from './CustomerContactCard'

@@ -1,7 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { useMemo, useRef, useState } from 'react'
+import { useMemo, useState } from 'react'
 
-import { WorkflowSurface } from './index'
 import { MentoringProvider } from '@/lib/mentoring/MentoringProvider'
 import {
   CustomerContactCard,
@@ -9,40 +8,55 @@ import {
   type ContactPersistPayload,
   type ContactCardAppearance,
   type ColorChoice,
+  type WeightChoice,
+  type VerifiedPlacement,
+  type EditPlacement,
+  type AlignChoice,
+  type MentoringMode,
 } from './CustomerContactCard'
+import {
+  PlaygroundStage,
+  toggleControl,
+  statusOrBlackControl,
+  scaleControl,
+  pxControl,
+  weightControl,
+  colorControl,
+  choiceControl,
+  textControl,
+  hiddenControl,
+  formatDesignSummary,
+  type DesignGroup,
+} from './playground-controls'
 
 /**
- * Workflow Design System — Customer Contact → Design Playground.
+ * Workflow Design System — Customer Contact → Playground.
  *
- * An interactive appearance lab for the REAL shared `CustomerContactCard`. It
- * renders the actual production component (no copy, no fork) and tunes its look
- * through the component's own `appearance` prop, driven by Storybook's native
- * Args/Controls. Move a slider or flip a switch in the Controls panel and the
- * real card re-renders immediately — no rebuild, redeploy, or Kiro involvement.
+ * The one interactive visual design playground for the REAL shared
+ * `CustomerContactCard`. It renders the actual production component (no copy, no
+ * fork, no custom editor) and tunes its look through the component's own
+ * `appearance` prop, driven entirely by Storybook's native Args/Controls. Open
+ * the Controls panel and every switch, slider, selector, and color picker
+ * re-renders the real card immediately — no rebuild, redeploy, or Kiro step.
  *
  * Nothing here changes the component's production defaults, its source, or any
- * customer record. The card runs on an in-memory `onPersist` (identical rules
- * to the functional Customer Contact stories), so editing and verifying stay
- * fully interactive and completely side-effect free. The `appearance` prop is
- * presentation-only; omitting it (as every production call site does) yields
- * the exact current look.
+ * customer record. The card runs on an in-memory `onPersist` (identical rules to
+ * the app: a changed value clears its verification; a missing value cannot be
+ * verified), so editing and verifying stay fully interactive and side-effect
+ * free. The `appearance` prop is presentation-only; omitting it (as every
+ * production call site does) yields the exact current look.
  *
- * CONTROLS (native Storybook Controls panel):
- *   - Three INDEPENDENT color switches — status indicator, contact icon, field
- *     label — each either the field's status color (green/amber/red) or black.
- *   - Font-size sliders — a master scale for all card text, plus independent
- *     nudges for the customer name, field labels, contact values, and
- *     buttons/verification labels.
- *   - Contact status selector — show the card Verified (green), On file not
- *     verified (amber), or Missing (red).
+ * The pinned "Copy Selected Design" button captures ALL current appearance and
+ * layout choices as readable plain text to hand to ChatGPT for a permanent
+ * implementation — without switching stories.
  *
- * The "Compare 8 Color Combinations" story shows every on/off mix of the three
- * color switches side by side. The "Share Selected Settings" story turns the
- * current controls into a copyable plain-text summary to hand to ChatGPT for a
- * permanent implementation.
+ * Reuse: the control panel is assembled from the shared factories in
+ * `./playground-controls`. The next shared component (e.g. Customer History)
+ * exposes its own `appearance` prop and reuses those same factories, so this
+ * playground system is never reimplemented.
  */
 
-// ── Sample records (one per contact-status choice) ───────────────────────────
+// ── Sample record, keyed to a contact-status choice ──────────────────────────
 
 const baseRecord: Omit<
   CustomerContact,
@@ -60,22 +74,32 @@ const baseRecord: Omit<
   zip: '19102',
 }
 
-type ContactStatus = 'verified' | 'onfile' | 'missing'
+type ContactState = 'verified' | 'onfile' | 'missing' | 'mixed'
 
 const VERIFIED_AT = '2026-10-10T15:00:00.000Z'
 
-/** Build a sample record for the chosen contact status. `verified` → all three
- * fields green; `onfile` → all present but unverified (amber); `missing` → all
- * values cleared (red). */
-function recordForStatus(status: ContactStatus): CustomerContact {
-  if (status === 'missing') {
+/** Build a sample record for the chosen contact state. `verified` → all green;
+ * `onfile` → all present, unverified (amber); `missing` → all cleared (red);
+ * `mixed` → verified phone, unverified email, missing address (all three at
+ * once). */
+function recordForState(state: ContactState): CustomerContact {
+  if (state === 'missing') {
     return {
       ...baseRecord,
       email: null, phone: null, street: null, city: null, state: null, zip: null,
       email_verified_at: null, phone_verified_at: null, address_verified_at: null,
     }
   }
-  const stamp = status === 'verified' ? VERIFIED_AT : null
+  if (state === 'mixed') {
+    return {
+      ...baseRecord,
+      email_verified_at: null,
+      phone_verified_at: VERIFIED_AT,
+      street: null, city: null, state: null, zip: null,
+      address_verified_at: null,
+    }
+  }
+  const stamp = state === 'verified' ? VERIFIED_AT : null
   return {
     ...baseRecord,
     email_verified_at: stamp,
@@ -84,50 +108,294 @@ function recordForStatus(status: ContactStatus): CustomerContact {
   }
 }
 
-// ── Story args ───────────────────────────────────────────────────────────────
+// ── Flat args (each mapped to one native control) ────────────────────────────
 
-/** Flat args, each mapped to a native Storybook control, then assembled into
- * the real component's `appearance` prop by `render`. */
 interface PlaygroundArgs {
-  contactStatus: ContactStatus
+  contactState: ContactState
+
+  // Visibility
+  showStatusIndicator: boolean
+  showContactIcon: boolean
+  showFieldLabel: boolean
+  showVerifiedCheckbox: boolean
+  showEditButton: boolean
+  showStatusKey: boolean
+  mentoring: MentoringMode
+
+  // Colors
   statusIndicatorColor: ColorChoice
   contactIconColor: ColorChoice
   fieldLabelColor: ColorChoice
+  nameColor: string
+  valueColor: string
+  verifyColor: string
+  mentoringColor: string
+  statusKeyColor: string
+
+  // Typography
+  fontFamily: string
   fontScale: number
   nameScale: number
   labelScale: number
   valueScale: number
   controlScale: number
+  verifyScale: number
+  mentoringScale: number
+  statusKeyScale: number
+  nameWeight: WeightChoice
+  labelWeight: WeightChoice
+  valueWeight: WeightChoice
+  controlWeight: WeightChoice
+
+  // Icons
+  iconScale: number
+  statusIconPxOverride: number
+  contactIconPxOverride: number
+  verifyBoxPxOverride: number
+  editIconPxOverride: number
+
+  // Layout
+  verifiedPlacement: VerifiedPlacement
+  editPlacement: EditPlacement
+  fieldAlign: AlignChoice
+  fieldSpacingPx: number
+  sectionPaddingPx: number
+
+  // Appearance / chrome
+  cardBorderPx: number
+  cardBorderColor: string
+  cardRadiusPx: number
+  cardPaddingPx: number
+  cardBackground: string
+  showDividers: boolean
+  dividerColor: string
+  controlBorderPx: number
+  controlRadiusPx: number
 }
 
-/** Defaults mirror the production component exactly (status/status/black, all
- * scales 1), so the playground opens on the real current appearance. */
+/** Defaults mirror the production component exactly, so the playground opens on
+ * the real current appearance. The `0` px-override sentinels mean "no override"
+ * (icons scale with their text); the empty color strings mean "use the role
+ * default". */
 const DEFAULT_ARGS: PlaygroundArgs = {
-  contactStatus: 'onfile',
+  contactState: 'onfile',
+
+  showStatusIndicator: true,
+  showContactIcon: true,
+  showFieldLabel: true,
+  showVerifiedCheckbox: true,
+  showEditButton: true,
+  showStatusKey: true,
+  mentoring: 'shown',
+
   statusIndicatorColor: 'status',
   contactIconColor: 'status',
   fieldLabelColor: 'black',
+  nameColor: '',
+  valueColor: '',
+  verifyColor: '',
+  mentoringColor: '',
+  statusKeyColor: '',
+
+  fontFamily: '',
   fontScale: 1,
   nameScale: 1,
   labelScale: 1,
   valueScale: 1,
   controlScale: 1,
+  verifyScale: 1,
+  mentoringScale: 1,
+  statusKeyScale: 1,
+  nameWeight: 'default',
+  labelWeight: 'default',
+  valueWeight: 'default',
+  controlWeight: 'default',
+
+  iconScale: 1,
+  statusIconPxOverride: 0,
+  contactIconPxOverride: 0,
+  verifyBoxPxOverride: 0,
+  editIconPxOverride: 0,
+
+  verifiedPlacement: 'heading',
+  editPlacement: 'value',
+  fieldAlign: 'left',
+  fieldSpacingPx: 6,
+  sectionPaddingPx: 12,
+
+  cardBorderPx: 1,
+  cardBorderColor: '',
+  cardRadiusPx: 16,
+  cardPaddingPx: 16,
+  cardBackground: '',
+  showDividers: true,
+  dividerColor: '',
+  controlBorderPx: 1,
+  controlRadiusPx: 8,
 }
+
+/** Treat empty-string colors / zero px-overrides as "unset" so the component
+ * sees `undefined` and keeps its default (and `isDefault` can hold). */
+const orUndef = (s: string) => (s.trim() === '' ? undefined : s)
+const pxOrUndef = (n: number) => (n > 0 ? n : undefined)
 
 function appearanceFromArgs(a: PlaygroundArgs): ContactCardAppearance {
   return {
+    showStatusIndicator: a.showStatusIndicator,
+    showContactIcon: a.showContactIcon,
+    showFieldLabel: a.showFieldLabel,
+    showVerifiedCheckbox: a.showVerifiedCheckbox,
+    showEditButton: a.showEditButton,
+    showStatusKey: a.showStatusKey,
+    mentoring: a.mentoring,
+
     statusIndicatorColor: a.statusIndicatorColor,
     contactIconColor: a.contactIconColor,
     fieldLabelColor: a.fieldLabelColor,
+    nameColor: orUndef(a.nameColor),
+    valueColor: orUndef(a.valueColor),
+    verifyColor: orUndef(a.verifyColor),
+    mentoringColor: orUndef(a.mentoringColor),
+    statusKeyColor: orUndef(a.statusKeyColor),
+
+    fontFamily: orUndef(a.fontFamily),
     fontScale: a.fontScale,
     nameScale: a.nameScale,
     labelScale: a.labelScale,
     valueScale: a.valueScale,
     controlScale: a.controlScale,
+    verifyScale: a.verifyScale,
+    mentoringScale: a.mentoringScale,
+    statusKeyScale: a.statusKeyScale,
+    nameWeight: a.nameWeight,
+    labelWeight: a.labelWeight,
+    valueWeight: a.valueWeight,
+    controlWeight: a.controlWeight,
+
+    iconScale: a.iconScale,
+    statusIconPxOverride: pxOrUndef(a.statusIconPxOverride),
+    contactIconPxOverride: pxOrUndef(a.contactIconPxOverride),
+    verifyBoxPxOverride: pxOrUndef(a.verifyBoxPxOverride),
+    editIconPxOverride: pxOrUndef(a.editIconPxOverride),
+
+    verifiedPlacement: a.verifiedPlacement,
+    editPlacement: a.editPlacement,
+    fieldAlign: a.fieldAlign,
+    fieldSpacingPx: a.fieldSpacingPx,
+    sectionPaddingPx: a.sectionPaddingPx,
+
+    cardBorderPx: a.cardBorderPx,
+    cardBorderColor: orUndef(a.cardBorderColor),
+    cardRadiusPx: a.cardRadiusPx,
+    cardPaddingPx: a.cardPaddingPx,
+    cardBackground: orUndef(a.cardBackground),
+    showDividers: a.showDividers,
+    dividerColor: orUndef(a.dividerColor),
+    controlBorderPx: a.controlBorderPx,
+    controlRadiusPx: a.controlRadiusPx,
   }
 }
 
-// ── In-memory persistence (identical rules to the functional stories) ─────────
+// ── Copy Selected Design: readable summary of every current choice ───────────
+
+function describeDesign(a: PlaygroundArgs): string {
+  const color = (c: ColorChoice) => (c === 'status' ? 'Status color' : 'Black')
+  const pct = (n: number) => `${Math.round(n * 100)}%`
+  const px = (n: number) => (n > 0 ? `${n}px` : 'auto (scales with text)')
+  const yn = (b: boolean) => (b ? 'shown' : 'hidden')
+  const col = (s: string) => (s.trim() === '' ? 'default' : s)
+  const stateLabel: Record<ContactState, string> = {
+    verified: 'Verified (green)',
+    onfile: 'On file, not verified (amber)',
+    missing: 'Missing (red)',
+    mixed: 'Mixed (green / amber / red)',
+  }
+
+  const groups: DesignGroup[] = [
+    {
+      title: 'Contact state shown',
+      lines: [{ label: 'State', value: stateLabel[a.contactState] }],
+    },
+    {
+      title: 'Visibility',
+      lines: [
+        { label: 'Status indicator', value: yn(a.showStatusIndicator) },
+        { label: 'Contact icon', value: yn(a.showContactIcon) },
+        { label: 'Field label', value: yn(a.showFieldLabel) },
+        { label: 'Verified checkbox', value: yn(a.showVerifiedCheckbox) },
+        { label: 'Edit button', value: yn(a.showEditButton) },
+        { label: 'Status key', value: yn(a.showStatusKey) },
+        { label: 'Mentoring', value: a.mentoring },
+      ],
+    },
+    {
+      title: 'Colors',
+      lines: [
+        { label: 'Status indicator', value: color(a.statusIndicatorColor) },
+        { label: 'Contact icon', value: color(a.contactIconColor) },
+        { label: 'Field label', value: color(a.fieldLabelColor) },
+        { label: 'Customer name', value: col(a.nameColor) },
+        { label: 'Contact values', value: col(a.valueColor) },
+        { label: 'Verify text', value: col(a.verifyColor) },
+        { label: 'Mentoring text', value: col(a.mentoringColor) },
+        { label: 'Status key', value: col(a.statusKeyColor) },
+      ],
+    },
+    {
+      title: 'Typography',
+      lines: [
+        { label: 'Font family', value: col(a.fontFamily) },
+        { label: 'All text (master)', value: pct(a.fontScale) },
+        { label: 'Customer name', value: `${pct(a.nameScale)} / ${a.nameWeight}` },
+        { label: 'Field labels', value: `${pct(a.labelScale)} / ${a.labelWeight}` },
+        { label: 'Contact values', value: `${pct(a.valueScale)} / ${a.valueWeight}` },
+        { label: 'Buttons', value: `${pct(a.controlScale)} / ${a.controlWeight}` },
+        { label: 'Verify labels', value: pct(a.verifyScale) },
+        { label: 'Mentoring', value: pct(a.mentoringScale) },
+        { label: 'Status key', value: pct(a.statusKeyScale) },
+      ],
+    },
+    {
+      title: 'Icons',
+      lines: [
+        { label: 'All icons (master)', value: pct(a.iconScale) },
+        { label: 'Status icon', value: px(a.statusIconPxOverride) },
+        { label: 'Contact icon', value: px(a.contactIconPxOverride) },
+        { label: 'Verify box', value: px(a.verifyBoxPxOverride) },
+        { label: 'Edit icon', value: px(a.editIconPxOverride) },
+      ],
+    },
+    {
+      title: 'Layout',
+      lines: [
+        { label: 'Verified placement', value: a.verifiedPlacement },
+        { label: 'Edit placement', value: a.editPlacement },
+        { label: 'Field alignment', value: a.fieldAlign },
+        { label: 'Field spacing', value: `${a.fieldSpacingPx}px` },
+        { label: 'Section padding', value: `${a.sectionPaddingPx}px` },
+      ],
+    },
+    {
+      title: 'Appearance',
+      lines: [
+        { label: 'Card border', value: `${a.cardBorderPx}px / ${col(a.cardBorderColor)}` },
+        { label: 'Card radius', value: `${a.cardRadiusPx}px` },
+        { label: 'Card padding', value: `${a.cardPaddingPx}px` },
+        { label: 'Card background', value: col(a.cardBackground) },
+        { label: 'Dividers', value: a.showDividers ? `shown / ${col(a.dividerColor)}` : 'hidden' },
+        { label: 'Control border', value: `${a.controlBorderPx}px` },
+        { label: 'Control radius', value: `${a.controlRadiusPx}px` },
+      ],
+    },
+  ]
+
+  const ap = appearanceFromArgs(a)
+  const code = `  appearance={${JSON.stringify(ap, null, 2).replace(/\n/g, '\n  ')}}`
+
+  return formatDesignSummary('Customer Contact Card — selected design', groups, code)
+}
+
+// ── In-memory persistence (identical rules to the app) ───────────────────────
 
 function makeInteractivePersist(
   record: CustomerContact,
@@ -137,11 +405,11 @@ function makeInteractivePersist(
     const now = new Date().toISOString()
     let next = record
     if ('verified' in payload) {
-      const col =
+      const colKey =
         payload.field === 'email' ? 'email_verified_at'
         : payload.field === 'phone' ? 'phone_verified_at'
         : 'address_verified_at'
-      next = { ...record, [col]: payload.verified ? now : null }
+      next = { ...record, [colKey]: payload.verified ? now : null }
     } else if (payload.field === 'email') {
       const changed = (payload.email ?? null) !== (record.email ?? null)
       next = { ...record, email: payload.email, email_verified_at: changed ? null : record.email_verified_at }
@@ -161,68 +429,117 @@ function makeInteractivePersist(
 }
 
 /** The REAL card wired to in-memory persistence, driven by the given appearance.
- * `key` on the caller resets the in-memory record when the contact-status arg
- * changes, so flipping status reloads the matching sample. */
-function LiveCard({
-  initial,
-  appearance,
-}: {
-  initial: CustomerContact
-  appearance: ContactCardAppearance
-}) {
+ * Keyed by contact state on the caller so switching the state arg reloads the
+ * matching sample into the card's in-memory record. */
+function LiveCard({ initial, appearance }: { initial: CustomerContact; appearance: ContactCardAppearance }) {
   const [record, setRecord] = useState<CustomerContact>(initial)
   const onPersist = useMemo(() => makeInteractivePersist(record, setRecord), [record])
   return <CustomerContactCard customer={record} onPersist={onPersist} appearance={appearance} />
 }
 
-// ── Shared argTypes (the native Controls panel) ──────────────────────────────
+// ── argTypes, assembled from the shared factories ────────────────────────────
 
-const COLOR_CONTROL = {
-  control: { type: 'inline-radio' as const },
-  options: ['status', 'black'] as ColorChoice[],
-  labels: { status: 'Status color', black: 'Black' },
-}
-
-const SCALE_CONTROL = {
-  control: { type: 'range' as const, min: 0.6, max: 1.8, step: 0.05 },
-}
-
-const sharedArgTypes = {
-  contactStatus: {
-    name: 'Contact status',
-    control: { type: 'inline-radio' as const },
-    options: ['verified', 'onfile', 'missing'] as ContactStatus[],
-    labels: {
+const argTypes = {
+  contactState: choiceControl<ContactState>(
+    'Contact state',
+    ['verified', 'onfile', 'missing', 'mixed'],
+    {
       verified: 'Verified (green)',
-      onfile: 'On file, not verified (amber)',
+      onfile: 'On file (amber)',
       missing: 'Missing (red)',
+      mixed: 'Mixed',
     },
-    table: { category: 'Contact status' },
-  },
-  statusIndicatorColor: { name: 'Status indicator', ...COLOR_CONTROL, table: { category: 'Colors' } },
-  contactIconColor: { name: 'Contact icon', ...COLOR_CONTROL, table: { category: 'Colors' } },
-  fieldLabelColor: { name: 'Field label', ...COLOR_CONTROL, table: { category: 'Colors' } },
-  fontScale: { name: 'All text (master)', ...SCALE_CONTROL, table: { category: 'Font size' } },
-  nameScale: { name: 'Customer name', ...SCALE_CONTROL, table: { category: 'Font size' } },
-  labelScale: { name: 'Field labels', ...SCALE_CONTROL, table: { category: 'Font size' } },
-  valueScale: { name: 'Contact values', ...SCALE_CONTROL, table: { category: 'Font size' } },
-  controlScale: { name: 'Buttons / verify', ...SCALE_CONTROL, table: { category: 'Font size' } },
-  // The required prop is set by `render`; hide it from the Controls panel so the
-  // panel shows only the design knobs.
-  customer: { table: { disable: true } },
+    'Contact state',
+  ),
+
+  showStatusIndicator: toggleControl('Status indicator'),
+  showContactIcon: toggleControl('Contact icon'),
+  showFieldLabel: toggleControl('Field label'),
+  showVerifiedCheckbox: toggleControl('Verified checkbox'),
+  showEditButton: toggleControl('Edit button'),
+  showStatusKey: toggleControl('Status key'),
+  mentoring: choiceControl<MentoringMode>(
+    'Mentoring',
+    ['shown', 'expanded', 'collapsed', 'hidden'],
+    { shown: 'Shown', expanded: 'Expanded', collapsed: 'Collapsed', hidden: 'Hidden' },
+    'Visibility',
+  ),
+
+  statusIndicatorColor: statusOrBlackControl('Status indicator'),
+  contactIconColor: statusOrBlackControl('Contact icon'),
+  fieldLabelColor: statusOrBlackControl('Field label'),
+  nameColor: colorControl('Customer name', 'Colors'),
+  valueColor: colorControl('Contact values', 'Colors'),
+  verifyColor: colorControl('Verify text', 'Colors'),
+  mentoringColor: colorControl('Mentoring text', 'Colors'),
+  statusKeyColor: colorControl('Status key', 'Colors'),
+
+  fontFamily: textControl('Font family', 'Typography'),
+  fontScale: scaleControl('All text (master)'),
+  nameScale: scaleControl('Customer name size'),
+  labelScale: scaleControl('Field label size'),
+  valueScale: scaleControl('Contact value size'),
+  controlScale: scaleControl('Button size'),
+  verifyScale: scaleControl('Verify label size'),
+  mentoringScale: scaleControl('Mentoring size'),
+  statusKeyScale: scaleControl('Status key size'),
+  nameWeight: weightControl('Customer name weight'),
+  labelWeight: weightControl('Field label weight'),
+  valueWeight: weightControl('Contact value weight'),
+  controlWeight: weightControl('Button weight'),
+
+  iconScale: scaleControl('All icons (master)', 'Icons'),
+  statusIconPxOverride: pxControl('Status icon px (0 = auto)', 'Icons', { max: 64 }),
+  contactIconPxOverride: pxControl('Contact icon px (0 = auto)', 'Icons', { max: 64 }),
+  verifyBoxPxOverride: pxControl('Verify box px (0 = auto)', 'Icons', { max: 40 }),
+  editIconPxOverride: pxControl('Edit icon px (0 = auto)', 'Icons', { max: 40 }),
+
+  verifiedPlacement: choiceControl<VerifiedPlacement>(
+    'Verified placement',
+    ['heading', 'value', 'bottom'],
+    { heading: 'Beside heading', value: 'Beneath value', bottom: 'Bottom row' },
+    'Layout',
+  ),
+  editPlacement: choiceControl<EditPlacement>(
+    'Edit placement',
+    ['value', 'row', 'bottom'],
+    { value: 'Beside value', row: 'Separate row', bottom: 'Bottom row' },
+    'Layout',
+  ),
+  fieldAlign: choiceControl<AlignChoice>(
+    'Field alignment',
+    ['left', 'center', 'right'],
+    { left: 'Left', center: 'Center', right: 'Right' },
+    'Layout',
+  ),
+  fieldSpacingPx: pxControl('Field spacing', 'Layout', { max: 32 }),
+  sectionPaddingPx: pxControl('Section padding', 'Layout', { max: 40 }),
+
+  cardBorderPx: pxControl('Card border', 'Appearance', { max: 8 }),
+  cardBorderColor: colorControl('Card border color', 'Appearance'),
+  cardRadiusPx: pxControl('Card rounding', 'Appearance', { max: 40 }),
+  cardPaddingPx: pxControl('Card padding', 'Appearance', { max: 48 }),
+  cardBackground: colorControl('Card background', 'Appearance'),
+  showDividers: toggleControl('Dividers', 'Appearance'),
+  dividerColor: colorControl('Divider color', 'Appearance'),
+  controlBorderPx: pxControl('Control border', 'Appearance', { max: 6 }),
+  controlRadiusPx: pxControl('Control rounding', 'Appearance', { max: 32 }),
+
+  // The required prop is set by `render`; hide it from the panel.
+  customer: hiddenControl,
 }
 
-// ── Meta ─────────────────────────────────────────────────────────────────────
+// ── Meta + the single Playground story ───────────────────────────────────────
 
 const meta = {
-  title: 'Workflow Design System/Customer Contact/Design Playground',
+  title: 'Workflow Design System/Customer Contact',
   component: CustomerContactCard,
   parameters: {
     layout: 'fullscreen',
     docs: {
       description: {
         component:
-          'Interactive appearance lab for the real shared CustomerContactCard. Use the Controls panel to flip the three color switches, move the font-size sliders, and pick a contact status; the real card updates immediately. Nothing here changes the component defaults or any data.',
+          'Interactive visual design playground for the real shared CustomerContactCard. Use the Controls panel (grouped Visibility, Colors, Typography, Icons, Layout, Appearance) to tune the real component live, then use the pinned Copy Selected Design button to capture every choice as plain text. Nothing here changes the component defaults or any data.',
       },
     },
   },
@@ -231,214 +548,25 @@ const meta = {
 export default meta
 type Story = StoryObj<PlaygroundArgs>
 
-// ── Playground (native Args/Controls) ────────────────────────────────────────
-
 /**
- * Live playground. Open the Controls panel (bottom/side) and adjust the color
- * switches, font-size sliders, and contact status. Each change re-renders the
- * REAL card instantly. The card itself stays interactive — edit a value or tick
- * Verified and the in-memory record updates, exactly like the app, with no data
- * written anywhere.
+ * The single Customer Contact playground. Adjust the grouped controls and the
+ * REAL card re-renders instantly; it stays interactive (edit a value or tick
+ * Verified, in-memory only). The pinned "Copy Selected Design" button captures
+ * all current appearance and layout choices as readable text.
  */
 export const Playground: Story = {
   args: DEFAULT_ARGS,
-  argTypes: sharedArgTypes,
+  argTypes,
   render: (args) => {
     const appearance = appearanceFromArgs(args)
-    const initial = recordForStatus(args.contactStatus)
+    const initial = recordForState(args.contactState)
+    const copyText = describeDesign(args)
     return (
-      <WorkflowSurface className="min-h-screen">
-        <MentoringProvider>
-          <div className="flex min-h-screen items-start justify-center p-6">
-            <div className="w-full max-w-md">
-              {/* Keyed by contact status so switching the status arg reloads the
-                  matching sample record into the card's in-memory state. */}
-              <LiveCard key={args.contactStatus} initial={initial} appearance={appearance} />
-            </div>
-          </div>
-        </MentoringProvider>
-      </WorkflowSurface>
-    )
-  },
-}
-
-// ── Compare 8 color combinations ─────────────────────────────────────────────
-
-/**
- * All eight combinations of the three color switches side by side (status
- * indicator × contact icon × field label, each Status color or Black). Font
- * sizes and contact status come from the Controls panel and apply to every
- * tile, so the comparison isolates color while still letting you resize or
- * switch status across the whole grid. Each tile is its own REAL card instance.
- */
-export const CompareColorCombinations: Story = {
-  name: 'Compare 8 Color Combinations',
-  args: { ...DEFAULT_ARGS, contactStatus: 'onfile' },
-  argTypes: {
-    ...sharedArgTypes,
-    // The three color switches are enumerated by the grid itself; hide them.
-    statusIndicatorColor: { table: { disable: true } },
-    contactIconColor: { table: { disable: true } },
-    fieldLabelColor: { table: { disable: true } },
-  },
-  render: (args) => {
-    const choices: ColorChoice[] = ['status', 'black']
-    const combos: Array<Pick<PlaygroundArgs, 'statusIndicatorColor' | 'contactIconColor' | 'fieldLabelColor'>> = []
-    for (const si of choices)
-      for (const ci of choices)
-        for (const fl of choices)
-          combos.push({ statusIndicatorColor: si, contactIconColor: ci, fieldLabelColor: fl })
-
-    const short = (c: ColorChoice) => (c === 'status' ? 'Status' : 'Black')
-    const initial = recordForStatus(args.contactStatus)
-
-    return (
-      <WorkflowSurface className="min-h-screen">
-        <MentoringProvider>
-          <div className="p-6">
-            <h2 className="text-lg font-semibold text-slate-900">Compare 8 color combinations</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Status indicator / Contact icon / Field label — every on-off mix. Font size and
-              contact status follow the Controls panel. The same real card in every tile.
-            </p>
-            <div className="mt-5 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
-              {combos.map((combo, i) => {
-                const appearance = appearanceFromArgs({ ...args, ...combo })
-                return (
-                  <div key={i} className="space-y-2">
-                    <div className="flex flex-wrap gap-1 text-xs">
-                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">
-                        Indicator: {short(combo.statusIndicatorColor)}
-                      </span>
-                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">
-                        Icon: {short(combo.contactIconColor)}
-                      </span>
-                      <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">
-                        Label: {short(combo.fieldLabelColor)}
-                      </span>
-                    </div>
-                    <LiveCard key={`${i}-${args.contactStatus}`} initial={initial} appearance={appearance} />
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </MentoringProvider>
-      </WorkflowSurface>
-    )
-  },
-}
-
-// ── Share selected settings ──────────────────────────────────────────────────
-
-/** Human-readable + copyable summary of the current settings. */
-function describeSettings(a: PlaygroundArgs): string {
-  const color = (c: ColorChoice) => (c === 'status' ? 'Status color' : 'Black')
-  const pct = (n: number) => `${Math.round(n * 100)}%`
-  const status =
-    a.contactStatus === 'verified' ? 'Verified (green)'
-    : a.contactStatus === 'onfile' ? 'On file, not verified (amber)'
-    : 'Missing (red)'
-  return [
-    'Customer Contact Card — selected design settings',
-    '',
-    `Contact status shown:   ${status}`,
-    '',
-    `Status indicator color: ${color(a.statusIndicatorColor)}`,
-    `Contact icon color:     ${color(a.contactIconColor)}`,
-    `Field label color:      ${color(a.fieldLabelColor)}`,
-    '',
-    `Master font scale:  ${pct(a.fontScale)}`,
-    `Customer name:      ${pct(a.nameScale)}`,
-    `Field labels:       ${pct(a.labelScale)}`,
-    `Contact values:     ${pct(a.valueScale)}`,
-    `Buttons / verify:   ${pct(a.controlScale)}`,
-    '',
-    'Font-size baselines (px) these percentages scale:',
-    '  Customer name 22, Field labels 16, Contact values 18, Buttons/verify 16.',
-    '',
-    'Applies to the shared CustomerContactCard via its appearance prop:',
-    `  appearance={{ statusIndicatorColor: '${a.statusIndicatorColor}', contactIconColor: '${a.contactIconColor}',`,
-    `    fieldLabelColor: '${a.fieldLabelColor}', fontScale: ${a.fontScale}, nameScale: ${a.nameScale},`,
-    `    labelScale: ${a.labelScale}, valueScale: ${a.valueScale}, controlScale: ${a.controlScale} }}`,
-  ].join('\n')
-}
-
-/**
- * Tune everything in the Controls panel, then copy the generated settings
- * summary to hand back for a permanent implementation. The card on the right
- * reflects the current controls live; the summary text is plain and
- * paste-friendly (it even includes the exact `appearance` prop to apply).
- */
-export const ShareSelectedSettings: Story = {
-  name: 'Share Selected Settings',
-  args: DEFAULT_ARGS,
-  argTypes: sharedArgTypes,
-  render: (args) => {
-    const appearance = appearanceFromArgs(args)
-    const initial = recordForStatus(args.contactStatus)
-    const summary = describeSettings(args)
-    return <SharePanel summary={summary} initial={initial} appearance={appearance} contactStatusKey={args.contactStatus} />
-  },
-}
-
-function SharePanel({
-  summary, initial, appearance, contactStatusKey,
-}: {
-  summary: string
-  initial: CustomerContact
-  appearance: ContactCardAppearance
-  contactStatusKey: string
-}) {
-  const [copied, setCopied] = useState(false)
-  const taRef = useRef<HTMLTextAreaElement>(null)
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(summary)
-    } catch {
-      taRef.current?.select()
-      document.execCommand?.('copy')
-    }
-    setCopied(true)
-    setTimeout(() => setCopied(false), 1500)
-  }
-
-  return (
-    <WorkflowSurface className="min-h-screen">
       <MentoringProvider>
-        <div className="grid grid-cols-1 gap-6 p-6 lg:grid-cols-[24rem_1fr]">
-          <aside className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5">
-            <div>
-              <h2 className="text-base font-semibold text-slate-900">Selected settings</h2>
-              <p className="mt-1 text-sm text-slate-500">
-                Adjust the Controls panel; this summary updates live. Copy it and send it to
-                ChatGPT to make the look permanent.
-              </p>
-            </div>
-            <textarea
-              ref={taRef}
-              readOnly
-              value={summary}
-              rows={18}
-              className="w-full rounded-md border border-slate-300 bg-slate-50 p-2 font-mono text-xs text-slate-700"
-            />
-            <button
-              type="button"
-              onClick={copy}
-              className="w-full rounded-md bg-teal-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-700"
-            >
-              {copied ? 'Copied' : 'Copy settings'}
-            </button>
-          </aside>
-
-          <div className="flex items-start justify-center">
-            <div className="w-full max-w-md">
-              <LiveCard key={contactStatusKey} initial={initial} appearance={appearance} />
-            </div>
-          </div>
-        </div>
+        <PlaygroundStage copyText={copyText}>
+          <LiveCard key={args.contactState} initial={initial} appearance={appearance} />
+        </PlaygroundStage>
       </MentoringProvider>
-    </WorkflowSurface>
-  )
+    )
+  },
 }
