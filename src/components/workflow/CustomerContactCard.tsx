@@ -54,10 +54,10 @@
  *     production look exactly — see `resolveAppearance`/`isDefault`.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   Mail, Phone, MapPin, Pencil, Check, X, Loader2,
-  ShieldQuestion, CheckCircle2, AlertTriangle, GraduationCap, ChevronDown,
+  ShieldQuestion, CheckCircle2, AlertTriangle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
@@ -675,17 +675,24 @@ export function CustomerContactCard({
   )
 }
 
-/** The Mentoring block. In the default appearance it is the standard shared
- * MentorGuidance disclosure. When appearance forces expand/collapse or restyles
- * it, a self-contained disclosure is rendered so the Playground can show the
- * forced state and tuned typography/spacing. */
+/**
+ * The Mentoring block. Always the ONE shared `MentorGuidance` disclosure — no
+ * duplicate Mentoring component. The appearance only layers presentation on top:
+ *   - font-size / color overrides apply in every mode, including the normal
+ *     "Shown" mode (not just the forced states);
+ *   - "Shown" follows the global Mentoring toggle exactly, as before;
+ *   - "Expanded" / "Collapsed" force the default open state via the shared
+ *     component's optional `defaultOpen`, while the employee can still toggle it.
+ * The "Hidden" case is handled by the caller (the block is not rendered).
+ */
 function ContactMentoring({ appearance }: { appearance: ResolvedAppearance }) {
   const body =
     'Changes here update customer information throughout Right Path. Check Verified only when the ' +
     'customer has confirmed the information is correct, including when they confirm it in an email ' +
     'response.'
 
-  if (appearance.isDefault || appearance.mentoring === 'shown') {
+  // Default appearance: the untouched shared disclosure (production look).
+  if (appearance.isDefault) {
     return (
       <MentorGuidance label="About these fields" className="mt-2">
         {body}
@@ -693,58 +700,30 @@ function ContactMentoring({ appearance }: { appearance: ResolvedAppearance }) {
     )
   }
 
-  const forcedOpen = appearance.mentoring === 'expanded'
+  // Forced open/closed only for the explicit expanded/collapsed modes; "shown"
+  // leaves defaultOpen undefined so the global toggle governs, as before.
+  const defaultOpen =
+    appearance.mentoring === 'expanded' ? true
+    : appearance.mentoring === 'collapsed' ? false
+    : undefined
+
+  // Presentation overrides apply in every mode, so font-size and color work in
+  // normal Shown mode too. The header uses a label-sized role; the body uses the
+  // mentoring role size. Both honor the optional mentoring color.
+  const color = appearance.mentoringColor
+  const headerStyle = textStyle(appearance, appearance.statusKeyFontPx, color)
+  const bodyStyle = textStyle(appearance, appearance.mentoringFontPx, color)
+
   return (
-    <ForcedMentorDisclosure
+    <MentorGuidance
       label="About these fields"
-      open={forcedOpen}
-      appearance={appearance}
+      className="mt-2"
+      defaultOpen={defaultOpen}
+      headerStyle={headerStyle}
+      bodyStyle={bodyStyle}
     >
       {body}
-    </ForcedMentorDisclosure>
-  )
-}
-
-/** A Mentoring disclosure whose open state is forced by the appearance, with
- * tunable typography/color. Mirrors the shared MentorGuidance look (purple
- * identity, GraduationCap, chevron) so forcing a state does not change the
- * visual language. */
-function ForcedMentorDisclosure({
-  label, open: forcedOpen, appearance, children,
-}: {
-  label: string
-  open: boolean
-  appearance: ResolvedAppearance
-  children: React.ReactNode
-}) {
-  const [open, setOpen] = useState(forcedOpen)
-  // Re-seed from the forced state whenever it changes (Playground control).
-  useEffect(() => { setOpen(forcedOpen) }, [forcedOpen])
-  const textColor = appearance.mentoringColor
-  return (
-    <div className="mt-2 rounded-lg border border-purple-200 bg-purple-50/60">
-      <button
-        type="button"
-        aria-expanded={open}
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm font-semibold text-purple-700"
-        style={textStyle(appearance, appearance.statusKeyFontPx, textColor)}
-      >
-        <span className="flex items-center gap-1.5">
-          <GraduationCap className="size-4 shrink-0" style={iconStyle(appearance, appearance.statusIconPx * 0.8)} aria-hidden />
-          {label}
-        </span>
-        <ChevronDown className={cn('size-4 shrink-0 transition-transform', open && 'rotate-180')} aria-hidden />
-      </button>
-      {open && (
-        <div
-          className="px-3 pb-3 text-base leading-relaxed text-purple-700"
-          style={textStyle(appearance, appearance.mentoringFontPx, textColor)}
-        >
-          {children}
-        </div>
-      )}
-    </div>
+    </MentorGuidance>
   )
 }
 
@@ -866,7 +845,10 @@ function SectionShell({
 }) {
   const status = STATUS_META[tone]
   const StatusIcon = status.icon
-  const labelColor = appearance.fieldLabelColor === 'black' ? 'text-black' : 'text-ink'
+  // Black = dark text; Status = the field's actual green/amber/red status color
+  // (the same token the icons use), so the two choices visibly differ.
+  const labelColor =
+    appearance.fieldLabelColor === 'black' ? 'text-black' : status.color
   const ap = appearance
 
   const verify = ap.showVerifiedCheckbox ? (

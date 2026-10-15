@@ -102,20 +102,41 @@ export function MentorGuidance({
   children,
   label = 'Mentoring tip',
   className,
+  defaultOpen,
+  headerStyle,
+  bodyStyle,
 }: {
   children: ReactNode
   /** The control's label; defaults to a generic "Mentoring tip". */
   label?: string
   className?: string
+  /**
+   * Optional override for the default open/closed state. Omit (the normal case)
+   * to follow the global Mentoring toggle exactly, as before. When provided, the
+   * disclosure seeds from this value and re-seeds whenever it changes, so a host
+   * (e.g. the design playground) can force Expanded/Collapsed without a second
+   * Mentoring component. The employee can still toggle this one section in
+   * between. Purely presentational; the shared toggle behavior is unchanged when
+   * this is not passed.
+   */
+  defaultOpen?: boolean
+  /** Optional inline style for the header control (font-size / color overrides).
+   * Presentation-only; omit for the standard look. */
+  headerStyle?: React.CSSProperties
+  /** Optional inline style for the body text (font-size / color overrides).
+   * Presentation-only; omit for the standard look. */
+  bodyStyle?: React.CSSProperties
 }) {
   const { mentoring } = useMentoring()
-  // Seed the open state from the global default, and RE-SEED whenever the global
-  // toggle changes (the required "reset to the selected default" behavior),
-  // while still letting the employee toggle this one section in between.
-  const [open, setOpen] = useState(mentoring)
+  // The default open state follows the host override when given, else the global
+  // Mentoring toggle. Seed from it and RE-SEED whenever it changes (the required
+  // "reset to the selected default" behavior), while still letting the employee
+  // toggle this one section in between.
+  const seed = defaultOpen ?? mentoring
+  const [open, setOpen] = useState(seed)
   useEffect(() => {
-    setOpen(mentoring)
-  }, [mentoring])
+    setOpen(seed)
+  }, [seed])
 
   return (
     <div className={cn('rounded-lg border border-purple-200 bg-purple-50/60', className)}>
@@ -124,6 +145,7 @@ export function MentorGuidance({
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm font-semibold text-purple-700"
+        style={headerStyle}
       >
         <span className="flex items-center gap-1.5">
           <GraduationCap className="size-4 shrink-0" aria-hidden />
@@ -135,7 +157,7 @@ export function MentorGuidance({
         />
       </button>
       {open && (
-        <div className="px-3 pb-3 text-base leading-relaxed text-purple-700">
+        <div className="px-3 pb-3 text-base leading-relaxed text-purple-700" style={bodyStyle}>
           {children}
         </div>
       )}
