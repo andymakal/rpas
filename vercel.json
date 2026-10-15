@@ -1,4 +1,5 @@
 {
+  "buildCommand": "if [ \"$VERCEL_ENV\" != \"production\" ]; then npm run build-storybook -- -o public/storybook; fi && next build",
   "crons": [
     {
       "path": "/api/cron/appointment-reminders",
