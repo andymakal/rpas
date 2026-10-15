@@ -349,13 +349,13 @@ function SectionShell({
   return (
     <div className="py-3 first:pt-0 last:pb-0">
       <div className="flex items-center justify-between gap-3">
-        {/* The status indicator, contact icon, and label all take the status
-            color so the heading reads as one colored unit. Both icons are the
-            same ~20px size; the status shape + accessible label carry meaning
-            without relying on color. */}
-        <p className={cn('flex items-center gap-2 text-base font-semibold', status.color)}>
-          <StatusIcon className="size-5 shrink-0" aria-label={status.label} role="img" />
-          <ContactIcon className="size-5 shrink-0" aria-hidden />
+        {/* The status indicator and contact icon take the status color (green /
+            amber / red); the label text reads in the standard dark ink. Both
+            icons are the same ~20px size; the status shape + accessible label
+            carry meaning without relying on color. */}
+        <p className="flex items-center gap-2 text-base font-semibold text-ink">
+          <StatusIcon className={cn('size-5 shrink-0', status.color)} aria-label={status.label} role="img" />
+          <ContactIcon className={cn('size-5 shrink-0', status.color)} aria-hidden />
           {label}
         </p>
         <VerifyCheckbox
