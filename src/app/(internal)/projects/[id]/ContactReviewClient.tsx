@@ -58,9 +58,10 @@ type ContactReviewCustomer = {
   phone_verified_at: string | null
   address_verified_at: string | null
   policy_number: string | null
-  /** 'needs_research' = outstanding, actively recommended. 'no_usable_contact'
-   * = the visible No Usable Contact Information exception (kept after
-   * unsuccessful research, not re-recommended). */
+  /** Reachability. 'needs_research' = reachable (missing one method), routine
+   * active list. 'no_usable_contact' = no usable email or phone at all, always
+   * shown in the No Usable Contact Information section. researched_unsuccessfully
+   * sub-labels outstanding vs previously-unsuccessful and gates recommendation. */
   status: 'needs_research' | 'no_usable_contact'
   researched_unsuccessfully: boolean
 }
@@ -71,6 +72,7 @@ type Summary = {
   one_usable: number
   needs_research: number
   no_usable_contact: number
+  actionable: number
 }
 
 function fullName(c: Pick<ContactReviewCustomer, 'first_name' | 'last_name'>): string {
@@ -174,9 +176,20 @@ export function ContactReviewClient({
     () => remaining.filter(r => r.status === 'needs_research'),
     [remaining],
   )
+  // The No Usable Contact Information section shows EVERY customer with no usable
+  // email or phone, split by research state so outstanding research is distinct
+  // from research already completed unsuccessfully (which is not re-recommended).
   const exceptionRemaining = useMemo(
     () => remaining.filter(r => r.status === 'no_usable_contact'),
     [remaining],
+  )
+  const exceptionOutstanding = useMemo(
+    () => exceptionRemaining.filter(r => !r.researched_unsuccessfully),
+    [exceptionRemaining],
+  )
+  const exceptionUnsuccessful = useMemo(
+    () => exceptionRemaining.filter(r => r.researched_unsuccessfully),
+    [exceptionRemaining],
   )
 
   const openCustomer = useMemo(
@@ -328,7 +341,7 @@ export function ContactReviewClient({
         icon={UserRound}
         label="Needs contact information"
         count={activeRemaining.length}
-        blurb="Project customers missing a usable email or phone"
+        blurb="Reachable customers missing their other method — fill in the missing email or phone"
       />
 
       {activeRemaining.length === 0 ? (
@@ -336,7 +349,7 @@ export function ContactReviewClient({
           {total === 0
             ? 'Every customer in this project already has a usable email and phone, or has been researched.'
             : exceptionRemaining.length > 0
-              ? 'No outstanding research. The customers below have no usable contact information and earlier research came up empty.'
+              ? 'No reachable customers are missing a method. The customers below have no usable contact information at all — see the section beneath this one.'
               : 'All caught up. Every customer has been handled.'}
         </QueueEmptyState>
       ) : (
@@ -352,30 +365,47 @@ export function ContactReviewClient({
         </div>
       )}
 
-      {/* No Usable Contact Information — the visible exception. These customers
-          have no usable email or phone and earlier research found nothing. They
-          are kept on screen (the agency must keep sight of who it cannot reach)
-          but are NOT re-recommended as fresh outstanding work. The worker can
-          still open one deliberately to look again. */}
+      {/* No Usable Contact Information — EVERY customer with no usable email or
+          phone, so the agency never loses sight of anyone it cannot reach. Split
+          by research state: outstanding research still worth doing, and research
+          already completed unsuccessfully (kept visible but NOT re-recommended).
+          The worker can open any one to look again. */}
       {exceptionRemaining.length > 0 && (
         <section className="space-y-3">
           <QueueListHeader
             icon={PhoneOff}
             label="No Usable Contact Information"
             count={exceptionRemaining.length}
-            blurb="No usable email or phone, and research found nothing. Still visible so the agency can see who it cannot reach; open one to look again."
+            blurb="No usable email or phone on file. Shown so the agency can see everyone it cannot reach; open one to research contact information."
           />
-          <div className="space-y-3">
-            {exceptionRemaining.map(c => (
-              <CustomerQueueCard
-                key={c.customer_id}
-                name={fullName(c)}
-                detail="No email, no phone"
-                trailing={<OperationalTag tone="exception">Research unsuccessful</OperationalTag>}
-                onOpen={() => setOpenId(c.customer_id)}
-              />
-            ))}
-          </div>
+          {exceptionOutstanding.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-base font-medium text-ink-secondary">Research outstanding</p>
+              {exceptionOutstanding.map(c => (
+                <CustomerQueueCard
+                  key={c.customer_id}
+                  name={fullName(c)}
+                  detail="No email, no phone"
+                  trailing={<OperationalTag tone="reason">Research needed</OperationalTag>}
+                  onOpen={() => setOpenId(c.customer_id)}
+                />
+              ))}
+            </div>
+          )}
+          {exceptionUnsuccessful.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-base font-medium text-ink-secondary">Research completed — nothing found</p>
+              {exceptionUnsuccessful.map(c => (
+                <CustomerQueueCard
+                  key={c.customer_id}
+                  name={fullName(c)}
+                  detail="No email, no phone"
+                  trailing={<OperationalTag tone="exception">Research unsuccessful</OperationalTag>}
+                  onOpen={() => setOpenId(c.customer_id)}
+                />
+              ))}
+            </div>
+          )}
         </section>
       )}
     </section>

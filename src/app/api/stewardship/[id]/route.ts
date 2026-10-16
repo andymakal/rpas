@@ -7,7 +7,7 @@ import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { getAttemptHistory } from '@/lib/stewardship/attempt-history'
 import { resolveNextCallDate } from '@/lib/stewardship/call-cadence'
 import { resolveContactOptions } from '@/lib/stewardship/contact-options'
-import { OUTCOME_MARKERS, REACHED_MARKER } from '@/lib/stewardship/outreach-attempts'
+import { OUTCOME_MARKERS, REACHED_MARKER, buildUnusableMarker } from '@/lib/stewardship/outreach-attempts'
 import {
   buildResearchTouchRows,
   contactMethodsStillMissing,
@@ -176,6 +176,10 @@ export async function GET(
   const actorTimeZone = await getActorTimeZone()
   const history = await getAttemptHistory(supabase, customerId, actorTimeZone, {
     since: pre.created_at,
+    // Value-scope unusable channels to the CURRENT values, so a replaced bad
+    // number / bounced email restores that channel's options immediately while
+    // the old failure stays in history.
+    current: { email: cust.email, phone: cust.phone },
   })
 
   // The AVAILABLE CONTACT OPTIONS for this customer, decided by the ZEN
@@ -606,7 +610,10 @@ export async function PATCH(
     // the attempt is successful and excluded from the unsuccessful total. A bad
     // number is an unusable channel; a voicemail is an ordinary non-response.
     const outcomeMarker =
-      outcome === 'bad-number' ? OUTCOME_MARKERS.unusable :
+      // A bad number marks the SPECIFIC phone unusable (value-scoped), so a later
+      // replacement number restores callability instead of inheriting the old
+      // failure. The failed value is the phone on file at the moment of the call.
+      outcome === 'bad-number' ? buildUnusableMarker('call', row.customer_prereviews.customers?.phone ?? null) :
       outcome === 'voicemail'  ? OUTCOME_MARKERS.no_contact :
       (outcome === 'reached' || outcome === 'callback' || outcome === 'not-interested') ? REACHED_MARKER :
       ''
@@ -646,11 +653,23 @@ export async function PATCH(
       'not-interested': 'Customer declined. Outreach stopped until deliberately reopened.',
       callback: `Customer asked for a callback${action.callback_date ? ` on ${action.callback_date}` : ''}.`,
     }
-    // Map a non-call channel outcome to its stored note marker.
-    const markerFor = (o: 'touch' | 'no_contact' | 'unusable' | null | undefined): string =>
-      o === 'unusable' ? OUTCOME_MARKERS.unusable :
-      o === 'no_contact' ? OUTCOME_MARKERS.no_contact :
-      '' // 'touch' (or absent) records a completed touch with no marker
+    // Map a non-call channel outcome to its stored note marker. An 'unusable'
+    // outcome is VALUE-SCOPED: it records the specific failed value (the email
+    // on file for email; the phone on file for voicemail/text) so replacing that
+    // value later restores eligibility. Postal carries the bare marker (postal
+    // is not an email/phone contact channel for usability).
+    const curEmail = row.customer_prereviews.customers?.email ?? null
+    const curPhone = row.customer_prereviews.customers?.phone ?? null
+    const markerFor = (
+      channel: 'voicemail' | 'text' | 'email' | 'postal',
+      o: 'touch' | 'no_contact' | 'unusable' | null | undefined,
+    ): string => {
+      if (o === 'no_contact') return OUTCOME_MARKERS.no_contact
+      if (o !== 'unusable') return '' // 'touch' (or absent): completed touch, no marker
+      if (channel === 'email') return buildUnusableMarker('email', curEmail)
+      if (channel === 'voicemail' || channel === 'text') return buildUnusableMarker(channel, curPhone)
+      return OUTCOME_MARKERS.unusable // postal: bare marker
+    }
 
     const rows: Array<{
       customer_id: string; case_id: null; touch_type: string; notes: string; touched_at: string; touched_by: string | null
@@ -659,7 +678,7 @@ export async function PATCH(
     // The call channel, when a call was placed in this attempt.
     if (action.call) {
       const callMarker =
-        action.call === 'bad-number' ? OUTCOME_MARKERS.unusable :
+        action.call === 'bad-number' ? buildUnusableMarker('call', curPhone) :
         action.call === 'voicemail'  ? OUTCOME_MARKERS.no_contact :
         (action.call === 'reached' || action.call === 'callback' || action.call === 'not-interested') ? REACHED_MARKER :
         ''
@@ -682,7 +701,7 @@ export async function PATCH(
     for (const spec of channelSpecs) {
       const outcome = action[spec.key]
       if (outcome == null) continue // channel not offered on this attempt
-      const marker = markerFor(outcome)
+      const marker = markerFor(spec.key, outcome)
       const base = `Servicing-agent onboarding ${spec.verb}.`
       rows.push({
         customer_id: customerId, case_id: null, touch_type: spec.touchType,
@@ -986,6 +1005,29 @@ export async function PATCH(
     const introRecipient = isPostalSend
       ? null
       : normalizeRecipientEmail(row.customer_prereviews.customers?.email ?? null)
+
+    // Duplicate-recipient guard. An introductory/authorization EMAIL send that
+    // would advance the funnel but whose recipient is ALREADY the recorded
+    // introduction recipient is a duplicate confirmation for the same address
+    // (not a replacement to a new one). Do nothing: no second history entry, no
+    // re-stamp. A send to a DIFFERENT address is a legitimate replacement and
+    // proceeds. A postal send is never gated here. This is belt-and-suspenders
+    // alongside the re-offer rule (which already does not surface the intro when
+    // the recipient is unchanged) and the atomic queue-flip (which dedupes
+    // concurrent identical submits).
+    if (
+      advancesFunnel &&
+      !isPostalSend &&
+      introRecipient != null &&
+      normalizeRecipientEmail(row.intro_email_recipient) === introRecipient
+    ) {
+      const { data: currentRow } = await supabase
+        .from('stewardship_outreach')
+        .select(OUTREACH_COLUMNS)
+        .eq('id', id)
+        .single()
+      return Response.json({ data: currentRow, completed_outreach: false, duplicate: true })
+    }
     // The advancing send IS the introduction, so stamp the recipient alongside
     // the funnel advance. A chase email (non-advancing) does not move the
     // introduction marker.

@@ -121,7 +121,11 @@ export async function getDailyDirection(
   // operator will see, without duplicating the board's write.
   const effectiveQueue = (r: BoardRow): OutreachQueue => {
     const followUp = deriveFollowUpRouting(
-      { queue: r.queue, follow_up_due: r.follow_up_due },
+      {
+        queue: r.queue,
+        follow_up_due: r.follow_up_due,
+        has_usable_phone: !!r.customer_prereviews.customers?.phone?.trim(),
+      },
       now,
     )?.queue as OutreachQueue | undefined
     if (followUp) return followUp

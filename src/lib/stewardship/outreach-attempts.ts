@@ -239,15 +239,66 @@ export const OUTCOME_MARKERS: Record<ChannelOutcome, string> = {
  */
 export const REACHED_MARKER = '[reached]'
 
+/** The common prefix of every unusable marker, matched so BOTH the bare legacy
+ * form `[channel-unusable]` and the value-scoped form `[channel-unusable:<value>]`
+ * are recognized as unusable. (OUTCOME_MARKERS.unusable keeps the bare form for
+ * writing when no value is known.) */
+const UNUSABLE_MARKER_PREFIX = '[channel-unusable'
+
 /** Derive a per-channel outcome from a touch note. Absence of a marker means a
  * completed touch; the markers above denote ordinary non-response or an unusable
- * channel. Case-insensitive, tolerant of surrounding prose. */
+ * channel. Case-insensitive, tolerant of surrounding prose. Recognizes both the
+ * bare and the value-scoped unusable markers. */
 export function parseOutcomeFromNote(note: string | null): ChannelOutcome {
   if (!note) return 'touch'
   const n = note.toLowerCase()
-  if (n.includes(OUTCOME_MARKERS.unusable)) return 'unusable'
+  if (n.includes(UNUSABLE_MARKER_PREFIX)) return 'unusable'
   if (n.includes(OUTCOME_MARKERS.no_contact)) return 'no_contact'
   return 'touch'
+}
+
+/**
+ * Value-scoped unusable. A channel being "unusable" is a property of the SPECIFIC
+ * value that failed (a particular bad number, a particular bounced address), not
+ * of the channel forever: replacing the failed value with a new one must restore
+ * eligibility. To make that possible the unusable outcome records the failed
+ * value alongside the marker, as `[channel-unusable:<normalized value>]`. The
+ * normalized form is lowercase+trim for email and digits-only for phone, so a
+ * later comparison against the current value on file is format-insensitive.
+ *
+ * buildUnusableMarker produces the marker to store; unusableValueFromNote reads
+ * the normalized failed value back (null when the note carries the bare,
+ * value-less legacy marker). The bare marker still parses as 'unusable' via
+ * parseOutcomeFromNote, so legacy history keeps its meaning.
+ */
+export function normalizeUnusableValue(channel: OutreachChannel, value: string | null): string | null {
+  if (value == null) return null
+  if (channel === 'email') {
+    const t = value.trim().toLowerCase()
+    return t.length > 0 ? t : null
+  }
+  // call / voicemail / text / postal: compare phones by their digits only.
+  const digits = value.replace(/\D/g, '')
+  return digits.length > 0 ? digits : null
+}
+
+/** The stored unusable marker, value-scoped when the failed value is known. */
+export function buildUnusableMarker(channel: OutreachChannel, value: string | null): string {
+  const norm = normalizeUnusableValue(channel, value)
+  // e.g. "[channel-unusable:2155550100]" or "[channel-unusable:x@y.com]"; the
+  // bare marker when the value is unknown (keeps legacy behavior).
+  return norm ? `[channel-unusable:${norm}]` : OUTCOME_MARKERS.unusable
+}
+
+/**
+ * The normalized failed value recorded on an unusable note, or null when the
+ * note carries the bare value-less marker (legacy) or is not unusable. Reads the
+ * `[channel-unusable:<value>]` form written by buildUnusableMarker.
+ */
+export function unusableValueFromNote(note: string | null): string | null {
+  if (!note) return null
+  const m = note.match(/\[channel-unusable:([^\]]+)\]/i)
+  return m ? m[1].trim().toLowerCase() : null
 }
 
 /** Whether a touch note records that the call REACHED the customer. */

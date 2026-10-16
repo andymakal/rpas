@@ -541,7 +541,11 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   //      untouched opening states), so their order does not matter.
   const effectiveQueue = (r: BoardRow): OutreachQueue => {
     const followUp = deriveFollowUpRouting(
-      { queue: r.queue, follow_up_due: r.follow_up_due },
+      {
+        queue: r.queue,
+        follow_up_due: r.follow_up_due,
+        has_usable_phone: !!r.customer_prereviews.customers?.phone?.trim(),
+      },
       now,
     )?.queue as OutreachQueue | undefined
     if (followUp) return followUp
@@ -877,7 +881,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         // memory here carries call_reason 'no-response' via deriveFollowUpRouting,
         // matching the persisted value the board stamps, so counting and the
         // opened list agree and stay stable across refreshes.
-        const effPatch = deriveFollowUpRouting({ queue: r.queue, follow_up_due: r.follow_up_due }, now)
+        const effPatch = deriveFollowUpRouting({ queue: r.queue, follow_up_due: r.follow_up_due, has_usable_phone: !!r.customer_prereviews.customers?.phone?.trim() }, now)
         const effCallReason = (effPatch?.call_reason as CallReason | undefined) ?? (r.call_reason as CallReason | null) ?? null
         const population = callPopulationOf({
           effectiveQueue: effectiveQueue(r),
@@ -1131,9 +1135,13 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         const crSummary = summarizeContactReview(
           await buildContactReview(supabase, crProjectId),
         )
-        const actionable = crSummary.needs_research
+        // Recommended outstanding research (every row whose research is not yet
+        // exhausted — reachable missing-one AND no-usable-contact-but-outstanding),
+        // so completed research is never re-recommended.
+        const actionable = crSummary.actionable
         const unresolved = crSummary.total
-        const unsuccessful = crSummary.no_usable_contact
+        // The previously-unsuccessful population kept visible but not recommended.
+        const unsuccessful = crSummary.total - crSummary.actionable
         if (unresolved <= 0) continue
 
         const crProjectSet = new Set<string>([crProjectId])

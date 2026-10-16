@@ -26,6 +26,8 @@ import {
   countUnsuccessfulAttempts,
   unusableChannels,
   parseOutcomeFromNote,
+  unusableValueFromNote,
+  normalizeUnusableValue,
   noteIndicatesReached,
   type Communication,
   type OutreachAttempt,
@@ -112,6 +114,17 @@ export async function getAttemptHistory(
      * omitted, all onboarding touches for the customer are counted (back-compat).
      */
     since?: string | null
+    /**
+     * The customer's CURRENT contact values. When supplied, the returned
+     * `unusableChannels` is VALUE-SCOPED: a channel is reported unusable only
+     * while the recorded failed value still matches the value on file, so
+     * replacing a bad number / bounced email restores that channel's usability
+     * immediately (the old failure stays in history but no longer suppresses the
+     * new value). Omitted = the prior channel-level behavior (a legacy caller is
+     * unchanged). Attempt COUNTS are unaffected either way — an unusable touch is
+     * still a recorded attempt historically.
+     */
+    current?: CurrentContact | null
   },
 ): Promise<AttemptHistory> {
   let query = supabase
@@ -156,13 +169,48 @@ export async function getAttemptHistory(
     }))
 
   const attempts = groupIntoAttempts(communications, actorTimeZone)
+
+  // Unusable channels. When current contact values are supplied, VALUE-SCOPE the
+  // result: a value-scoped unusable mark applies only while its recorded failed
+  // value still matches the value on file, so a replacement restores usability.
+  // A legacy value-less mark stays unusable (conservative). Without `current`,
+  // fall back to the attempt-level channel set (prior behavior).
+  let unusableList: OutreachChannel[]
+  if (options?.current) {
+    const cur = options.current
+    const set = new Set<OutreachChannel>()
+    for (const r of rows) {
+      if (!OUTREACH_CHANNELS.has(r.touch_type)) continue
+      if (!isOnboardingContactAttempt(r.notes)) continue
+      if (parseOutcomeFromNote(r.notes) !== 'unusable') continue
+      const channel = r.touch_type as OutreachChannel
+      const failedValue = unusableValueFromNote(r.notes)
+      if (failedValue != null) {
+        const currentForChannel = channel === 'email' ? cur.email : cur.phone
+        const currentNorm = normalizeUnusableValue(channel, currentForChannel)
+        if (currentNorm == null || currentNorm !== failedValue) continue // replaced / changed
+      }
+      set.add(channel)
+    }
+    unusableList = Array.from(set)
+  } else {
+    unusableList = Array.from(unusableChannels(attempts))
+  }
+
   return {
     attempts,
     callAttempts: countCallAttempts(attempts),
     outreachAttempts: countOutreachAttempts(attempts),
     unsuccessfulAttempts: countUnsuccessfulAttempts(attempts),
-    unusableChannels: Array.from(unusableChannels(attempts)),
+    unusableChannels: unusableList,
   }
+}
+
+/** The current contact values a customer has on file, used to scope recorded
+ * unusable outcomes to the value that actually failed. */
+export interface CurrentContact {
+  email: string | null
+  phone: string | null
 }
 
 /**
@@ -174,18 +222,30 @@ export async function getAttemptHistory(
  * a whole set so a list read (e.g. Contact Research) does not issue one query
  * per customer.
  *
+ * VALUE-SCOPED. An unusable outcome belongs to the SPECIFIC value that failed,
+ * not to the channel forever. A new unusable touch records the failed value
+ * (`[channel-unusable:<value>]`), so a channel is reported unusable for a
+ * customer ONLY when the recorded failed value still matches the value CURRENTLY
+ * on file. Replacing a bad number / bounced email with a different value
+ * therefore restores eligibility immediately, while the old failure stays in
+ * history untouched. Callers pass the customer's current contact values via
+ * `currentByCustomer`; a customer absent from that map is treated as having no
+ * current values (so only value-less legacy marks apply to them).
+ *
+ * Legacy compatibility: a bare value-less `[channel-unusable]` mark (written
+ * before value-scoping) carries no value to compare, so it is treated as
+ * unusable regardless of the current value — the conservative prior behavior.
+ * New marks are value-scoped and self-heal on replacement.
+ *
  * Returns a map keyed by customer id; a customer with no unusable channel is
  * absent (treat as the empty set). A read failure returns an empty map so a
  * caller errs toward treating channels as still usable rather than fabricating
- * an exhausted state. Only onboarding outreach touches are considered, the same
- * scope getAttemptHistory uses, so unrelated case touches never mark a channel
- * unusable. Grouping into attempts is unnecessary here: usability is a per-
- * communication fact, so the 'unusable' outcome on any single communication
- * marks that channel for the customer.
+ * an exhausted state.
  */
 export async function readUnusableChannelsByCustomer(
   supabase: SupabaseClient,
   customerIds: readonly string[],
+  currentByCustomer?: ReadonlyMap<string, CurrentContact>,
 ): Promise<Map<string, Set<OutreachChannel>>> {
   const out = new Map<string, Set<OutreachChannel>>()
   const unique = Array.from(new Set(customerIds))
@@ -205,8 +265,20 @@ export async function readUnusableChannelsByCustomer(
       if (!OUTREACH_CHANNELS.has(r.touch_type)) continue
       if (!isOnboardingContactAttempt(r.notes)) continue
       if (parseOutcomeFromNote(r.notes) !== 'unusable') continue
+
+      const channel = r.touch_type as OutreachChannel
+      const failedValue = unusableValueFromNote(r.notes)
+      if (failedValue != null) {
+        // Value-scoped: only applies while the failed value is still on file.
+        const current = currentByCustomer?.get(r.customer_id)
+        const currentForChannel = channel === 'email' ? current?.email ?? null : current?.phone ?? null
+        const currentNorm = normalizeUnusableValue(channel, currentForChannel)
+        if (currentNorm == null || currentNorm !== failedValue) continue // replaced / changed: no longer unusable
+      }
+      // else: legacy value-less mark — conservatively unusable regardless.
+
       const set = out.get(r.customer_id) ?? new Set<OutreachChannel>()
-      set.add(r.touch_type as OutreachChannel)
+      set.add(channel)
       out.set(r.customer_id, set)
     }
   }

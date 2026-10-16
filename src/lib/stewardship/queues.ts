@@ -558,23 +558,46 @@ function callOutcomeInStage(
 /**
  * Deterministic derived routing for overdue waiting-for-response items.
  *
- * When the follow-up window has lapsed with no response, the item should be in
- * Ready to Call (reason: no-response). This is derived from follow_up_due vs
- * now, so overdue work surfaces in the right queue without manual housekeeping.
- * Returns a patch to apply, or null when nothing is overdue.
+ * When the follow-up window has lapsed with no response, the item should move
+ * to the next real action — but the follow-up after an email is a CALL, and a
+ * call is only a real action when a usable phone exists. So the lapse is gated
+ * on callability, mirroring the email-bounce rule:
+ *   - usable phone  -> Ready to Call (reason: no-response); the cadence call is due.
+ *   - no usable phone -> Research Needed (reason: bounce-no-phone). The email
+ *     follow-up window lapsed with no phone to call, so the item is NOT turned
+ *     into an actionable call (which would have no number to dial); instead it
+ *     surfaces as contact research for the missing phone. Outreach progress is
+ *     preserved (the item is not reset and not refused), and the customer stays
+ *     eligible for missing-phone research.
  *
- * A REFUSED item is never resurfaced: an explicit refusal stops outreach until
- * a deliberate reopen.
+ * Derived from follow_up_due vs now plus the callability fact, so overdue work
+ * surfaces in the right queue without manual housekeeping. Returns a patch to
+ * apply, or null when nothing is overdue.
+ *
+ * `has_usable_phone` is optional for back-compat; when omitted it defaults to
+ * true (the prior behavior), but all live reads pass the real fact so a
+ * phoneless follow-up never becomes an actionable call. A REFUSED item is never
+ * resurfaced: an explicit refusal stops outreach until a deliberate reopen.
  */
 export function deriveFollowUpRouting(
-  state: Pick<OutreachState, 'queue' | 'follow_up_due'> & { refused_at?: string | null },
+  state: Pick<OutreachState, 'queue' | 'follow_up_due'> & {
+    refused_at?: string | null
+    has_usable_phone?: boolean
+  },
   now: Date = new Date(),
 ): OutreachPatch | null {
   if (state.refused_at) return null
   if (state.queue !== 'waiting-for-response') return null
   if (!state.follow_up_due) return null
   if (new Date(state.follow_up_due).getTime() > now.getTime()) return null
-  return { queue: 'ready-to-call', call_reason: 'no-response' }
+  // Default to callable for back-compat when the fact is not supplied.
+  const hasUsablePhone = state.has_usable_phone ?? true
+  if (hasUsablePhone) {
+    return { queue: 'ready-to-call', call_reason: 'no-response' }
+  }
+  // No usable phone: the lapsed email follow-up must not become an actionable
+  // call. Route to Research Needed for the missing phone, preserving progress.
+  return { queue: 'research-needed', research_reason: 'bounce-no-phone', call_reason: null }
 }
 
 /**

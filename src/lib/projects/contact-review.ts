@@ -95,20 +95,23 @@ export interface ContactReviewCustomer {
    * customer has no policy on file. */
   policy_number: string | null
   /**
-   * How this customer sits in the consolidated Contact Research list:
-   *   - 'needs_research'      Outstanding research: at least one still-missing
-   *                           method has NOT yet been researched unsuccessfully.
-   *                           Actively recommended.
-   *   - 'no_usable_contact'   The exception: no usable contact method at all AND
-   *                           every missing method already researched
-   *                           unsuccessfully. Kept visible (the agency must see
-   *                           who it cannot reach) but NOT re-recommended.
+   * REACHABILITY, which keys the two surfaces (research state sub-labels within,
+   * via researched_unsuccessfully):
+   *   - 'needs_research'      Reachable: exactly one method is missing (reachable
+   *                           by the other). Routine active-list work; shown only
+   *                           while its one missing method is still outstanding.
+   *   - 'no_usable_contact'   No usable email AND no usable phone: cannot be
+   *                           reached at all. ALWAYS shown in the "No Usable
+   *                           Contact Information" section — whether research is
+   *                           still outstanding or already came up empty.
    */
   status: 'needs_research' | 'no_usable_contact'
   /** True when every STILL-MISSING method has a recorded unsuccessful-research
-   * outcome. For a 'needs_research' row this is always false; for a
-   * 'no_usable_contact' exception row it is always true. Carried explicitly so
-   * the UI can label the exception without re-deriving it. */
+   * outcome, i.e. research is exhausted and should NOT be recommended again. A
+   * 'needs_research' (reachable) row is always false here (a settled one is
+   * dropped). A 'no_usable_contact' row is true when previously unsuccessful and
+   * false when research is still outstanding — the distinction the No Usable
+   * Contact Information section surfaces. */
   researched_unsuccessfully: boolean
 }
 
@@ -118,13 +121,20 @@ export interface ContactReviewSummary {
   total: number
   /** Of the list, how many are missing both methods (nothing usable). */
   missing_both: number
-  /** Of the list, how many already have exactly one usable method. */
+  /** Of the list, how many already have exactly one usable method (reachable). */
   one_usable: number
-  /** Of the list, how many are actively recommended outstanding research. */
+  /** Of the list, how many are classified reachable (missing exactly one
+   * method) — the routine active-list population. */
   needs_research: number
-  /** Of the list, how many are the No Usable Contact Information exception
-   * (kept visible after unsuccessful research, not re-recommended). */
+  /** Of the list, how many have NO usable contact at all (the No Usable Contact
+   * Information section) — both the outstanding and the previously-unsuccessful. */
   no_usable_contact: number
+  /** Of the list, how many are OUTSTANDING research worth recommending now:
+   * every row whose research is not yet exhausted (researched_unsuccessfully
+   * === false), regardless of reachability. This is the recommendable count My
+   * Work drives its recommendation from; the previously-unsuccessful rows are
+   * visible but excluded so completed research is never re-recommended. */
+  actionable: number
 }
 
 type ProjectCustomerRow = { customer_id: string }
@@ -229,9 +239,15 @@ export async function buildContactReview(
   // customer with both values PRESENT but BOTH recorded unusable has no usable
   // contact and must reach the exception, which a raw-presence filter would miss.
   const realCustomers = customers.filter((c) => !c.is_test)
+  // Current contact values per customer, so an unusable mark only applies while
+  // the value that failed is still on file (a replacement restores eligibility).
+  const currentByCustomer = new Map<string, { email: string | null; phone: string | null }>(
+    realCustomers.map((c) => [c.id, { email: c.email, phone: c.phone }]),
+  )
   const unusableByCustomer = await readUnusableChannelsByCustomer(
     supabase,
     realCustomers.map((c) => c.id),
+    currentByCustomer,
   )
   const noneUnusable: Set<OutreachChannel> = new Set()
 
@@ -264,16 +280,23 @@ export async function buildContactReview(
     const researched = researchedByCustomer.get(c.id) ?? { email: false, phone: false }
     const stillRecommend = stillNeedsResearchRecommendation({ hasEmail, hasPhone }, researched)
 
-    // Settled-by-research customers (no still-missing method is outstanding).
-    // The business rule splits them:
-    //   - No usable contact at all (missing BOTH): keep VISIBLE as the "No
-    //     Usable Contact Information" exception so the agency never loses sight
-    //     of who it cannot reach; flag it so it is not re-recommended.
-    //   - Missing just ONE method, that method settled: drop from the active
-    //     list durably (reachable by the method on file; the deliberate reopen
-    //     path via loadContactReviewCustomer still allows a re-check).
+    // Reachability keys the two surfaces (NOT the research state, which only
+    // sub-labels within each):
+    //   - noUsableContact (no usable email AND no usable phone): the customer
+    //     cannot be reached at all. ALWAYS shown in the "No Usable Contact
+    //     Information" section so the agency never loses sight of anyone it
+    //     cannot reach — whether research is still outstanding or already came
+    //     up empty. researched_unsuccessfully distinguishes the two there.
+    //   - missing exactly ONE method (reachable by the other): routine
+    //     outstanding research in the active list. Once its one missing method
+    //     is settled by research it leaves the active list durably (still
+    //     reachable; the deliberate reopen path allows a re-check).
     const noUsableContact = !hasEmail && !hasPhone
-    if (!stillRecommend && !noUsableContact) continue
+
+    // Drop ONLY a reachable (missing-one) customer whose missing method is
+    // settled by research. A no-usable-contact customer is never dropped: it
+    // stays visible in its section regardless of research state.
+    if (!noUsableContact && !stillRecommend) continue
 
     out.push({
       customer_id: c.id,
@@ -292,7 +315,15 @@ export async function buildContactReview(
       phone_verified_at: c.phone_verified_at,
       address_verified_at: c.address_verified_at,
       policy_number: policyByCustomer.get(c.id) ?? null,
-      status: stillRecommend ? 'needs_research' : 'no_usable_contact',
+      // Status is reachability: no usable method at all vs missing one. The
+      // No Usable Contact Information section shows every 'no_usable_contact'
+      // row; researched_unsuccessfully sub-labels outstanding vs previously
+      // unsuccessful. 'needs_research' is the reachable, active-list population.
+      status: noUsableContact ? 'no_usable_contact' : 'needs_research',
+      // Whether research is already exhausted (not worth recommending again).
+      // For a reachable missing-one row this is always false here (a settled one
+      // was dropped above); for a no-usable-contact row it is true only when
+      // every missing method has been researched unsuccessfully.
       researched_unsuccessfully: !stillRecommend,
     })
   }
@@ -347,10 +378,14 @@ export async function loadContactReviewCustomer(
   if (!c || (c as unknown as CustomerRow).is_test) return null
 
   const row = c as unknown as CustomerRow
-  // Effective usability (folds recorded-unusable channels), the same basis the
-  // routine list uses, so a reopened customer classifies identically.
-  const unusable = (await readUnusableChannelsByCustomer(supabase, [row.id])).get(row.id)
-    ?? new Set<OutreachChannel>()
+  // Effective usability (folds recorded-unusable channels, value-scoped to the
+  // current values), the same basis the routine list uses, so a reopened
+  // customer classifies identically.
+  const unusable = (await readUnusableChannelsByCustomer(
+    supabase,
+    [row.id],
+    new Map([[row.id, { email: row.email, phone: row.phone }]]),
+  )).get(row.id) ?? new Set<OutreachChannel>()
   const hasEmail = emailUsable(row.email, unusable)
   const hasPhone = phoneUsable(row.phone, unusable)
   // Both methods usable: there is nothing to review or research.
@@ -413,10 +448,14 @@ export async function researchAgainProjectId(
     .eq('id', customerId)
     .maybeSingle()
   if (!c || (c as CustomerRow).is_test) return null
-  // Effective usability (folds recorded-unusable channels), the same basis the
-  // Contact Research list uses.
-  const unusable = (await readUnusableChannelsByCustomer(supabase, [customerId])).get(customerId)
-    ?? new Set<OutreachChannel>()
+  // Effective usability (folds recorded-unusable channels, value-scoped to the
+  // current values), the same basis the Contact Research list uses.
+  const cRow = c as CustomerRow
+  const unusable = (await readUnusableChannelsByCustomer(
+    supabase,
+    [customerId],
+    new Map([[customerId, { email: cRow.email, phone: cRow.phone }]]),
+  )).get(customerId) ?? new Set<OutreachChannel>()
   const hasEmail = emailUsable((c as CustomerRow).email, unusable)
   const hasPhone = phoneUsable((c as CustomerRow).phone, unusable)
   if (hasEmail && hasPhone) return null // nothing missing
@@ -487,12 +526,18 @@ export function summarizeContactReview(
   let oneUsable = 0
   let needsResearch = 0
   let noUsableContact = 0
+  let actionable = 0
   for (const r of rows) {
     const count = (r.has_email ? 1 : 0) + (r.has_phone ? 1 : 0)
     if (count === 0) missingBoth++
     else if (count === 1) oneUsable++
     if (r.status === 'no_usable_contact') noUsableContact++
     else needsResearch++
+    // Recommendable outstanding research: research not yet exhausted. Covers a
+    // reachable missing-one row AND a no-usable-contact row still outstanding;
+    // excludes previously-unsuccessful rows so completed research is not
+    // re-recommended.
+    if (!r.researched_unsuccessfully) actionable++
   }
   return {
     total: rows.length,
@@ -500,5 +545,6 @@ export function summarizeContactReview(
     one_usable: oneUsable,
     needs_research: needsResearch,
     no_usable_contact: noUsableContact,
+    actionable,
   }
 }

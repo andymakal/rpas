@@ -36,6 +36,9 @@ import {
   countUnsuccessfulAttempts,
   unusableChannels,
   parseOutcomeFromNote,
+  buildUnusableMarker,
+  unusableValueFromNote,
+  normalizeUnusableValue,
   OUTCOME_MARKERS,
 } from './outreach-attempts'
 import { evaluateContactOptions, toContactFacts, initialQueueFromOptions } from './contact-options'
@@ -695,4 +698,107 @@ test('normalizeRecipientEmail: trims, lowercases, and blanks to null', () => {
   assert.equal(normalizeRecipientEmail('  Foo@Bar.COM '), 'foo@bar.com')
   assert.equal(normalizeRecipientEmail('   '), null)
   assert.equal(normalizeRecipientEmail(null), null)
+})
+
+// ── Value-scoped unusable: replacement restores eligibility (Fix #1) ─────────
+// A bad number / bounced email is unusable for the SPECIFIC value, not the
+// channel forever. The marker records the failed value so a later comparison
+// against the value on file tells a replacement from the still-failed value.
+
+test('buildUnusableMarker: records the normalized failed value; parses back; bare marker when unknown', () => {
+  const phoneMarker = buildUnusableMarker('call', '(215) 555-0100')
+  assert.equal(phoneMarker, '[channel-unusable:2155550100]')
+  assert.equal(unusableValueFromNote(`Bad number. ${phoneMarker}`), '2155550100')
+
+  const emailMarker = buildUnusableMarker('email', '  Old@Example.com ')
+  assert.equal(emailMarker, '[channel-unusable:old@example.com]')
+  assert.equal(unusableValueFromNote(`Bounced. ${emailMarker}`), 'old@example.com')
+
+  // Unknown value -> bare legacy marker; still parses as 'unusable', no value.
+  assert.equal(buildUnusableMarker('email', null), OUTCOME_MARKERS.unusable)
+  assert.equal(unusableValueFromNote(`Bounced. ${OUTCOME_MARKERS.unusable}`), null)
+})
+
+test('normalizeUnusableValue: phones compare by digits, emails by lowercase/trim', () => {
+  // Same number in different formats normalizes identically (so a reformatted
+  // but unchanged number stays unusable), a different number does not.
+  assert.equal(normalizeUnusableValue('call', '215-555-0100'), normalizeUnusableValue('voicemail', '(215) 555 0100'))
+  assert.notEqual(normalizeUnusableValue('call', '215-555-0100'), normalizeUnusableValue('call', '215-555-0199'))
+  assert.equal(normalizeUnusableValue('email', 'A@B.com'), 'a@b.com')
+  assert.equal(normalizeUnusableValue('email', '   '), null)
+})
+
+test('value-scoped unusable: a replacement value is no longer suppressed; the same value still is', () => {
+  // Emulate the readUnusableChannelsByCustomer comparison: a channel stays
+  // unusable only while the recorded failed value equals the current value.
+  const failed = unusableValueFromNote(`Bad number. ${buildUnusableMarker('call', '215-555-0100')}`)
+  const stillSame = normalizeUnusableValue('call', '(215) 555-0100') // same number, reformatted
+  const replaced = normalizeUnusableValue('call', '267-555-0133')     // a new number
+  assert.equal(stillSame, failed)      // same value -> still unusable
+  assert.notEqual(replaced, failed)    // replacement -> eligibility restored
+})
+
+// ── Fix #4: email follow-up must not become an actionable call without a phone ──
+
+test('deriveFollowUpRouting: an overdue email follow-up WITH a usable phone -> Ready to Call', () => {
+  const patch = deriveFollowUpRouting(
+    { queue: 'waiting-for-response', follow_up_due: '2026-01-01T00:00:00.000Z', has_usable_phone: true },
+    new Date('2026-02-01T12:00:00Z'),
+  )
+  assert.equal(patch?.queue, 'ready-to-call')
+  assert.equal(patch?.call_reason, 'no-response')
+})
+
+test('deriveFollowUpRouting: an overdue email follow-up WITHOUT a usable phone -> Research Needed (no actionable call)', () => {
+  const patch = deriveFollowUpRouting(
+    { queue: 'waiting-for-response', follow_up_due: '2026-01-01T00:00:00.000Z', has_usable_phone: false },
+    new Date('2026-02-01T12:00:00Z'),
+  )
+  // Never an actionable call without a phone: routed to research for the missing
+  // phone, preserving progress (not reset, not refused).
+  assert.equal(patch?.queue, 'research-needed')
+  assert.equal(patch?.research_reason, 'bounce-no-phone')
+  assert.equal(patch?.call_reason, null)
+})
+
+test('deriveFollowUpRouting: a phoneless overdue follow-up is NEVER in a call population', () => {
+  // Compose the two pure steps the reads use: the effective queue from the
+  // phone-gated follow-up, then the call population. No phone -> research-needed
+  // -> callPopulationOf returns null (no usable phone AND not a callable queue).
+  const eff = deriveFollowUpRouting(
+    { queue: 'waiting-for-response', follow_up_due: '2026-01-01T00:00:00.000Z', has_usable_phone: false },
+    new Date('2026-02-01T12:00:00Z'),
+  )?.queue ?? 'waiting-for-response'
+  const pop = callPopulationOf({
+    effectiveQueue: eff,
+    callReason: null,
+    hasUsablePhone: false,
+    callbackDue: false,
+  })
+  assert.equal(pop, null)
+})
+
+test('deriveFollowUpRouting: not overdue, or not waiting-for-response, returns null regardless of phone', () => {
+  // Future follow-up: nothing to promote.
+  assert.equal(
+    deriveFollowUpRouting(
+      { queue: 'waiting-for-response', follow_up_due: '2027-01-01T00:00:00.000Z', has_usable_phone: false },
+      new Date('2026-02-01T12:00:00Z'),
+    ),
+    null,
+  )
+  // A refused item is never resurfaced.
+  assert.equal(
+    deriveFollowUpRouting(
+      { queue: 'waiting-for-response', follow_up_due: '2026-01-01T00:00:00.000Z', refused_at: '2026-01-02T00:00:00.000Z', has_usable_phone: false },
+      new Date('2026-02-01T12:00:00Z'),
+    ),
+    null,
+  )
+})
+
+test('parseOutcomeFromNote: recognizes BOTH the bare and the value-scoped unusable markers', () => {
+  assert.equal(parseOutcomeFromNote(`Bad number. ${OUTCOME_MARKERS.unusable}`), 'unusable')
+  assert.equal(parseOutcomeFromNote(`Bad number. ${buildUnusableMarker('call', '215-555-0100')}`), 'unusable')
+  assert.equal(parseOutcomeFromNote('Servicing-agent onboarding call: Reached.'), 'touch')
 })

@@ -92,16 +92,26 @@ export async function GET(request: NextRequest) {
   const now = new Date()
   const { data: waiting } = await supabase
     .from('stewardship_outreach')
-    .select('id, follow_up_due')
+    .select('id, follow_up_due, customer_prereviews!inner ( customers!inner ( phone ) )')
     .eq('queue', 'waiting-for-response')
     .not('follow_up_due', 'is', null)
     .lte('follow_up_due', now.toISOString())
-  // Promote overdue waiting-for-response items to Ready to Call and PERSIST the
-  // move. The promotion durably stamps call_reason = 'no-response', which is the
-  // signal the Calls Due derivation reads, so a cadence-due call stays Calls Due
-  // across later reads without needing a one-pass in-memory flag.
-  for (const w of (waiting ?? []) as { id: string; follow_up_due: string | null }[]) {
-    const patch = deriveFollowUpRouting({ queue: 'waiting-for-response', follow_up_due: w.follow_up_due }, now)
+  // Promote overdue waiting-for-response items when the follow-up window lapses.
+  // The follow-up after an email is a CALL, so promotion is GATED on a usable
+  // phone: with a phone the item becomes Ready to Call (durably stamping
+  // call_reason = 'no-response', the Calls Due signal); WITHOUT a phone it must
+  // never become an actionable call, so it moves to Research Needed
+  // (bounce-no-phone) for the missing number, preserving outreach progress and
+  // research eligibility. deriveFollowUpRouting owns this decision; here we feed
+  // it the callability fact and persist its patch.
+  type WaitingRow = { id: string; follow_up_due: string | null; customer_prereviews: { customers: { phone: string | null } | { phone: string | null }[] } | null }
+  for (const w of (waiting ?? []) as unknown as WaitingRow[]) {
+    const custRaw = w.customer_prereviews?.customers
+    const cust = Array.isArray(custRaw) ? custRaw[0] : custRaw
+    const patch = deriveFollowUpRouting(
+      { queue: 'waiting-for-response', follow_up_due: w.follow_up_due, has_usable_phone: !!cust?.phone?.trim() },
+      now,
+    )
     if (patch) {
       await supabase.from('stewardship_outreach').update(patch).eq('id', w.id)
     }
