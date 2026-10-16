@@ -28,7 +28,7 @@ import {
   EARLY_CALL_SPACING_DAYS,
   NONRESPONSIVE_ATTEMPT_THRESHOLD,
 } from './call-cadence'
-import { applyAction, callPopulationOf, deriveFollowUpRouting, deriveEmailRouting, type OutreachState } from './queues'
+import { applyAction, callPopulationOf, deriveFollowUpRouting, deriveEmailRouting, isIntroductoryEmail, introNeededForReplacedEmail, normalizeRecipientEmail, type OutreachState } from './queues'
 import {
   groupIntoAttempts,
   countCallAttempts,
@@ -274,6 +274,7 @@ function state(partial: Partial<OutreachState> = {}): OutreachState {
     last_call_outcome: null,
     callback_date: null,
     email_sent_at: null,
+    intro_email_recipient: null,
     follow_up_due: null,
     form_received_at: null,
     submitted_at: null,
@@ -569,4 +570,129 @@ test('deriveEmailRouting: a ready-to-call that is a cadence retry (no-response),
   // 'no-response' is a lapsed-cadence retry, i.e. a call was already attempted;
   // only the ORIGINAL opening 'no-email' reason is an untouched opener.
   assert.equal(deriveEmailRouting(openingCall({ call_reason: 'no-response' })), null)
+})
+
+// ── Replaced-address re-offer of the introductory email (Fix #1) ─────────────
+// The introduction went to an OLD address. Replacing the email, while still in
+// the pre-authorization funnel, makes the introduction available again for the
+// NEW address — without restarting onboarding once authorization has progressed.
+
+test('introNeededForReplacedEmail: a prior intro to a now-replaced address is re-offered', () => {
+  assert.equal(
+    introNeededForReplacedEmail({
+      emailSentAt: '2026-01-01T00:00:00.000Z',
+      currentEmail: 'new@example.com',
+      introEmailRecipient: 'old@example.com',
+    }),
+    true,
+  )
+})
+
+test('introNeededForReplacedEmail: the same address (case/space-insensitive) is NOT re-offered', () => {
+  assert.equal(
+    introNeededForReplacedEmail({
+      emailSentAt: '2026-01-01T00:00:00.000Z',
+      currentEmail: '  Same@Example.com ',
+      introEmailRecipient: 'same@example.com',
+    }),
+    false,
+  )
+})
+
+test('introNeededForReplacedEmail: no prior send, no current email, or legacy (unrecorded) recipient is NOT re-offered', () => {
+  // No introduction sent yet.
+  assert.equal(introNeededForReplacedEmail({ emailSentAt: null, currentEmail: 'new@example.com', introEmailRecipient: null }), false)
+  // No usable email now (nothing to re-offer to).
+  assert.equal(introNeededForReplacedEmail({ emailSentAt: '2026-01-01T00:00:00.000Z', currentEmail: null, introEmailRecipient: 'old@example.com' }), false)
+  // Legacy send with no recorded recipient: treated as delivered to the address
+  // on file, never resurfaced spuriously.
+  assert.equal(introNeededForReplacedEmail({ emailSentAt: '2026-01-01T00:00:00.000Z', currentEmail: 'x@example.com', introEmailRecipient: null }), false)
+})
+
+test('deriveEmailRouting: a replaced email re-offers the intro from waiting-for-response (pre-auth)', () => {
+  // The intro was sent (email_sent_at set) and the item advanced to
+  // waiting-for-response — but to the OLD address. A replacement email, still
+  // pre-authorization, routes back to ready-to-email so the intro is offered
+  // again for the new address.
+  const patch = deriveEmailRouting(
+    openingCall({
+      queue: 'waiting-for-response',
+      call_reason: null,
+      email_sent_at: '2026-01-01T00:00:00.000Z',
+      current_email: 'new@example.com',
+      intro_email_recipient: 'old@example.com',
+    }),
+  )
+  assert.equal(patch?.queue, 'ready-to-email')
+})
+
+test('deriveEmailRouting: a replaced email NEVER restarts onboarding past authorization', () => {
+  // Awaiting the signed form or carrier is past authorization: a replacement
+  // email is a chase, never a reset to the introductory email.
+  for (const queue of ['waiting-for-form', 'waiting-for-carrier'] as const) {
+    assert.equal(
+      deriveEmailRouting(
+        openingCall({
+          queue,
+          call_reason: null,
+          email_sent_at: '2026-01-01T00:00:00.000Z',
+          current_email: 'new@example.com',
+          intro_email_recipient: 'old@example.com',
+        }),
+      ),
+      null,
+    )
+  }
+})
+
+test('deriveEmailRouting: the SAME email (unchanged recipient) does not re-offer the intro', () => {
+  assert.equal(
+    deriveEmailRouting(
+      openingCall({
+        queue: 'waiting-for-response',
+        call_reason: null,
+        email_sent_at: '2026-01-01T00:00:00.000Z',
+        current_email: 'same@example.com',
+        intro_email_recipient: 'same@example.com',
+      }),
+    ),
+    null,
+  )
+})
+
+test('isIntroductoryEmail: a replaced-address item routed back to ready-to-email IS an introduction again', () => {
+  // After deriveEmailRouting re-routes to ready-to-email, the predicate must
+  // recognize it as an introduction even though email_sent_at is set, because
+  // the recorded recipient differs from the current email.
+  assert.equal(
+    isIntroductoryEmail({
+      effectiveQueue: 'ready-to-email',
+      emailSentAt: '2026-01-01T00:00:00.000Z',
+      lastCallOutcome: null,
+      callbackDate: null,
+      currentEmail: 'new@example.com',
+      introEmailRecipient: 'old@example.com',
+    }),
+    true,
+  )
+})
+
+test('isIntroductoryEmail: a sent intro to the SAME current address is NOT a fresh introduction', () => {
+  assert.equal(
+    isIntroductoryEmail({
+      effectiveQueue: 'ready-to-email',
+      emailSentAt: '2026-01-01T00:00:00.000Z',
+      lastCallOutcome: null,
+      callbackDate: null,
+      currentEmail: 'same@example.com',
+      introEmailRecipient: 'same@example.com',
+    }),
+    false,
+  )
+})
+
+test('normalizeRecipientEmail: trims, lowercases, and blanks to null', () => {
+  assert.equal(normalizeRecipientEmail('  Foo@Bar.COM '), 'foo@bar.com')
+  assert.equal(normalizeRecipientEmail('   '), null)
+  assert.equal(normalizeRecipientEmail(null), null)
 })

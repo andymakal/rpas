@@ -191,6 +191,9 @@ type BoardRow = {
   research_reason: string | null
   last_call_outcome: string | null
   email_sent_at: string | null
+  /** The address the prior introduction was sent to, for the replaced-address
+   * re-offer of the introductory email. */
+  intro_email_recipient: string | null
   callback_date: string | null
   follow_up_due: string | null
   refused_at: string | null
@@ -436,7 +439,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   const { data: boardData, error: boardErr } = await supabase
     .from('stewardship_outreach')
     .select(`
-      id, queue, call_reason, research_reason, last_call_outcome, email_sent_at, callback_date, follow_up_due, refused_at, claimed_by_producer_id,
+      id, queue, call_reason, research_reason, last_call_outcome, email_sent_at, intro_email_recipient, callback_date, follow_up_due, refused_at, claimed_by_producer_id,
       customer_prereviews!inner ( decision, customer_id, customers!inner ( phone, email ) )
     `)
     .order('updated_at', { ascending: true })
@@ -551,6 +554,8 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       callback_date: r.callback_date,
       refused_at: r.refused_at,
       has_usable_email: !!r.customer_prereviews.customers?.email?.trim(),
+      current_email: r.customer_prereviews.customers?.email ?? null,
+      intro_email_recipient: r.intro_email_recipient,
     })?.queue as OutreachQueue | undefined
     return emailRouted ?? r.queue
   }
@@ -676,6 +681,8 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         emailSentAt: r.email_sent_at,
         lastCallOutcome: r.last_call_outcome as CallOutcome | null,
         callbackDate: r.callback_date,
+        currentEmail: r.customer_prereviews.customers?.email ?? null,
+        introEmailRecipient: r.intro_email_recipient,
       }) &&
       (cls.bucket === 'available' || cls.bucket === 'owned')
     if (isIntroEmail) {
@@ -1036,22 +1043,6 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     const prepCount = summary.by.operations_prep
     const determineCount = summary.by.bob_evaluation
     const reviewRoute = `/projects/${projectId}/review`
-    // Contact Research is the SINGLE consolidated contact-finding activity (not a
-    // 1035 stage), so it carries its OWN route and its OWN live counts from the
-    // one project Contact Research read — the same read model the surface uses,
-    // so My Work and the surface never disagree, and each customer is counted
-    // once here instead of once on the board and once in a project activity.
-    //   - needs_research  = actively recommended outstanding research.
-    //   - no_usable_contact = the visible "No Usable Contact Information"
-    //     exception (kept after unsuccessful research, NOT recommended).
-    //   - total = the full unresolved population shown on the surface.
-    const contactResearchRoute = `/projects/${projectId}/contact-review`
-    const contactResearchSummary = summarizeContactReview(
-      await buildContactReview(supabase, projectId),
-    )
-    const contactResearchActionable = contactResearchSummary.needs_research
-    const contactResearchUnresolved = contactResearchSummary.total
-    const contactResearchUnsuccessful = contactResearchSummary.no_usable_contact
 
     // These project activities are inherently scoped to this project, so
     // eligibility and focus are judged against THIS project only (never
@@ -1112,38 +1103,91 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     }
     addProjectActivity('operations_prep', prepCount)
     addProjectActivity('determination', determineCount)
-    // Contact Research: the single consolidated contact-finding activity, a
-    // quiet-work activity routed to its own continuous Contact Research screen.
-    // The actionable (recommended) count is the outstanding needs_research
-    // population; the No Usable Contact Information exception is visible but not
-    // recommended, carried on the activity's unresolved/unsuccessful figures
-    // (the same attempted-vs-unresolved presentation the summary already uses),
-    // so an employee eligible for research sees one Contact Research entry and
-    // opens the one screen straight from My Work.
-    addProjectActivity('research', contactResearchActionable, contactResearchRoute)
-    {
-      const research = acc.get('research')
-      if (research && contactResearchUnresolved > 0) {
-        research.unresolved += contactResearchUnresolved
-        research.unsuccessful += contactResearchUnsuccessful
-        const b = projectBucket(research, projectId)
-        b.unresolvedCount = (b.unresolvedCount ?? 0) + contactResearchUnresolved
-        b.unsuccessfulCount = (b.unsuccessfulCount ?? 0) + contactResearchUnsuccessful
-        research.projectIds.add(projectId)
+  }
 
-        // When there is NO outstanding research but unresolved exceptions remain
-        // (only No Usable Contact Information left), addProjectActivity emitted no
-        // source (count 0), so the activity would have no link into its screen.
-        // Emit an informational source here so Contact Research stays visible and
-        // clickable, landing on the same Contact Research screen that shows the
-        // exception. Informational, so it never feeds the (zero) actionable total.
-        if (contactResearchActionable <= 0 && !research.sources.some((s) => s.kind === 'project')) {
+  // 4a. Contact Research — the SINGLE consolidated contact-finding activity,
+  // across ALL active projects that contain the review-preparation workflow, not
+  // just the first. Each customer missing a usable email or phone (effective
+  // usability, folding recorded-unusable channels) is counted once, in the
+  // project they belong to, routed to that project's Contact Research screen.
+  // The actionable (recommended) count is the outstanding needs_research
+  // population; the No Usable Contact Information exception is visible but not
+  // recommended, carried on the activity's unresolved/unsuccessful figures. This
+  // runs over every eligible 1035 project so a customer in a second or later
+  // 1035 project is never dropped from the consolidated population.
+  {
+    const research = acc.get('research')
+    if (research) {
+      // The projects to scan: all active review_preparation projects, or the
+      // single legacy project when the workflow tables are absent (same fallback
+      // the prep/determination resolution uses above).
+      const contactResearchProjects: { id: string; name: string }[] =
+        reviewProjects !== null ? reviewProjects : proj ? [proj] : []
+
+      for (const crp of contactResearchProjects) {
+        const crProjectId = crp.id
+        const crProjectName = crp.name || 'Review Preparation'
+        const crRoute = `/projects/${crProjectId}/contact-review`
+        const crSummary = summarizeContactReview(
+          await buildContactReview(supabase, crProjectId),
+        )
+        const actionable = crSummary.needs_research
+        const unresolved = crSummary.total
+        const unsuccessful = crSummary.no_usable_contact
+        if (unresolved <= 0) continue
+
+        const crProjectSet = new Set<string>([crProjectId])
+        const eligible = itemEligible('research', crProjectSet)
+        const status = activityCapabilityStatus('research', crProjectSet)
+        const canPickUp = eligible || status === 'assist'
+
+        research.projectIds.add(crProjectId)
+        // Unresolved/unsuccessful presentation (each customer once), per project.
+        research.unresolved += unresolved
+        research.unsuccessful += unsuccessful
+        const b = projectBucket(research, crProjectId)
+        b.unresolvedCount = (b.unresolvedCount ?? 0) + unresolved
+        b.unsuccessfulCount = (b.unsuccessfulCount ?? 0) + unsuccessful
+
+        // The actionable (recommended) outstanding research feeds the activity
+        // total and this employee's pickable counts, bucketed exactly as
+        // addProjectActivity does (project-stage work has no claim model, so
+        // pickable -> available, otherwise awareness-only notEligible).
+        if (actionable > 0) {
+          research.total += actionable
+          b.totalCount += actionable
+          if (canPickUp) {
+            research.availableToMe += actionable
+            b.availableCount += actionable
+            if (eligible) {
+              research.eligible += actionable
+              if (itemFocusElevated('research', crProjectSet)) research.focusEligible += actionable
+            }
+          } else {
+            b.notEligibleCount += actionable
+          }
           research.sources.push({
             kind: 'project',
-            label: projectName,
-            count: contactResearchUnresolved,
-            route: contactResearchRoute,
-            projectId,
+            label: crProjectName,
+            count: actionable,
+            route: crRoute,
+            projectId: crProjectId,
+            ownedByMe: 0,
+            availableToMe: canPickUp ? actionable : 0,
+            claimedByOthers: 0,
+            notEligible: canPickUp ? 0 : actionable,
+            dueToMe: 0,
+          })
+        } else {
+          // Only the No Usable Contact Information exception remains for this
+          // project: no actionable work, but keep Contact Research visible and
+          // clickable with an informational source landing on its screen.
+          research.sources.push({
+            kind: 'project',
+            label: crProjectName,
+            count: unresolved,
+            route: crRoute,
+            projectId: crProjectId,
             ownedByMe: 0,
             availableToMe: 0,
             claimedByOthers: 0,

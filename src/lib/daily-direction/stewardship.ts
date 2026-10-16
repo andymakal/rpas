@@ -51,6 +51,7 @@ type BoardRow = {
   research_reason: string | null
   last_call_outcome: string | null
   email_sent_at: string | null
+  intro_email_recipient: string | null
   callback_date: string | null
   follow_up_due: string | null
   refused_at: string | null
@@ -91,7 +92,7 @@ export async function getDailyDirection(
   const { data, error } = await supabase
     .from('stewardship_outreach')
     .select(`
-      id, queue, call_reason, research_reason, last_call_outcome, email_sent_at, callback_date, follow_up_due, refused_at,
+      id, queue, call_reason, research_reason, last_call_outcome, email_sent_at, intro_email_recipient, callback_date, follow_up_due, refused_at,
       customer_prereviews!inner (
         decision,
         customers!inner ( id, first_name, last_name, email, phone )
@@ -136,6 +137,8 @@ export async function getDailyDirection(
       callback_date: r.callback_date,
       refused_at: r.refused_at,
       has_usable_email: !!r.customer_prereviews.customers?.email?.trim(),
+      current_email: r.customer_prereviews.customers?.email ?? null,
+      intro_email_recipient: r.intro_email_recipient,
     })?.queue as OutreachQueue | undefined
     return emailRouted ?? r.queue
   }

@@ -25,10 +25,6 @@ import {
 } from '@/components/workflow'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import {
-  normalizeEmailInput, normalizePhoneInput, formatPhoneAsTyped,
-  type ContactFieldResult,
-} from '@/lib/contact-input'
-import {
   QUEUE_META, OUTREACH_QUEUES,
   type OutreachQueue, type CallOutcome,
 } from '@/lib/stewardship/queues'
@@ -207,6 +203,11 @@ type Detail = BoardItem & {
   } | null
   /** Signer identity is not derivable from durable data; always false today. */
   signer_identity_known: boolean
+  /** The active 1035 project whose consolidated Contact Research task owns this
+   * customer. The Research Needed task links here instead of hosting its own
+   * correction screen, so contact research is one surface. Null when not in an
+   * active 1035 project. */
+  contact_research_project_id?: string | null
 }
 
 const QUEUE_ICON: Record<OutreachQueue, typeof Mail> = {
@@ -1882,7 +1883,7 @@ function CarrierPolicyRow({ h, busy, onConfirm }: { h: Holding; busy: boolean; o
 }
 
 function ResearchAction({
-  detail, request, busy, noteBox, act,
+  detail, request,
 }: {
   detail: Detail
   request: Holding[]
@@ -1890,43 +1891,27 @@ function ResearchAction({
   noteBox: React.ReactNode
   act: (action: unknown, successNote?: string) => void
 }) {
-  const [emailVal, setEmailVal] = useState('')
-  // Editable phone shows the (XXX) XXX-XXXX standard as it is typed, via the
-  // shared formatter — the same rule the project Contact Review form applies.
-  const [phoneVal, setPhoneVal] = useState('')
-  const [emailResult, setEmailResult] = useState<ContactFieldResult | null>(null)
-  const [phoneResult, setPhoneResult] = useState<ContactFieldResult | null>(null)
-
   // One policy number from the servicing request pairs with the last name for
-  // the shared Gateway look-up, exactly like project Contact Review.
+  // the shared Gateway look-up, exactly like the consolidated Contact Research
+  // task the worker is sent to.
   const policyNumber = request.map(h => h.policy_number).find(p => p && p.trim().length > 0) ?? null
 
-  // Normalize on blur so a pasted value is cleaned in place and an invalid one
-  // surfaces a reason rather than being routed. The canonical value is what we
-  // route with, so routing cannot carry an unvalidated contact method.
-  const emailEval = normalizeEmailInput(emailVal)
-  const phoneEval = normalizePhoneInput(phoneVal)
-  const emailRoutable = emailEval.status === 'valid'
-  const phoneRoutable = phoneEval.status === 'valid'
-
-  const handleEmailBlur = () => {
-    const r = normalizeEmailInput(emailVal)
-    setEmailResult(r)
-    if (r.status === 'valid') setEmailVal(r.value ?? '')
-  }
-  const handlePhoneBlur = () => {
-    const r = normalizePhoneInput(phoneVal)
-    setPhoneResult(r)
-    if (r.status === 'valid') setPhoneVal(r.value ?? '')
-  }
+  // Research Needed is no longer a separate correction screen. Contact research
+  // is ONE consolidated surface: the project Contact Research task. From the
+  // shared board this task hands the worker to that single screen for THIS
+  // customer, so the look-up, the found-value capture, and the "nothing usable"
+  // outcome all happen in one place (and a replacement value recalculates work
+  // the same way everywhere). The customer's active 1035 project owns that task.
+  const contactResearchHref = detail.contact_research_project_id
+    ? `/projects/${detail.contact_research_project_id}/contact-review?customer_id=${encodeURIComponent(detail.customer.id)}`
+    : null
 
   return (
     <ActionPanel heading={`Find contact for ${fullName(detail.customer)}`}>
-      {noteBox}
       {/* Mentoring (HOW) sits immediately ABOVE the instructions it explains —
-          the Gateway look-up and the found-contact capture below — never at the
-          bottom. Its own purple control is always shown; the global toggle only
-          sets its default open/closed state. */}
+          the Gateway look-up and the hand-off below — never at the bottom. Its
+          own purple control is always shown; the global toggle only sets its
+          default open/closed state. */}
       <MentorGuidance label="How to find a match">
         Search Gateway with the customer&apos;s last name and policy number together — the policy
         number is the surest way to land on the right record. If the policy number finds nothing,
@@ -1939,70 +1924,34 @@ function ResearchAction({
       </div>
 
       {/* The shared Gateway look-up — last name + policy number with Copy
-          buttons, identical to the project Contact Review task. */}
+          buttons, identical to the consolidated Contact Research task. */}
       <GatewayLookup
         lastName={detail.customer.last_name}
         fallbackName={fullName(detail.customer)}
         policyNumber={policyNumber}
       />
 
-      {/* Found an email — capture the actual value; it is written to the
-          customer record before routing to Ready to Email. */}
-      <div className="space-y-2 rounded-xl border border-surface-border bg-surface-card p-4">
-        <label htmlFor="found-email" className="text-base font-medium text-ink-secondary">Found an email</label>
-        <input id="found-email" type="email" value={emailVal}
-          onChange={e => { setEmailVal(e.target.value); if (emailResult) setEmailResult(null) }}
-          onBlur={handleEmailBlur}
-          placeholder="name@example.com"
-          aria-invalid={emailResult?.status === 'invalid' || undefined}
-          className={`w-full rounded-lg border px-3 py-2 text-base text-ink focus:outline-none focus:ring-2 ${
-            emailResult?.status === 'invalid'
-              ? 'border-status-missing-border focus:border-status-missing-border focus:ring-status-missing-soft'
-              : 'border-surface-border-strong focus:border-brand-ring focus:ring-brand-wash'
-          }`} />
-        {emailResult?.status === 'invalid' && emailResult.reason && (
-          <p className="text-base text-status-missing-strong">{emailResult.reason}</p>
-        )}
-        <WorkflowButton icon={Check} selected disabled={busy || !emailRoutable}
-          onClick={() => { setEmailResult(emailEval); if (emailRoutable) act({ type: 'research-found', found: 'email', email: emailEval.value }, 'Email saved. Moved to Ready to Email.') }}>
-          Save email, move to Ready to Email
-        </WorkflowButton>
-      </div>
-
-      {/* Found a phone — same, routes to Ready to Call. */}
-      <div className="space-y-2 rounded-xl border border-surface-border bg-surface-card p-4">
-        <label htmlFor="found-phone" className="text-base font-medium text-ink-secondary">Found a phone, no email</label>
-        <input id="found-phone" type="tel" value={phoneVal}
-          onChange={e => { setPhoneVal(formatPhoneAsTyped(e.target.value)); if (phoneResult) setPhoneResult(null) }}
-          onBlur={handlePhoneBlur}
-          placeholder="215-555-0100"
-          aria-invalid={phoneResult?.status === 'invalid' || undefined}
-          className={`w-full rounded-lg border px-3 py-2 text-base text-ink focus:outline-none focus:ring-2 ${
-            phoneResult?.status === 'invalid'
-              ? 'border-status-missing-border focus:border-status-missing-border focus:ring-status-missing-soft'
-              : 'border-surface-border-strong focus:border-brand-ring focus:ring-brand-wash'
-          }`} />
-        {phoneResult?.status === 'invalid' && phoneResult.reason && (
-          <p className="text-base text-status-missing-strong">{phoneResult.reason}</p>
-        )}
-        <WorkflowButton icon={Check} selected disabled={busy || !phoneRoutable}
-          onClick={() => { setPhoneResult(phoneEval); if (phoneRoutable) act({ type: 'research-found', found: 'phone', phone: phoneEval.value }, 'Phone saved. Moved to Ready to Call.') }}>
-          Save phone, move to Ready to Call
-        </WorkflowButton>
-      </div>
-
-      <WorkflowButton disabled={busy}
-        onClick={() => act({ type: 'research-found', found: 'nothing' }, 'Research recorded. This customer will not keep resurfacing as research to do.')}>
-        Nothing usable yet
-      </WorkflowButton>
+      {/* Hand off to the ONE consolidated Contact Research task. The capture,
+          the "nothing usable" outcome, and the save-and-recalculate all live
+          there now, so there is a single contact-research surface rather than a
+          duplicate board screen. */}
+      {contactResearchHref ? (
+        <a href={contactResearchHref} className="block">
+          <PrimaryAction icon={ExternalLink} label="Open Contact Research for this customer" />
+        </a>
+      ) : (
+        <OperationalTag tone="info">
+          This customer is not in an active 1035 project, so there is no Contact Research task to
+          open. Add them to the 1035 project to research their contact information.
+        </OperationalTag>
+      )}
 
       <NextNote>
-        A found value is normalized and saved to the customer record (field by field, without
-        overwriting the other, clearing that value&apos;s prior verification) before the customer is
-        routed forward. You can also edit email, phone, or the mailing address directly on the
-        Customer Contact card to the right. Nothing usable records that research was completed and
-        found nothing, so it stops being recommended; the customer is not closed, and anyone whose
-        details later turn up returns automatically. You can always research again.
+        Contact Research is one screen. Opening it takes you to this customer&apos;s task, where you
+        enter the email or phone Gateway shows (saved field by field to the customer record,
+        clearing that value&apos;s prior verification and recalculating available work), or record
+        that nothing usable was found. The customer is never closed; anyone whose details later turn
+        up returns automatically, and you can always research again.
       </NextNote>
     </ActionPanel>
   )

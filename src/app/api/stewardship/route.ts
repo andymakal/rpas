@@ -127,7 +127,7 @@ export async function GET(request: NextRequest) {
     .from('stewardship_outreach')
     .select(`
       id, prereview_id, queue, call_reason, research_reason, last_call_outcome,
-      callback_date, email_sent_at, follow_up_due, form_received_at, submitted_at, carrier_correction,
+      callback_date, email_sent_at, intro_email_recipient, follow_up_due, form_received_at, submitted_at, carrier_correction,
       refused_at, updated_at, claimed_by_producer_id,
       customer_prereviews!inner (
         id, customer_id, source_agency_id, decision,
@@ -167,6 +167,7 @@ export async function GET(request: NextRequest) {
     last_call_outcome: string | null
     callback_date: string | null
     email_sent_at: string | null
+    intro_email_recipient: string | null
     follow_up_due: string | null
     form_received_at: string | null
     submitted_at: string | null
@@ -275,6 +276,11 @@ export async function GET(request: NextRequest) {
       callback_date: r.callback_date,
       refused_at: r.refused_at,
       has_usable_email: !!r.customer_prereviews.customers?.email?.trim(),
+      // Replaced-address re-offer: the current email vs the address the
+      // introduction was actually sent to. A mismatch, while pre-authorization,
+      // re-routes to ready-to-email so the introduction is offered again.
+      current_email: r.customer_prereviews.customers?.email ?? null,
+      intro_email_recipient: r.intro_email_recipient,
     })?.queue as OutreachQueue | undefined
     const effectiveQueue: OutreachQueue = emailRouted ?? r.queue
     // The derived call population this item belongs to (callability-based, not
@@ -296,6 +302,8 @@ export async function GET(request: NextRequest) {
       emailSentAt: r.email_sent_at,
       lastCallOutcome: r.last_call_outcome as CallOutcome | null,
       callbackDate: r.callback_date,
+      currentEmail: r.customer_prereviews.customers?.email ?? null,
+      introEmailRecipient: r.intro_email_recipient,
     })
     return {
       id: r.id,

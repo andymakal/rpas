@@ -3,6 +3,28 @@ import {
   readResearchedUnsuccessfullyBatch,
   stillNeedsResearchRecommendation,
 } from '@/lib/stewardship/research-record'
+import { readUnusableChannelsByCustomer } from '@/lib/stewardship/attempt-history'
+import type { OutreachChannel } from '@/lib/stewardship/outreach-attempts'
+import { activeProjectsWithWorkflow } from '@/lib/projects/workflows'
+
+/**
+ * Effective contact usability folds the recorded-UNUSABLE fact into mere
+ * presence, exactly as the contact-options ZEN boundary does for outreach:
+ *   - a phone is usable only when present AND the number has not been recorded
+ *     unusable (a bad/disconnected number, recorded via a 'call' or 'voicemail'
+ *     unusable outcome — both ride the same number);
+ *   - an email is usable only when present AND the email channel has not been
+ *     recorded unusable (a bounced/invalid address).
+ * A present-but-unusable value therefore does NOT keep a customer out of the No
+ * Usable Contact Information exception: they genuinely cannot be reached.
+ */
+function emailUsable(email: string | null, unusable: Set<OutreachChannel>): boolean {
+  return !!email && email.trim().length > 0 && !unusable.has('email')
+}
+function phoneUsable(phone: string | null, unusable: Set<OutreachChannel>): boolean {
+  if (!phone || phone.trim().length === 0) return false
+  return !unusable.has('call') && !unusable.has('voicemail')
+}
 
 /**
  * Contact Research — project-scoped read model (the single consolidated
@@ -199,8 +221,26 @@ export async function buildContactReview(
     customers.push(...((data ?? []) as unknown as CustomerRow[]))
   })
 
-  // Customers still missing a method, before the durable research suppression.
-  const incomplete = customers.filter((c) => !c.is_test && !(usable(c.email) && usable(c.phone)))
+  // Recorded-unusable channels per project customer, read in one batched pass.
+  // Folded into usability below so a present-but-unusable value (a bad number, a
+  // bounced email) does NOT count as a usable method — the same recorded fact
+  // the outreach contact-options boundary subtracts. Read for the whole
+  // (non-test) project population BEFORE the incomplete filter, because a
+  // customer with both values PRESENT but BOTH recorded unusable has no usable
+  // contact and must reach the exception, which a raw-presence filter would miss.
+  const realCustomers = customers.filter((c) => !c.is_test)
+  const unusableByCustomer = await readUnusableChannelsByCustomer(
+    supabase,
+    realCustomers.map((c) => c.id),
+  )
+  const noneUnusable: Set<OutreachChannel> = new Set()
+
+  // Customers still missing a USABLE method (effective usability), before the
+  // durable research suppression.
+  const incomplete = realCustomers.filter((c) => {
+    const u = unusableByCustomer.get(c.id) ?? noneUnusable
+    return !(emailUsable(c.email, u) && phoneUsable(c.phone, u))
+  })
 
   // Which of those have a recorded unsuccessful-research outcome, read in one
   // batched pass. A customer whose every still-missing method is settled by
@@ -218,8 +258,9 @@ export async function buildContactReview(
 
   const out: ContactReviewCustomer[] = []
   for (const c of incomplete) {
-    const hasEmail = usable(c.email)
-    const hasPhone = usable(c.phone)
+    const u = unusableByCustomer.get(c.id) ?? noneUnusable
+    const hasEmail = emailUsable(c.email, u)
+    const hasPhone = phoneUsable(c.phone, u)
     const researched = researchedByCustomer.get(c.id) ?? { email: false, phone: false }
     const stillRecommend = stillNeedsResearchRecommendation({ hasEmail, hasPhone }, researched)
 
@@ -306,9 +347,13 @@ export async function loadContactReviewCustomer(
   if (!c || (c as unknown as CustomerRow).is_test) return null
 
   const row = c as unknown as CustomerRow
-  const hasEmail = usable(row.email)
-  const hasPhone = usable(row.phone)
-  // Both methods present: there is nothing to review or research.
+  // Effective usability (folds recorded-unusable channels), the same basis the
+  // routine list uses, so a reopened customer classifies identically.
+  const unusable = (await readUnusableChannelsByCustomer(supabase, [row.id])).get(row.id)
+    ?? new Set<OutreachChannel>()
+  const hasEmail = emailUsable(row.email, unusable)
+  const hasPhone = phoneUsable(row.phone, unusable)
+  // Both methods usable: there is nothing to review or research.
   if (hasEmail && hasPhone) return null
 
   const policyByCustomer = await loadOnePolicyNumberPerCustomer(supabase, [row.id])
@@ -368,18 +413,40 @@ export async function researchAgainProjectId(
     .eq('id', customerId)
     .maybeSingle()
   if (!c || (c as CustomerRow).is_test) return null
-  const hasEmail = usable((c as CustomerRow).email)
-  const hasPhone = usable((c as CustomerRow).phone)
+  // Effective usability (folds recorded-unusable channels), the same basis the
+  // Contact Research list uses.
+  const unusable = (await readUnusableChannelsByCustomer(supabase, [customerId])).get(customerId)
+    ?? new Set<OutreachChannel>()
+  const hasEmail = emailUsable((c as CustomerRow).email, unusable)
+  const hasPhone = phoneUsable((c as CustomerRow).phone, unusable)
   if (hasEmail && hasPhone) return null // nothing missing
 
-  // Only when the customer is settled by research (dropped from the list) does a
-  // special reopen link apply; an outstanding method keeps them in the list.
+  // Only when the customer is settled by research (dropped from the active list)
+  // does a special reopen link apply; an outstanding method keeps them in the
+  // list.
   const researched = await readResearchedUnsuccessfullyBatch(supabase, [customerId])
   const research = researched.get(customerId) ?? { email: false, phone: false }
   if (stillNeedsResearchRecommendation({ hasEmail, hasPhone }, research)) return null
 
-  // Find an active 1035 project the customer belongs to (Contact Review runs on
-  // 1035 projects, gated the same way the Contact Review page is).
+  return activeContactResearchProjectForCustomer(supabase, customerId)
+}
+
+/**
+ * The active 1035 (review-preparation) project a customer belongs to, if any —
+ * the project whose Contact Research task owns this customer. Resolved from the
+ * project_workflows wiring (the review_preparation workflow), with a fallback to
+ * the project-type name when the workflow tables are absent (pre-migration),
+ * mirroring how My Work and the Contact Research page gate. Returns the FIRST
+ * active match; a customer is normally in exactly one active 1035 project.
+ *
+ * Used to route the shared Stewardship "Research Needed" task to the SAME
+ * consolidated Contact Research screen, so there is one contact-finding surface
+ * rather than a separate board correction screen.
+ */
+export async function activeContactResearchProjectForCustomer(
+  supabase: SupabaseClient,
+  customerId: string,
+): Promise<string | null> {
   const { data: memberships } = await supabase
     .from('project_customers')
     .select('project_id')
@@ -389,6 +456,18 @@ export async function researchAgainProjectId(
   )
   if (projectIds.length === 0) return null
 
+  // Prefer the workflow wiring: an active project containing review_preparation.
+  const wfProjects = await activeProjectsWithWorkflow(supabase, 'review_preparation')
+  if (wfProjects !== null) {
+    const wfIds = new Set(wfProjects.map((p) => p.id))
+    const match = projectIds.find((pid) => wfIds.has(pid))
+    if (match) return match
+    // Workflow tables present but the customer's projects are not wired for
+    // review_preparation: fall through to the type-name check below as a safety
+    // net (a 1035 project may predate its wiring).
+  }
+
+  // Fallback / safety net: an active project whose type name is 1035.
   const { data: projects } = await supabase
     .from('projects')
     .select('id, status, project_types ( name )')

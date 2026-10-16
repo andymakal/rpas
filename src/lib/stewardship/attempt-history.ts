@@ -164,3 +164,51 @@ export async function getAttemptHistory(
     unusableChannels: Array.from(unusableChannels(attempts)),
   }
 }
+
+/**
+ * Batched read of the channels recorded UNUSABLE for each of many customers, in
+ * one pass over case_touches. A channel is unusable when a recorded onboarding
+ * outreach communication on it carried the 'unusable' outcome (wrong/
+ * disconnected number, full/unset mailbox, bouncing text, invalid email) — the
+ * same recorded fact getAttemptHistory surfaces per customer, computed here for
+ * a whole set so a list read (e.g. Contact Research) does not issue one query
+ * per customer.
+ *
+ * Returns a map keyed by customer id; a customer with no unusable channel is
+ * absent (treat as the empty set). A read failure returns an empty map so a
+ * caller errs toward treating channels as still usable rather than fabricating
+ * an exhausted state. Only onboarding outreach touches are considered, the same
+ * scope getAttemptHistory uses, so unrelated case touches never mark a channel
+ * unusable. Grouping into attempts is unnecessary here: usability is a per-
+ * communication fact, so the 'unusable' outcome on any single communication
+ * marks that channel for the customer.
+ */
+export async function readUnusableChannelsByCustomer(
+  supabase: SupabaseClient,
+  customerIds: readonly string[],
+): Promise<Map<string, Set<OutreachChannel>>> {
+  const out = new Map<string, Set<OutreachChannel>>()
+  const unique = Array.from(new Set(customerIds))
+  if (unique.length === 0) return out
+
+  for (let i = 0; i < unique.length; i += 300) {
+    const chunk = unique.slice(i, i + 300)
+    const { data, error } = await supabase
+      .from('case_touches')
+      .select('customer_id, touch_type, notes')
+      .in('customer_id', chunk)
+    if (error) {
+      console.error('unusable-channel batch read error:', error.message)
+      continue
+    }
+    for (const r of (data ?? []) as { customer_id: string; touch_type: string; notes: string | null }[]) {
+      if (!OUTREACH_CHANNELS.has(r.touch_type)) continue
+      if (!isOnboardingContactAttempt(r.notes)) continue
+      if (parseOutcomeFromNote(r.notes) !== 'unusable') continue
+      const set = out.get(r.customer_id) ?? new Set<OutreachChannel>()
+      set.add(r.touch_type as OutreachChannel)
+      out.set(r.customer_id, set)
+    }
+  }
+  return out
+}

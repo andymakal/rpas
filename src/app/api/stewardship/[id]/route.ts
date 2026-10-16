@@ -21,9 +21,11 @@ import {
   NONRESPONSIVE_LABEL,
 } from '@/lib/stewardship/cadence-status'
 import { normalizeEmailInput, normalizePhoneInput } from '@/lib/contact-input'
+import { activeContactResearchProjectForCustomer } from '@/lib/projects/contact-review'
 import {
   applyAction,
   deriveEmailRouting,
+  normalizeRecipientEmail,
   type OutreachAction,
   type OutreachState,
   type OutreachQueue,
@@ -41,6 +43,7 @@ type OutreachRow = {
   last_call_outcome: CallOutcome | null
   callback_date: string | null
   email_sent_at: string | null
+  intro_email_recipient: string | null
   follow_up_due: string | null
   form_received_at: string | null
   submitted_at: string | null
@@ -51,7 +54,7 @@ type OutreachRow = {
 
 const OUTREACH_COLUMNS =
   'id, prereview_id, queue, call_reason, research_reason, last_call_outcome, ' +
-  'callback_date, email_sent_at, follow_up_due, form_received_at, submitted_at, carrier_correction, ' +
+  'callback_date, email_sent_at, intro_email_recipient, follow_up_due, form_received_at, submitted_at, carrier_correction, ' +
   'form_delivery_method, refused_at'
 
 /**
@@ -208,6 +211,12 @@ export async function GET(
   const researchSettled = methodsSettledByResearch(presence, researchedUnsuccessfully)
   const researchStillRecommended = stillNeedsResearchRecommendation(presence, researchedUnsuccessfully)
 
+  // The active 1035 project whose consolidated Contact Research task owns this
+  // customer. When the item is Research Needed, the board task links here rather
+  // than hosting its own former correction screen, so contact research is ONE
+  // surface. Null when the customer is not in an active 1035 project.
+  const contactResearchProjectId = await activeContactResearchProjectForCustomer(supabase, customerId)
+
   // The Nonresponsive advisory counts only genuinely UNSUCCESSFUL attempts (a
   // reached attempt is a success and never counts toward the seven-attempt
   // warning).
@@ -238,6 +247,8 @@ export async function GET(
     callback_date: o.callback_date,
     refused_at: o.refused_at,
     has_usable_email: !!cust.email?.trim(),
+    current_email: cust.email,
+    intro_email_recipient: o.intro_email_recipient,
   })
   const effectiveQueue: OutreachQueue = emailPatch?.queue ?? o.queue
   const effectiveCallReason: CallReason | null = emailPatch ? (emailPatch.call_reason ?? null) : o.call_reason
@@ -280,6 +291,10 @@ export async function GET(
         phone_settled: researchSettled.phone,
         still_recommended: researchStillRecommended,
       },
+      // The active 1035 project whose consolidated Contact Research task owns
+      // this customer, so the Research Needed task opens that single screen
+      // instead of a separate board correction screen. Null when not applicable.
+      contact_research_project_id: contactResearchProjectId,
       // Grouped outreach-attempt count and the Nonresponsive recommendation when
       // ZEN has flagged the run (null otherwise). Recommendation only.
       outreach_attempts: history.outreachAttempts,
@@ -449,6 +464,7 @@ export async function PATCH(
     last_call_outcome: row.last_call_outcome,
     callback_date: row.callback_date,
     email_sent_at: row.email_sent_at,
+    intro_email_recipient: row.intro_email_recipient,
     follow_up_due: row.follow_up_due,
     form_received_at: row.form_received_at,
     submitted_at: row.submitted_at,
@@ -959,11 +975,28 @@ export async function PATCH(
   // email is a legitimate new history entry each time it is recorded.
   if (action.type === 'email-sent') {
     const advancesFunnel = result.patch.queue === 'waiting-for-response'
+    // The address this introduction/authorization email actually reaches. For
+    // an EMAIL send it is the customer's current email; a POSTAL send reaches no
+    // email address, so it never stamps an email recipient. Stamped durably so a
+    // later email replacement, while still pre-authorization, can tell the
+    // introduction went to an address the customer no longer has and re-offer
+    // it. This complements the history note below, which also records the
+    // recipient, so communication history stays explicit about who was reached.
+    const isPostalSend = row.form_delivery_method === 'postal'
+    const introRecipient = isPostalSend
+      ? null
+      : normalizeRecipientEmail(row.customer_prereviews.customers?.email ?? null)
+    // The advancing send IS the introduction, so stamp the recipient alongside
+    // the funnel advance. A chase email (non-advancing) does not move the
+    // introduction marker.
+    const advancePatch = advancesFunnel && introRecipient
+      ? { ...result.patch, intro_email_recipient: introRecipient }
+      : result.patch
     let advanced: OutreachRow | null = null
     if (advancesFunnel) {
       const { data: advancedRows, error: advErr } = await supabase
         .from('stewardship_outreach')
-        .update(result.patch)
+        .update(advancePatch)
         .eq('id', id)
         .eq('queue', state.queue) // atomic flip from the item's current queue
         .select(OUTREACH_COLUMNS)
@@ -1009,6 +1042,14 @@ export async function PATCH(
     // form_delivery_method). A postal send must be recorded as a postal touch,
     // not as an email, so history reflects what really happened.
     const isPostal = row.form_delivery_method === 'postal'
+    // Record the actual recipient in the history note so communication history
+    // is explicit about who each send reached. For an email send that is the
+    // email address; for a postal send it is the mailing address on file. This
+    // is durable history and is never overwritten by a later send.
+    const emailRecipient = normalizeRecipientEmail(row.customer_prereviews.customers?.email ?? null)
+    const emailNote = emailRecipient
+      ? `1035 servicing-agent authorization email sent to the customer at ${emailRecipient}.`
+      : '1035 servicing-agent authorization email sent to the customer.'
     const { error: touchErr } = await supabase
       .from('case_touches')
       .insert({
@@ -1017,7 +1058,7 @@ export async function PATCH(
         touch_type:  isPostal ? 'postal' : 'email',
         notes:       isPostal
           ? '1035 servicing-agent authorization letter mailed to the customer by postal mail.'
-          : '1035 servicing-agent authorization email sent to the customer.',
+          : emailNote,
         touched_at:  advanced?.email_sent_at ?? new Date().toISOString(),
         touched_by:  touchedBy,
       })

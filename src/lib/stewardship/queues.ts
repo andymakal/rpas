@@ -236,6 +236,16 @@ export interface OutreachState {
   last_call_outcome: CallOutcome | null
   callback_date: string | null
   email_sent_at: string | null
+  /**
+   * The email address the introductory/authorization email was actually sent
+   * to, stamped by the route at send time. Null when no introduction has gone
+   * out. A mismatch with the customer's CURRENT usable email, while still in the
+   * pre-authorization funnel, means the introduction reached an address the
+   * customer no longer has, so it is re-offered for the new address (see
+   * introNeededForReplacedEmail / deriveEmailRouting). Past authorization it is
+   * never re-offered.
+   */
+  intro_email_recipient: string | null
   follow_up_due: string | null
   form_received_at: string | null
   submitted_at: string | null
@@ -322,13 +332,66 @@ export function isIntroductoryEmail(input: {
   emailSentAt: string | null
   lastCallOutcome: CallOutcome | null
   callbackDate: string | null
+  /** The customer's CURRENT usable email (canonicalized), for the replaced-
+   * address re-offer. Optional for back-compat; omitting it preserves the
+   * original "untouched opener" behavior. */
+  currentEmail?: string | null
+  /** The address the prior introduction was sent to (stewardship_outreach
+   * .intro_email_recipient). */
+  introEmailRecipient?: string | null
 }): boolean {
-  return (
-    input.effectiveQueue === 'ready-to-email' &&
+  if (input.effectiveQueue !== 'ready-to-email') return false
+  // The classic case: a first-touch opener with no workflow activity yet.
+  const untouchedOpener =
     input.emailSentAt == null &&
     input.lastCallOutcome == null &&
     input.callbackDate == null
-  )
+  if (untouchedOpener) return true
+  // The replaced-address case: an introduction already went out, but to an
+  // address the customer no longer has. deriveEmailRouting only routes such an
+  // item back to ready-to-email while it is still in the pre-authorization
+  // funnel, so reaching ready-to-email here already means re-offering is
+  // allowed. The introduction is available again for the new address.
+  return introNeededForReplacedEmail({
+    emailSentAt: input.emailSentAt,
+    currentEmail: input.currentEmail ?? null,
+    introEmailRecipient: input.introEmailRecipient ?? null,
+  })
+}
+
+/** Canonicalize an email for recipient comparison: trimmed + lowercased, or
+ * null when blank. A plain comparison then tells a replaced address from the
+ * same one re-typed with different case/whitespace. */
+export function normalizeRecipientEmail(v: string | null | undefined): string | null {
+  const t = (v ?? '').trim().toLowerCase()
+  return t.length > 0 ? t : null
+}
+
+/**
+ * Whether an introduction that was already sent should be OFFERED AGAIN because
+ * it went to an address the customer no longer has. True only when: an
+ * introduction was recorded (emailSentAt set), the customer now HAS a usable
+ * email, and that current email differs from the address the introduction was
+ * sent to. The funnel-stage guard (never past authorization) is applied by
+ * deriveEmailRouting, which is the only thing that can route such an item back
+ * to ready-to-email; this predicate is purely the recipient-mismatch fact.
+ *
+ * A legacy introduction with NO recorded recipient (intro_email_recipient null
+ * but email_sent_at set) is treated conservatively as already delivered to the
+ * address on file — not re-offered — so pre-existing sends are never resurfaced
+ * spuriously.
+ */
+export function introNeededForReplacedEmail(input: {
+  emailSentAt: string | null
+  currentEmail: string | null
+  introEmailRecipient: string | null
+}): boolean {
+  if (input.emailSentAt == null) return false
+  const current = normalizeRecipientEmail(input.currentEmail)
+  const sentTo = normalizeRecipientEmail(input.introEmailRecipient)
+  if (current == null) return false // no usable email now: nothing to re-offer
+  if (sentTo == null) return false // legacy send with no recorded recipient
+  return current !== sentTo
 }
 
 export function callPopulationOf(input: {
@@ -547,12 +610,40 @@ export function deriveEmailRouting(
   state: Pick<
     OutreachState,
     'queue' | 'call_reason' | 'research_reason' | 'last_call_outcome' | 'email_sent_at' | 'callback_date'
-  > & { refused_at?: string | null; has_usable_email: boolean },
+  > & {
+    refused_at?: string | null
+    has_usable_email: boolean
+    /** The customer's current usable email (canonical), for the replaced-
+     * address re-offer. Optional; omitting it preserves the original behavior. */
+    current_email?: string | null
+    /** The address the prior introduction was sent to. Optional. */
+    intro_email_recipient?: string | null
+  },
 ): OutreachPatch | null {
   if (!state.has_usable_email) return null
   if (state.refused_at) return null
   // Already emailable: nothing to upgrade.
   if (state.queue === 'ready-to-email') return null
+
+  // Replaced-address re-offer: an introduction already went out, but to an
+  // address the customer no longer has, and the item is STILL in the
+  // pre-authorization funnel (ready-to-call / research-needed /
+  // waiting-for-response). The introduction becomes available again for the new
+  // address — the one case where a progressed-but-pre-auth item is routed back
+  // to ready-to-email. Past authorization (waiting-for-form / waiting-for-
+  // carrier) this never fires, so onboarding is never restarted. The prior send
+  // and all history are preserved; only the recommended next action changes.
+  if (
+    inPreAuthFunnel(state.queue) &&
+    introNeededForReplacedEmail({
+      emailSentAt: state.email_sent_at,
+      currentEmail: state.current_email ?? null,
+      introEmailRecipient: state.intro_email_recipient ?? null,
+    })
+  ) {
+    return { queue: 'ready-to-email', call_reason: null, research_reason: null }
+  }
+
   // Only the two OPENING states intake assigns when no email was on file.
   const isOpeningCall = state.queue === 'ready-to-call' && state.call_reason === 'no-email'
   const isOpeningResearch = state.queue === 'research-needed' && state.research_reason === 'no-contact'
