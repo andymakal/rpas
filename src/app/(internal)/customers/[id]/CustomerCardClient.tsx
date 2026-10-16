@@ -1677,15 +1677,17 @@ export function CustomerCardClient({
         <OnboardingSection onboarding={onboarding} customerId={customer.id} />
 
         {/* Research contact info again — the deliberate reopen for a customer
-            whose contact research came up empty and who is therefore kept out of
-            the routine Contact Review list. Reuses the existing Contact Review
-            task via a per-customer deep link; it is not a new queue or screen. */}
+            whose contact research came up empty and who is therefore no longer
+            actively recommended on the Contact Research list. Reuses the existing
+            Contact Research task via a per-customer deep link; it is not a new
+            queue or screen. */}
         {researchAgainProjectId && (
           <Section title="Contact research" icon={Search}>
             <div className="px-5 py-4">
               <p className="text-sm text-slate-400">
-                Earlier research found no usable email or phone, so this customer is held out of
-                the routine Contact Review list. You can look again whenever you want.
+                Earlier research found no usable email or phone, so this customer is no longer
+                actively recommended on the Contact Research list. You can look again whenever you
+                want.
               </p>
               <Link
                 href={`/projects/${researchAgainProjectId}/contact-review?customer_id=${customer.id}`}

@@ -1,8 +1,13 @@
 'use client'
 
 /**
- * Contact Review — a fast look-up-and-complete pass over a project's customers
- * whose contact information is incomplete (missing a usable email or phone).
+ * Contact Research — the single consolidated contact-finding surface for a
+ * project: a fast look-up-and-complete pass over every customer whose contact
+ * information is incomplete (missing a usable email OR phone). This one screen
+ * replaces the former two separate activities (a "research exception" board
+ * surface for customers missing both methods, and a "contact review" project
+ * surface for customers missing one). A customer appears here once regardless of
+ * how many methods are missing.
  *
  * The worker works the list continuously: open a customer, search Gateway by
  * their last name and policy number, read what Gateway shows, type in the email
@@ -10,6 +15,13 @@
  * Nothing Usable & Next. Either action advances to the next customer in place;
  * the worker never returns to the queue between customers, and a customer
  * already handled this session is not presented again.
+ *
+ * Two surfaces, kept distinct per the business rule: the actively-recommended
+ * "Needs contact information" list, and a visible "No Usable Contact
+ * Information" exception for customers with no usable email or phone whose
+ * research came up empty. The exception stays on screen (the agency must keep
+ * sight of who it cannot reach) but is never re-recommended as fresh work; the
+ * worker can still open one deliberately to look again.
  *
  * Reuses the shared light-theme workflow design system (the same look as the
  * Stewardship research task) and the Assistant panel. It writes only to the
@@ -19,13 +31,13 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
-  Loader2, Save, SkipForward, ClipboardCheck, UserRound,
+  Loader2, Save, SkipForward, ClipboardCheck, UserRound, PhoneOff,
 } from 'lucide-react'
 import {
   TaskShell, ActionPanel, PrimaryAction, WorkflowButton, NextNote,
   SlimTaskHeader, AssistantPanel, GatewayLookup,
   CustomerContactCard, type CustomerContact,
-  QueueListHeader, CustomerQueueCard, QueueEmptyState,
+  QueueListHeader, CustomerQueueCard, QueueEmptyState, OperationalTag,
 } from '@/components/workflow'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 
@@ -46,9 +58,20 @@ type ContactReviewCustomer = {
   phone_verified_at: string | null
   address_verified_at: string | null
   policy_number: string | null
+  /** 'needs_research' = outstanding, actively recommended. 'no_usable_contact'
+   * = the visible No Usable Contact Information exception (kept after
+   * unsuccessful research, not re-recommended). */
+  status: 'needs_research' | 'no_usable_contact'
+  researched_unsuccessfully: boolean
 }
 
-type Summary = { total: number; missing_both: number; one_usable: number }
+type Summary = {
+  total: number
+  missing_both: number
+  one_usable: number
+  needs_research: number
+  no_usable_contact: number
+}
 
 function fullName(c: Pick<ContactReviewCustomer, 'first_name' | 'last_name'>): string {
   return `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim() || 'Unknown customer'
@@ -133,12 +156,27 @@ export function ContactReviewClient({
     setOpenId(target.customer_id)
   }, [reopened, rows, initialCustomerId])
 
-  // The still-to-do list: project customers missing contact info, minus the
-  // ones handled this session. Saved-and-still-incomplete customers stay out of
-  // the list for the session because they are in `handled`.
+  // The still-to-do list: project customers surfaced by Contact Research, minus
+  // the ones handled this session. Saved-and-still-incomplete customers stay out
+  // of the list for the session because they are in `handled`.
   const remaining = useMemo(
     () => rows.filter(r => !handled.has(r.customer_id)),
     [rows, handled],
+  )
+
+  // Split the still-to-do list into the two surfaces the business rule keeps
+  // distinct: actively-recommended outstanding research, and the visible "No
+  // Usable Contact Information" exception (customers with no usable email or
+  // phone whose research came up empty). The exception stays on screen so the
+  // agency keeps seeing who it cannot reach; it is not counted as outstanding
+  // work and is presented separately, below the active list.
+  const activeRemaining = useMemo(
+    () => remaining.filter(r => r.status === 'needs_research'),
+    [remaining],
+  )
+  const exceptionRemaining = useMemo(
+    () => remaining.filter(r => r.status === 'no_usable_contact'),
+    [remaining],
   )
 
   const openCustomer = useMemo(
@@ -159,8 +197,13 @@ export function ContactReviewClient({
     })
     // `remaining`/`handled` update on the next render; compute the next target
     // from the current rows excluding this one and the already-handled set.
+    // Advance only to the next ACTIVELY-RECOMMENDED customer; the No Usable
+    // Contact Information exceptions are visible but not fresh outstanding work,
+    // so Save/Nothing-Usable & Next never auto-walks into them.
     const next = rows.find(
-      r => r.customer_id !== customerId && !handled.has(r.customer_id),
+      r => r.customer_id !== customerId
+        && r.status === 'needs_research'
+        && !handled.has(r.customer_id),
     )
     setOpenId(next ? next.customer_id : null)
   }, [rows, handled])
@@ -168,7 +211,7 @@ export function ContactReviewClient({
   if (loading) {
     return (
       <div className="flex items-center gap-2 rounded-2xl border border-surface-border bg-surface-card p-6 text-ink-supporting">
-        <Loader2 className="size-4 animate-spin" aria-hidden /> Loading contact review…
+        <Loader2 className="size-4 animate-spin" aria-hidden /> Loading contact research…
       </div>
     )
   }
@@ -243,7 +286,7 @@ export function ContactReviewClient({
 
   return (
     <section className="space-y-5">
-      <AssistantPanel heading="Complete the contact information Gateway is missing">
+      <AssistantPanel heading="Find the contact information Gateway is missing">
         {/* Mentoring (HOW), separate from the Assistant (WHAT), sits immediately
             ABOVE the instructions it explains — never at the bottom. Its own
             purple control is always shown; the global Mentoring toggle only sets
@@ -257,22 +300,26 @@ export function ContactReviewClient({
         </MentorGuidance>
         <div className="space-y-3 text-lg leading-relaxed text-ink-secondary">
           <p>
-            The Cassidy import left these customers without a complete way to reach them.
-            Open a customer, search Gateway by their last name and policy number, and fill in
-            whatever email or phone Gateway shows. Each save writes straight to the customer record.
+            The Cassidy import left these customers without a complete way to reach them — some have
+            no usable email or phone at all, others are missing just one. They are all the same
+            research: open a customer, search Gateway by their last name and policy number, and fill
+            in whatever email or phone Gateway shows. Each save writes straight to the customer
+            record.
           </p>
           <p className="text-base text-ink-supporting">
             Work straight down the list. Save &amp; Next moves you to the next customer; if Gateway
             has nothing usable, Nothing Usable &amp; Next records that research found nothing and
             keeps you moving. A customer you have handled will not keep coming back on later
             passes, and anyone whose details later turn up returns to the list automatically.
+            Customers with no usable contact at all stay visible below even after an empty search,
+            so the agency keeps sight of who it cannot reach.
           </p>
         </div>
-        {remaining.length > 0 && (
+        {activeRemaining.length > 0 && (
           <PrimaryAction
             icon={ClipboardCheck}
             label={handledCount > 0 ? 'Continue where you left off' : 'Start the first customer'}
-            onClick={() => setOpenId(remaining[0].customer_id)}
+            onClick={() => setOpenId(activeRemaining[0].customer_id)}
           />
         )}
       </AssistantPanel>
@@ -280,19 +327,21 @@ export function ContactReviewClient({
       <QueueListHeader
         icon={UserRound}
         label="Needs contact information"
-        count={remaining.length}
+        count={activeRemaining.length}
         blurb="Project customers missing a usable email or phone"
       />
 
-      {remaining.length === 0 ? (
+      {activeRemaining.length === 0 ? (
         <QueueEmptyState>
           {total === 0
             ? 'Every customer in this project already has a usable email and phone, or has been researched.'
-            : 'All caught up. Every customer has been handled.'}
+            : exceptionRemaining.length > 0
+              ? 'No outstanding research. The customers below have no usable contact information and earlier research came up empty.'
+              : 'All caught up. Every customer has been handled.'}
         </QueueEmptyState>
       ) : (
         <div className="space-y-3">
-          {remaining.map(c => (
+          {activeRemaining.map(c => (
             <CustomerQueueCard
               key={c.customer_id}
               name={fullName(c)}
@@ -301,6 +350,33 @@ export function ContactReviewClient({
             />
           ))}
         </div>
+      )}
+
+      {/* No Usable Contact Information — the visible exception. These customers
+          have no usable email or phone and earlier research found nothing. They
+          are kept on screen (the agency must keep sight of who it cannot reach)
+          but are NOT re-recommended as fresh outstanding work. The worker can
+          still open one deliberately to look again. */}
+      {exceptionRemaining.length > 0 && (
+        <section className="space-y-3">
+          <QueueListHeader
+            icon={PhoneOff}
+            label="No Usable Contact Information"
+            count={exceptionRemaining.length}
+            blurb="No usable email or phone, and research found nothing. Still visible so the agency can see who it cannot reach; open one to look again."
+          />
+          <div className="space-y-3">
+            {exceptionRemaining.map(c => (
+              <CustomerQueueCard
+                key={c.customer_id}
+                name={fullName(c)}
+                detail="No email, no phone"
+                trailing={<OperationalTag tone="exception">Research unsuccessful</OperationalTag>}
+                onOpen={() => setOpenId(c.customer_id)}
+              />
+            ))}
+          </div>
+        </section>
       )}
     </section>
   )
@@ -313,7 +389,7 @@ export function ContactReviewClient({
 // contact capture and writes straight to the customer record.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Map a Contact Review row onto the shared card's customer shape. Every field
+/** Map a Contact Research row onto the shared card's customer shape. Every field
  * already lives on the row; the card reads and corrects the customer record. */
 function toCardCustomer(c: ContactReviewCustomer): CustomerContact {
   return {
@@ -395,6 +471,16 @@ function ContactReviewTask({
           <div className="flex items-center gap-2 rounded-xl border border-status-missing-border bg-status-missing-soft p-4 text-lg text-status-missing-strong">
             <UserRound className="size-5 shrink-0" aria-hidden /> {gapDetail(customer)}. Look this customer up in Gateway.
           </div>
+
+          {/* No Usable Contact Information exception opened deliberately: say
+              plainly that earlier research came up empty, so the worker knows
+              this is a re-check, not fresh outstanding work. */}
+          {customer.status === 'no_usable_contact' && customer.researched_unsuccessfully && (
+            <OperationalTag tone="exception">
+              Earlier research found no usable email or phone. This customer stays on the No Usable
+              Contact Information list; look again only if you have a new lead.
+            </OperationalTag>
+          )}
 
           {/* Step 1: the shared Gateway look-up — last name + policy number with
               Copy buttons, identical to the Stewardship research task. */}

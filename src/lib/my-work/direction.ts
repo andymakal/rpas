@@ -323,35 +323,25 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
     const emphasis = a.band === 'focus' || a.band === 'exact_time_commitment' || a.band === 'due_callback'
     switch (a.workFunction) {
       case 'research': {
-        // Show the full UNRESOLVED population (outstanding + researched
-        // unsuccessfully), counting each customer once — the SAME total and
-        // breakdown the full work list already carries on the activity. The
-        // recommendation itself is unchanged; this is presentation of the
-        // existing figures. When the activity carries no unresolved distinction
-        // (none recorded), fall back to the actionable count.
+        // Contact Research is now the SINGLE consolidated contact-finding step:
+        // one activity covering every customer missing a usable email or phone,
+        // whether they are missing one method or both. Show the full UNRESOLVED
+        // population (outstanding + the No Usable Contact Information exception
+        // that research came up empty on), counting each customer once — the SAME
+        // total and breakdown the activity already carries. The recommendation is
+        // driven by the actionable outstanding count; the unresolved figure and
+        // its unsuccessful breakdown are presentation only. When the activity
+        // carries no unresolved distinction, fall back to the actionable count.
         const unresolved = a.unresolvedCount ?? actionableCountOf(a)
         steps.push({
           key: 'research',
           title: 'Find missing contact information',
           reason:
-            'These customers have no usable phone or email on file. Finding a working contact method unblocks every later step.',
+            'These customers are missing a usable email or phone — some have none at all, some are missing one. Finding a working contact method keeps them reachable and prepares them for outreach.',
           count: unresolved,
           unresolvedCount: a.unresolvedCount,
           unsuccessfulCount: a.unsuccessfulCount,
           actionLabel: 'Start contact research',
-          route: primaryRouteFor(a),
-          emphasis,
-        })
-        break
-      }
-      case 'contact_review': {
-        steps.push({
-          key: 'contact_review',
-          title: 'Complete missing contact details',
-          reason:
-            'These customers are reachable but missing an additional contact method. Filling it in prepares them for outreach.',
-          count: actionableCountOf(a),
-          actionLabel: 'Start contact review',
           route: primaryRouteFor(a),
           emphasis,
         })

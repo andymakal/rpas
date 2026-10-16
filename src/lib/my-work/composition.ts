@@ -30,7 +30,6 @@ import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
 import { activeProjectsWithWorkflow, onboardingCompleteForPolicies } from '@/lib/projects/workflows'
 import { buildContactReview, summarizeContactReview } from '@/lib/projects/contact-review'
-import { readResearchedUnsuccessfullyBatch, stillNeedsResearchRecommendation } from '@/lib/stewardship/research-record'
 import {
   loadWorkFunctions,
   resolveCapabilityProfile,
@@ -87,15 +86,23 @@ function populationRoute(
 }
 
 /**
- * Which stewardship queues map to which activity. The shared board's outreach
- * queues (ready-to-call, ready-to-email, and the overdue follow-ups routed into
- * ready-to-call) are the Outreach activity; research-needed is the Research
- * (exception) activity. Waiting queues are not actionable work and are excluded.
+ * Which stewardship queues map to which MY WORK activity. The shared board's
+ * outreach queues (ready-to-call, ready-to-email, and the overdue follow-ups
+ * routed into ready-to-call) are the Outreach activity. Waiting queues are not
+ * actionable work and are excluded.
+ *
+ * research-needed is intentionally NOT mapped here. Contact research is now a
+ * SINGLE consolidated activity ('research' / "Contact Research") sourced from
+ * the project Contact Research read (buildContactReview), which covers every
+ * customer missing a usable email or phone — a strict superset of the board's
+ * research-needed population — so each customer is counted once in one activity
+ * routed to one screen. The board's research-needed queue still exists as
+ * onboarding state (its rows, transitions, and the board's own research view are
+ * untouched); it simply no longer creates a second, overlapping My Work activity.
  */
 const STEWARDSHIP_ACTIVITY: Partial<Record<OutreachQueue, WorkFunctionKey>> = {
   'ready-to-call': 'outreach',
   'ready-to-email': 'outreach',
-  'research-needed': 'research',
 }
 
 /**
@@ -481,58 +488,23 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     }
   }
 
-  // Research-recommendation dampening (the same rule the board and Daily
-  // Direction apply): a research-needed item whose every still-missing contact
-  // method has already been researched unsuccessfully is no longer research to
-  // recommend, so it is dropped from the counted open set. The customer is not
-  // closed and keeps every other surface (Contact Review, the record) for a
-  // deliberate re-check; a newly-found email/phone re-opens it on its own. Only
-  // research-needed rows are evaluated here, so outreach/waiting are untouched.
-  const researchCandidateIds = openRowsBase
-    .filter((r) => r.queue === 'research-needed')
-    .map((r) => r.customer_prereviews.customer_id)
-  const researchedByCustomer = await readResearchedUnsuccessfullyBatch(supabase, researchCandidateIds)
-  const researchSettledCustomerIds = new Set<string>()
-  for (const r of openRowsBase) {
-    if (r.queue !== 'research-needed') continue
-    const c = r.customer_prereviews.customers
-    const researched = researchedByCustomer.get(r.customer_prereviews.customer_id) ?? { email: false, phone: false }
-    const stillRecommend = stillNeedsResearchRecommendation(
-      { hasEmail: !!c?.email?.trim(), hasPhone: !!c?.phone?.trim() },
-      researched,
-    )
-    if (!stillRecommend) researchSettledCustomerIds.add(r.customer_prereviews.customer_id)
-  }
-
   // The final open set: decision/refused gate AND the onboarding-complete gate,
   // so My Work and the project board count the same onboarding population. Both
-  // the per-queue tally and the call-population pass iterate this set, so the
-  // suppression applies everywhere a customer could be counted.
+  // the per-queue tally and the call-population pass iterate this set.
+  //
+  // research-needed rows are intentionally NOT special-cased here anymore. They
+  // survive into openRows (subject only to the onboarding gate), but they feed
+  // no My Work activity: the tally loop skips them (research-needed is unmapped
+  // in STEWARDSHIP_ACTIVITY) and the call population excludes them (a no-usable-
+  // contact customer has no callable phone). Contact research is counted once,
+  // from the project Contact Research read, in step 4 below. The old board-
+  // sourced research dampening and unresolved/unsuccessful accumulation are
+  // therefore removed; the project read (buildContactReview + summarize) now
+  // owns the recommended-vs-exception split, and the board route keeps its own
+  // independent research_unsuccessful flagging for the board view.
   const openRows = openRowsBase.filter(
-    (r) =>
-      !onboardingCompleteCustomerIds.has(r.customer_prereviews.customer_id) &&
-      !(r.queue === 'research-needed' && researchSettledCustomerIds.has(r.customer_prereviews.customer_id)),
+    (r) => !onboardingCompleteCustomerIds.has(r.customer_prereviews.customer_id),
   )
-
-  // The full UNRESOLVED research population, for the Research activity summary.
-  // The per-item tally below counts only OUTSTANDING research (openRows drops the
-  // settled rows, keeping the recommendation clean). But the summary must show
-  // the whole unresolved population the Research Needed queue shows — outstanding
-  // PLUS researched-unsuccessfully — with each customer counted once. We derive
-  // that here from openRowsBase (the research-needed rows surviving the
-  // onboarding gate), independently of the recommendation tally, and record it
-  // on the research accumulator and its per-project buckets. The customer's
-  // project membership is read from projectsByCustomer (populated just below), so
-  // this accumulation is deferred until after that map is built.
-  const researchUnresolvedCustomerIds = new Set<string>()
-  const researchUnsuccessfulCustomerIds = new Set<string>()
-  for (const r of openRowsBase) {
-    if (r.queue !== 'research-needed') continue
-    const cid = r.customer_prereviews.customer_id
-    if (onboardingCompleteCustomerIds.has(cid)) continue // advanced past onboarding
-    researchUnresolvedCustomerIds.add(cid)
-    if (researchSettledCustomerIds.has(cid)) researchUnsuccessfulCustomerIds.add(cid)
-  }
 
   // Project association for the open board customers: which project(s) each
   // customer belongs to. This is the ONE extra read that preserves the project
@@ -551,25 +523,8 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     }
   }
 
-  // Record the unresolved research population (each customer once) on the
-  // Research activity and its per-project buckets, so the summary shows the full
-  // population with its outstanding-vs-unsuccessful breakdown while the tally
-  // below keeps driving the recommendation from outstanding only.
-  {
-    const research = acc.get('research')
-    if (research) {
-      for (const cid of researchUnresolvedCustomerIds) {
-        const unsuccessful = researchUnsuccessfulCustomerIds.has(cid)
-        research.unresolved += 1
-        if (unsuccessful) research.unsuccessful += 1
-        for (const pid of projectsByCustomer.get(cid) ?? new Set<string>()) {
-          const b = projectBucket(research, pid)
-          b.unresolvedCount = (b.unresolvedCount ?? 0) + 1
-          if (unsuccessful) b.unsuccessfulCount = (b.unsuccessfulCount ?? 0) + 1
-        }
-      }
-    }
-  }
+  // (Contact research is no longer accumulated from the board here; it is
+  // sourced once from the project Contact Research read in step 4 below.)
 
   // READ-ONLY effective-queue routing, computed the same way the board route
   // does, without writing (identical to the Daily Direction composition):
@@ -1043,57 +998,9 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     }
   }
 
-  // 3c. Keep Research directly accessible when outstanding research has reached
-  // zero but unresolved customers remain (only researched-unsuccessfully left).
-  // The per-queue loop emits a research source only when there is OUTSTANDING
-  // work (t.total > 0), so with zero outstanding the activity would have no link
-  // into the queue. Emit a research source here in that case, linking to the
-  // Research Needed queue (project-scoped when the employee is eligible only via
-  // a project), so the summary stays clickable and lands on the same queue that
-  // shows the researched-unsuccessfully customers. Its count is the unresolved
-  // population; it is informational so it never feeds the (zero) outstanding
-  // total.
-  {
-    const research = acc.get('research')
-    if (research && research.unresolved > 0 && !research.sources.some((s) => s.kind === 'stewardship')) {
-      const scopedProjects = scopedProjectsFor('research')
-      const eligibleViaProjectOnly = !agencyWideEligible('research') && scopedProjects.size > 0
-      const linkProjectId = eligibleViaProjectOnly
-        ? ([...scopedProjects].find((pid) => research.projectIds.has(pid)) ?? null)
-        : null
-      const scopes = ((): Record<string, WorkSourceProjectScope> | undefined => {
-        const out: Record<string, WorkSourceProjectScope> = {}
-        for (const [pid, pc] of research.projectTotals) {
-          const n = pc.unresolvedCount ?? 0
-          if (n <= 0) continue
-          out[pid] = {
-            count: n,
-            ownedByMe: 0,
-            availableToMe: 0,
-            claimedByOthers: 0,
-            notEligible: 0,
-            dueToMe: 0,
-            route: stewardshipRoute('research-needed', pid),
-          }
-        }
-        return Object.keys(out).length > 0 ? out : undefined
-      })()
-      research.sources.push({
-        kind: 'stewardship',
-        label: `Shared Stewardship board — ${QUEUE_LABEL['research-needed']}`,
-        count: research.unresolved,
-        route: linkProjectId ? stewardshipRoute('research-needed', linkProjectId) : stewardshipRoute('research-needed'),
-        projectId: linkProjectId,
-        ownedByMe: 0,
-        availableToMe: 0,
-        claimedByOthers: 0,
-        notEligible: 0,
-        dueToMe: 0,
-        informational: true,
-        projectScopes: scopes,
-      })
-    }
-  }
+  // (Removed: the old board-sourced Research activity link. Contact research is
+  // now a single project-sourced activity, emitted in step 4 below, so there is
+  // no separate board-research source to keep clickable here.)
 
   // 4. The 1035 project workflow (the SAME derived read the project surface
   // uses). Map its derived per-customer stages onto activities: operations prep
@@ -1129,14 +1036,22 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     const prepCount = summary.by.operations_prep
     const determineCount = summary.by.bob_evaluation
     const reviewRoute = `/projects/${projectId}/review`
-    // Contact Review is its own continuous workflow (not a 1035 stage), so it
-    // carries its OWN route and its OWN live count: the project customers still
-    // missing a usable email or phone, each counted once — the same read model
-    // the Contact Review surface uses, so My Work and the surface never disagree.
-    const contactReviewRoute = `/projects/${projectId}/contact-review`
-    const contactReviewCount = summarizeContactReview(
+    // Contact Research is the SINGLE consolidated contact-finding activity (not a
+    // 1035 stage), so it carries its OWN route and its OWN live counts from the
+    // one project Contact Research read — the same read model the surface uses,
+    // so My Work and the surface never disagree, and each customer is counted
+    // once here instead of once on the board and once in a project activity.
+    //   - needs_research  = actively recommended outstanding research.
+    //   - no_usable_contact = the visible "No Usable Contact Information"
+    //     exception (kept after unsuccessful research, NOT recommended).
+    //   - total = the full unresolved population shown on the surface.
+    const contactResearchRoute = `/projects/${projectId}/contact-review`
+    const contactResearchSummary = summarizeContactReview(
       await buildContactReview(supabase, projectId),
-    ).total
+    )
+    const contactResearchActionable = contactResearchSummary.needs_research
+    const contactResearchUnresolved = contactResearchSummary.total
+    const contactResearchUnsuccessful = contactResearchSummary.no_usable_contact
 
     // These project activities are inherently scoped to this project, so
     // eligibility and focus are judged against THIS project only (never
@@ -1197,11 +1112,48 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     }
     addProjectActivity('operations_prep', prepCount)
     addProjectActivity('determination', determineCount)
-    // Contact Review: a quiet-work activity routed to its own continuous
-    // workflow. Eligibility mirrors Contact Research (migration
-    // 20261027000001), so an employee who can do research sees it here and
-    // opens it straight from My Work — no navigating through Projects.
-    addProjectActivity('contact_review', contactReviewCount, contactReviewRoute)
+    // Contact Research: the single consolidated contact-finding activity, a
+    // quiet-work activity routed to its own continuous Contact Research screen.
+    // The actionable (recommended) count is the outstanding needs_research
+    // population; the No Usable Contact Information exception is visible but not
+    // recommended, carried on the activity's unresolved/unsuccessful figures
+    // (the same attempted-vs-unresolved presentation the summary already uses),
+    // so an employee eligible for research sees one Contact Research entry and
+    // opens the one screen straight from My Work.
+    addProjectActivity('research', contactResearchActionable, contactResearchRoute)
+    {
+      const research = acc.get('research')
+      if (research && contactResearchUnresolved > 0) {
+        research.unresolved += contactResearchUnresolved
+        research.unsuccessful += contactResearchUnsuccessful
+        const b = projectBucket(research, projectId)
+        b.unresolvedCount = (b.unresolvedCount ?? 0) + contactResearchUnresolved
+        b.unsuccessfulCount = (b.unsuccessfulCount ?? 0) + contactResearchUnsuccessful
+        research.projectIds.add(projectId)
+
+        // When there is NO outstanding research but unresolved exceptions remain
+        // (only No Usable Contact Information left), addProjectActivity emitted no
+        // source (count 0), so the activity would have no link into its screen.
+        // Emit an informational source here so Contact Research stays visible and
+        // clickable, landing on the same Contact Research screen that shows the
+        // exception. Informational, so it never feeds the (zero) actionable total.
+        if (contactResearchActionable <= 0 && !research.sources.some((s) => s.kind === 'project')) {
+          research.sources.push({
+            kind: 'project',
+            label: projectName,
+            count: contactResearchUnresolved,
+            route: contactResearchRoute,
+            projectId,
+            ownedByMe: 0,
+            availableToMe: 0,
+            claimedByOthers: 0,
+            notEligible: 0,
+            dueToMe: 0,
+            informational: true,
+          })
+        }
+      }
+    }
   }
 
   // 4b. FAILED Initial Analysis handoffs. When onboarding completed but the

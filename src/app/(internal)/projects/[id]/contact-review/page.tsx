@@ -6,20 +6,23 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { WorkflowPage, WorkflowHeader } from '@/components/workflow'
 import { ContactReviewClient } from '../ContactReviewClient'
 
-export const metadata: Metadata = { title: 'Contact Review' }
+export const metadata: Metadata = { title: 'Contact Research' }
 
 export const dynamic = 'force-dynamic'
 
 /**
- * Contact Review — a project-scoped pass to complete customer contact
- * information missing from the import. It reuses the shared research interface
+ * Contact Research — the single consolidated contact-finding surface for a
+ * project: complete customer contact information missing from the import,
+ * covering both customers missing one method and customers missing both (the No
+ * Usable Contact Information exception). It reuses the shared research interface
  * (same light-theme workflow look as Stewardship) and writes only to the
  * customer record; it never starts stewardship work or creates new records.
  *
  * Gated exactly like the 1035 working interface: only an active (non-archived)
  * 1035 project reaches it. The whole (internal) route group is already gated to
  * internal staff, and the contact-review API routes additionally enforce
- * requireInternalAdmin.
+ * requireInternalAdmin. The route path stays /contact-review for stability; the
+ * surface is named Contact Research.
  */
 export default async function ProjectContactReviewPage({
   params,
@@ -65,7 +68,7 @@ export default async function ProjectContactReviewPage({
         </Link>
       </div>
 
-      <WorkflowHeader primary={project.name} secondary="Contact Review" />
+      <WorkflowHeader primary={project.name} secondary="Contact Research" />
 
       <ContactReviewClient projectId={project.id} initialCustomerId={customer_id ?? null} />
     </WorkflowPage>

@@ -272,7 +272,7 @@ export function Review1035Client({ projectId }: { projectId: string }) {
         </div>
       ) : (
         <>
-          {/* Side task: complete contact information missing from the import.
+          {/* Side task: find the contact information missing from the import.
               A separate pass that reuses the shared research interface; it does
               not change the 1035 workflow stages below. */}
           <Link
@@ -283,9 +283,9 @@ export function Review1035Client({ projectId }: { projectId: string }) {
               <CircleUser className="size-5" aria-hidden />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block text-lg font-semibold text-ink">Contact Review</span>
+              <span className="block text-lg font-semibold text-ink">Contact Research</span>
               <span className="block text-base text-ink-supporting">
-                Look customers up in eAgent and complete missing email or phone information.
+                Look customers up in eAgent and fill in missing email or phone information.
               </span>
             </span>
             <ArrowLeft className="size-5 shrink-0 rotate-180 text-surface-border-strong transition-colors group-hover:text-brand-icon" aria-hidden />

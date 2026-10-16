@@ -178,10 +178,10 @@ test('plan: a due date-only callback is a SUBSET of actionable work, not double-
   const d = deriveMyWorkDirection(
     state([
       activity({
-        workFunction: 'contact_review',
+        workFunction: 'research',
         band: 'due_callback',
         rank: 3,
-        label: 'Contact Review',
+        label: 'Contact Research',
         ownedCount: 1,
         availableCount: 2,
         dueCount: 2,

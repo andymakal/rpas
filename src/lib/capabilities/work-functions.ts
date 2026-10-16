@@ -29,15 +29,16 @@ export type QualificationKey =
 /**
  * The canonical keys of the first-slice capability catalog (public.work_functions).
  * These are the actual business activities present today — the shared
- * Stewardship board (outreach + the research exception) and the 1035 project's
- * own derived stages (operations preparation, senior-producer determination),
- * plus ordinary office support. No activity is named for work that does not yet
- * exist (no scheduling / appointment capability).
+ * Stewardship board outreach, the single consolidated Contact Research activity
+ * ('research', covering every customer missing a usable email or phone), and the
+ * 1035 project's own derived stages (operations preparation, senior-producer
+ * determination), plus ordinary office support. No activity is named for work
+ * that does not yet exist (no scheduling / appointment capability). The former
+ * separate 'contact_review' key was folded into 'research'.
  */
 export type WorkFunctionKey =
   | 'outreach'
   | 'research'
-  | 'contact_review'
   | 'operations_prep'
   | 'determination'
   | 'office_support'

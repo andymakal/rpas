@@ -67,13 +67,7 @@ export const ACTIVITY_GUIDANCE: Record<WorkFunctionKey, ActivityGuidance> = {
   },
   research: {
     whatItIs:
-      'Resolving missing or unusable contact information — finding a working email or phone when a customer has none on file or the one we had has failed.',
-    workMode: 'quiet',
-    note: WORK_MODE_NOTE.quiet,
-  },
-  contact_review: {
-    whatItIs:
-      'Completing contact information missing from the import: look the customer up in eAgent, then fill in a missing email or phone. Each save writes straight to the customer record.',
+      'Finding the contact information missing from the import — look the customer up in eAgent and fill in a usable email or phone. Covers every customer missing a method, whether they have none at all or just one. Each save writes straight to the customer record.',
     workMode: 'quiet',
     note: WORK_MODE_NOTE.quiet,
   },
