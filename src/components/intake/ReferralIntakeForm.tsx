@@ -18,6 +18,13 @@ type QualifyingFlags = {
   retirement_prep: boolean
 }
 
+function formatDobInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 8)
+  if (digits.length <= 2) return digits
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`
+}
+
 interface ReferralIntakeFormProps {
   prefilledAgencyId?: string
   prefilledAgencyName?: string
@@ -450,7 +457,7 @@ export function ReferralIntakeForm({
       </Field>
       <div className="grid grid-cols-3 gap-3">
         <Field label="Date of Birth" error={errors.client_dob}>
-          <Input value={form.client_dob ?? ''} onChange={(v) => set('client_dob', v)}
+          <Input value={form.client_dob ?? ''} onChange={(v) => set('client_dob', formatDobInput(v))}
             type="text" placeholder="MM/DD/YYYY" error={errors.client_dob} />
         </Field>
         <Field label="Gender" error={errors.client_gender}>
@@ -536,7 +543,7 @@ export function ReferralIntakeForm({
               </Field>
             </div>
             <Field label="Date of Birth" hint="Optional — helps us quote accurately">
-              <Input value={spouse.date_of_birth ?? ''} onChange={v => setSpouseField('date_of_birth', v)}
+              <Input value={spouse.date_of_birth ?? ''} onChange={v => setSpouseField('date_of_birth', formatDobInput(v))}
                 type="text" placeholder="MM/DD/YYYY" />
             </Field>
             <p className="text-xs text-slate-500">

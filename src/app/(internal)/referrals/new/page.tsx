@@ -31,6 +31,13 @@ function maskDob(iso: string | null): string {
   return `${String(d.getUTCMonth() + 1).padStart(2, '0')}/xx/${d.getUTCFullYear()}`
 }
 
+function formatDobInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 8)
+  if (digits.length <= 2) return digits
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`
+}
+
 function dobToIso(val: string): string {
   if (!val) return ''
   if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val
@@ -526,7 +533,7 @@ export default function NewReferralPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-slate-300 text-sm">Date of Birth *</Label>
-                    <Input required type="text" placeholder="MM/DD/YYYY" value={dob} onChange={e => setDob(e.target.value)} className={inputCls} />
+                    <Input required type="text" placeholder="MM/DD/YYYY" value={dob} onChange={e => setDob(formatDobInput(e.target.value))} className={inputCls} />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-slate-300 text-sm">Phone *</Label>

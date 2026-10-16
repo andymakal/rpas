@@ -28,6 +28,14 @@ function fmt(n: number | null | undefined): string {
   return `$${Math.round(n)}`
 }
 
+/** Auto-format digits as MM/DD/YYYY while the user types */
+function formatDobInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 8)
+  if (digits.length <= 2) return digits
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`
+}
+
 /** Convert stored YYYY-MM-DD to MM/DD/YYYY for text input display */
 function dobToDisplay(iso: string): string {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso
@@ -1107,7 +1115,7 @@ export function CustomerCardClient({
                     <div className="grid grid-cols-3 gap-3">
                       <div>
                         <label className="block text-xs text-slate-500 mb-1">Date of birth</label>
-                        <input value={editDob} onChange={e => setEditDob(e.target.value)} type="text" placeholder="MM/DD/YYYY" className={inputCls} />
+                        <input value={editDob} onChange={e => setEditDob(formatDobInput(e.target.value))} type="text" placeholder="MM/DD/YYYY" className={inputCls} />
                       </div>
                       <div>
                         <label className="block text-xs text-slate-500 mb-1">Gender</label>

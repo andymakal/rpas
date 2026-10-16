@@ -89,6 +89,13 @@ const TOUCH_COLORS: Record<string, string> = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+function formatDobInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 8)
+  if (digits.length <= 2) return digits
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`
+}
+
 function dobToDisplay(iso: string): string {
   if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso
   const [y, m, d] = iso.split('-')
@@ -1658,7 +1665,7 @@ export function ReferralEditClient({
                     <div>
                       <label className="block text-xs text-slate-500 mb-1">Date of birth</label>
                       <input type="text" placeholder="MM/DD/YYYY" value={dobToDisplay(memberEdits.date_of_birth ?? m.date_of_birth ?? '')}
-                        onChange={e => setMemberEdits(p => ({ ...p, date_of_birth: e.target.value }))}
+                        onChange={e => setMemberEdits(p => ({ ...p, date_of_birth: formatDobInput(e.target.value) }))}
                         className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
                     </div>
                     <div className="grid grid-cols-2 gap-2">
@@ -1782,7 +1789,7 @@ export function ReferralEditClient({
                 </div>
                 <div>
                   <label className="block text-xs text-slate-500 mb-1">Date of birth</label>
-                  <input type="text" placeholder="MM/DD/YYYY" value={newMember.date_of_birth} onChange={e => setNewMember(p => ({ ...p, date_of_birth: e.target.value }))}
+                  <input type="text" placeholder="MM/DD/YYYY" value={newMember.date_of_birth} onChange={e => setNewMember(p => ({ ...p, date_of_birth: formatDobInput(e.target.value) }))}
                     className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
                 </div>
                 {addError && <p className="text-xs text-red-400">{addError}</p>}
@@ -2679,7 +2686,7 @@ export function ReferralEditClient({
             {editingQuoteInfo ? (
               <div className="space-y-3">
                 <div className="grid grid-cols-2 gap-2">
-                  <EditField label="Date of Birth" value={cDob} onChange={setCDob} type="date" />
+                  <EditField label="Date of Birth" value={cDob} onChange={v => setCDob(formatDobInput(v))} placeholder="MM/DD/YYYY" />
                   <div>
                     <label className="block text-xs text-slate-500 mb-1">Gender</label>
                     <select value={cGender} onChange={e => setCGender(e.target.value)}
