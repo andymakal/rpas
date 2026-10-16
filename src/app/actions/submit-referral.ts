@@ -10,6 +10,14 @@ function toTitleCase(str: string): string {
   return str.trim().replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
 }
 
+function dobToIso(val: string | null | undefined): string | null {
+  if (!val) return null
+  if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val
+  const [m, d, y] = val.split('/')
+  if (m && d && y?.length === 4) return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
+  return val
+}
+
 export type SubmitReferralResult =
   | { success: true; referral_id: string; client_name: string }
   | { success: false; error: string }
@@ -68,7 +76,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
       const contactUpdate: Record<string, unknown> = {}
       if (!existing.phone         && form.client_phone)   contactUpdate.phone         = normalizePhone(form.client_phone) ?? form.client_phone
       if (!existing.email         && form.client_email)   contactUpdate.email         = normalizeEmail(form.client_email) ?? form.client_email
-      if (!existing.date_of_birth && form.client_dob)     contactUpdate.date_of_birth = form.client_dob
+      if (!existing.date_of_birth && form.client_dob)     contactUpdate.date_of_birth = dobToIso(form.client_dob)
       if (!existing.gender        && form.client_gender)  contactUpdate.gender        = form.client_gender
       if (!existing.street        && form.client_address) {
         contactUpdate.street = normalizeStreet(form.client_address)
@@ -138,7 +146,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
           last_name:     toTitleCase(form.client_last_name),
           phone:         normalizePhone(form.client_phone) ?? null,
           email:         normalizeEmail(form.client_email) ?? null,
-          date_of_birth: form.client_dob      || null,
+          date_of_birth: dobToIso(form.client_dob) || null,
           gender:        form.client_gender   || null,
           street:        normalizeStreet(form.client_address) ?? null,
           city:          normalizeCity(form.client_city)     ?? null,
@@ -264,7 +272,7 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
             case_id:       newCase.id,
             first_name:    toTitleCase(m.first_name),
             last_name:     toTitleCase(m.last_name),
-            date_of_birth: m.date_of_birth || null,
+            date_of_birth: dobToIso(m.date_of_birth) || null,
           }))
       )
     }

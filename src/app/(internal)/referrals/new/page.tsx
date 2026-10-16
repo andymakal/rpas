@@ -31,6 +31,14 @@ function maskDob(iso: string | null): string {
   return `${String(d.getUTCMonth() + 1).padStart(2, '0')}/xx/${d.getUTCFullYear()}`
 }
 
+function dobToIso(val: string): string {
+  if (!val) return ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val
+  const [m, d, y] = val.split('/')
+  if (m && d && y?.length === 4) return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
+  return val
+}
+
 const supabase = createClient()
 
 const LEAD_SOURCES: { value: LeadSource; label: string; description: string }[] = [
@@ -250,7 +258,7 @@ export default function NewReferralPage() {
       last_name:     lastName.trim(),
       phone:         phone.trim(),
       email:         email.trim() || undefined,
-      dob:           dob || undefined,
+      dob:           dobToIso(dob) || undefined,
       street:        street.trim() || undefined,
       city:          city.trim() || undefined,
       state:         state || undefined,
@@ -518,7 +526,7 @@ export default function NewReferralPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-slate-300 text-sm">Date of Birth *</Label>
-                    <Input required type="date" value={dob} onChange={e => setDob(e.target.value)} className={inputCls} />
+                    <Input required type="text" placeholder="MM/DD/YYYY" value={dob} onChange={e => setDob(e.target.value)} className={inputCls} />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-slate-300 text-sm">Phone *</Label>

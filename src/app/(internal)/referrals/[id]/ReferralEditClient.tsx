@@ -89,6 +89,20 @@ const TOUCH_COLORS: Record<string, string> = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+function dobToDisplay(iso: string): string {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso
+  const [y, m, d] = iso.split('-')
+  return `${m}/${d}/${y}`
+}
+
+function dobToIso(val: string): string {
+  if (!val) return ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val
+  const [m, d, y] = val.split('/')
+  if (m && d && y?.length === 4) return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
+  return val
+}
+
 function parseNotes(raw: string | null): Record<string, string> {
   if (!raw) return {}
   const result: Record<string, string> = {}
@@ -498,7 +512,10 @@ export function ReferralEditClient({
     try {
       const res = await fetch(`/api/cases/${referral.id}/household-members/${id}`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(memberEdits),
+        body: JSON.stringify({
+          ...memberEdits,
+          ...(memberEdits.date_of_birth != null ? { date_of_birth: dobToIso(memberEdits.date_of_birth) } : {}),
+        }),
       })
       if (!res.ok) { const j = await res.json(); setMemberError(j.error ?? 'Save failed'); return }
       const { data } = await res.json()
@@ -526,7 +543,10 @@ export function ReferralEditClient({
     try {
       const res = await fetch(`/api/cases/${referral.id}/household-members`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newMember),
+        body: JSON.stringify({
+          ...newMember,
+          date_of_birth: dobToIso(newMember.date_of_birth),
+        }),
       })
       if (!res.ok) { const j = await res.json(); setAddError(j.error ?? 'Failed to add'); return }
       const { data } = await res.json()
@@ -589,7 +609,7 @@ export function ReferralEditClient({
   const [cCity,        setCCity]        = useState(referral.customers?.city           ?? '')
   const [cState,       setCState]       = useState(referral.customers?.state          ?? '')
   const [cZip,         setCZip]         = useState(referral.customers?.zip            ?? '')
-  const [cDob,         setCDob]         = useState(referral.customers?.date_of_birth  ?? '')
+  const [cDob,         setCDob]         = useState(dobToDisplay(referral.customers?.date_of_birth  ?? ''))
   const [cMarital,     setCMarital]     = useState(referral.customers?.marital_status ?? '')
   const [cGender,      setCGender]      = useState(referral.customers?.gender         ?? '')
   const [cTobacco,     setCTobacco]     = useState(referral.customers?.tobacco_use    ?? '')
@@ -779,7 +799,7 @@ export function ReferralEditClient({
           city:             cCity.trim()        || null,
           state:            cState.trim()       || null,
           zip:              cZip.trim()         || null,
-          date_of_birth:    cDob               || null,
+          date_of_birth:    dobToIso(cDob)      || null,
           marital_status:   cMarital            || null,
           gender:           cGender             || null,
           tobacco_use:      cTobacco            || null,
@@ -1637,7 +1657,7 @@ export function ReferralEditClient({
                     </div>
                     <div>
                       <label className="block text-xs text-slate-500 mb-1">Date of birth</label>
-                      <input type="date" value={memberEdits.date_of_birth ?? m.date_of_birth ?? ''}
+                      <input type="text" placeholder="MM/DD/YYYY" value={dobToDisplay(memberEdits.date_of_birth ?? m.date_of_birth ?? '')}
                         onChange={e => setMemberEdits(p => ({ ...p, date_of_birth: e.target.value }))}
                         className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
                     </div>
@@ -1762,7 +1782,7 @@ export function ReferralEditClient({
                 </div>
                 <div>
                   <label className="block text-xs text-slate-500 mb-1">Date of birth</label>
-                  <input type="date" value={newMember.date_of_birth} onChange={e => setNewMember(p => ({ ...p, date_of_birth: e.target.value }))}
+                  <input type="text" placeholder="MM/DD/YYYY" value={newMember.date_of_birth} onChange={e => setNewMember(p => ({ ...p, date_of_birth: e.target.value }))}
                     className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500" />
                 </div>
                 {addError && <p className="text-xs text-red-400">{addError}</p>}

@@ -724,7 +724,7 @@ export function FactFinderSection({
                     <input value={d.name} onChange={e => setDependents(prev => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} className={inpSm} />
                   </div>
                   <div><label className="block text-xs text-slate-500 mb-1">Date of birth</label>
-                    <input value={d.dob} onChange={e => setDependents(prev => prev.map((x, j) => j === i ? { ...x, dob: e.target.value } : x))} type="date" className={inpSm} />
+                    <input value={d.dob} onChange={e => setDependents(prev => prev.map((x, j) => j === i ? { ...x, dob: e.target.value } : x))} type="text" placeholder="MM/DD/YYYY" className={inpSm} />
                   </div>
                   <div><label className="block text-xs text-slate-500 mb-1">Relationship</label>
                     <select value={d.relationship} onChange={e => setDependents(prev => prev.map((x, j) => j === i ? { ...x, relationship: e.target.value } : x))} className={inpSm}>
@@ -1015,7 +1015,7 @@ export function FactFinderSection({
                         <div><label className="block text-xs text-slate-500 mb-1">% share</label><input value={bene.percentage} onChange={e => setBene(arr, setArr, i, 'percentage', e.target.value)} type="number" min="1" max="100" className={inpSm} /></div>
                       </div>
                       <div className="grid grid-cols-3 gap-2">
-                        <div><label className="block text-xs text-slate-500 mb-1">Date of birth</label><input value={bene.dob} onChange={e => setBene(arr, setArr, i, 'dob', e.target.value)} type="date" className={inpSm} /></div>
+                        <div><label className="block text-xs text-slate-500 mb-1">Date of birth</label><input value={bene.dob} onChange={e => setBene(arr, setArr, i, 'dob', e.target.value)} type="text" placeholder="MM/DD/YYYY" className={inpSm} /></div>
                         <div><label className="block text-xs text-slate-500 mb-1">SSN</label><input value={bene.ssn} onChange={e => setBene(arr, setArr, i, 'ssn', e.target.value)} placeholder="XXX-XX-XXXX" className={inpSm} /></div>
                         <div><label className="block text-xs text-slate-500 mb-1">Phone</label><input value={bene.phone} onChange={e => setBene(arr, setArr, i, 'phone', e.target.value)} type="tel" className={inpSm} /></div>
                       </div>
