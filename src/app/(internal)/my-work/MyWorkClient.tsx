@@ -343,12 +343,13 @@ function WorkFilters({
 
 function PrioritiesColumn({ state }: { state: MyWorkState }) {
   // Genuine commitments the system DOES record today: date-only promised
-  // callbacks that have come due (the `due_callback` band), surfaced via the
-  // activities that carry due work. These are real customer commitments and are
-  // never hidden by filters upstream.
-  const commitmentActivities = state.activities.filter(
-    (a) => a.band === 'due_callback' && a.dueCount > 0,
-  )
+  // callbacks that have come due. Keyed off dueCount, NOT off the band: a due
+  // callback on a focus-elevated activity is classified by ZEN into the `focus`
+  // band (rank 2 outranks the due_callback band), so filtering by band would
+  // miss it and show a false all-clear. Every activity carrying due work is a
+  // commitment here, whatever band it landed in. (Filters never hide these
+  // upstream.)
+  const commitmentActivities = state.activities.filter((a) => a.dueCount > 0)
   const dueTotal = commitmentActivities.reduce((n, a) => n + a.dueCount, 0)
 
   // Focus-elevated activities with actionable work (management direction that
@@ -734,8 +735,9 @@ function PracticeDirectionColumn({ state }: { state: MyWorkState }) {
 
   // Standing responsibilities derived from REAL capability routing: the strongest
   // routable assignment the employee holds for each activity (primary/support),
-  // deduplicated by activity. No invented content.
-  const responsibilities = deriveResponsibilities(state)
+  // from the composition's authoritative capability read — INCLUDING activities
+  // that currently have no outstanding work. No invented content.
+  const responsibilities = state.responsibilities
 
   return (
     <section aria-label="Practice direction" className="space-y-3">
@@ -822,30 +824,6 @@ function PracticeDirectionColumn({ state }: { state: MyWorkState }) {
       </div>
     </section>
   )
-}
-
-interface ResponsibilityRow {
-  workFunction: ActivityGroup['workFunction']
-  label: string
-  routedAs: 'primary' | 'support'
-}
-
-/** The employee's standing responsibilities, from the real capability routing
- * on the resolved activities: an activity the employee is routed (primary or
- * support). Deduplicated by activity, primary winning over support, in the ZEN
- * rank order the activities already arrived in. No invented content. */
-function deriveResponsibilities(state: MyWorkState): ResponsibilityRow[] {
-  const byFn = new Map<string, ResponsibilityRow>()
-  for (const a of state.activities) {
-    if (a.routedAs !== 'primary' && a.routedAs !== 'support') continue
-    const existing = byFn.get(a.workFunction)
-    if (!existing) {
-      byFn.set(a.workFunction, { workFunction: a.workFunction, label: a.label, routedAs: a.routedAs })
-    } else if (existing.routedAs === 'support' && a.routedAs === 'primary') {
-      existing.routedAs = 'primary'
-    }
-  }
-  return [...byFn.values()]
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

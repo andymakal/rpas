@@ -56,9 +56,11 @@ import type {
   FocusNote,
   MyWorkState,
   PriorityBand,
+  ResponsibilityItem,
   WorkSource,
   WorkSourceProjectScope,
 } from './types'
+import type { ProducerCapabilityProfile, WorkFunction } from '@/lib/capabilities/work-functions'
 
 const STEWARDSHIP_ROUTE = '/stewardship'
 
@@ -314,6 +316,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       employeeName: null,
       noProfile: true,
       activities: [],
+      responsibilities: [],
       focusNotes: flattenFocus(focus, new Map()),
       quiet: true,
     }
@@ -1365,6 +1368,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     employeeName: `${profile.firstName} ${profile.lastName}`.trim() || null,
     noProfile: false,
     activities,
+    responsibilities: buildResponsibilities(profile, workFunctions),
     focusNotes: flattenFocus(focus, buildActivityLabelMap(workFunctions), projectNameById),
     quiet,
   }
@@ -1374,6 +1378,38 @@ function buildActivityLabelMap(
   workFunctions: { canonicalKey: WorkFunctionKey; label: string }[],
 ): Map<WorkFunctionKey, string> {
   return new Map(workFunctions.map((w) => [w.canonicalKey, w.label]))
+}
+
+/**
+ * The employee's standing primary/support responsibilities, from their
+ * capability assignments — INDEPENDENT of whether an activity currently has
+ * work. Deduplicated by activity, primary winning over support, across every
+ * scope (agency-wide or any project), in catalog order. This reads the SAME
+ * producer_work_functions assignments the rest of the composition uses; it
+ * derives no new eligibility and invents no content. Overqualified ('assist')
+ * is NOT a standing responsibility, so it is excluded.
+ */
+function buildResponsibilities(
+  profile: ProducerCapabilityProfile,
+  workFunctions: WorkFunction[],
+): ResponsibilityItem[] {
+  const strongest = new Map<WorkFunctionKey, 'primary' | 'support'>()
+  for (const e of profile.eligibilities) {
+    if (e.assignment !== 'primary' && e.assignment !== 'support') continue
+    const current = strongest.get(e.workFunction)
+    if (current === 'primary') continue
+    if (e.assignment === 'primary' || current == null) {
+      strongest.set(e.workFunction, e.assignment)
+    }
+  }
+  // Emit in catalog (sortOrder) order so the list reads consistently.
+  const out: ResponsibilityItem[] = []
+  for (const wf of workFunctions) {
+    const routedAs = strongest.get(wf.canonicalKey)
+    if (!routedAs) continue
+    out.push({ workFunction: wf.canonicalKey, label: wf.label, routedAs })
+  }
+  return out
 }
 
 /** Flatten active focus into display notes with a human label. */

@@ -96,6 +96,7 @@ function state(activities: ActivityGroup[]): MyWorkState {
     employeeName: 'Pat Example',
     noProfile: false,
     activities,
+    responsibilities: [],
     focusNotes: [],
     quiet: activities.every((a) => a.totalCount === 0),
   }

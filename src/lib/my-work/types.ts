@@ -303,6 +303,22 @@ export interface ActivityGroup {
   sources: WorkSource[]
 }
 
+/**
+ * One of the employee's STANDING responsibilities: an activity they are routed
+ * (primary or support), independent of whether it currently has outstanding
+ * work. Read from the capability assignments (producer_work_functions), so it
+ * reflects the employee's durable remit, not today's queue. Used by the Practice
+ * Direction column, which must show the full remit including activities that are
+ * quiet right now.
+ */
+export interface ResponsibilityItem {
+  workFunction: WorkFunctionKey
+  label: string
+  /** The strongest standing assignment the employee holds for this activity
+   * across every scope (primary wins over support). */
+  routedAs: 'primary' | 'support'
+}
+
 /** The single serializable MY WORK state a server component hands the client. */
 export interface MyWorkState {
   /** The signed-in employee's display name, or null when no producer record. */
@@ -311,6 +327,14 @@ export interface MyWorkState {
   noProfile: boolean
   /** Activity groups, already ordered by ZEN rank then by activity sort order. */
   activities: ActivityGroup[]
+  /**
+   * The employee's standing primary/support responsibilities, from their
+   * capability assignments — INCLUDING activities with no outstanding work right
+   * now. This is the authoritative remit for the Practice Direction column; the
+   * `activities` list only carries activities that currently have work, so it
+   * cannot be used to show the full remit.
+   */
+  responsibilities: ResponsibilityItem[]
   /** Active Today's Focus notes, for the "management direction" banner. */
   focusNotes: FocusNote[]
   /** True when nothing is actionable for this employee right now. */
