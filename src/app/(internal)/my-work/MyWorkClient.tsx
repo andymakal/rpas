@@ -41,7 +41,7 @@
  * design tokens, per the Right Path light-theme workflow visual rules.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   Sparkles, ArrowRight, Phone, Mail, Users, CheckCircle2, Lock,
@@ -57,6 +57,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
+import { useMentoring } from '@/lib/mentoring/MentoringProvider'
 import {
   WorkflowSurface,
   WorkflowHeader,
@@ -531,15 +532,27 @@ function IntakePriority({ state }: { state: MyWorkState }) {
 }
 
 /**
- * Per-item Mentoring disclosure (the approved behavior): a small purple
- * graduation-cap icon sits inline ON the item's line. Clicking it HIDES the icon
- * and expands the coaching explanation directly beneath the item; closing the
- * explanation restores the icon. This is the item-line interaction from the
- * Storybook reference, distinct from the labeled MentorGuidance bar used for the
- * filter help. Local open state only; it honors no global toggle so the icon is
- * always available on an item that carries coaching.
+ * Per-item Mentoring disclosure state, seeded from the GLOBAL Mentoring toggle.
+ *
+ * The open/closed DEFAULT follows the global Mentoring on/off, exactly like the
+ * shared MentorGuidance disclosure: global ON -> expanded, global OFF ->
+ * collapsed. Flipping the global toggle RE-SEEDS every cap to the new default
+ * (the effect below re-runs on the global value), so the header "Mentoring
+ * on/off" expands or reduces ALL mentoring across the page at once — while a
+ * worker can still open or close one item independently between global changes.
  */
-function MentorCapToggle({ onOpen }: { onOpen: () => void }) {
+function useMentorDisclosure(): { open: boolean; setOpen: (v: boolean) => void } {
+  const { mentoring } = useMentoring()
+  const [open, setOpen] = useState(mentoring)
+  useEffect(() => {
+    setOpen(mentoring)
+  }, [mentoring])
+  return { open, setOpen }
+}
+
+/** The inline cap button (collapsed state): a large purple graduation-cap on the
+ * item's line. Clicking it expands the coaching beneath the item. */
+function MentorCapButton({ onOpen }: { onOpen: () => void }) {
   return (
     <button
       type="button"
@@ -553,6 +566,8 @@ function MentorCapToggle({ onOpen }: { onOpen: () => void }) {
   )
 }
 
+/** The expanded coaching panel, rendered beneath the item. Closing it restores
+ * the cap icon. */
 function MentorCapPanel({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
     <div className="mt-2 flex items-start gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-sm leading-relaxed text-purple-800">
@@ -592,7 +607,7 @@ function PriorityCard({
   mentoring?: React.ReactNode
 }) {
   const t = TONE[tone]
-  const [mentorOpen, setMentorOpen] = useState(false)
+  const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
   return (
     <div className={cn('rounded-xl border p-3', t.card)}>
       <div className="flex items-start gap-3">
@@ -609,7 +624,7 @@ function PriorityCard({
               {count}
             </span>
             {mentoring && !mentorOpen && (
-              <MentorCapToggle onOpen={() => setMentorOpen(true)} />
+              <MentorCapButton onOpen={() => setMentorOpen(true)} />
             )}
             {route && (
               <Link
@@ -692,7 +707,7 @@ function AvailableWorkColumn({
  * Order comes from the plan; no new ranking here. */
 function WorkStepCard({ step }: { step: PlanStep }) {
   const headline = step.unresolvedCount ?? step.count
-  const [mentorOpen, setMentorOpen] = useState(false)
+  const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
   return (
     <article
       className={cn(
@@ -718,8 +733,9 @@ function WorkStepCard({ step }: { step: PlanStep }) {
               {step.title}
             </span>
           )}
-          {/* Mentoring: the description moves here, collapsed by default. */}
-          {!mentorOpen && <MentorCapToggle onOpen={() => setMentorOpen(true)} />}
+          {/* Mentoring: the description lives here; default follows the global
+              Mentoring toggle. */}
+          {!mentorOpen && <MentorCapButton onOpen={() => setMentorOpen(true)} />}
         </div>
         <span className="shrink-0 text-2xl font-semibold leading-none tabular-nums text-ink">{headline}</span>
       </div>
