@@ -433,7 +433,7 @@ function CommitmentsSummary({
         >
           <CalendarClock className="size-4" />
         </span>
-        <p className={cn('text-lg font-semibold leading-tight', active ? t.label : 'text-ink')}>
+        <p className={cn('text-2xl font-semibold leading-tight tracking-tight', active ? t.label : 'text-ink')}>
           {active
             ? `${dueTotal} promised callback${dueTotal === 1 ? '' : 's'} due`
             : 'No promised callbacks due'}
@@ -619,7 +619,7 @@ function PriorityCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <p className={cn('text-lg font-semibold leading-tight', t.label)}>{label}</p>
+            <p className={cn('text-2xl font-semibold leading-tight tracking-tight', t.label)}>{label}</p>
             <span className={cn('rounded-full px-2.5 py-0.5 text-sm font-bold tabular-nums', t.chip)}>
               {count}
             </span>
@@ -786,11 +786,11 @@ function PracticeDirectionColumn({ state }: { state: MyWorkState }) {
       >
         <p
           className={cn(
-            'flex items-center gap-2 text-sm font-semibold',
+            'flex items-center gap-2 text-2xl font-semibold leading-tight tracking-tight',
             state.focusNotes.length > 0 ? focus.label : 'text-ink',
           )}
         >
-          <Sparkles className="size-4" aria-hidden /> Today&apos;s Focus
+          <Sparkles className="size-5" aria-hidden /> Today&apos;s Focus
         </p>
         {state.focusNotes.length > 0 ? (
           <>
@@ -819,8 +819,8 @@ function PracticeDirectionColumn({ state }: { state: MyWorkState }) {
 
       {/* Standing responsibilities — real capability routing (primary/support). */}
       <div className="rounded-xl border border-surface-border bg-surface-card p-3">
-        <p className="flex items-center gap-2 text-sm font-semibold text-ink">
-          <Briefcase className="size-4 shrink-0 text-ink-supporting" aria-hidden /> Your
+        <p className="flex items-center gap-2 text-2xl font-semibold leading-tight tracking-tight text-ink">
+          <Briefcase className="size-5 shrink-0 text-ink-supporting" aria-hidden /> Your
           responsibilities
         </p>
         {responsibilities.length > 0 ? (
@@ -845,8 +845,8 @@ function PracticeDirectionColumn({ state }: { state: MyWorkState }) {
 
       {/* Management expectations beyond Today's Focus are not modeled yet. */}
       <div className="rounded-xl border border-surface-border bg-surface-card p-3">
-        <p className="flex items-center gap-2 text-sm font-semibold text-ink">
-          <Target className="size-4 shrink-0 text-ink-supporting" aria-hidden /> Expectations
+        <p className="flex items-center gap-2 text-2xl font-semibold leading-tight tracking-tight text-ink">
+          <Target className="size-5 shrink-0 text-ink-supporting" aria-hidden /> Expectations
         </p>
         <div className="mt-1.5">
           <ComingSoon>
