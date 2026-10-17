@@ -8,18 +8,45 @@
  * sources, and (for eligible workers) a claim control. It does NO business
  * judgment and NO prioritization — ZEN owns the ordering; this presents it.
  *
+ * LAYOUT: the approved three-column board (see the Storybook reference,
+ * MyWorkRedesign.prototype.stories.tsx). Each column has a distinct purpose and
+ * is populated ONLY from real resolved data:
+ *
+ *   1. Priorities        — what needs attention: genuine commitments (date-only
+ *      promised callbacks that have come due, the `due_callback` band), plus the
+ *      attention categories (overdue/commitments, intake first-touch, focus),
+ *      each earning color only when it actually has work. Exact-time
+ *      appointments and preferred calling windows are not yet captured, so they
+ *      appear as a discreet "Coming soon" note — never as invented data and
+ *      never implying there is no work.
+ *   2. Available work    — the actionable activities in the ESTABLISHED ZEN +
+ *      catalog order (deriveMyWorkDirection → workingPlan). No new ranking is
+ *      introduced; this re-presents the same ordered plan as compact cards.
+ *   3. Practice direction — the live Today's Focus, the employee's standing
+ *      responsibilities derived from their capability routing (primary/support),
+ *      and a discreet "Coming soon" for additional management expectations not
+ *      yet modeled.
+ *
+ * The deferred capabilities behind the "Coming soon" markers (exact-time
+ * appointments, preferred calling windows, standing practice expectations) are
+ * recorded in /DEFERRED_CAPABILITIES.md.
+ *
+ * The full per-activity inventory (band-grouped cards with sources, counts,
+ * claim-state, and per-item guidance) is preserved on demand under Available
+ * work, so every existing route, count, eligibility distinction, and claim
+ * breakdown remains reachable. The Project + Activity filters, the deep-link
+ * project pre-select, and the Mentoring disclosures are unchanged.
+ *
  * Built on the shared workflow design system (src/components/workflow) and the
- * design tokens, per the Right Path light-theme workflow visual rules. Clicking
- * a source opens the real customer work (the Stewardship queue or the 1035
- * review), so a recommendation is always directly reachable.
+ * design tokens, per the Right Path light-theme workflow visual rules.
  */
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   Sparkles, ArrowRight, Phone, Mail, Users, CheckCircle2, Lock,
-  ListChecks, ChevronRight, SlidersHorizontal,
-  CalendarClock, FolderOpen,
+  ListChecks, ChevronRight, SlidersHorizontal, AlertCircle,
+  CalendarClock, FolderOpen, Clock, Target, Briefcase, Hourglass,
 } from 'lucide-react'
 import {
   Select,
@@ -30,10 +57,9 @@ import {
 } from '@/components/ui/select'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import {
-  WorkflowPage,
+  WorkflowSurface,
   WorkflowHeader,
   OperationalTag,
-  AssistantPanel,
   type OperationalTone,
 } from '@/components/workflow'
 import { cn } from '@/lib/utils'
@@ -58,10 +84,41 @@ import {
   type PlanStep,
 } from '@/lib/my-work/direction'
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Attention tone — the settled "Strong" (Level-4) treatment from the approved
+// Storybook reference. Each tone drives the WHOLE card so importance reads from
+// the overall presentation, not a tiny glyph. Color is EARNED: a category only
+// takes an attention tone when it actually has work; otherwise it renders as a
+// quiet neutral card. 'calm' stays on the quiet design tokens.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type AttentionTone = 'critical' | 'attention' | 'focus'
+
+const TONE: Record<AttentionTone, { card: string; badge: string; chip: string; label: string }> = {
+  critical: {
+    card: 'border-l-4 border-red-300 border-l-red-700 bg-red-100',
+    badge: 'bg-red-700 text-white',
+    chip: 'bg-red-700 text-white',
+    label: 'text-red-900',
+  },
+  attention: {
+    card: 'border-l-4 border-amber-300 border-l-amber-700 bg-amber-100',
+    badge: 'bg-amber-700 text-white',
+    chip: 'bg-amber-700 text-white',
+    label: 'text-amber-900',
+  },
+  focus: {
+    card: 'border-l-4 border-teal-300 border-l-teal-700 bg-teal-100',
+    badge: 'bg-teal-700 text-white',
+    chip: 'bg-teal-700 text-white',
+    label: 'text-teal-900',
+  },
+}
+
 /** The band's human section title and tag tone, driven by ZEN's band. The three
  * non-routable bands are deliberately distinct sections, each saying something
  * different: assist is actionable; unassigned and unlicensed are awareness-only
- * for different reasons. */
+ * for different reasons. (Used by the on-demand full inventory.) */
 const BAND_META: Record<PriorityBand, { title: string; tone: OperationalTone }> = {
   exact_time_commitment: { title: 'Fixed appointments now', tone: 'exception' },
   focus:                 { title: "Today's Focus", tone: 'reason' },
@@ -87,9 +144,6 @@ export function MyWorkClient({
   const projectOptions = useMemo(() => projectFilterOptions(state), [state])
   const activityOptions = useMemo(() => activityFilterOptions(state), [state])
 
-  // Seed the project filter from the deep link, but only when that project is
-  // actually present in the resolved work; otherwise fall back to 'all' so a
-  // stale link never shows an empty view.
   const seededProject =
     initialProjectId && projectOptions.some((o) => o.id === initialProjectId)
       ? initialProjectId
@@ -97,10 +151,8 @@ export function MyWorkClient({
   const [projectFilter, setProjectFilter] = useState<string>(seededProject)
   const [activityFilter, setActivityFilter] = useState<string>(ALL)
 
-  // The filtered state the Assistant and the full inventory render. Fixed-time
-  // commitments are exempt from the filters (a promised callback or scheduled
-  // appointment stays visible regardless of what the worker is filtering to),
-  // per the Right Path rule that a customer commitment is never hidden.
+  // The filtered state the columns render. Commitments are exempt from the
+  // filters upstream, so a promised callback stays visible regardless.
   const filteredState = useMemo(
     () => applyWorkFilters(state, projectFilter, activityFilter),
     [state, projectFilter, activityFilter],
@@ -111,96 +163,91 @@ export function MyWorkClient({
 
   if (state.noProfile) {
     return (
-      <WorkflowPage>
-        <WorkflowHeader primary="My Work" />
-        <p className="max-w-prose text-base text-ink-secondary">
-          Your account does not have a team member profile yet, so there is no
-          personal work view. Ask an administrator to add you on the Team page;
-          the shared work is still visible on the Stewardship board.
-        </p>
-        <Link
-          href="/stewardship"
-          className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground hover:bg-brand-hover"
-        >
-          Open the Stewardship board <ArrowRight className="size-4" aria-hidden />
-        </Link>
-      </WorkflowPage>
+      <WorkflowSurface className="sm:px-8">
+        <div className="mx-auto w-4/5 min-w-0 max-w-[1760px] space-y-6">
+          <WorkflowHeader primary="My Work" />
+          <p className="max-w-prose text-base text-ink-secondary">
+            Your account does not have a team member profile yet, so there is no
+            personal work view. Ask an administrator to add you on the Team page;
+            the shared work is still visible on the Stewardship board.
+          </p>
+          <Link
+            href="/stewardship"
+            className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground hover:bg-brand-hover"
+          >
+            Open the Stewardship board <ArrowRight className="size-4" aria-hidden />
+          </Link>
+        </div>
+      </WorkflowSurface>
     )
   }
 
-  // Derive the Daily Direction summary from the FILTERED ready state. This still
-  // reads ZEN's already-decided ordering; it does not re-rank or add a data
-  // source. Filtering only removes activities from view; the order among those
-  // that remain is unchanged.
+  // Derive the Daily Direction from the FILTERED state. This reads ZEN's
+  // already-decided ordering; it does not re-rank or add a data source.
   const direction = deriveMyWorkDirection(filteredState)
 
+  const filters: WorkFiltersProps | null = hasFilters
+    ? {
+        projectOptions,
+        activityOptions,
+        projectFilter,
+        activityFilter,
+        onProjectChange: setProjectFilter,
+        onActivityChange: setActivityFilter,
+        onClear: () => {
+          setProjectFilter(ALL)
+          setActivityFilter(ALL)
+        },
+        active: filtersActive,
+      }
+    : null
+
   return (
-    <WorkflowPage>
-      <WorkflowHeader primary="My Work" />
+    <WorkflowSurface className="sm:px-8">
+      {/* The board fills the middle ~80% of the screen (balanced gutters),
+          capped so it does not sprawl on an ultrawide monitor. */}
+      <div className="mx-auto w-4/5 min-w-0 max-w-[1760px] space-y-6">
+        <WorkflowHeader primary="My Work" />
 
-      {/* The Assistant is the first thing an employee meets in My Work. The
-          Project + Activity filters live INSIDE its panel, so changing a filter
-          reshapes the same briefing the worker is reading. The Assistant leads
-          with any genuine fixed-time commitments and the day's breadth, then
-          asks what to work on and offers two prominent start choices. Fixed-time
-          commitments stay visible regardless of the filters, and every route,
-          count, and permission is unchanged. The full inventory is on demand. */}
-      <MyWorkAssistant
-        state={filteredState}
-        direction={direction}
-        filters={
-          hasFilters
-            ? {
-                projectOptions,
-                activityOptions,
-                projectFilter,
-                activityFilter,
-                onProjectChange: setProjectFilter,
-                onActivityChange: setActivityFilter,
-                onClear: () => {
-                  setProjectFilter(ALL)
-                  setActivityFilter(ALL)
-                },
-                active: filtersActive,
-              }
-            : null
-        }
-      />
+        {filters && <WorkFilters {...filters} />}
 
-      {/* Today's Focus banner: temporary management direction, shown as a
-          distinct notice below the chooser. It influences ordering; never hides
-          work. Kept compact so it does not compete with the start choices. */}
-      {state.focusNotes.length > 0 && (
-        <section
-          aria-label="Today's Focus"
-          className="rounded-2xl border border-brand-subtle bg-brand-wash p-5"
-        >
-          <p className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.1em] text-brand-hover">
-            <Sparkles className="size-4" aria-hidden /> Today&apos;s Focus
-          </p>
-          <ul className="mt-2 space-y-1.5">
-            {state.focusNotes.map((f) => (
-              <li key={f.id} className="text-base text-ink">
-                <span className="font-semibold">{f.label}</span>
-                {f.note ? <span className="text-ink-secondary">: {f.note}</span> : null}
-                <span className="ml-2 text-ink-supporting">
-                  (until {formatExpiry(f.expiresAt)})
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-sm text-ink-supporting">
-            Focus reorders your work for a limited time. It never overrides a
-            customer commitment and never hides other work.
-          </p>
-        </section>
-      )}
-    </WorkflowPage>
+        <div className="grid gap-6 lg:grid-cols-3 xl:gap-8">
+          <PrioritiesColumn state={filteredState} direction={direction} />
+          <AvailableWorkColumn direction={direction} state={filteredState} />
+          <PracticeDirectionColumn state={state} />
+        </div>
+      </div>
+    </WorkflowSurface>
   )
 }
 
-/** The props the filter bar needs. Shared so the Assistant can carry them in
- * and render the bar inside its own panel. */
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared column header — prominent teal title (matches the approved reference).
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ColumnHeader({ title }: { title: string }) {
+  return <h2 className="text-xl font-bold tracking-tight text-brand-hover">{title}</h2>
+}
+
+/** A discreet, honest "coming soon" note for a capability the system does not
+ * yet capture. It states the feature is planned and is explicit that it does
+ * NOT mean there is no such work — only that Right Path does not record it yet. */
+function ComingSoon({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="flex items-start gap-1.5 text-xs leading-snug text-ink-muted">
+      <Hourglass className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+      <span>
+        <span className="font-medium text-ink-supporting">Coming soon:</span> {children}
+      </span>
+    </p>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The filter bar (Project + Activity). Unchanged behavior; moved above the
+// columns so it governs all three. Fixed-time commitments stay visible.
+// ─────────────────────────────────────────────────────────────────────────────
+
 interface WorkFiltersProps {
   projectOptions: FilterOption[]
   activityOptions: FilterOption[]
@@ -212,11 +259,6 @@ interface WorkFiltersProps {
   active: boolean
 }
 
-/** The filter bar: Project (all / one) and Activity (all / one), both
- * combinable. Rendered INSIDE the Assistant panel, so it is a light inset row
- * rather than its own card, with a Clear affordance when a filter is set.
- * Changing a filter reshapes the Assistant's briefing above and the work below;
- * fixed-time commitments stay visible regardless. */
 function WorkFilters({
   projectOptions,
   activityOptions,
@@ -280,279 +322,520 @@ function WorkFilters({
         </button>
       )}
 
-      <p className="w-full text-xs text-ink-supporting">
-        Filters narrow what you see. Fixed-time commitments stay visible, and
-        every item still opens the same work.
-      </p>
+      <MentorGuidance label="How to use these filters" className="w-full sm:w-auto">
+        <span className="block">
+          <span className="font-semibold">By project:</span> concentrate on a
+          particular objective, working everything one project needs.
+        </span>
+        <span className="mt-1 block">
+          <span className="font-semibold">By activity:</span> work efficiently
+          through similar tasks across projects.
+        </span>
+      </MentorGuidance>
     </section>
   )
 }
 
-/**
- * The My Work Assistant: a practical working plan, not a system readout. In
- * order it shows (1) fixed-time commitments, (2) how many active projects have
- * work available, (3) the Project + Activity filters with a collapsed Mentoring
- * note on how to choose between them, and (4) the recommended working plan — an
- * ordered, advisory sequence of concrete steps (what, why, and a direct action).
- * The complete inventory is available on demand via "See all available work",
- * not shown up front, so the plan is never repeated by a second always-on list.
- * GoRules + the catalog working order own the ordering; this only presents the
- * already-derived direction, which re-derives when a filter changes.
- */
-function MyWorkAssistant({
+// ─────────────────────────────────────────────────────────────────────────────
+// COLUMN 1 — Priorities. What needs the employee's attention.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function PrioritiesColumn({
   state,
   direction,
-  filters,
 }: {
   state: MyWorkState
   direction: MyWorkDirection
-  /** The in-panel Project + Activity filters, or null when there is nothing to
-   * filter. Rendered inside the Assistant so a filter change reshapes the same
-   * briefing the worker is reading. */
-  filters: WorkFiltersProps | null
 }) {
-  // The complete work inventory is on demand only, so the Assistant leads with
-  // the plan rather than a wall of every item. One boolean controls it.
-  const [showAll, setShowAll] = useState(false)
+  // Genuine commitments the system DOES record today: date-only promised
+  // callbacks that have come due (the `due_callback` band), surfaced via the
+  // activities that carry due work. These are real customer commitments and are
+  // never hidden by filters upstream.
+  const commitmentActivities = state.activities.filter(
+    (a) => a.band === 'due_callback' && a.dueCount > 0,
+  )
+  const dueTotal = commitmentActivities.reduce((n, a) => n + a.dueCount, 0)
 
-  const plan = direction.workingPlan
+  // Focus-elevated activities with actionable work (management direction that
+  // genuinely points at work the employee can do).
+  const focusActivities = state.activities.filter(
+    (a) => a.band === 'focus' && a.ownedCount + a.availableCount > 0,
+  )
 
   return (
-    <div className="[&>section]:gap-6 [&>section]:p-6 sm:[&>section]:p-7">
-      <AssistantPanel heading={<span className="text-2xl">Your working plan for today</span>}>
-        {/* 1. Fixed-time commitments FIRST. Gray when none are on record (using
-            the established wording); light amber when a real commitment needs
-            attention. These are exempt from the filters upstream, so they stay
-            visible regardless of the current selection. */}
-        <FixedTimeCommitments summary={direction.fixedTimeCommitments} />
+    <section aria-label="Priorities" className="space-y-2.5">
+      <ColumnHeader title="Priorities" />
 
-        {/* 2. Active projects with work available to this employee — the day's
-            breadth at a glance, reflecting the current filter selection. */}
-        <ActiveProjectsLine count={direction.projectsWithAvailableWork} />
+      {/* Commitments summary — real due callbacks, plus an honest Coming Soon
+          for the kinds of commitment Right Path does not capture yet. */}
+      <CommitmentsSummary dueTotal={dueTotal} items={commitmentActivities} />
 
-        {/* 3. The Project + Activity filters, with a collapsed Mentoring note
-            explaining how to choose between them. Changing a filter reshapes the
-            plan below in place. */}
-        {filters && (
-          <div className="flex flex-col gap-3">
-            <WorkFilters {...filters} />
-            <MentorGuidance label="How to use these filters">
-              <span className="block">
-                <span className="font-semibold">By project:</span> concentrate on a
-                particular objective, working everything one project needs.
-              </span>
-              <span className="mt-1 block">
-                <span className="font-semibold">By activity:</span> work efficiently
-                through similar tasks across projects.
-              </span>
-            </MentorGuidance>
-          </div>
-        )}
+      {/* Focus-elevated work, when management has directed attention at work the
+          employee can actually do. */}
+      {focusActivities.map((a) => (
+        <PriorityCard
+          key={`focus-${a.workFunction}`}
+          tone="focus"
+          icon={Sparkles}
+          label={`Today's Focus: ${a.label}`}
+          count={a.ownedCount + a.availableCount}
+          steer={a.reason}
+          route={primaryRoute(a)}
+        />
+      ))}
 
-        {/* 4. The recommended working plan: an ordered, advisory sequence of
-            concrete steps (what, why, and a direct action). It re-derives with
-            the filters, so it tracks the current selection. */}
-        {plan.length > 0 ? (
-          <WorkingPlan steps={plan} />
-        ) : (
-          <p className="flex items-center gap-2 text-lg leading-relaxed text-ink-secondary">
-            <CheckCircle2 className="size-5 text-status-confirmed" aria-hidden />
-            Nothing is waiting for you to start right now. You have open capacity.
+      {/* Intake / first-touch — representative attention category drawn from the
+          real outreach activity's introductory-email sub-population (new
+          customers awaiting a first contact). Only shown when it has work. */}
+      <IntakePriority state={state} />
+
+      {/* When nothing in this column needs attention, say so plainly without
+          implying the system has established there is no OTHER work. */}
+      {dueTotal === 0 && focusActivities.length === 0 && !hasIntake(state) && (
+        <div className="rounded-xl border border-surface-border bg-surface-card p-3">
+          <p className="flex items-center gap-2 text-sm text-ink-secondary">
+            <CheckCircle2 className="size-4 shrink-0 text-status-confirmed" aria-hidden />
+            Nothing is flagged for your attention right now.
           </p>
-        )}
-
-        {/* The complete inventory, on demand only, so the plan is not repeated by
-            a second always-on list of the same work. */}
-        <div className="border-t border-surface-border pt-4">
-          <button
-            type="button"
-            onClick={() => setShowAll((v) => !v)}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-hover hover:underline"
-          >
-            <ListChecks className="size-4" aria-hidden />
-            {showAll ? 'Hide full work list' : 'See all available work'}
-            <ChevronRight className={cn('size-4 transition-transform', showAll && 'rotate-90')} aria-hidden />
-          </button>
+          <p className="mt-1 text-xs text-ink-supporting">
+            Available work is in the next column.
+          </p>
         </div>
-      </AssistantPanel>
+      )}
+    </section>
+  )
+}
 
-      {/* The full inventory renders outside the Assistant panel, below it, only
-          when expanded — the same band-grouped activity cards as before. */}
-      {showAll && <FullInventory state={state} />}
+/** The commitments summary: the count of due promised callbacks (a real,
+ * date-only commitment), each linking to its work, plus a discreet Coming Soon
+ * for exact-time appointments and preferred calling windows, which the system
+ * does not record yet. */
+function CommitmentsSummary({
+  dueTotal,
+  items,
+}: {
+  dueTotal: number
+  items: ActivityGroup[]
+}) {
+  const active = dueTotal > 0
+  const t = TONE.critical
+  return (
+    <div
+      className={cn(
+        'rounded-xl border p-3',
+        active ? t.card : 'border-surface-border bg-surface-card',
+      )}
+    >
+      <div className="flex items-center gap-2">
+        <span
+          className={cn(
+            'flex size-8 shrink-0 items-center justify-center rounded-lg',
+            active ? t.badge : 'bg-surface-muted text-ink-supporting',
+          )}
+          aria-hidden
+        >
+          <CalendarClock className="size-4" />
+        </span>
+        <p className={cn('font-semibold', active ? t.label : 'text-ink')}>
+          {active
+            ? `${dueTotal} promised callback${dueTotal === 1 ? '' : 's'} due`
+            : 'No promised callbacks due'}
+        </p>
+      </div>
+
+      {active && (
+        <ul className="mt-2.5 space-y-1 pl-10">
+          {items.map((a) => (
+            <li key={a.workFunction} className="flex items-center justify-between gap-3 text-sm">
+              <span className="min-w-0 flex-1 truncate text-ink">
+                {a.label}
+                <span className="ml-1.5 text-ink-supporting">
+                  — {a.dueCount} due
+                </span>
+              </span>
+              {primaryRoute(a) && (
+                <Link
+                  href={primaryRoute(a) as string}
+                  className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-hover hover:underline"
+                >
+                  Open <ArrowRight className="size-3.5" aria-hidden />
+                </Link>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Capabilities not yet captured. Stated so a worker never reads this as
+          "you have no appointments" — Right Path simply does not record them. */}
+      <div className="mt-2.5 space-y-1 pl-10">
+        <ComingSoon>
+          exact-time appointments (a specific date and clock time) are not recorded
+          yet, so none are shown here.
+        </ComingSoon>
+        <ComingSoon>
+          preferred calling windows (9–12, 12–3, 3–6, after 6) are not captured yet.
+        </ComingSoon>
+      </div>
     </div>
   )
 }
 
-/**
- * Fixed-time commitments, shown first in the plan. Right Path records no
- * exact-time (clock) commitments yet, so the common case is the honest "none"
- * line in calm gray — never a claim that the employee has no appointments. When
- * a genuine commitment IS on record it gets a light-amber attention treatment.
- */
-function FixedTimeCommitments({ summary }: { summary: MyWorkDirection['fixedTimeCommitments'] }) {
-  if (!summary.known) {
-    return (
-      <section
-        aria-label="Fixed-time commitments"
-        className="rounded-xl border border-surface-border bg-surface-muted p-4"
-      >
-        <p className="flex items-center gap-1.5 text-sm font-medium text-ink-supporting">
-          <CalendarClock className="size-4" aria-hidden /> Fixed-time commitments
-        </p>
-        <p className="mt-1 text-base leading-relaxed text-ink-secondary">
-          Right Path does not show any fixed commitments for you today.
-        </p>
-      </section>
-    )
+/** Whether the employee has intake (introductory-email first-touch) work. */
+function hasIntake(state: MyWorkState): boolean {
+  return introPopulation(state) > 0
+}
+
+/** The introductory-email first-touch population across outreach activities —
+ * the real "new customers awaiting first contact" figure the composition emits
+ * as an informational source. Counts the actionable-to-me subset. */
+function introPopulation(state: MyWorkState): number {
+  let n = 0
+  for (const a of state.activities) {
+    if (a.workFunction !== 'outreach') continue
+    for (const s of a.sources) {
+      if (s.informational && /introductory email/i.test(s.label)) {
+        n += s.ownedByMe + s.availableToMe
+      }
+    }
   }
+  return n
+}
+
+/** The route into the introductory-email population, if present. */
+function introRoute(state: MyWorkState): string | null {
+  for (const a of state.activities) {
+    if (a.workFunction !== 'outreach') continue
+    for (const s of a.sources) {
+      if (s.informational && /introductory email/i.test(s.label)) return s.route
+    }
+  }
+  return null
+}
+
+function IntakePriority({ state }: { state: MyWorkState }) {
+  const count = introPopulation(state)
+  if (count <= 0) return null
   return (
-    <section
-      aria-label="Fixed-time commitments"
-      className="rounded-xl border border-l-4 border-surface-border border-l-tag-exception-border bg-tag-exception-fill/50 p-4"
-    >
-      <p className="flex items-center gap-1.5 text-sm font-semibold text-tag-exception-text">
-        <CalendarClock className="size-4" aria-hidden /> Fixed-time commitments
-      </p>
-      <ul className="mt-2 space-y-1">
-        {summary.items.map((c) => (
-          <li key={c.workFunction} className="flex items-center justify-between gap-3 text-base">
-            <span className="truncate font-medium text-ink">{c.label}</span>
-            {c.route && (
+    <PriorityCard
+      tone="attention"
+      icon={Users}
+      label="New customers to contact"
+      count={count}
+      steer="First-touch introductory emails for customers not yet contacted."
+      route={introRoute(state)}
+      mentoring={
+        <>
+          The first contact sets the tone. Confirm the referral, verify contact
+          details, and aim to make first contact the same day the work arrives.
+        </>
+      }
+    />
+  )
+}
+
+/** A compact priority card: the whole card carries the tone. Optional mentoring
+ * uses the shared purple graduation-cap disclosure. */
+function PriorityCard({
+  tone,
+  icon: Icon,
+  label,
+  count,
+  steer,
+  route,
+  mentoring,
+}: {
+  tone: AttentionTone
+  icon: typeof Phone
+  label: string
+  count: number
+  steer: string
+  route: string | null
+  mentoring?: React.ReactNode
+}) {
+  const t = TONE[tone]
+  return (
+    <div className={cn('rounded-xl border p-3', t.card)}>
+      <div className="flex items-start gap-3">
+        <span
+          className={cn('mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg', t.badge)}
+          aria-hidden
+        >
+          <Icon className="size-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <p className={cn('font-semibold', t.label)}>{label}</p>
+            <span className={cn('rounded-full px-2 py-0.5 text-xs font-bold tabular-nums', t.chip)}>
+              {count}
+            </span>
+            {route && (
               <Link
-                href={c.route}
-                className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-hover hover:underline"
+                href={route}
+                className="ml-auto inline-flex shrink-0 items-center gap-1 text-sm font-medium text-brand-hover hover:underline"
               >
                 Open <ArrowRight className="size-3.5" aria-hidden />
               </Link>
             )}
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
-}
-
-/** The active-project breadth line: how many distinct projects currently have
- * work available to this employee. Reflects the current filter selection. */
-function ActiveProjectsLine({ count }: { count: number }) {
-  return (
-    <p className="flex items-baseline gap-2 text-base text-ink-secondary">
-      <FolderOpen className="size-4 self-center text-ink-supporting" aria-hidden />
-      <span className="text-xl font-semibold text-ink">{count}</span>
-      <span>
-        {count === 1
-          ? 'active project has work available to you right now.'
-          : 'active projects have work available to you right now.'}
-      </span>
-    </p>
-  )
-}
-
-/**
- * The recommended working plan: an ordered, advisory list of concrete steps. It
- * tells the employee WHAT to do, WHY, and gives a direct action. The order is
- * the GoRules/ZEN priority plus the catalog working order; it does not re-rank.
- * The copy is explicitly advisory — the employee may work the steps in any
- * order — and carries no claim/pickup language.
- */
-function WorkingPlan({ steps }: { steps: PlanStep[] }) {
-  return (
-    <section aria-label="Recommended working plan" className="flex flex-col gap-3">
-      <div>
-        <p className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-[0.1em] text-brand-hover">
-          <Sparkles className="size-4" aria-hidden /> Recommended working plan
-        </p>
-        <p className="mt-1 text-sm text-ink-supporting">
-          A suggested order based on current priorities and Today&apos;s Focus. You
-          can work these in any order.
-        </p>
+          </div>
+          <p className="mt-0.5 text-sm leading-snug text-ink-secondary">{steer}</p>
+          {mentoring && (
+            <MentorGuidance label="Mentoring" className="mt-2">
+              {mentoring}
+            </MentorGuidance>
+          )}
+        </div>
       </div>
-      <ol className="flex flex-col gap-2.5">
-        {steps.map((step, i) => (
-          <PlanStepRow key={step.key} step={step} position={i + 1} />
-        ))}
-      </ol>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COLUMN 2 — Available work. The established ZEN + catalog order (the working
+// plan), as compact cards. Plus the on-demand full per-activity inventory,
+// preserving every existing source route, count, claim-state, and guidance.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AvailableWorkColumn({
+  direction,
+  state,
+}: {
+  direction: MyWorkDirection
+  state: MyWorkState
+}) {
+  const [showAll, setShowAll] = useState(false)
+  const plan = direction.workingPlan
+
+  return (
+    <section aria-label="Available work" className="space-y-3">
+      <ColumnHeader title="Available work" />
+
+      {plan.length > 0 ? (
+        <div className="space-y-2.5">
+          {plan.map((step) => (
+            <WorkStepCard key={step.key} step={step} />
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-surface-border bg-surface-card p-3">
+          <p className="flex items-center gap-2 text-sm text-ink-secondary">
+            <CheckCircle2 className="size-4 shrink-0 text-status-confirmed" aria-hidden />
+            Nothing is waiting for you to start right now. You have open capacity.
+          </p>
+        </div>
+      )}
+
+      {/* The complete per-activity inventory, on demand — same band-grouped
+          cards as before, preserving every source link, count, claim-state
+          breakdown, and per-item guidance. */}
+      <div className="pt-1">
+        <button
+          type="button"
+          onClick={() => setShowAll((v) => !v)}
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-hover hover:underline"
+        >
+          <ListChecks className="size-4" aria-hidden />
+          {showAll ? 'Hide full work list' : 'See all available work'}
+          <ChevronRight className={cn('size-4 transition-transform', showAll && 'rotate-90')} aria-hidden />
+        </button>
+      </div>
+
+      {showAll && <FullInventory state={state} />}
     </section>
   )
 }
 
-/** One plan step: an ordinal, the WHAT title, the WHY reason, a count, and a
- * single direct action link. The link is the only interactive element. */
-function PlanStepRow({ step, position }: { step: PlanStep; position: number }) {
+/** One Available-work card: a step from the established working plan. Compact,
+ * neutral (routine work stays calm), with a count, the ZEN reason, and the
+ * single direct action. Order comes from the plan; no new ranking here. */
+function WorkStepCard({ step }: { step: PlanStep }) {
+  const headline = step.unresolvedCount ?? step.count
   return (
-    <li
+    <article
       className={cn(
-        'rounded-xl border bg-surface-card p-4',
+        'rounded-xl border bg-surface-card p-3',
         step.emphasis
           ? 'border-l-4 border-surface-border border-l-tag-exception-border'
           : 'border-surface-border',
       )}
     >
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 gap-3">
-          <span
-            className="flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-muted text-sm font-semibold text-ink-secondary"
-            aria-hidden
-          >
-            {position}
-          </span>
-          <div className="min-w-0">
-            <p className="text-lg font-semibold leading-tight text-ink">
-              {step.title}
-              <span className="ml-2 text-base font-normal text-ink-supporting">
-                {step.count} {step.count === 1 ? 'customer' : 'customers'}
-              </span>
-            </p>
-            <p className="mt-1 max-w-prose text-base leading-relaxed text-ink-secondary">
-              {step.reason}
-            </p>
-            {/* Attempted-vs-unresolved breakdown — the SAME figures the full
-                work list shows (Research today): how many are still not yet
-                researched vs researched unsuccessfully, so the unresolved
-                population reads clearly even when none are outstanding. */}
-            {step.unresolvedCount != null && (step.unsuccessfulCount ?? 0) > 0 && (
-              <p className="mt-1 text-sm text-ink-supporting">
-                {step.unresolvedCount - (step.unsuccessfulCount ?? 0)} not yet researched
-                {' · '}
-                {step.unsuccessfulCount} researched unsuccessfully — may need an alternative approach
-              </p>
-            )}
-          </div>
-        </div>
-        {step.route && (
-          <Link
-            href={step.route}
-            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-brand px-3.5 py-2 text-sm font-semibold text-brand-foreground hover:bg-brand-hover"
-          >
-            {step.actionLabel}
-            <ArrowRight className="size-4" aria-hidden />
-          </Link>
-        )}
+      <div className="flex items-center justify-between gap-2">
+        <span className="min-w-0 font-semibold text-ink">{step.title}</span>
+        <span className="text-2xl font-semibold leading-none tabular-nums text-ink">{headline}</span>
       </div>
-    </li>
+      <p className="mt-1 text-sm leading-snug text-ink-secondary">{step.reason}</p>
+      {step.unresolvedCount != null && (step.unsuccessfulCount ?? 0) > 0 && (
+        <p className="mt-1 text-xs text-ink-supporting">
+          {step.unresolvedCount - (step.unsuccessfulCount ?? 0)} not yet researched
+          {' · '}
+          {step.unsuccessfulCount} researched unsuccessfully
+        </p>
+      )}
+      {step.route && (
+        <Link
+          href={step.route}
+          className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-brand-hover hover:underline"
+        >
+          {step.actionLabel}
+          <ArrowRight className="size-4" aria-hidden />
+        </Link>
+      )}
+    </article>
   )
 }
 
-/** The complete work inventory: the band-grouped activity cards, shown only
- * when the worker asks for the full list. Preserves the GoRules band ordering. */
+// ─────────────────────────────────────────────────────────────────────────────
+// COLUMN 3 — Practice direction. What the agency expects of this employee.
+// Real Today's Focus + responsibilities derived from capability routing, plus a
+// discreet Coming Soon for expectations not yet modeled.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function PracticeDirectionColumn({ state }: { state: MyWorkState }) {
+  const focus = TONE.focus
+
+  // Standing responsibilities derived from REAL capability routing: the strongest
+  // routable assignment the employee holds for each activity (primary/support),
+  // deduplicated by activity. No invented content.
+  const responsibilities = deriveResponsibilities(state)
+
+  return (
+    <section aria-label="Practice direction" className="space-y-3">
+      <ColumnHeader title="Practice direction" />
+
+      {/* Live Today's Focus (real focusNotes). Shown unfiltered — it is agency
+          direction, not the employee's filtered work. */}
+      <div
+        className={cn(
+          'rounded-xl border p-3',
+          state.focusNotes.length > 0 ? focus.card : 'border-surface-border bg-surface-card',
+        )}
+      >
+        <p
+          className={cn(
+            'flex items-center gap-2 text-sm font-semibold',
+            state.focusNotes.length > 0 ? focus.label : 'text-ink',
+          )}
+        >
+          <Sparkles className="size-4" aria-hidden /> Today&apos;s Focus
+        </p>
+        {state.focusNotes.length > 0 ? (
+          <>
+            <ul className="mt-1.5 space-y-1.5">
+              {state.focusNotes.map((f) => (
+                <li key={f.id} className="text-sm leading-snug text-ink">
+                  <span className="font-semibold">{f.label}</span>
+                  {f.note ? <span className="text-ink-secondary">: {f.note}</span> : null}
+                  <span className="ml-1.5 text-xs text-ink-supporting">
+                    (until {formatExpiry(f.expiresAt)})
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-1.5 text-xs text-ink-supporting">
+              Focus reorders your work for a limited time. It never overrides a
+              customer commitment and never hides other work.
+            </p>
+          </>
+        ) : (
+          <p className="mt-1 text-sm leading-snug text-ink-secondary">
+            No focus is set right now. Your work uses its ordinary ordering.
+          </p>
+        )}
+      </div>
+
+      {/* Standing responsibilities — real capability routing (primary/support). */}
+      <div className="rounded-xl border border-surface-border bg-surface-card p-3">
+        <p className="flex items-center gap-2 text-sm font-semibold text-ink">
+          <Briefcase className="size-4 shrink-0 text-ink-supporting" aria-hidden /> Your
+          responsibilities
+        </p>
+        {responsibilities.length > 0 ? (
+          <ul className="mt-2 space-y-1.5">
+            {responsibilities.map((r) => (
+              <li key={r.workFunction} className="text-sm leading-snug">
+                <span className="font-semibold text-ink">{r.label}</span>
+                <span className="text-ink-secondary">
+                  {' '}
+                  — {r.routedAs === 'primary' ? 'Primary' : 'Support'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="mt-1 text-sm leading-snug text-ink-secondary">
+            No activities are routed to you yet. An administrator can assign them
+            on the Team page.
+          </p>
+        )}
+      </div>
+
+      {/* Management expectations beyond Today's Focus are not modeled yet. */}
+      <div className="rounded-xl border border-surface-border bg-surface-card p-3">
+        <p className="flex items-center gap-2 text-sm font-semibold text-ink">
+          <Target className="size-4 shrink-0 text-ink-supporting" aria-hidden /> Expectations
+        </p>
+        <div className="mt-1.5">
+          <ComingSoon>
+            standing agency expectations (beyond Today&apos;s Focus) are not captured
+            yet, so none are shown here.
+          </ComingSoon>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+interface ResponsibilityRow {
+  workFunction: ActivityGroup['workFunction']
+  label: string
+  routedAs: 'primary' | 'support'
+}
+
+/** The employee's standing responsibilities, from the real capability routing
+ * on the resolved activities: an activity the employee is routed (primary or
+ * support). Deduplicated by activity, primary winning over support, in the ZEN
+ * rank order the activities already arrived in. No invented content. */
+function deriveResponsibilities(state: MyWorkState): ResponsibilityRow[] {
+  const byFn = new Map<string, ResponsibilityRow>()
+  for (const a of state.activities) {
+    if (a.routedAs !== 'primary' && a.routedAs !== 'support') continue
+    const existing = byFn.get(a.workFunction)
+    if (!existing) {
+      byFn.set(a.workFunction, { workFunction: a.workFunction, label: a.label, routedAs: a.routedAs })
+    } else if (existing.routedAs === 'support' && a.routedAs === 'primary') {
+      existing.routedAs = 'primary'
+    }
+  }
+  return [...byFn.values()]
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The full per-activity inventory (on demand) — preserved from the prior UI, so
+// every source route, count, eligibility distinction, claim-state breakdown, and
+// per-item guidance remains reachable.
+// ─────────────────────────────────────────────────────────────────────────────
+
 function FullInventory({ state }: { state: MyWorkState }) {
   const bands = groupByBand(state.activities)
-  if (state.quiet && state.activities.every((a) => a.totalCount === 0 && (a.unresolvedCount ?? 0) === 0)) {
+  if (
+    state.quiet &&
+    state.activities.every((a) => a.totalCount === 0 && (a.unresolvedCount ?? 0) === 0)
+  ) {
     return (
-      <div className="flex items-center gap-2 rounded-2xl border border-surface-border bg-surface-card p-6 text-base text-ink-secondary">
+      <div className="mt-3 flex items-center gap-2 rounded-xl border border-surface-border bg-surface-card p-4 text-sm text-ink-secondary">
         <CheckCircle2 className="size-5 text-status-confirmed" aria-hidden />
         Nothing needs your attention right now. You have open capacity.
       </div>
     )
   }
   return (
-    <div className="space-y-8">
+    <div className="mt-3 space-y-5">
       {bands.map(({ band, items }) => (
-        <section key={band} aria-label={BAND_META[band].title} className="space-y-3">
-          <h2 className="text-sm font-semibold uppercase tracking-[0.1em] text-ink-supporting">
+        <section key={band} aria-label={BAND_META[band].title} className="space-y-2">
+          <h3 className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-supporting">
             {BAND_META[band].title}
-          </h2>
-          <div className="space-y-3">
+          </h3>
+          <div className="space-y-2">
             {items.map((a) => (
               <ActivityCard key={a.workFunction} activity={a} />
             ))}
@@ -563,28 +846,21 @@ function FullInventory({ state }: { state: MyWorkState }) {
   )
 }
 
-/** The bands that represent a GENUINE customer commitment or exception, which
- * must stand out. These are the only items the work-mode listing escalates
- * visually; everything else is routine work and stays calm, so emphasis never
- * implies urgency GoRules has not established. */
+/** The bands that represent a GENUINE customer commitment or exception. */
 const COMMITMENT_BANDS = new Set<PriorityBand>(['exact_time_commitment', 'due_callback'])
-
-/** The bands that are shown for awareness only — not routed and not actionable
- * by this employee. 'assist' is deliberately NOT here: it is pickable. */
+/** Awareness-only bands: not routed, not actionable by this employee. */
 const AWARENESS_BANDS = new Set<PriorityBand>(['unassigned', 'unlicensed'])
 
-/** One activity group card: the activity, its counts, reason, sources, claim. */
+/** One activity group card: the activity, its counts, reason, sources, claim
+ * breakdown, and per-item guidance. Unchanged from the prior inventory. */
 function ActivityCard({ activity }: { activity: ActivityGroup }) {
   const awarenessOnly = AWARENESS_BANDS.has(activity.band)
   const guidance = activityGuidance(activity.workFunction)
-  // Three visual tiers so emphasis matches meaning, never implying urgency ZEN
-  // did not set: a genuine commitment/exception stands out (amber left-accent),
-  // routine actionable work is a neutral card, and awareness-only work recedes.
   const isCommitment = COMMITMENT_BANDS.has(activity.band)
   return (
     <article
       className={cn(
-        'rounded-2xl border bg-surface-card p-5',
+        'rounded-xl border bg-surface-card p-4',
         isCommitment
           ? 'border-l-4 border-surface-border border-l-tag-exception-border'
           : awarenessOnly
@@ -595,7 +871,7 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2.5">
-            <h3 className="text-xl font-semibold tracking-tight text-ink">{activity.label}</h3>
+            <h4 className="text-lg font-semibold tracking-tight text-ink">{activity.label}</h4>
             {activity.dueCount > 0 && (
               <OperationalTag tone="exception">
                 <Phone className="mr-1.5 size-4" aria-hidden />
@@ -614,41 +890,21 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
           <p className="mt-1.5 max-w-prose text-base leading-relaxed text-ink-secondary">
             {activity.reason}
           </p>
-          {/* What this kind of work is — descriptive guidance, always true,
-              never a priority judgment (ZEN owns the band and the reason above).
-              Helps the worker recognize what the activity actually involves.
-              Omitted when an activity has no catalog guidance. */}
           {guidance.whatItIs && (
             <p className="mt-1 max-w-prose text-base leading-relaxed text-ink-supporting">
               {guidance.whatItIs}
             </p>
           )}
-          {/* Work-mode cue: for a single-mode activity (research, operations
-              prep) say whether it suits quiet time or calling hours. Outreach
-              spans both channels, so its cue is shown per source below. */}
           {guidance.note && guidance.workMode && (
             <WorkModeNote mode={guidance.workMode} className="mt-2" />
           )}
         </div>
 
-        {/* Count summary. The headline is the full UNRESOLVED population the
-            working queue shows (outstanding + attempted-but-unresolved), so the
-            summary and the queue agree. When an activity distinguishes attempted
-            from unresolved (unresolvedCount present — Research today), a
-            breakdown line separates the two so they are not confused; the number
-            otherwise falls back to the outstanding total. The number is a strong
-            neutral by default; it takes the brand accent only for a genuine
-            commitment/exception, so teal signals emphasis rather than coating
-            every card. */}
         <div className="shrink-0 text-right">
           <p className={cn(
             'text-3xl font-semibold leading-none',
             isCommitment ? 'text-tag-exception-text' : 'text-ink',
           )}>{activity.unresolvedCount ?? activity.totalCount}</p>
-          {/* Attempted-vs-unresolved breakdown: how many are still outstanding
-              vs attempted but unresolved. Shown whenever the activity carries the
-              distinction, so a zero-outstanding activity still reads clearly
-              (e.g. "0 not yet researched · 3 researched unsuccessfully"). */}
           {activity.unresolvedCount != null && (activity.unsuccessfulCount ?? 0) > 0 && (
             <p className="mt-1 text-xs text-ink-supporting">
               {activity.unresolvedCount - (activity.unsuccessfulCount ?? 0)} not yet researched
@@ -656,9 +912,6 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
               {activity.unsuccessfulCount} researched unsuccessfully
             </p>
           )}
-          {/* Distinct claim states for THIS employee: never conflate another
-              teammate's claimed work with free shared work. Tied to the
-              outstanding, actionable work (the recommended total). */}
           <p className="mt-1 text-xs text-ink-supporting">
             {activity.ownedCount > 0 && `${activity.ownedCount} yours · `}
             {activity.availableCount} available
@@ -668,29 +921,10 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
         </div>
       </div>
 
-      {/* When some work has been attempted but remains unresolved, explain that
-          it may need a different approach — so the researched-unsuccessfully
-          customers read as "try something else", not fresh outstanding work. */}
-      {activity.unresolvedCount != null && (activity.unsuccessfulCount ?? 0) > 0 && (
-        <p className="mt-2 max-w-prose text-xs leading-relaxed text-ink-supporting">
-          {activity.unsuccessfulCount} researched unsuccessfully — nothing usable found yet. These
-          may need an alternative approach; they stay in the queue so you can try again.
-        </p>
-      )}
-
-      {/* Sources: each business activity appears once, with its sources listed
-          beneath it, so the same activity across projects is not duplicated.
-          A source link opens the employee's ELIGIBLE work in that source — the
-          project-scoped subset when they are eligible for only part of a queue. */}
       {activity.sources.length > 0 && (
         <ul className="mt-4 space-y-1.5 border-t border-surface-border pt-3">
           {activity.sources.map((s, i) => {
-            // What the worker can act on in this source right now.
             const actionable = s.ownedByMe + s.availableToMe
-            // For Outreach, the two channels carry different work modes: emails
-            // are quiet work, calls are live phone outreach. Shown per source so
-            // the split the composition already makes (ready-to-email vs
-            // ready-to-call) also reads as "quiet vs calling hours".
             const channelMode =
               activity.workFunction === 'outreach' ? outreachChannelMode(s.label) : null
             return (
@@ -713,8 +947,6 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
                     )}
                   </span>
                   <span className="flex shrink-0 items-center gap-2">
-                    {/* Lead with what the worker can act on; show the full queue
-                        count only as context so the shared board stays visible. */}
                     <span className="font-semibold text-ink-secondary">
                       {actionable > 0 ? actionable : s.count}
                       {actionable > 0 && actionable !== s.count && (
@@ -724,8 +956,6 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
                     <ArrowRight className="size-4 text-ink-muted" aria-hidden />
                   </span>
                 </Link>
-                {/* Outreach channel cue: emails are quiet work, calls belong in
-                    calling hours. Descriptive practice, not a schedule. */}
                 {channelMode && (
                   <p className="flex items-center gap-1.5 px-2 pb-0.5 text-xs text-ink-supporting">
                     {channelMode === 'calls' ? (
@@ -736,8 +966,6 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
                     {WORK_MODE_NOTE[channelMode]}
                   </p>
                 )}
-                {/* Per-source claim breakdown, only when there is something to
-                    distinguish beyond the simple count. */}
                 {(s.ownedByMe > 0 || s.claimedByOthers > 0 || (s.notEligible > 0 && !awarenessOnly)) && (
                   <p className="px-2 pb-0.5 text-[11px] text-ink-muted">
                     {[
@@ -757,8 +985,6 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
       {awarenessOnly && (
         <p className="mt-3 flex items-center gap-1.5 text-xs text-ink-supporting">
           <Lock className="size-3.5" aria-hidden />
-          {/* A compact status cue; the full reason above (the SHARED capability
-              explanation) says why unassigned and unlicensed differ. */}
           Shown for awareness · {capabilityStatusLabel(activity.band === 'unlicensed' ? 'unlicensed' : 'unassigned')}
         </p>
       )}
@@ -766,9 +992,7 @@ function ActivityCard({ activity }: { activity: ActivityGroup }) {
   )
 }
 
-/** A compact work-mode cue: quiet focus work vs live phone-call work. Purely
- * descriptive practice guidance (no schedule, no deadline); it pairs an icon
- * with text so the mode never relies on color alone. */
+/** A compact work-mode cue: quiet focus work vs live phone-call work. */
 function WorkModeNote({ mode, className }: { mode: WorkMode; className?: string }) {
   const Icon = mode === 'calls' ? Phone : CheckCircle2
   return (
@@ -777,6 +1001,18 @@ function WorkModeNote({ mode, className }: { mode: WorkMode; className?: string 
       {WORK_MODE_NOTE[mode]}
     </p>
   )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** The single destination for an activity: the first source the employee can
+ * act on (owned or available), falling back to the activity's first source.
+ * Mirrors the working plan's own route choice; never invents a route. */
+function primaryRoute(a: ActivityGroup): string | null {
+  const actionable = a.sources.find((s) => s.ownedByMe + s.availableToMe > 0)
+  return (actionable ?? a.sources[0])?.route ?? null
 }
 
 /** Preserve rank order while grouping activities under their ZEN band. */
