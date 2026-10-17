@@ -45,8 +45,9 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   Sparkles, ArrowRight, Phone, Mail, Users, CheckCircle2, Lock,
-  ListChecks, ChevronRight, SlidersHorizontal, AlertCircle,
-  CalendarClock, FolderOpen, Clock, Target, Briefcase, Hourglass,
+  ListChecks, ChevronRight, SlidersHorizontal,
+  CalendarClock, Target, Briefcase, Hourglass,
+  GraduationCap, X,
 } from 'lucide-react'
 import {
   Select,
@@ -212,7 +213,7 @@ export function MyWorkClient({
         {filters && <WorkFilters {...filters} />}
 
         <div className="grid gap-6 lg:grid-cols-3 xl:gap-8">
-          <PrioritiesColumn state={filteredState} direction={direction} />
+          <PrioritiesColumn state={filteredState} />
           <AvailableWorkColumn direction={direction} state={filteredState} />
           <PracticeDirectionColumn state={state} />
         </div>
@@ -340,13 +341,7 @@ function WorkFilters({
 // COLUMN 1 — Priorities. What needs the employee's attention.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PrioritiesColumn({
-  state,
-  direction,
-}: {
-  state: MyWorkState
-  direction: MyWorkDirection
-}) {
+function PrioritiesColumn({ state }: { state: MyWorkState }) {
   // Genuine commitments the system DOES record today: date-only promised
   // callbacks that have come due (the `due_callback` band), surfaced via the
   // activities that carry due work. These are real customer commitments and are
@@ -534,8 +529,50 @@ function IntakePriority({ state }: { state: MyWorkState }) {
   )
 }
 
+/**
+ * Per-item Mentoring disclosure (the approved behavior): a small purple
+ * graduation-cap icon sits inline ON the item's line. Clicking it HIDES the icon
+ * and expands the coaching explanation directly beneath the item; closing the
+ * explanation restores the icon. This is the item-line interaction from the
+ * Storybook reference, distinct from the labeled MentorGuidance bar used for the
+ * filter help. Local open state only; it honors no global toggle so the icon is
+ * always available on an item that carries coaching.
+ */
+function MentorCapToggle({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label="Show mentoring tip"
+      aria-expanded={false}
+      onClick={onOpen}
+      className="inline-flex size-6 shrink-0 items-center justify-center rounded-full text-purple-500 transition-colors hover:bg-purple-100 hover:text-purple-700"
+    >
+      <GraduationCap className="size-4" aria-hidden />
+    </button>
+  )
+}
+
+function MentorCapPanel({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div className="mt-2 flex items-start gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-sm leading-relaxed text-purple-800">
+      <GraduationCap className="mt-0.5 size-4 shrink-0 text-purple-500" aria-hidden />
+      <span className="min-w-0 flex-1">{children}</span>
+      <button
+        type="button"
+        aria-label="Hide mentoring tip"
+        aria-expanded
+        onClick={onClose}
+        className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-purple-500 transition-colors hover:bg-purple-100 hover:text-purple-700"
+      >
+        <X className="size-3.5" aria-hidden />
+      </button>
+    </div>
+  )
+}
+
 /** A compact priority card: the whole card carries the tone. Optional mentoring
- * uses the shared purple graduation-cap disclosure. */
+ * is the inline graduation-cap: click the cap to expand coaching beneath the
+ * item, close to restore the cap. */
 function PriorityCard({
   tone,
   icon: Icon,
@@ -554,6 +591,7 @@ function PriorityCard({
   mentoring?: React.ReactNode
 }) {
   const t = TONE[tone]
+  const [mentorOpen, setMentorOpen] = useState(false)
   return (
     <div className={cn('rounded-xl border p-3', t.card)}>
       <div className="flex items-start gap-3">
@@ -569,6 +607,9 @@ function PriorityCard({
             <span className={cn('rounded-full px-2 py-0.5 text-xs font-bold tabular-nums', t.chip)}>
               {count}
             </span>
+            {mentoring && !mentorOpen && (
+              <MentorCapToggle onOpen={() => setMentorOpen(true)} />
+            )}
             {route && (
               <Link
                 href={route}
@@ -579,10 +620,8 @@ function PriorityCard({
             )}
           </div>
           <p className="mt-0.5 text-sm leading-snug text-ink-secondary">{steer}</p>
-          {mentoring && (
-            <MentorGuidance label="Mentoring" className="mt-2">
-              {mentoring}
-            </MentorGuidance>
+          {mentoring && mentorOpen && (
+            <MentorCapPanel onClose={() => setMentorOpen(false)}>{mentoring}</MentorCapPanel>
           )}
         </div>
       </div>
