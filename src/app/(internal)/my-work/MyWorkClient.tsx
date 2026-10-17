@@ -546,9 +546,9 @@ function MentorCapToggle({ onOpen }: { onOpen: () => void }) {
       aria-label="Show mentoring tip"
       aria-expanded={false}
       onClick={onOpen}
-      className="inline-flex size-6 shrink-0 items-center justify-center rounded-full text-purple-500 transition-colors hover:bg-purple-100 hover:text-purple-700"
+      className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-purple-500 transition-colors hover:bg-purple-100 hover:text-purple-700"
     >
-      <GraduationCap className="size-4" aria-hidden />
+      <GraduationCap className="size-8" aria-hidden />
     </button>
   )
 }
@@ -556,7 +556,7 @@ function MentorCapToggle({ onOpen }: { onOpen: () => void }) {
 function MentorCapPanel({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
     <div className="mt-2 flex items-start gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-sm leading-relaxed text-purple-800">
-      <GraduationCap className="mt-0.5 size-4 shrink-0 text-purple-500" aria-hidden />
+      <GraduationCap className="mt-0.5 size-8 shrink-0 text-purple-500" aria-hidden />
       <span className="min-w-0 flex-1">{children}</span>
       <button
         type="button"
@@ -685,11 +685,14 @@ function AvailableWorkColumn({
   )
 }
 
-/** One Available-work card: a step from the established working plan. Compact,
- * neutral (routine work stays calm), with a count, the ZEN reason, and the
- * single direct action. Order comes from the plan; no new ranking here. */
+/** One Available-work card: a step from the established working plan. Compact
+ * and easily scanned — a prominent teal TITLE (same size as the count) that
+ * links straight to the work, the count, any operational breakdown kept in view,
+ * and the explanatory description tucked into a collapsed mentoring disclosure.
+ * Order comes from the plan; no new ranking here. */
 function WorkStepCard({ step }: { step: PlanStep }) {
   const headline = step.unresolvedCount ?? step.count
+  const [mentorOpen, setMentorOpen] = useState(false)
   return (
     <article
       className={cn(
@@ -700,10 +703,28 @@ function WorkStepCard({ step }: { step: PlanStep }) {
       )}
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="min-w-0 font-semibold text-ink">{step.title}</span>
-        <span className="text-2xl font-semibold leading-none tabular-nums text-ink">{headline}</span>
+        <div className="flex min-w-0 items-center gap-2">
+          {/* The title IS the action: teal, count-sized, links to the step's
+              existing destination. No separate action link beneath. */}
+          {step.route ? (
+            <Link
+              href={step.route}
+              className="min-w-0 truncate text-2xl font-semibold leading-none tracking-tight text-brand-hover hover:underline"
+            >
+              {step.title}
+            </Link>
+          ) : (
+            <span className="min-w-0 truncate text-2xl font-semibold leading-none tracking-tight text-brand-hover">
+              {step.title}
+            </span>
+          )}
+          {/* Mentoring: the description moves here, collapsed by default. */}
+          {!mentorOpen && <MentorCapToggle onOpen={() => setMentorOpen(true)} />}
+        </div>
+        <span className="shrink-0 text-2xl font-semibold leading-none tabular-nums text-ink">{headline}</span>
       </div>
-      <p className="mt-1 text-sm leading-snug text-ink-secondary">{step.reason}</p>
+
+      {/* Operational information stays OUTSIDE mentoring — always visible. */}
       {step.unresolvedCount != null && (step.unsuccessfulCount ?? 0) > 0 && (
         <p className="mt-1 text-xs text-ink-supporting">
           {step.unresolvedCount - (step.unsuccessfulCount ?? 0)} not yet researched
@@ -711,14 +732,10 @@ function WorkStepCard({ step }: { step: PlanStep }) {
           {step.unsuccessfulCount} researched unsuccessfully
         </p>
       )}
-      {step.route && (
-        <Link
-          href={step.route}
-          className="mt-2 inline-flex items-center gap-1.5 text-sm font-medium text-brand-hover hover:underline"
-        >
-          {step.actionLabel}
-          <ArrowRight className="size-4" aria-hidden />
-        </Link>
+
+      {/* The explanatory description, available only when requested. */}
+      {mentorOpen && (
+        <MentorCapPanel onClose={() => setMentorOpen(false)}>{step.reason}</MentorCapPanel>
       )}
     </article>
   )
