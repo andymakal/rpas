@@ -1352,7 +1352,7 @@ const EVERLAKE_CARRIER_PATTERN = /everlake|allstate/i
  * email-sent touch the server records reflects the delivery method accurately.
  */
 function ServicingFormDelivery({
-  detail, request, name, busy, act, confirmLabelFor, onConfirm,
+  detail, request, name, busy, act, confirmLabelFor, onConfirm, emailOnly = false,
 }: {
   detail: Detail
   request: Holding[]
@@ -1363,11 +1363,21 @@ function ServicingFormDelivery({
   confirmLabelFor: (method: 'email' | 'postal') => string
   /** Fires the queue transition once the worker confirms the form went out. */
   onConfirm: (method: 'email' | 'postal') => void
+  /** Email-only mode: the Send Introductory Emails activity is specifically for
+   * emailing the introductory form, so it hides the Email/Postal delivery
+   * chooser and fixes the channel to email. The shared generate/attach/confirm
+   * behavior is otherwise identical. Every OTHER caller leaves this false and
+   * keeps the full delivery chooser, so postal stays available elsewhere. */
+  emailOnly?: boolean
 }) {
   const [preparing, setPreparing] = useState(false)
   const [prepError, setPrepError] = useState<string | null>(null)
   const [generated, setGenerated] = useState(false)
-  const [method, setMethod] = useState<'email' | 'postal'>(detail.form_delivery_method ?? 'email')
+  // In email-only mode the channel is fixed to email (no chooser). Otherwise it
+  // starts from the persisted delivery method and the worker can switch it.
+  const [method, setMethod] = useState<'email' | 'postal'>(
+    emailOnly ? 'email' : (detail.form_delivery_method ?? 'email'),
+  )
   const customerHasAddress = !!(streetLine(detail.customer) && detail.customer.city && detail.customer.state && detail.customer.zip)
 
   const everlake = request.filter(h => h.carrier && EVERLAKE_CARRIER_PATTERN.test(h.carrier))
@@ -1426,26 +1436,29 @@ function ServicingFormDelivery({
 
   return (
     <div className="space-y-3">
-      {/* Delivery channel chooser. Operational, so it is prominent. */}
-      <div className="space-y-2">
-        <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">Delivery</p>
-        <div className="flex flex-wrap gap-2">
-          <WorkflowButton selected={method === 'email'} disabled={busy || preparing} onClick={() => chooseMethod('email')}>
-            {method === 'email' && <Check className="size-4" aria-hidden />}
-            Email
-          </WorkflowButton>
-          <WorkflowButton selected={method === 'postal'} disabled={busy || preparing} onClick={() => chooseMethod('postal')}>
-            {method === 'postal' && <Check className="size-4" aria-hidden />}
-            Postal mail
-          </WorkflowButton>
-        </div>
-        {method === 'postal' && !customerHasAddress && (
-          <div className="flex items-start gap-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-3 text-sm text-status-attention-strong">
-            <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
-            <span>No complete mailing address on file. Add one on the customer record before generating a postal packet.</span>
+      {/* Delivery channel chooser. Operational, so it is prominent. Hidden in
+          email-only mode (Send Introductory Emails), which is fixed to email. */}
+      {!emailOnly && (
+        <div className="space-y-2">
+          <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">Delivery</p>
+          <div className="flex flex-wrap gap-2">
+            <WorkflowButton selected={method === 'email'} disabled={busy || preparing} onClick={() => chooseMethod('email')}>
+              {method === 'email' && <Check className="size-4" aria-hidden />}
+              Email
+            </WorkflowButton>
+            <WorkflowButton selected={method === 'postal'} disabled={busy || preparing} onClick={() => chooseMethod('postal')}>
+              {method === 'postal' && <Check className="size-4" aria-hidden />}
+              Postal mail
+            </WorkflowButton>
           </div>
-        )}
-      </div>
+          {method === 'postal' && !customerHasAddress && (
+            <div className="flex items-start gap-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-3 text-sm text-status-attention-strong">
+              <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <span>No complete mailing address on file. Add one on the customer record before generating a postal packet.</span>
+            </div>
+          )}
+        </div>
+      )}
 
       <PrimaryAction
         icon={ExternalLink}
@@ -1535,15 +1548,12 @@ function ReadyToEmailAction({
   }
 
   // The Introductory Emails activity: a first-touch send streamlined for fast,
-  // continuous processing. Postal is available as an alternative to email; the
-  // heading and confirm button take postal wording when it is selected. The
+  // continuous processing. This activity is specifically the introductory EMAIL,
+  // so the channel is fixed to email (the delivery chooser is hidden below). The
   // confirm records the completed send in history, preserves the existing
   // follow-up scheduling, removes this customer from the activity, and opens the
   // next customer automatically.
-  const method: 'email' | 'postal' = detail.form_delivery_method ?? 'email'
-  const heading = method === 'postal'
-    ? `Send an introductory letter to ${name}.`
-    : `Send an introductory email to ${name}.`
+  const heading = `Send an introductory email to ${name}.`
   // "— Next customer" only when another customer remains to advance to;
   // otherwise it is simply the completion confirmation.
   const nextSuffix = hasNextInActivity ? ' \u2014 Next customer' : ''
@@ -1557,12 +1567,14 @@ function ReadyToEmailAction({
         name={name}
         busy={busy}
         act={act}
-        confirmLabelFor={m => (m === 'postal'
-          ? `Letter printed and mailed${nextSuffix}`
-          : `Form attached and email sent${nextSuffix}`)}
-        onConfirm={m => act(
+        // Send Introductory Emails is specifically the email activity: fix the
+        // channel to email and hide the delivery chooser. The confirm still
+        // records the send and advances to the next customer.
+        emailOnly
+        confirmLabelFor={() => `Form attached and email sent${nextSuffix}`}
+        onConfirm={() => act(
           { type: 'email-sent' },
-          m === 'postal' ? 'Introductory letter recorded.' : 'Introductory email recorded.',
+          'Introductory email recorded.',
           { advanceToNext: true },
         )}
       />
