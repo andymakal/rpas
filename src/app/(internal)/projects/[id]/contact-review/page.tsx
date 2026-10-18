@@ -62,9 +62,10 @@ export default async function ProjectContactReviewPage({
         </Link>
       </div>
 
-      {/* "Contact Research" is the page title. The project scope is preserved as
-          quiet supporting context beside it, never part of the title itself. */}
-      <WorkflowHeader primary="Contact Research" secondary={project.name} />
+      {/* "Contact Research" is the page title. The project scope is preserved
+          through the project id passed to the client below; it is deliberately
+          not shown in the heading. */}
+      <WorkflowHeader primary="Contact Research" />
 
       <ContactReviewClient projectId={project.id} initialCustomerId={customer_id ?? null} />
     </WorkflowPage>
