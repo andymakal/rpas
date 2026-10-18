@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useState, type ReactNode } from 'react'
-import { GraduationCap, ChevronDown, X } from 'lucide-react'
+import { GraduationCap, ChevronDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMentoring } from './MentoringProvider'
 
@@ -212,8 +212,10 @@ export function MentorCapButton({ onOpen, label = 'Show mentoring tip' }: { onOp
   )
 }
 
-/** The expanded coaching panel, rendered beneath the item. Closing it restores
- * the cap icon. */
+/** The expanded coaching panel, rendered beneath the item. The WHOLE panel is
+ * the close control: clicking (or pressing Enter/Space on) it collapses the
+ * coaching and restores the cap icon. There is no separate X — the cap icon
+ * opens, the open box closes. */
 export function MentorCapPanel({
   children, onClose, className,
 }: {
@@ -222,23 +224,18 @@ export function MentorCapPanel({
   className?: string
 }) {
   return (
-    <div
+    <button
+      type="button"
+      aria-label="Hide mentoring tip"
+      aria-expanded
+      onClick={onClose}
       className={cn(
-        'flex items-start gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-sm leading-relaxed text-purple-800',
+        'flex w-full items-start gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-left text-sm leading-relaxed text-purple-800 transition-colors hover:bg-purple-100',
         className,
       )}
     >
       <GraduationCap className="mt-0.5 size-8 shrink-0 text-purple-500" aria-hidden />
       <span className="min-w-0 flex-1">{children}</span>
-      <button
-        type="button"
-        aria-label="Hide mentoring tip"
-        aria-expanded
-        onClick={onClose}
-        className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-purple-500 transition-colors hover:bg-purple-100 hover:text-purple-700"
-      >
-        <X className="size-3.5" aria-hidden />
-      </button>
-    </div>
+    </button>
   )
 }
