@@ -159,14 +159,19 @@ export function IntroductoryEmailsClient({
       <StewardshipTask
         key={openId}
         itemId={openId}
+        // Chromeless: the page already supplies WorkflowPage + the "Back to My
+        // Work" link, so the task must NOT render its own "All queues" header.
+        hideBackHeader
         hasNextInActivity={hasNext}
+        // ONLY a confirmed send advances the sequence. Advancement is wired to
+        // onAdvanceToNext, which the task fires solely after a successful send;
+        // it marks this customer handled and opens the next eligible one.
         onAdvanceToNext={advanceAfterSend}
-        onBack={() => {
-          // The task falls back to onBack when a path other than a tracked send
-          // ends the item (e.g. a carrier completion). Treat it as handled and
-          // advance so the continuous session keeps moving.
-          advanceAfterSend()
-        }}
+        // Leaving the screen must never mark a customer handled or advance the
+        // sequence. The task only calls onBack on a non-send terminal path
+        // (e.g. a carrier completion, not reachable in the intro-email flow);
+        // if it ever fires, just refresh the population — do NOT advance.
+        onBack={() => { void load() }}
       />
     )
   }

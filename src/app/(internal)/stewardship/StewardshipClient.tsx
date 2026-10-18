@@ -1023,7 +1023,7 @@ function ProjectOnboardingNote({ project }: { project: { id: string; name: strin
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function StewardshipTask({
-  itemId, onBack, hasNextInActivity = false, onAdvanceToNext,
+  itemId, onBack, hasNextInActivity = false, onAdvanceToNext, hideBackHeader = false,
 }: {
   itemId: string
   onBack: () => void
@@ -1031,6 +1031,12 @@ export function StewardshipTask({
   hasNextInActivity?: boolean
   /** Open the next customer in this activity (Introductory Emails fast flow). */
   onAdvanceToNext?: () => void
+  /** Suppress the task's own "All queues" back header AND its outer page wrapper.
+   * Used only by the dedicated Send Introductory Emails direct working screen,
+   * which supplies its own WorkflowPage + "Back to My Work" navigation. Every
+   * other Stewardship use leaves this false, keeping the original "All queues"
+   * back button and page chrome unchanged. */
+  hideBackHeader?: boolean
 }) {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [busy, setBusy] = useState(false)
@@ -1082,12 +1088,20 @@ export function StewardshipTask({
     }
   }, [itemId, load, onBack, onAdvanceToNext])
 
+  // The direct Send Introductory Emails screen hosts its own WorkflowPage and
+  // "Back to My Work" nav, so there the task renders chromeless (no outer page
+  // wrapper, no "All queues" header). Every other Stewardship caller gets the
+  // original page chrome and the "All queues" back header, unchanged.
+  const Chrome = hideBackHeader
+    ? ({ children }: { children: React.ReactNode }) => <>{children}</>
+    : WorkflowPage
+
   if (!detail) {
     return (
-      <WorkflowPage>
-        <SlimTaskHeader onBack={onBack} />
+      <Chrome>
+        {!hideBackHeader && <SlimTaskHeader onBack={onBack} />}
         <p className="mt-4 text-sm text-slate-500">Loading…</p>
-      </WorkflowPage>
+      </Chrome>
     )
   }
 
@@ -1095,9 +1109,9 @@ export function StewardshipTask({
   const context = detail.holdings.filter(h => !h.in_request)
 
   return (
-    <WorkflowPage>
+    <Chrome>
       <TaskShell
-        header={<SlimTaskHeader onBack={onBack} backLabel="All queues" />}
+        header={hideBackHeader ? null : <SlimTaskHeader onBack={onBack} backLabel="All queues" />}
         action={
           <TaskAction
             detail={detail} request={request} busy={busy} note={note} act={act}
@@ -1108,7 +1122,7 @@ export function StewardshipTask({
           <StewardshipContextPanel detail={detail} request={request} context={context} busy={busy} act={act} setDetail={setDetail} />
         }
       />
-    </WorkflowPage>
+    </Chrome>
   )
 }
 
