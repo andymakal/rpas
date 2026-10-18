@@ -41,13 +41,12 @@
  * design tokens, per the Right Path light-theme workflow visual rules.
  */
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   Sparkles, ArrowRight, Phone, Mail, Users, CheckCircle2, Lock,
   ListChecks, ChevronRight, SlidersHorizontal,
   CalendarClock, Target, Briefcase, Hourglass,
-  GraduationCap, X,
 } from 'lucide-react'
 import {
   Select,
@@ -56,7 +55,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { useMentoring } from '@/lib/mentoring/MentoringProvider'
+import {
+  useMentorDisclosure,
+  MentorCapButton,
+  MentorCapPanel,
+} from '@/lib/mentoring/MentorUi'
 import {
   WorkflowSurface,
   WorkflowHeader,
@@ -334,7 +337,7 @@ function WorkFilters({
       </div>
 
       {mentorOpen && (
-        <MentorCapPanel onClose={() => setMentorOpen(false)}>
+        <MentorCapPanel className="mt-2" onClose={() => setMentorOpen(false)}>
           <span className="block">
             <span className="font-semibold">By project:</span> concentrate on a
             particular objective, working everything one project needs.
@@ -490,61 +493,6 @@ function CommitmentsSummary({
   )
 }
 
-/**
- * Per-item Mentoring disclosure state, seeded from the GLOBAL Mentoring toggle.
- *
- * The open/closed DEFAULT follows the global Mentoring on/off, exactly like the
- * shared MentorGuidance disclosure: global ON -> expanded, global OFF ->
- * collapsed. Flipping the global toggle RE-SEEDS every cap to the new default
- * (the effect below re-runs on the global value), so the header "Mentoring
- * on/off" expands or reduces ALL mentoring across the page at once — while a
- * worker can still open or close one item independently between global changes.
- */
-function useMentorDisclosure(): { open: boolean; setOpen: (v: boolean) => void } {
-  const { mentoring } = useMentoring()
-  const [open, setOpen] = useState(mentoring)
-  useEffect(() => {
-    setOpen(mentoring)
-  }, [mentoring])
-  return { open, setOpen }
-}
-
-/** The inline cap button (collapsed state): a large purple graduation-cap on the
- * item's line. Clicking it expands the coaching beneath the item. */
-function MentorCapButton({ onOpen }: { onOpen: () => void }) {
-  return (
-    <button
-      type="button"
-      aria-label="Show mentoring tip"
-      aria-expanded={false}
-      onClick={onOpen}
-      className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-purple-500 transition-colors hover:bg-purple-100 hover:text-purple-700"
-    >
-      <GraduationCap className="size-8" aria-hidden />
-    </button>
-  )
-}
-
-/** The expanded coaching panel, rendered beneath the item. Closing it restores
- * the cap icon. */
-function MentorCapPanel({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
-  return (
-    <div className="mt-2 flex items-start gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-sm leading-relaxed text-purple-800">
-      <GraduationCap className="mt-0.5 size-8 shrink-0 text-purple-500" aria-hidden />
-      <span className="min-w-0 flex-1">{children}</span>
-      <button
-        type="button"
-        aria-label="Hide mentoring tip"
-        aria-expanded
-        onClick={onClose}
-        className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-purple-500 transition-colors hover:bg-purple-100 hover:text-purple-700"
-      >
-        <X className="size-3.5" aria-hidden />
-      </button>
-    </div>
-  )
-}
-
 /** A compact priority card: the whole card carries the tone. Optional mentoring
  * is the inline graduation-cap: click the cap to expand coaching beneath the
  * item, close to restore the cap. */
@@ -596,7 +544,7 @@ function PriorityCard({
           </div>
           <p className="mt-0.5 text-sm leading-snug text-ink-secondary">{steer}</p>
           {mentoring && mentorOpen && (
-            <MentorCapPanel onClose={() => setMentorOpen(false)}>{mentoring}</MentorCapPanel>
+            <MentorCapPanel className="mt-2" onClose={() => setMentorOpen(false)}>{mentoring}</MentorCapPanel>
           )}
         </div>
       </div>
@@ -710,7 +658,7 @@ function WorkStepCard({ step }: { step: PlanStep }) {
 
       {/* The explanatory description, available only when requested. */}
       {mentorOpen && (
-        <MentorCapPanel onClose={() => setMentorOpen(false)}>{step.reason}</MentorCapPanel>
+        <MentorCapPanel className="mt-2" onClose={() => setMentorOpen(false)}>{step.reason}</MentorCapPanel>
       )}
     </article>
   )

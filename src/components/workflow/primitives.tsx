@@ -249,12 +249,16 @@ export function ContextLabel({ children }: { children: ReactNode }) {
 export function ActionPanel({
   heading, children,
 }: {
-  heading: ReactNode
+  /** Optional large action heading. Omit it when the panel's leading content
+   * already states the action (so the panel does not carry a redundant title). */
+  heading?: ReactNode
   children: ReactNode
 }) {
   return (
     <section className="space-y-5 rounded-2xl border border-brand-subtle bg-surface-card p-6">
-      <h3 className="text-2xl font-semibold leading-tight tracking-tight text-ink">{heading}</h3>
+      {heading != null && (
+        <h3 className="text-2xl font-semibold leading-tight tracking-tight text-ink">{heading}</h3>
+      )}
       {children}
     </section>
   )

@@ -60,7 +60,7 @@ import {
   ShieldQuestion, CheckCircle2, AlertTriangle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { MentorGuidance } from '@/lib/mentoring/MentorUi'
+import { useMentorDisclosure, MentorCapButton, MentorCapPanel } from '@/lib/mentoring/MentorUi'
 import {
   normalizeEmailInput, normalizePhoneInput, formatPhoneAsTyped,
   type ContactFieldResult,
@@ -663,20 +663,11 @@ export function CustomerContactCard({
         background: ap.cardBackground ?? 'var(--surface-card)',
       }}
     >
-      {/* The customer's name IS the card heading. The approved default renders
-          it at 150% (33px), bold, in the teal brand token; the Playground can
-          override any of those. */}
-      <h3
-        className={cn('text-[22px] font-semibold leading-tight text-ink', weightClass(ap.nameWeight))}
-        style={textStyle(ap, ap.nameFontPx, ap.nameColor, ap.nameWeight)}
-      >
-        {fullName(record)}
-      </h3>
-
-      {/* Mentoring (HOW): the shared purple control, always shown. Its body
-          expands/collapses by the global Mentoring preference and the employee
-          can toggle it. This is settled behavior, never hidden or forced. */}
-      <ContactMentoring appearance={ap} />
+      {/* The customer's name IS the card heading, with the inline graduation-cap
+          mentoring control beside it. The approved default renders the name at
+          150% (33px), bold, in the teal brand token; the Playground can override
+          any of those. */}
+      <ContactMentoring appearance={ap} name={fullName(record)} />
 
       {error && (
         <p className="mt-3 rounded-lg border border-status-missing-border bg-status-missing-soft px-3 py-2 text-base text-status-missing-strong">
@@ -740,50 +731,53 @@ export function CustomerContactCard({
 }
 
 /**
- * The Mentoring block — settled behavior, not a configurable appearance choice.
- * It is always the ONE shared `MentorGuidance` disclosure: always shown, its
- * body expanded when the global Mentoring preference is on and collapsed when
- * off, and independently toggleable by the employee. The card never hides it or
- * forces its open state.
+ * The customer-name heading with the inline graduation-cap mentoring control —
+ * the same large purple cap used in My Work, replacing the former boxed
+ * MentorGuidance disclosure. The cap sits beside the name; clicking it expands
+ * the coaching directly beneath the heading, and the open/closed default follows
+ * the global Mentoring preference (global ON -> expanded, OFF -> collapsed), with
+ * the employee able to toggle it independently. Settled behavior, never hidden
+ * or forced.
  *
- * The only thing appearance layers on is presentation (font-size / color), which
- * the Playground exposes for experimentation; `defaultOpen` is intentionally
- * left unset so the global toggle alone governs the initial open state. When the
- * appearance is the untouched neutral baseline, the shared disclosure is used
- * verbatim.
+ * The only thing appearance layers on is presentation (font-size / color) of the
+ * coaching body, which the Playground exposes for experimentation; when the
+ * appearance is the untouched neutral baseline the body renders verbatim.
  */
-function ContactMentoring({ appearance }: { appearance: ResolvedAppearance }) {
+function ContactMentoring({ appearance, name }: { appearance: ResolvedAppearance; name: string }) {
   const body =
     'Changes here update customer information throughout Right Path. Check Verified only when the ' +
     'customer has confirmed the information is correct, including when they confirm it in an email ' +
     'response.'
 
-  // Unless a mentoring-specific presentation override is active, render the
-  // shared disclosure verbatim — the approved default does not restyle it.
-  if (!appearance.mentoringOverridden) {
-    return (
-      <MentorGuidance label="About these fields" className="mt-2">
-        {body}
-      </MentorGuidance>
-    )
-  }
+  const { open, setOpen } = useMentorDisclosure()
 
-  // Presentation-only overrides (size / color); open state still follows the
-  // global Mentoring toggle because defaultOpen is left undefined. Styles are
-  // forced via the ap even when isDefault, so pass explicit inline values.
-  const color = appearance.mentoringColor
-  const headerStyle: React.CSSProperties = { fontSize: `${appearance.statusKeyFontPx.toFixed(3)}px` }
-  const bodyStyle: React.CSSProperties = { fontSize: `${appearance.mentoringFontPx.toFixed(3)}px` }
-  if (color) { headerStyle.color = color; bodyStyle.color = color }
+  // Presentation-only overrides for the coaching body (size / color); the cap
+  // icon itself keeps its standard purple identity. Only applied when a
+  // mentoring-specific override is active, so the neutral baseline is untouched.
+  const bodyStyle: React.CSSProperties | undefined = appearance.mentoringOverridden
+    ? {
+        fontSize: `${appearance.mentoringFontPx.toFixed(3)}px`,
+        ...(appearance.mentoringColor ? { color: appearance.mentoringColor } : {}),
+      }
+    : undefined
+
   return (
-    <MentorGuidance
-      label="About these fields"
-      className="mt-2"
-      headerStyle={headerStyle}
-      bodyStyle={bodyStyle}
-    >
-      {body}
-    </MentorGuidance>
+    <>
+      <div className="flex items-center gap-2">
+        <h3
+          className={cn('text-[22px] font-semibold leading-tight text-ink', weightClass(appearance.nameWeight))}
+          style={textStyle(appearance, appearance.nameFontPx, appearance.nameColor, appearance.nameWeight)}
+        >
+          {name}
+        </h3>
+        {!open && <MentorCapButton onOpen={() => setOpen(true)} label="Show mentoring about these fields" />}
+      </div>
+      {open && (
+        <MentorCapPanel className="mt-2" onClose={() => setOpen(false)}>
+          <span style={bodyStyle}>{body}</span>
+        </MentorCapPanel>
+      )}
+    </>
   )
 }
 

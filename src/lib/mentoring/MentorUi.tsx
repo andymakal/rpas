@@ -10,7 +10,7 @@
  */
 
 import { useEffect, useState, type ReactNode } from 'react'
-import { GraduationCap, ChevronDown } from 'lucide-react'
+import { GraduationCap, ChevronDown, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMentoring } from './MentoringProvider'
 
@@ -161,6 +161,84 @@ export function MentorGuidance({
           {children}
         </div>
       )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// The inline graduation-cap mentoring pattern.
+//
+// A large purple graduation-cap sits on an item's line; clicking it expands the
+// coaching directly beneath the associated content, and closing it restores the
+// cap. This is the shared implementation behind My Work's inline mentoring, now
+// reused by any surface that wants the same behavior (the Contact Research
+// workbench, the shared CustomerContactCard). It is DISTINCT from the
+// MentorGuidance disclosure above (a bordered purple box); use the cap where a
+// lightweight inline toggle beside the content reads better than a box.
+//
+// All three honor the global Mentoring on/off exactly like MentorGuidance: the
+// open/closed DEFAULT follows the global toggle, flipping the global toggle
+// re-seeds every cap to the new default, and an employee can still open or close
+// one item independently between global changes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Per-item cap disclosure state, seeded from the GLOBAL Mentoring toggle. Global
+ * ON -> expanded, global OFF -> collapsed; a global change re-seeds every cap to
+ * the new default, while a worker can still toggle one item in between.
+ */
+export function useMentorDisclosure(): { open: boolean; setOpen: (v: boolean) => void } {
+  const { mentoring } = useMentoring()
+  const [open, setOpen] = useState(mentoring)
+  useEffect(() => {
+    setOpen(mentoring)
+  }, [mentoring])
+  return { open, setOpen }
+}
+
+/** The inline cap button (collapsed state): a large purple graduation-cap on the
+ * item's line. Clicking it expands the coaching beneath the item. */
+export function MentorCapButton({ onOpen, label = 'Show mentoring tip' }: { onOpen: () => void; label?: string }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      aria-expanded={false}
+      onClick={onOpen}
+      className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-purple-500 transition-colors hover:bg-purple-100 hover:text-purple-700"
+    >
+      <GraduationCap className="size-8" aria-hidden />
+    </button>
+  )
+}
+
+/** The expanded coaching panel, rendered beneath the item. Closing it restores
+ * the cap icon. */
+export function MentorCapPanel({
+  children, onClose, className,
+}: {
+  children: ReactNode
+  onClose: () => void
+  className?: string
+}) {
+  return (
+    <div
+      className={cn(
+        'flex items-start gap-2 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-sm leading-relaxed text-purple-800',
+        className,
+      )}
+    >
+      <GraduationCap className="mt-0.5 size-8 shrink-0 text-purple-500" aria-hidden />
+      <span className="min-w-0 flex-1">{children}</span>
+      <button
+        type="button"
+        aria-label="Hide mentoring tip"
+        aria-expanded
+        onClick={onClose}
+        className="inline-flex size-5 shrink-0 items-center justify-center rounded-full text-purple-500 transition-colors hover:bg-purple-100 hover:text-purple-700"
+      >
+        <X className="size-3.5" aria-hidden />
+      </button>
     </div>
   )
 }

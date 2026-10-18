@@ -29,17 +29,19 @@
  * separate contact record.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Loader2, Save, SkipForward, ClipboardCheck, UserRound, PhoneOff,
 } from 'lucide-react'
 import {
   TaskShell, ActionPanel, PrimaryAction, WorkflowButton,
-  SlimTaskHeader, AssistantPanel, GatewayLookup,
+  AssistantPanel, GatewayLookup,
   CustomerContactCard, type CustomerContact,
   QueueListHeader, CustomerQueueCard, QueueEmptyState, OperationalTag,
 } from '@/components/workflow'
-import { MentorGuidance } from '@/lib/mentoring/MentorUi'
+import {
+  MentorGuidance, useMentorDisclosure, MentorCapButton, MentorCapPanel,
+} from '@/lib/mentoring/MentorUi'
 
 type ContactReviewCustomer = {
   customer_id: string
@@ -310,6 +312,34 @@ export function ContactReviewClient({
     }
   }, [workQueue, handled])
 
+  // The compact, dynamically-updated filter summary, computed over the rows that
+  // match the active missing-method filter so it tracks the checkboxes. Computed
+  // up here (not only in the list branch) so the filter row can show the same
+  // live counts while a customer is open. "To research" is outstanding work not
+  // yet exhausted; "researched unsuccessfully" is the previously-unsuccessful
+  // remainder kept visible but not re-recommended.
+  const filterSummary = useMemo(() => {
+    const filtered = rows.filter(r => methodMatches(r, methodFilter))
+    return {
+      total: filtered.length,
+      toResearch: filtered.filter(r => !r.researched_unsuccessfully).length,
+      unsuccessful: filtered.filter(r => r.researched_unsuccessfully).length,
+    }
+  }, [rows, methodFilter])
+
+  // The shared filter row, rendered above BOTH the single-customer workbench and
+  // the list so the Missing Fields checkboxes and the previously-unsuccessful
+  // option are available while working a customer, not hidden on the list.
+  const filterBar = (
+    <ContactResearchFilters
+      methodFilter={methodFilter}
+      onMethodFilter={setMethodFilter}
+      includeUnsuccessful={includeUnsuccessful}
+      onIncludeUnsuccessful={setIncludeUnsuccessful}
+      summary={filterSummary}
+    />
+  )
+
   // Hold the spinner until the direct-open decision has run on a fresh landing
   // (no deep-link, not yet showing the list), so the intermediate list never
   // flashes before the first customer opens.
@@ -340,7 +370,7 @@ export function ContactReviewClient({
         key={openCustomer.customer_id}
         projectId={projectId}
         customer={openCustomer}
-        onBack={() => { setOpenId(null); setShowingList(true); if (isReopened) setReopened(null) }}
+        filterBar={filterBar}
         onContactChange={(updated) => {
           // The shared card persisted a contact change for this customer. Fold
           // the authoritative record back into the local rows so the list and
@@ -392,18 +422,6 @@ export function ContactReviewClient({
   // ── The list ─────────────────────────────────────────────────────────────
   const total = summary?.total ?? rows.length
   const handledCount = total - remaining.length
-
-  // The compact, dynamically-updated filter summary, computed over the rows that
-  // match the active missing-method filter (so it tracks the checkboxes). "To
-  // research" is outstanding work not yet exhausted; "researched unsuccessfully"
-  // is the previously-unsuccessful remainder kept visible but not re-recommended.
-  const filteredRows = rows.filter(r => methodMatches(r, methodFilter))
-  const filterSummary = {
-    total: filteredRows.length,
-    toResearch: filteredRows.filter(r => !r.researched_unsuccessfully).length,
-    unsuccessful: filteredRows.filter(r => r.researched_unsuccessfully).length,
-  }
-
   const methodsCleared = methodFilter.size === 0
 
   return (
@@ -413,13 +431,7 @@ export function ContactReviewClient({
           the previously-unsuccessful pass option, and a compact, dynamically
           updated summary. They shape both the lists below and the entire
           Save & Next / Nothing Usable & Next sequence. */}
-      <ContactResearchFilters
-        methodFilter={methodFilter}
-        onMethodFilter={setMethodFilter}
-        includeUnsuccessful={includeUnsuccessful}
-        onIncludeUnsuccessful={setIncludeUnsuccessful}
-        summary={filterSummary}
-      />
+      {filterBar}
 
       <AssistantPanel heading="Find the contact information Gateway is missing">
         {/* Mentoring (HOW), separate from the Assistant (WHAT), sits immediately
@@ -571,7 +583,7 @@ function ContactResearchFilters({
     <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-2xl border border-surface-border bg-surface-card p-4">
       <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
         <span className="mr-1 text-sm font-semibold uppercase tracking-wide text-ink-supporting">
-          Missing
+          Missing Fields
         </span>
         {methodOptions.map(o => (
           <label
@@ -639,11 +651,14 @@ function toCardCustomer(c: ContactReviewCustomer): CustomerContact {
 }
 
 function ContactReviewTask({
-  projectId, customer, onBack, onSaved, onSkipped, onContactChange,
+  projectId, customer, filterBar, onSaved, onSkipped, onContactChange,
 }: {
   projectId: string
   customer: ContactReviewCustomer
-  onBack: () => void
+  /** The Missing Fields filter row, shown above the workbench so the controls
+   * are available while working a customer (they drive the counts and the
+   * Save & Next progression upstream). */
+  filterBar: ReactNode
   /** Save & Next — advance the session. The card has already persisted edits. */
   onSaved: () => void
   /** Nothing Usable & Next — the durable research record was written; advance. */
@@ -654,6 +669,7 @@ function ContactReviewTask({
   const name = fullName(customer)
   const [busy, setBusy] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
 
   // Nothing Usable & Next records the unsuccessful research DURABLY (per
   // still-missing method) before advancing, so the customer stops coming back on
@@ -681,21 +697,32 @@ function ContactReviewTask({
 
   return (
     <TaskShell
-      header={<SlimTaskHeader onBack={onBack} backLabel="Back to the list" />}
+      header={filterBar}
       action={
-        <ActionPanel heading="Search Gateway using the last name and policy number.">
-          {/* Mentoring (HOW) sits immediately ABOVE the instructions it explains
-              — the Gateway look-up and contact capture below — never at the
-              bottom. The additional how-to instruction lives here, using the same
-              graduation-cap behavior and global Mentoring toggle as My Work. */}
-          <MentorGuidance label="How to fill contact info">
-            Search Gateway with the last name and policy number together — the policy number lands
-            you on the right record fastest. If the policy number finds nothing, try the last name
-            alone, then confirm the date of birth before you copy anything back. Enter what Gateway
-            shows on the Customer Contact card to the right; each field saves on its own, so a phone
-            with no email is still progress. Enter one usable method and move on; you do not need
-            both, and only overwrite a value when you are confident Gateway is right.
-          </MentorGuidance>
+        <ActionPanel>
+          {/* Mentoring (HOW): the inline graduation-cap, the same large purple
+              control used in My Work. Clicking it expands the coaching beneath —
+              a brief explanation of the Missing Fields filters and how to research
+              contact information. Its default open/closed follows the global
+              Mentoring toggle. */}
+          <div className="flex items-center gap-2">
+            <p className="text-base font-semibold text-ink">How to research contact information</p>
+            {!mentorOpen && (
+              <MentorCapButton onOpen={() => setMentorOpen(true)} label="Show mentoring on researching contact information" />
+            )}
+          </div>
+          {mentorOpen && (
+            <MentorCapPanel onClose={() => setMentorOpen(false)}>
+              The Missing Fields filters above choose which gaps you work and drive the Save &amp;
+              Next order; a customer appears while they are missing any checked field. To research,
+              search Gateway with the last name and policy number together — the policy number lands
+              you on the right record fastest; if it finds nothing, try the last name alone and
+              confirm the date of birth before you copy anything back. Enter what Gateway shows on the
+              Customer Contact card to the right; each field saves on its own, so a phone with no
+              email is still progress. Enter one usable method and move on, and only overwrite a value
+              when you are confident Gateway is right.
+            </MentorCapPanel>
+          )}
 
           {/* No Usable Contact Information exception opened deliberately: say
               plainly that earlier research came up empty, so the worker knows
