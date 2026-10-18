@@ -25,6 +25,21 @@ function phoneUsable(phone: string | null, unusable: Set<OutreachChannel>): bool
   if (!phone || phone.trim().length === 0) return false
   return !unusable.has('call') && !unusable.has('voicemail')
 }
+/**
+ * A mailing address is usable only when all four parts are on file, mirroring
+ * the shared CustomerContactCard's addressUsable. Mailing address is an
+ * independent contact method (postal mail), so a missing/incomplete address is
+ * a research gap even for a customer who already has a usable email or phone.
+ * It is pure presence: there is no recorded-unusable concept for a street
+ * address the way there is for a bounced email or a disconnected number.
+ */
+function addressUsable(c: {
+  street: string | null; address_line1: string | null
+  city: string | null; state: string | null; zip: string | null
+}): boolean {
+  const hasStreet = usable(c.street) || usable(c.address_line1)
+  return hasStreet && usable(c.city) && usable(c.state) && usable(c.zip)
+}
 
 /**
  * Contact Research — project-scoped read model (the single consolidated
@@ -78,6 +93,10 @@ export interface ContactReviewCustomer {
   phone: string | null
   has_email: boolean
   has_phone: boolean
+  /** Whether a usable mailing address is on file (all of street, city, state,
+   * ZIP). Mailing address is an independent contact method researched alongside
+   * email and phone. */
+  has_address: boolean
   /** Full mailing address + verification timestamps, so the shared editable
    * CustomerContactCard can render and correct the whole contact surface (not
    * just email/phone) straight from this one read. All live on the customers
@@ -252,10 +271,13 @@ export async function buildContactReview(
   const noneUnusable: Set<OutreachChannel> = new Set()
 
   // Customers still missing a USABLE method (effective usability), before the
-  // durable research suppression.
+  // durable research suppression. Email, phone, and mailing address are the
+  // three independent contact methods; a customer is incomplete when any one is
+  // missing, so a customer with a usable email and phone but no mailing address
+  // is still research work (postal mail is an independent method).
   const incomplete = realCustomers.filter((c) => {
     const u = unusableByCustomer.get(c.id) ?? noneUnusable
-    return !(emailUsable(c.email, u) && phoneUsable(c.phone, u))
+    return !(emailUsable(c.email, u) && phoneUsable(c.phone, u) && addressUsable(c))
   })
 
   // Which of those have a recorded unsuccessful-research outcome, read in one
@@ -277,25 +299,29 @@ export async function buildContactReview(
     const u = unusableByCustomer.get(c.id) ?? noneUnusable
     const hasEmail = emailUsable(c.email, u)
     const hasPhone = phoneUsable(c.phone, u)
-    const researched = researchedByCustomer.get(c.id) ?? { email: false, phone: false }
-    const stillRecommend = stillNeedsResearchRecommendation({ hasEmail, hasPhone }, researched)
+    const hasAddress = addressUsable(c)
+    const researched = researchedByCustomer.get(c.id) ?? { email: false, phone: false, address: false }
+    const stillRecommend = stillNeedsResearchRecommendation({ hasEmail, hasPhone, hasAddress }, researched)
 
     // Reachability keys the two surfaces (NOT the research state, which only
-    // sub-labels within each):
+    // sub-labels within each). Reachability is about a usable email or phone —
+    // the ways the agency actually reaches out; mailing address is an
+    // independent method that does not by itself make a customer reachable:
     //   - noUsableContact (no usable email AND no usable phone): the customer
     //     cannot be reached at all. ALWAYS shown in the "No Usable Contact
     //     Information" section so the agency never loses sight of anyone it
     //     cannot reach — whether research is still outstanding or already came
     //     up empty. researched_unsuccessfully distinguishes the two there.
-    //   - missing exactly ONE method (reachable by the other): routine
-    //     outstanding research in the active list. Once its one missing method
-    //     is settled by research it leaves the active list durably (still
-    //     reachable; the deliberate reopen path allows a re-check).
+    //   - reachable by email or phone but missing something (the other method
+    //     or a mailing address): routine outstanding research in the active
+    //     list. Once every missing method is settled by research it leaves the
+    //     active list durably (still reachable; the deliberate reopen path
+    //     allows a re-check).
     const noUsableContact = !hasEmail && !hasPhone
 
-    // Drop ONLY a reachable (missing-one) customer whose missing method is
-    // settled by research. A no-usable-contact customer is never dropped: it
-    // stays visible in its section regardless of research state.
+    // Drop ONLY a reachable customer whose every missing method is settled by
+    // research. A no-usable-contact customer is never dropped: it stays visible
+    // in its section regardless of research state.
     if (!noUsableContact && !stillRecommend) continue
 
     out.push({
@@ -306,6 +332,7 @@ export async function buildContactReview(
       phone: c.phone,
       has_email: hasEmail,
       has_phone: hasPhone,
+      has_address: hasAddress,
       street: c.street,
       address_line1: c.address_line1,
       city: c.city,
@@ -388,8 +415,9 @@ export async function loadContactReviewCustomer(
   )).get(row.id) ?? new Set<OutreachChannel>()
   const hasEmail = emailUsable(row.email, unusable)
   const hasPhone = phoneUsable(row.phone, unusable)
-  // Both methods usable: there is nothing to review or research.
-  if (hasEmail && hasPhone) return null
+  const hasAddress = addressUsable(row)
+  // Every method usable: there is nothing to review or research.
+  if (hasEmail && hasPhone && hasAddress) return null
 
   const policyByCustomer = await loadOnePolicyNumberPerCustomer(supabase, [row.id])
 
@@ -399,8 +427,8 @@ export async function loadContactReviewCustomer(
   // active-list suppression (that is its purpose), but the status itself is the
   // honest current classification.
   const researched = (await readResearchedUnsuccessfullyBatch(supabase, [row.id])).get(row.id)
-    ?? { email: false, phone: false }
-  const stillRecommend = stillNeedsResearchRecommendation({ hasEmail, hasPhone }, researched)
+    ?? { email: false, phone: false, address: false }
+  const stillRecommend = stillNeedsResearchRecommendation({ hasEmail, hasPhone, hasAddress }, researched)
   const noUsableContact = !hasEmail && !hasPhone
 
   return {
@@ -411,6 +439,7 @@ export async function loadContactReviewCustomer(
     phone: row.phone,
     has_email: hasEmail,
     has_phone: hasPhone,
+    has_address: hasAddress,
     street: row.street,
     address_line1: row.address_line1,
     city: row.city,
@@ -444,7 +473,7 @@ export async function researchAgainProjectId(
 ): Promise<string | null> {
   const { data: c } = await supabase
     .from('customers')
-    .select('email, phone, is_test')
+    .select('email, phone, street, address_line1, city, state, zip, is_test')
     .eq('id', customerId)
     .maybeSingle()
   if (!c || (c as CustomerRow).is_test) return null
@@ -456,16 +485,17 @@ export async function researchAgainProjectId(
     [customerId],
     new Map([[customerId, { email: cRow.email, phone: cRow.phone }]]),
   )).get(customerId) ?? new Set<OutreachChannel>()
-  const hasEmail = emailUsable((c as CustomerRow).email, unusable)
-  const hasPhone = phoneUsable((c as CustomerRow).phone, unusable)
-  if (hasEmail && hasPhone) return null // nothing missing
+  const hasEmail = emailUsable(cRow.email, unusable)
+  const hasPhone = phoneUsable(cRow.phone, unusable)
+  const hasAddress = addressUsable(cRow)
+  if (hasEmail && hasPhone && hasAddress) return null // nothing missing
 
   // Only when the customer is settled by research (dropped from the active list)
   // does a special reopen link apply; an outstanding method keeps them in the
   // list.
   const researched = await readResearchedUnsuccessfullyBatch(supabase, [customerId])
-  const research = researched.get(customerId) ?? { email: false, phone: false }
-  if (stillNeedsResearchRecommendation({ hasEmail, hasPhone }, research)) return null
+  const research = researched.get(customerId) ?? { email: false, phone: false, address: false }
+  if (stillNeedsResearchRecommendation({ hasEmail, hasPhone, hasAddress }, research)) return null
 
   return activeContactResearchProjectForCustomer(supabase, customerId)
 }

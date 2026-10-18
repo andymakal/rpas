@@ -49,6 +49,7 @@ type ContactReviewCustomer = {
   phone: string | null
   has_email: boolean
   has_phone: boolean
+  has_address: boolean
   street: string | null
   address_line1: string | null
   city: string | null
@@ -83,11 +84,54 @@ function usable(v: string | null | undefined): boolean {
   return !!v && v.trim().length > 0
 }
 
+/** A mailing address is usable only when all four parts are on file — the same
+ * rule the shared CustomerContactCard and the read model apply. */
+function usableAddress(c: {
+  street: string | null; address_line1?: string | null
+  city: string | null; state: string | null; zip: string | null
+}): boolean {
+  const hasStreet = usable(c.street) || usable(c.address_line1)
+  return hasStreet && usable(c.city) && usable(c.state) && usable(c.zip)
+}
+
+/** Whether a customer matches the active missing-method filter. 'all' matches
+ * any gap; a specific method matches only when THAT method is missing. */
+function methodMatches(
+  c: ContactReviewCustomer,
+  filter: 'all' | 'email' | 'phone' | 'address',
+): boolean {
+  if (filter === 'all') return true
+  if (filter === 'email') return !c.has_email
+  if (filter === 'phone') return !c.has_phone
+  return !c.has_address
+}
+
+/** Which contact methods a customer is missing. Email, phone, and mailing
+ * address are the three independent methods Contact Research resolves. */
+function missingMethods(c: ContactReviewCustomer): ('email' | 'phone' | 'address')[] {
+  const out: ('email' | 'phone' | 'address')[] = []
+  if (!c.has_email) out.push('email')
+  if (!c.has_phone) out.push('phone')
+  if (!c.has_address) out.push('address')
+  return out
+}
+
+const METHOD_WORD: Record<'email' | 'phone' | 'address', string> = {
+  email: 'email', phone: 'phone', address: 'mailing address',
+}
+
 /** The compact one-line summary of what the customer is missing. */
 function gapDetail(c: ContactReviewCustomer): string {
-  if (!c.has_email && !c.has_phone) return 'No email, no phone'
-  if (!c.has_email) return 'Missing email'
-  return 'Missing phone'
+  if (!c.has_email && !c.has_phone) {
+    return c.has_address ? 'No email, no phone' : 'No email, no phone, no mailing address'
+  }
+  const missing = missingMethods(c)
+  if (missing.length === 0) return 'Complete'
+  const words = missing.map((m) => METHOD_WORD[m])
+  const joined = words.length === 1
+    ? words[0]
+    : words.slice(0, -1).join(', ') + ' and ' + words[words.length - 1]
+  return `Missing ${joined}`
 }
 
 export function ContactReviewClient({
@@ -114,6 +158,15 @@ export function ContactReviewClient({
 
   // The customer open right now. null means the list is showing.
   const [openId, setOpenId] = useState<string | null>(null)
+  // Simple filters over the list. methodFilter narrows to one missing contact
+  // method (email / phone / mailing address); 'all' shows every gap. The research
+  // filter works UNRESEARCHED customers first and keeps previously-unsuccessful
+  // research available as a separate pass without re-recommending it as new work.
+  const [methodFilter, setMethodFilter] = useState<'all' | 'email' | 'phone' | 'address'>('all')
+  const [includeUnsuccessful, setIncludeUnsuccessful] = useState(false)
+  // True once the worker has deliberately returned to the list, so the direct-
+  // open landing does not immediately re-open the first customer again.
+  const [showingList, setShowingList] = useState(false)
   // Customers handled during THIS session (saved or skipped). They are not
   // presented again, so the worker moves forward continuously. Session-local by
   // design: the requirement is "not during the current review session", and the
@@ -158,6 +211,8 @@ export function ContactReviewClient({
     setOpenId(target.customer_id)
   }, [reopened, rows, initialCustomerId])
 
+  const directOpenedRef = useRef(false)
+
   // The still-to-do list: project customers surfaced by Contact Research, minus
   // the ones handled this session. Saved-and-still-incomplete customers stay out
   // of the list for the session because they are in `handled`.
@@ -173,15 +228,15 @@ export function ContactReviewClient({
   // agency keeps seeing who it cannot reach; it is not counted as outstanding
   // work and is presented separately, below the active list.
   const activeRemaining = useMemo(
-    () => remaining.filter(r => r.status === 'needs_research'),
-    [remaining],
+    () => remaining.filter(r => r.status === 'needs_research' && methodMatches(r, methodFilter)),
+    [remaining, methodFilter],
   )
   // The No Usable Contact Information section shows EVERY customer with no usable
   // email or phone, split by research state so outstanding research is distinct
   // from research already completed unsuccessfully (which is not re-recommended).
   const exceptionRemaining = useMemo(
-    () => remaining.filter(r => r.status === 'no_usable_contact'),
-    [remaining],
+    () => remaining.filter(r => r.status === 'no_usable_contact' && methodMatches(r, methodFilter)),
+    [remaining, methodFilter],
   )
   const exceptionOutstanding = useMemo(
     () => exceptionRemaining.filter(r => !r.researched_unsuccessfully),
@@ -191,6 +246,31 @@ export function ContactReviewClient({
     () => exceptionRemaining.filter(r => r.researched_unsuccessfully),
     [exceptionRemaining],
   )
+
+  // The ordered work queue the worker walks through with Save & Next / Nothing
+  // Usable & Next. Unresearched customers come FIRST: the actively-recommended
+  // list, then the outstanding (never-researched) No Usable Contact exceptions.
+  // Previously-unsuccessful research is a SEPARATE pass — only included when the
+  // worker opts in via the research filter — so it is never repeatedly
+  // recommended as fresh work. Honors the current missing-method filter.
+  const workQueue = useMemo(() => {
+    const unresearched = [...activeRemaining, ...exceptionOutstanding]
+    return includeUnsuccessful ? [...unresearched, ...exceptionUnsuccessful] : unresearched
+  }, [activeRemaining, exceptionOutstanding, exceptionUnsuccessful, includeUnsuccessful])
+
+  // Direct working workflow: when there is no deep-link, clicking "Find Missing
+  // Contact Information" lands straight on the FIRST customer requiring research,
+  // not an intermediate list. Applied once, after the first load, and only while
+  // the worker has not deliberately opened the list. The list is still one click
+  // away (the task's "Back to the list") and the filters live there.
+  useEffect(() => {
+    if (loading || initialCustomerId) return
+    if (directOpenedRef.current) return
+    directOpenedRef.current = true
+    const first = workQueue[0]
+    if (first) setOpenId(first.customer_id)
+    else setShowingList(true)
+  }, [loading, initialCustomerId, workQueue])
 
   const openCustomer = useMemo(
     () =>
@@ -208,20 +288,29 @@ export function ContactReviewClient({
       next.add(customerId)
       return next
     })
-    // `remaining`/`handled` update on the next render; compute the next target
-    // from the current rows excluding this one and the already-handled set.
-    // Advance only to the next ACTIVELY-RECOMMENDED customer; the No Usable
-    // Contact Information exceptions are visible but not fresh outstanding work,
-    // so Save/Nothing-Usable & Next never auto-walks into them.
-    const next = rows.find(
-      r => r.customer_id !== customerId
-        && r.status === 'needs_research'
-        && !handled.has(r.customer_id),
+    // Advance to the next customer in the current work queue — unresearched
+    // first, honoring the active missing-method filter, and only walking into
+    // previously-unsuccessful research when the worker has opted into that pass.
+    // `handled` updates on the next render, so exclude this id explicitly here.
+    const next = workQueue.find(
+      r => r.customer_id !== customerId && !handled.has(r.customer_id),
     )
-    setOpenId(next ? next.customer_id : null)
-  }, [rows, handled])
+    if (next) {
+      setOpenId(next.customer_id)
+    } else {
+      // Nothing left to work: fall back to the list so the worker sees the
+      // done state rather than a blank task.
+      setOpenId(null)
+      setShowingList(true)
+    }
+  }, [workQueue, handled])
 
-  if (loading) {
+  // Hold the spinner until the direct-open decision has run on a fresh landing
+  // (no deep-link, not yet showing the list), so the intermediate list never
+  // flashes before the first customer opens.
+  const awaitingDirectOpen =
+    !loading && !initialCustomerId && !directOpenedRef.current && openId === null && !showingList
+  if (loading || awaitingDirectOpen) {
     return (
       <div className="flex items-center gap-2 rounded-2xl border border-surface-border bg-surface-card p-6 text-ink-supporting">
         <Loader2 className="size-4 animate-spin" aria-hidden /> Loading contact research…
@@ -246,17 +335,19 @@ export function ContactReviewClient({
         key={openCustomer.customer_id}
         projectId={projectId}
         customer={openCustomer}
-        remainingCount={remaining.length}
-        onBack={() => { setOpenId(null); if (isReopened) setReopened(null) }}
+        remainingCount={workQueue.filter(r => r.customer_id !== openCustomer.customer_id).length}
+        onBack={() => { setOpenId(null); setShowingList(true); if (isReopened) setReopened(null) }}
         onContactChange={(updated) => {
           // The shared card persisted a contact change for this customer. Fold
           // the authoritative record back into the local rows so the list and
           // summary stay accurate without a reload. This does NOT advance — the
           // worker advances deliberately with Save & Next.
+          const addr = usableAddress(updated)
           setRows(prev => prev.map(r => r.customer_id === updated.id
             ? { ...r,
                 email: updated.email, phone: updated.phone,
                 has_email: usable(updated.email), has_phone: usable(updated.phone),
+                has_address: addr,
                 street: updated.street, address_line1: updated.address_line1 ?? r.address_line1,
                 city: updated.city, state: updated.state, zip: updated.zip,
                 email_verified_at: updated.email_verified_at,
@@ -267,6 +358,7 @@ export function ContactReviewClient({
             ? { ...prev,
                 email: updated.email, phone: updated.phone,
                 has_email: usable(updated.email), has_phone: usable(updated.phone),
+                has_address: addr,
                 street: updated.street, address_line1: updated.address_line1 ?? prev.address_line1,
                 city: updated.city, state: updated.state, zip: updated.zip,
                 email_verified_at: updated.email_verified_at,
@@ -279,14 +371,14 @@ export function ContactReviewClient({
           // record; this advances the session. A reopened customer is not in the
           // list, so for them just clear the hold and return to the list rather
           // than advancing to a next row.
-          if (isReopened) { setReopened(null); setOpenId(null) }
+          if (isReopened) { setReopened(null); setOpenId(null); setShowingList(true) }
           else markHandledAndAdvance(openCustomer.customer_id)
         }}
         onSkipped={() => {
           // Recording another unsuccessful research keeps the customer settled;
           // the reopened one simply returns to the list, the in-list one
           // advances to the next.
-          if (isReopened) { setReopened(null); setOpenId(null) }
+          if (isReopened) { setReopened(null); setOpenId(null); setShowingList(true) }
           else markHandledAndAdvance(openCustomer.customer_id)
         }}
       />
@@ -313,44 +405,57 @@ export function ContactReviewClient({
         </MentorGuidance>
         <div className="space-y-3 text-lg leading-relaxed text-ink-secondary">
           <p>
-            The Cassidy import left these customers without a complete way to reach them — some have
-            no usable email or phone at all, others are missing just one. They are all the same
-            research: open a customer, search Gateway by their last name and policy number, and fill
-            in whatever email or phone Gateway shows. Each save writes straight to the customer
-            record.
+            The Cassidy import left these customers without a complete way to reach them — missing a
+            usable email, phone, or mailing address. They are all the same research: open a customer,
+            search Gateway by their last name and policy number, and fill in whatever email, phone, or
+            mailing address Gateway shows. Email, phone, and postal mail are independent — any one you
+            find is progress, and research never blocks outreach. Each save writes straight to the
+            customer record.
           </p>
           <p className="text-base text-ink-supporting">
-            Work straight down the list. Save &amp; Next moves you to the next customer; if Gateway
-            has nothing usable, Nothing Usable &amp; Next records that research found nothing and
-            keeps you moving. A customer you have handled will not keep coming back on later
-            passes, and anyone whose details later turn up returns to the list automatically.
-            Customers with no usable contact at all stay visible below even after an empty search,
-            so the agency keeps sight of who it cannot reach.
+            Save &amp; Next moves you to the next customer; if Gateway has nothing usable, Nothing
+            Usable &amp; Next records that research found nothing and keeps you moving. Unresearched
+            customers come first; previously-unsuccessful research is a separate pass you opt into
+            below. A customer you have handled will not keep coming back, and anyone whose details
+            later turn up returns automatically. Customers with no usable contact at all stay visible
+            below, so the agency keeps sight of who it cannot reach.
           </p>
         </div>
-        {activeRemaining.length > 0 && (
+        {workQueue.length > 0 && (
           <PrimaryAction
             icon={ClipboardCheck}
             label={handledCount > 0 ? 'Continue where you left off' : 'Start the first customer'}
-            onClick={() => setOpenId(activeRemaining[0].customer_id)}
+            onClick={() => setOpenId(workQueue[0].customer_id)}
           />
         )}
       </AssistantPanel>
+
+      {/* Simple filters: narrow to one missing contact method, and choose
+          whether the previously-unsuccessful pass is included. They shape both
+          the lists below and the Save/Nothing-Usable & Next progression. */}
+      <ContactResearchFilters
+        methodFilter={methodFilter}
+        onMethodFilter={setMethodFilter}
+        includeUnsuccessful={includeUnsuccessful}
+        onIncludeUnsuccessful={setIncludeUnsuccessful}
+      />
 
       <QueueListHeader
         icon={UserRound}
         label="Needs contact information"
         count={activeRemaining.length}
-        blurb="Reachable customers missing their other method — fill in the missing email or phone"
+        blurb="Reachable customers missing a method — fill in the missing email, phone, or mailing address"
       />
 
       {activeRemaining.length === 0 ? (
         <QueueEmptyState>
           {total === 0
-            ? 'Every customer in this project already has a usable email and phone, or has been researched.'
-            : exceptionRemaining.length > 0
-              ? 'No reachable customers are missing a method. The customers below have no usable contact information at all — see the section beneath this one.'
-              : 'All caught up. Every customer has been handled.'}
+            ? 'Every customer in this project has a usable email, phone, and mailing address, or has been researched.'
+            : methodFilter !== 'all'
+              ? 'No reachable customers match this filter. Clear it or change the missing-information type.'
+              : exceptionRemaining.length > 0
+                ? 'No reachable customers are missing a method. The customers below have no usable contact information at all — see the section beneath this one.'
+                : 'All caught up. Every customer has been handled.'}
         </QueueEmptyState>
       ) : (
         <div className="space-y-3">
@@ -409,6 +514,64 @@ export function ContactReviewClient({
         </section>
       )}
     </section>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ContactResearchFilters — simple, high-contrast filters over the list: narrow
+// to one missing contact method, and opt the previously-unsuccessful pass in or
+// out. Selectable controls use the shared WorkflowButton brand treatment rather
+// than the near-black shadcn default, per the light-theme design system.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ContactResearchFilters({
+  methodFilter, onMethodFilter, includeUnsuccessful, onIncludeUnsuccessful,
+}: {
+  methodFilter: 'all' | 'email' | 'phone' | 'address'
+  onMethodFilter: (v: 'all' | 'email' | 'phone' | 'address') => void
+  includeUnsuccessful: boolean
+  onIncludeUnsuccessful: (v: boolean) => void
+}) {
+  const methodOptions: { value: 'all' | 'email' | 'phone' | 'address'; label: string }[] = [
+    { value: 'all', label: 'All gaps' },
+    { value: 'email', label: 'Missing email' },
+    { value: 'phone', label: 'Missing phone' },
+    { value: 'address', label: 'Missing address' },
+  ]
+  return (
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-2xl border border-surface-border bg-surface-card p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="mr-1 text-sm font-semibold uppercase tracking-wide text-ink-supporting">
+          Missing information
+        </span>
+        {methodOptions.map(o => (
+          <WorkflowButton
+            key={o.value}
+            selected={methodFilter === o.value}
+            onClick={() => onMethodFilter(o.value)}
+          >
+            {o.label}
+          </WorkflowButton>
+        ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="mr-1 text-sm font-semibold uppercase tracking-wide text-ink-supporting">
+          Research
+        </span>
+        <WorkflowButton
+          selected={!includeUnsuccessful}
+          onClick={() => onIncludeUnsuccessful(false)}
+        >
+          Unresearched first
+        </WorkflowButton>
+        <WorkflowButton
+          selected={includeUnsuccessful}
+          onClick={() => onIncludeUnsuccessful(true)}
+        >
+          Include previously unsuccessful
+        </WorkflowButton>
+      </div>
+    </div>
   )
 }
 

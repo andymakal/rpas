@@ -99,7 +99,7 @@ export async function PATCH(
 
     const { data: cust, error: custReadErr } = await supabase
       .from('customers')
-      .select('id, email, phone')
+      .select('id, email, phone, street, address_line1, city, state, zip')
       .eq('id', customerId)
       .eq('is_test', false)
       .maybeSingle()
@@ -111,8 +111,16 @@ export async function PATCH(
       return Response.json({ error: 'Customer not found.' }, { status: 404 })
     }
 
-    const missing = contactMethodsStillMissing({ email: cust.email, phone: cust.phone })
-    // Both methods already present: nothing to research, nothing to record.
+    // Record a "nothing usable found" outcome against every still-missing
+    // method — email, phone, AND mailing address — so an unsuccessful look-up on
+    // any of the three independent contact methods is recorded and the customer
+    // stops being re-recommended for that method on later passes.
+    const missing = contactMethodsStillMissing({
+      email: cust.email, phone: cust.phone,
+      street: cust.street, address_line1: cust.address_line1,
+      city: cust.city, state: cust.state, zip: cust.zip,
+    })
+    // Every method already present: nothing to research, nothing to record.
     if (missing.length === 0) {
       return Response.json({ data: { customer_id: customerId, recorded: [] } })
     }

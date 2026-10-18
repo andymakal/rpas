@@ -34,14 +34,16 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-/** The two contact methods contact research can resolve. */
-export type ResearchMethod = 'email' | 'phone'
+/** The contact methods contact research can resolve. Email, telephone, and
+ * mailing address are independent contact methods: research works whichever is
+ * missing, and a found value on any one is progress on its own. */
+export type ResearchMethod = 'email' | 'phone' | 'address'
 
 /**
  * The stable machine marker that identifies a `case_touches` note as a recorded
  * UNSUCCESSFUL contact-research outcome for a method. Carried on the note
  * because case_touches has no outcome column — the same device OUTCOME_MARKERS
- * uses. Distinct per method so email and phone research are tracked
+ * uses. Distinct per method so email, phone, and address research are tracked
  * independently, and distinct from the outreach-attempt markers so the
  * attempt-history reader (which matches on "servicing-agent onboarding ...")
  * never counts a research record as a contact attempt.
@@ -49,6 +51,7 @@ export type ResearchMethod = 'email' | 'phone'
 export const RESEARCH_UNSUCCESSFUL_MARKERS: Record<ResearchMethod, string> = {
   email: '[research-email-not-found]',
   phone: '[research-phone-not-found]',
+  address: '[research-address-not-found]',
 }
 
 /**
@@ -68,6 +71,7 @@ const RESEARCH_TOUCH_TYPE = 'research'
 const METHOD_LABEL: Record<ResearchMethod, string> = {
   email: 'email',
   phone: 'phone',
+  address: 'mailing address',
 }
 
 /** One row to insert into case_touches recording unsuccessful research. */
@@ -110,17 +114,32 @@ function present(v: string | null | undefined): boolean {
   return !!v && v.trim().length > 0
 }
 
+/** A mailing address is usable only when all four parts are on file, mirroring
+ * the shared CustomerContactCard's addressUsable. */
+function addressPresent(
+  contact: { street?: string | null; address_line1?: string | null; city?: string | null; state?: string | null; zip?: string | null },
+): boolean {
+  const street = present(contact.street) || present(contact.address_line1)
+  return street && present(contact.city) && present(contact.state) && present(contact.zip)
+}
+
 /**
  * The methods currently MISSING a usable value on a customer record — the
  * methods a "nothing usable found" research outcome should be recorded against.
  * A method already on file is never recorded as researched-unsuccessfully.
+ * Email, phone, and mailing address are independent; each is checked on its own.
  */
 export function contactMethodsStillMissing(
-  contact: { email: string | null; phone: string | null },
+  contact: {
+    email: string | null; phone: string | null
+    street?: string | null; address_line1?: string | null
+    city?: string | null; state?: string | null; zip?: string | null
+  },
 ): ResearchMethod[] {
   const out: ResearchMethod[] = []
   if (!present(contact.email)) out.push('email')
   if (!present(contact.phone)) out.push('phone')
+  if (!addressPresent(contact)) out.push('address')
   return out
 }
 
@@ -148,13 +167,14 @@ export async function readResearchedUnsuccessfully(
     // A read failure must not fabricate a "settled" state: report nothing
     // researched so the recommendation errs toward still offering research.
     console.error('research-record read error:', error.message)
-    return { email: false, phone: false }
+    return { email: false, phone: false, address: false }
   }
 
   const rows = (data ?? []) as { notes: string | null }[]
   return {
     email: rows.some((r) => noteRecordsResearch(r.notes, 'email')),
     phone: rows.some((r) => noteRecordsResearch(r.notes, 'phone')),
+    address: rows.some((r) => noteRecordsResearch(r.notes, 'address')),
   }
 }
 
@@ -184,26 +204,29 @@ export async function readResearchedUnsuccessfullyBatch(
       continue
     }
     for (const r of (data ?? []) as { customer_id: string; notes: string | null }[]) {
-      const prev = out.get(r.customer_id) ?? { email: false, phone: false }
+      const prev = out.get(r.customer_id) ?? { email: false, phone: false, address: false }
       if (noteRecordsResearch(r.notes, 'email')) prev.email = true
       if (noteRecordsResearch(r.notes, 'phone')) prev.phone = true
+      if (noteRecordsResearch(r.notes, 'address')) prev.address = true
       out.set(r.customer_id, prev)
     }
   }
   return out
 }
 
-/** Current presence of a usable contact value (present and non-blank). */
+/** Current presence of a usable contact value (present and non-blank). Email,
+ * phone, and mailing address are independent methods. */
 export interface ContactPresence {
   hasEmail: boolean
   hasPhone: boolean
+  hasAddress: boolean
 }
 
 /**
  * The methods that are SETTLED BY RESEARCH right now: still missing on the
  * customer record AND recorded researched-unsuccessfully. A method with a value
  * on file is never settled-by-research (the value makes research moot), so a
- * newly added email or phone re-opens that method automatically.
+ * newly added email, phone, or address re-opens that method automatically.
  */
 export function methodsSettledByResearch(
   presence: ContactPresence,
@@ -212,18 +235,20 @@ export function methodsSettledByResearch(
   return {
     email: !presence.hasEmail && researched.email,
     phone: !presence.hasPhone && researched.phone,
+    address: !presence.hasAddress && researched.address,
   }
 }
 
 /**
- * Whether a customer who is MISSING a usable email or phone should still be
- * recommended for contact research. Research is worth recommending only while at
- * least one still-missing method has NOT yet been researched unsuccessfully.
- * Once every still-missing method is settled by research, stop recommending —
- * the worker can still open the customer and research again deliberately, and a
- * found value flips the method back to present (so no longer settled).
+ * Whether a customer who is MISSING a usable email, phone, or mailing address
+ * should still be recommended for contact research. Research is worth
+ * recommending only while at least one still-missing method has NOT yet been
+ * researched unsuccessfully. Once every still-missing method is settled by
+ * research, stop recommending — the worker can still open the customer and
+ * research again deliberately, and a found value flips the method back to
+ * present (so no longer settled).
  *
- * A customer who already has BOTH methods is not missing anything and is not a
+ * A customer who already has every method is not missing anything and is not a
  * research candidate regardless of history (returns false).
  */
 export function stillNeedsResearchRecommendation(
@@ -232,8 +257,10 @@ export function stillNeedsResearchRecommendation(
 ): boolean {
   const missingEmail = !presence.hasEmail
   const missingPhone = !presence.hasPhone
-  if (!missingEmail && !missingPhone) return false
+  const missingAddress = !presence.hasAddress
+  if (!missingEmail && !missingPhone && !missingAddress) return false
   const emailOutstanding = missingEmail && !researched.email
   const phoneOutstanding = missingPhone && !researched.phone
-  return emailOutstanding || phoneOutstanding
+  const addressOutstanding = missingAddress && !researched.address
+  return emailOutstanding || phoneOutstanding || addressOutstanding
 }

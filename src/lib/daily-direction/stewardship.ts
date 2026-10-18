@@ -162,9 +162,14 @@ export async function getDailyDirection(
   )
   const stillRecommendsResearch = (r: BoardRow): boolean => {
     const c = r.customer_prereviews.customers
-    const researched = researchedByCustomer.get(c.id) ?? { email: false, phone: false }
+    const researched = researchedByCustomer.get(c.id) ?? { email: false, phone: false, address: false }
+    // The board's research-needed exception is purely about a reachable contact
+    // path (email or phone) for outreach; a mailing address is an independent
+    // contact method handled only by the Contact Research surface and never
+    // pulls a customer into the board exception. hasAddress: true keeps address
+    // out of this board-level judgment entirely.
     return stillNeedsResearchRecommendation(
-      { hasEmail: !!c.email?.trim(), hasPhone: !!c.phone?.trim() },
+      { hasEmail: !!c.email?.trim(), hasPhone: !!c.phone?.trim(), hasAddress: true },
       researched,
     )
   }

@@ -487,14 +487,17 @@ export async function GET(request: NextRequest) {
       .map((it) => it.customer!.id)
     const researchedByCustomer = researchCustomerIds.length > 0
       ? await readResearchedUnsuccessfullyBatch(supabase, researchCustomerIds)
-      : new Map<string, { email: boolean; phone: boolean }>()
+      : new Map<string, { email: boolean; phone: boolean; address: boolean }>()
     for (const it of items) {
       if (it.queue !== 'research-needed') continue
       const c = it.customer
       if (!c?.id) { researchOutstanding += 1; continue }
-      const researched = researchedByCustomer.get(c.id) ?? { email: false, phone: false }
+      const researched = researchedByCustomer.get(c.id) ?? { email: false, phone: false, address: false }
+      // Board research-needed is the email/phone outreach exception only; the
+      // mailing address is handled by the Contact Research surface and held
+      // present here so it never affects the board count.
       const stillRecommend = stillNeedsResearchRecommendation(
-        { hasEmail: !!c.email?.trim(), hasPhone: !!c.phone?.trim() },
+        { hasEmail: !!c.email?.trim(), hasPhone: !!c.phone?.trim(), hasAddress: true },
         researched,
       )
       it.research_unsuccessful = !stillRecommend

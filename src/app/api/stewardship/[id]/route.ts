@@ -208,9 +208,14 @@ export async function GET(
   // with a value on file is never "settled by research" (presence makes it
   // moot), so a newly-found value re-opens it on its own.
   const researchedUnsuccessfully = await readResearchedUnsuccessfully(supabase, customerId)
+  // The board's Research Needed exception is about a reachable email/phone path
+  // for outreach only. Mailing address is an independent contact method owned by
+  // the Contact Research surface, so it is held present here (hasAddress: true)
+  // and never factors into the board's settled/recommended judgment.
   const presence = {
     hasEmail: !!cust.email?.trim(),
     hasPhone: !!cust.phone?.trim(),
+    hasAddress: true,
   }
   const researchSettled = methodsSettledByResearch(presence, researchedUnsuccessfully)
   const researchStillRecommended = stillNeedsResearchRecommendation(presence, researchedUnsuccessfully)
@@ -422,10 +427,13 @@ export async function PATCH(
   // workflow transition stays a no-op (the customer remains in Research Needed;
   // nothing is auto-closed).
   if (action.type === 'research-found' && action.found === 'nothing') {
+    // The board records only the email/phone outreach path it researches; the
+    // mailing address is researched on the Contact Research surface, so it is
+    // excluded from the board's "nothing found" record.
     const missing = contactMethodsStillMissing({
       email: row.customer_prereviews.customers?.email ?? null,
       phone: row.customer_prereviews.customers?.phone ?? null,
-    })
+    }).filter((m) => m !== 'address')
     if (missing.length > 0) {
       const touchedBy = await resolveEmployeeName(supabase)
       const rows = buildResearchTouchRows(customerId, missing, touchedBy)
