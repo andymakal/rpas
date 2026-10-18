@@ -34,7 +34,7 @@ import {
   Loader2, Save, SkipForward, ClipboardCheck, UserRound, PhoneOff,
 } from 'lucide-react'
 import {
-  TaskShell, ActionPanel, PrimaryAction, WorkflowButton, NextNote,
+  TaskShell, ActionPanel, PrimaryAction, WorkflowButton,
   SlimTaskHeader, AssistantPanel, GatewayLookup,
   CustomerContactCard, type CustomerContact,
   QueueListHeader, CustomerQueueCard, QueueEmptyState, OperationalTag,
@@ -94,16 +94,17 @@ function usableAddress(c: {
   return hasStreet && usable(c.city) && usable(c.state) && usable(c.zip)
 }
 
-/** Whether a customer matches the active missing-method filter. 'all' matches
- * any gap; a specific method matches only when THAT method is missing. */
-function methodMatches(
-  c: ContactReviewCustomer,
-  filter: 'all' | 'email' | 'phone' | 'address',
-): boolean {
-  if (filter === 'all') return true
-  if (filter === 'email') return !c.has_email
-  if (filter === 'phone') return !c.has_phone
-  return !c.has_address
+/** The three independent contact methods Contact Research resolves. */
+type Method = 'email' | 'phone' | 'address'
+
+/** Whether a customer matches the active missing-method filter: they are missing
+ * ANY of the selected methods. With all three selected (the default) this is
+ * "any gap". With an empty selection nothing matches. */
+function methodMatches(c: ContactReviewCustomer, selected: Set<Method>): boolean {
+  if (selected.has('email') && !c.has_email) return true
+  if (selected.has('phone') && !c.has_phone) return true
+  if (selected.has('address') && !c.has_address) return true
+  return false
 }
 
 /** Which contact methods a customer is missing. Email, phone, and mailing
@@ -158,11 +159,15 @@ export function ContactReviewClient({
 
   // The customer open right now. null means the list is showing.
   const [openId, setOpenId] = useState<string | null>(null)
-  // Simple filters over the list. methodFilter narrows to one missing contact
-  // method (email / phone / mailing address); 'all' shows every gap. The research
-  // filter works UNRESEARCHED customers first and keeps previously-unsuccessful
-  // research available as a separate pass without re-recommending it as new work.
-  const [methodFilter, setMethodFilter] = useState<'all' | 'email' | 'phone' | 'address'>('all')
+  // Missing-method filter: Email, Phone, and Mailing Address, all selected by
+  // default. A customer is included when they are missing ANY selected method,
+  // so any combination can be selected or cleared. This shapes both the lists
+  // and the entire Save & Next sequence. The research option works UNRESEARCHED
+  // customers first and keeps previously-unsuccessful research available as a
+  // separate pass without re-recommending it as new work.
+  const [methodFilter, setMethodFilter] = useState<Set<Method>>(
+    () => new Set<Method>(['email', 'phone', 'address']),
+  )
   const [includeUnsuccessful, setIncludeUnsuccessful] = useState(false)
   // True once the worker has deliberately returned to the list, so the direct-
   // open landing does not immediately re-open the first customer again.
@@ -335,7 +340,6 @@ export function ContactReviewClient({
         key={openCustomer.customer_id}
         projectId={projectId}
         customer={openCustomer}
-        remainingCount={workQueue.filter(r => r.customer_id !== openCustomer.customer_id).length}
         onBack={() => { setOpenId(null); setShowingList(true); if (isReopened) setReopened(null) }}
         onContactChange={(updated) => {
           // The shared card persisted a contact change for this customer. Fold
@@ -389,8 +393,34 @@ export function ContactReviewClient({
   const total = summary?.total ?? rows.length
   const handledCount = total - remaining.length
 
+  // The compact, dynamically-updated filter summary, computed over the rows that
+  // match the active missing-method filter (so it tracks the checkboxes). "To
+  // research" is outstanding work not yet exhausted; "researched unsuccessfully"
+  // is the previously-unsuccessful remainder kept visible but not re-recommended.
+  const filteredRows = rows.filter(r => methodMatches(r, methodFilter))
+  const filterSummary = {
+    total: filteredRows.length,
+    toResearch: filteredRows.filter(r => !r.researched_unsuccessfully).length,
+    unsuccessful: filteredRows.filter(r => r.researched_unsuccessfully).length,
+  }
+
+  const methodsCleared = methodFilter.size === 0
+
   return (
     <section className="space-y-5">
+      {/* Filters sit directly beneath the Contact Research title: Email, Phone,
+          and Mailing Address checkboxes (all on by default, any combination),
+          the previously-unsuccessful pass option, and a compact, dynamically
+          updated summary. They shape both the lists below and the entire
+          Save & Next / Nothing Usable & Next sequence. */}
+      <ContactResearchFilters
+        methodFilter={methodFilter}
+        onMethodFilter={setMethodFilter}
+        includeUnsuccessful={includeUnsuccessful}
+        onIncludeUnsuccessful={setIncludeUnsuccessful}
+        summary={filterSummary}
+      />
+
       <AssistantPanel heading="Find the contact information Gateway is missing">
         {/* Mentoring (HOW), separate from the Assistant (WHAT), sits immediately
             ABOVE the instructions it explains — never at the bottom. Its own
@@ -416,7 +446,7 @@ export function ContactReviewClient({
             Save &amp; Next moves you to the next customer; if Gateway has nothing usable, Nothing
             Usable &amp; Next records that research found nothing and keeps you moving. Unresearched
             customers come first; previously-unsuccessful research is a separate pass you opt into
-            below. A customer you have handled will not keep coming back, and anyone whose details
+            with the filters above. A customer you have handled will not keep coming back, and anyone whose details
             later turn up returns automatically. Customers with no usable contact at all stay visible
             below, so the agency keeps sight of who it cannot reach.
           </p>
@@ -430,16 +460,6 @@ export function ContactReviewClient({
         )}
       </AssistantPanel>
 
-      {/* Simple filters: narrow to one missing contact method, and choose
-          whether the previously-unsuccessful pass is included. They shape both
-          the lists below and the Save/Nothing-Usable & Next progression. */}
-      <ContactResearchFilters
-        methodFilter={methodFilter}
-        onMethodFilter={setMethodFilter}
-        includeUnsuccessful={includeUnsuccessful}
-        onIncludeUnsuccessful={setIncludeUnsuccessful}
-      />
-
       <QueueListHeader
         icon={UserRound}
         label="Needs contact information"
@@ -449,13 +469,15 @@ export function ContactReviewClient({
 
       {activeRemaining.length === 0 ? (
         <QueueEmptyState>
-          {total === 0
-            ? 'Every customer in this project has a usable email, phone, and mailing address, or has been researched.'
-            : methodFilter !== 'all'
-              ? 'No reachable customers match this filter. Clear it or change the missing-information type.'
-              : exceptionRemaining.length > 0
-                ? 'No reachable customers are missing a method. The customers below have no usable contact information at all — see the section beneath this one.'
-                : 'All caught up. Every customer has been handled.'}
+          {methodsCleared
+            ? 'No contact methods are selected. Select Email, Phone, or Mailing Address above to see work.'
+            : total === 0
+              ? 'Every customer in this project has a usable email, phone, and mailing address, or has been researched.'
+              : !methodFilter.has('email') || !methodFilter.has('phone') || !methodFilter.has('address')
+                ? 'No reachable customers match this filter. Select more contact methods above to widen it.'
+                : exceptionRemaining.length > 0
+                  ? 'No reachable customers are missing a method. The customers below have no usable contact information at all — see the section beneath this one.'
+                  : 'All caught up. Every customer has been handled.'}
         </QueueEmptyState>
       ) : (
         <div className="space-y-3">
@@ -518,59 +540,73 @@ export function ContactReviewClient({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ContactResearchFilters — simple, high-contrast filters over the list: narrow
-// to one missing contact method, and opt the previously-unsuccessful pass in or
-// out. Selectable controls use the shared WorkflowButton brand treatment rather
-// than the near-black shadcn default, per the light-theme design system.
+// ContactResearchFilters — the compact filter row directly beneath the page
+// title. Email, Phone, and Mailing Address checkboxes (all selected by default,
+// any combination), the separate previously-unsuccessful pass option, and a
+// compact, dynamically-updated summary of the filtered population. The checkbox
+// selection controls both the lists and the entire Save & Next sequence.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ContactResearchFilters({
-  methodFilter, onMethodFilter, includeUnsuccessful, onIncludeUnsuccessful,
+  methodFilter, onMethodFilter, includeUnsuccessful, onIncludeUnsuccessful, summary,
 }: {
-  methodFilter: 'all' | 'email' | 'phone' | 'address'
-  onMethodFilter: (v: 'all' | 'email' | 'phone' | 'address') => void
+  methodFilter: Set<Method>
+  onMethodFilter: (v: Set<Method>) => void
   includeUnsuccessful: boolean
   onIncludeUnsuccessful: (v: boolean) => void
+  summary: { total: number; toResearch: number; unsuccessful: number }
 }) {
-  const methodOptions: { value: 'all' | 'email' | 'phone' | 'address'; label: string }[] = [
-    { value: 'all', label: 'All gaps' },
-    { value: 'email', label: 'Missing email' },
-    { value: 'phone', label: 'Missing phone' },
-    { value: 'address', label: 'Missing address' },
+  const methodOptions: { value: Method; label: string }[] = [
+    { value: 'email', label: 'Email' },
+    { value: 'phone', label: 'Phone' },
+    { value: 'address', label: 'Mailing Address' },
   ]
+  const toggle = (m: Method) => {
+    const next = new Set(methodFilter)
+    if (next.has(m)) next.delete(m)
+    else next.add(m)
+    onMethodFilter(next)
+  }
   return (
     <div className="flex flex-wrap items-center gap-x-6 gap-y-3 rounded-2xl border border-surface-border bg-surface-card p-4">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
         <span className="mr-1 text-sm font-semibold uppercase tracking-wide text-ink-supporting">
-          Missing information
+          Missing
         </span>
         {methodOptions.map(o => (
-          <WorkflowButton
+          <label
             key={o.value}
-            selected={methodFilter === o.value}
-            onClick={() => onMethodFilter(o.value)}
+            className="inline-flex cursor-pointer select-none items-center gap-2 text-base text-ink-secondary"
           >
+            <input
+              type="checkbox"
+              checked={methodFilter.has(o.value)}
+              onChange={() => toggle(o.value)}
+              className="size-4 rounded border-surface-border-strong text-brand accent-brand focus:ring-brand-ring"
+            />
             {o.label}
-          </WorkflowButton>
+          </label>
         ))}
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="mr-1 text-sm font-semibold uppercase tracking-wide text-ink-supporting">
-          Research
-        </span>
-        <WorkflowButton
-          selected={!includeUnsuccessful}
-          onClick={() => onIncludeUnsuccessful(false)}
-        >
-          Unresearched first
-        </WorkflowButton>
-        <WorkflowButton
-          selected={includeUnsuccessful}
-          onClick={() => onIncludeUnsuccessful(true)}
-        >
-          Include previously unsuccessful
-        </WorkflowButton>
-      </div>
+
+      <label className="inline-flex cursor-pointer select-none items-center gap-2 text-base text-ink-secondary">
+        <input
+          type="checkbox"
+          checked={includeUnsuccessful}
+          onChange={(e) => onIncludeUnsuccessful(e.target.checked)}
+          className="size-4 rounded border-surface-border-strong text-brand accent-brand focus:ring-brand-ring"
+        />
+        Include previously unsuccessful research
+      </label>
+
+      {/* Compact, dynamically-updated summary of the filtered population. */}
+      <p className="ml-auto text-base font-medium tabular-nums text-ink-supporting">
+        {summary.total} total
+        <span className="mx-1.5 text-surface-border-strong" aria-hidden>{'\u00B7'}</span>
+        {summary.toResearch} to research
+        <span className="mx-1.5 text-surface-border-strong" aria-hidden>{'\u00B7'}</span>
+        {summary.unsuccessful} researched unsuccessfully
+      </p>
     </div>
   )
 }
@@ -603,11 +639,10 @@ function toCardCustomer(c: ContactReviewCustomer): CustomerContact {
 }
 
 function ContactReviewTask({
-  projectId, customer, remainingCount, onBack, onSaved, onSkipped, onContactChange,
+  projectId, customer, onBack, onSaved, onSkipped, onContactChange,
 }: {
   projectId: string
   customer: ContactReviewCustomer
-  remainingCount: number
   onBack: () => void
   /** Save & Next — advance the session. The card has already persisted edits. */
   onSaved: () => void
@@ -648,22 +683,19 @@ function ContactReviewTask({
     <TaskShell
       header={<SlimTaskHeader onBack={onBack} backLabel="Back to the list" />}
       action={
-        <ActionPanel heading={`Complete contact for ${name}`}>
+        <ActionPanel heading="Search Gateway using the last name and policy number.">
           {/* Mentoring (HOW) sits immediately ABOVE the instructions it explains
               — the Gateway look-up and contact capture below — never at the
-              bottom. Its own purple control is always shown; the global toggle
-              only sets the default open/closed state. */}
+              bottom. The additional how-to instruction lives here, using the same
+              graduation-cap behavior and global Mentoring toggle as My Work. */}
           <MentorGuidance label="How to fill contact info">
             Search Gateway with the last name and policy number together — the policy number lands
-            you on the right record fastest. Enter one usable method and move on; you do not need
-            both. A phone with no email is still progress. Only overwrite a value on the card to the
-            right when you are confident Gateway is right.
+            you on the right record fastest. If the policy number finds nothing, try the last name
+            alone, then confirm the date of birth before you copy anything back. Enter what Gateway
+            shows on the Customer Contact card to the right; each field saves on its own, so a phone
+            with no email is still progress. Enter one usable method and move on; you do not need
+            both, and only overwrite a value when you are confident Gateway is right.
           </MentorGuidance>
-
-          {/* Why this is here — a prominent, high-contrast operational reason. */}
-          <div className="flex items-center gap-2 rounded-xl border border-status-missing-border bg-status-missing-soft p-4 text-lg text-status-missing-strong">
-            <UserRound className="size-5 shrink-0" aria-hidden /> {gapDetail(customer)}. Look this customer up in Gateway.
-          </div>
 
           {/* No Usable Contact Information exception opened deliberately: say
               plainly that earlier research came up empty, so the worker knows
@@ -675,22 +707,13 @@ function ContactReviewTask({
             </OperationalTag>
           )}
 
-          {/* Step 1: the shared Gateway look-up — last name + policy number with
-              Copy buttons, identical to the Stewardship research task. */}
+          {/* The shared Gateway look-up — last name + policy number with Copy
+              buttons, identical to the Stewardship research task. */}
           <GatewayLookup
             lastName={customer.last_name}
             fallbackName={name}
             policyNumber={customer.policy_number}
           />
-
-          {/* Step 2 is the editable Customer Contact card on the right: enter or
-              correct email, phone, and mailing address there. It writes straight
-              to the customer record and clears a value's verification when it
-              changes. */}
-          <div className="rounded-xl border border-surface-border bg-surface-muted/40 p-4 text-base text-ink-supporting">
-            Enter what Gateway shows on the Customer Contact card to the right. Each field saves on
-            its own; a phone with no email is still progress.
-          </div>
 
           {saveError && (
             <p className="rounded-lg border border-tag-blocked-border bg-tag-blocked-fill px-3 py-2 text-base text-tag-blocked-text">
@@ -698,30 +721,27 @@ function ContactReviewTask({
             </p>
           )}
 
-          {/* The two advancing actions. Save & Next advances to the next
-              customer (edits are already persisted by the card); Nothing Usable
-              & Next records the unsuccessful research durably and continues. */}
-          <div className="space-y-3">
+          {/* The two advancing actions, side by side at half width each. Save &
+              Next stays the primary teal action and advances to the next customer
+              (edits are already persisted by the card); Nothing Usable & Next
+              records the unsuccessful research durably and continues. */}
+          <div className="grid grid-cols-2 gap-3">
             <PrimaryAction
               icon={Save}
               label="Save & Next"
               onClick={onSaved}
               disabled={busy}
             />
-            <WorkflowButton icon={SkipForward} onClick={nothingUsable} disabled={busy} className="w-full justify-start">
+            <WorkflowButton
+              icon={SkipForward}
+              size="lg"
+              onClick={nothingUsable}
+              disabled={busy}
+              className="h-14 justify-center rounded-xl px-5 text-lg font-semibold"
+            >
               Nothing Usable &amp; Next
             </WorkflowButton>
           </div>
-
-          <NextNote>
-            Edit email, phone, and address on the Customer Contact card to the right; each change
-            saves on its own. Save &amp; Next opens the next customer. Nothing Usable &amp; Next
-            records that research found nothing usable (so this customer will not keep coming back)
-            and continues.
-            {remainingCount > 0
-              ? ` ${remainingCount} more after this one.`
-              : ' This is the last one in the list.'}
-          </NextNote>
         </ActionPanel>
       }
       context={
