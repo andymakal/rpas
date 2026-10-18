@@ -30,6 +30,7 @@ import { PrimaryAction } from '@/components/workflow'
 import {
   MentorCapButton, MentorCapPanel, useMentorDisclosure,
 } from '@/lib/mentoring/MentorUi'
+import { useWorkReservation } from '@/lib/reservations/useWorkReservation'
 import { StewardshipTask } from '../StewardshipClient'
 
 type PopulationCustomer = {
@@ -72,6 +73,17 @@ export function IntroductoryEmailsClient({
 
   const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
 
+  // Temporary reservation coordination: opening and Save & Next both ask the
+  // server for the next AVAILABLE introductory-email customer, so two employees
+  // working this activity never land on the same one. The reservation is a soft,
+  // self-expiring lease the hook heartbeats while the screen is open and releases
+  // on complete / skip / leave; it changes no business record. The subject is the
+  // stewardship_outreach row (item.id).
+  const { reserveNext, release } = useWorkReservation({
+    activity: 'introductory_emails',
+    subjectType: 'stewardship_outreach',
+  })
+
   const load = useCallback(async () => {
     setError(null)
     try {
@@ -98,22 +110,29 @@ export function IntroductoryEmailsClient({
     [items, handled],
   )
 
-  // Direct working workflow: once loaded, land straight on the FIRST eligible
-  // customer, never an intermediate list. Applied once per fresh landing; after
-  // that the worker advances deliberately with each send. If the population is
-  // empty from the start, go straight to the completion state.
+  // Direct working workflow: once loaded, RESERVE and land straight on the first
+  // AVAILABLE eligible customer (one a teammate is not already working), never an
+  // intermediate list. Applied once per fresh landing; after that the worker
+  // advances deliberately with each send. If no customer is available, go
+  // straight to the completion state.
   const directOpenedRef = useRef(false)
   useEffect(() => {
     if (loading || directOpenedRef.current) return
     directOpenedRef.current = true
-    const first = remaining[0]
-    if (first) setOpenId(first.id)
-    // else: no first-touch customers — fall through to the completion state
-    // (openId stays null).
-  }, [loading, remaining])
+    // Candidate order is the still-to-do population the server already scoped to
+    // this employee; reserveNext atomically hands back the first free one.
+    const candidates = remaining.map(it => it.id)
+    void reserveNext(candidates).then(reserved => {
+      if (reserved) setOpenId(reserved)
+      // else: nothing available (empty or all reserved) — completion state shows
+      // (openId stays null).
+    })
+  }, [loading, remaining, reserveNext])
 
-  // Mark the open customer sent and advance to the next one. Called after the
-  // task confirms a successful send. If none remain, show the completion state.
+  // Mark the open customer sent and advance to the next AVAILABLE one. Called
+  // after the task confirms a successful send. The just-sent customer's
+  // reservation is released, then the next free customer is reserved. If none
+  // remain or all are reserved, show the completion state.
   const advanceAfterSend = useCallback(() => {
     if (!openId) return
     const sentId = openId
@@ -122,14 +141,18 @@ export function IntroductoryEmailsClient({
       next.add(sentId)
       return next
     })
+    // The sent customer has left Ready to Email and is handled; release its
+    // reservation so a teammate is never blocked by a finished item.
+    void release()
     // `handled` updates on the next render, so exclude the just-sent id here.
-    const next = remaining.find(it => it.id !== sentId)
-    if (next) setOpenId(next.id)
-    else setOpenId(null) // nothing left: the completion state renders
+    const candidates = remaining.filter(it => it.id !== sentId).map(it => it.id)
+    void reserveNext(candidates).then(reserved => {
+      setOpenId(reserved) // reserved id, or null -> completion state renders
+    })
     // Keep the local population in step with the server (the sent customer has
     // left Ready to Email); harmless if it is already gone.
     void load()
-  }, [openId, remaining, load])
+  }, [openId, remaining, load, release, reserveNext])
 
   const sentCount = handled.size
 

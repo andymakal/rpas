@@ -42,6 +42,7 @@ import {
 import {
   MentorGuidance, useMentorDisclosure, MentorCapButton, MentorCapPanel,
 } from '@/lib/mentoring/MentorUi'
+import { useWorkReservation } from '@/lib/reservations/useWorkReservation'
 
 type ContactReviewCustomer = {
   customer_id: string
@@ -180,6 +181,17 @@ export function ContactReviewClient({
   // durable truth is simply whether the customer still lacks contact info.
   const [handled, setHandled] = useState<Set<string>>(new Set())
 
+  // Temporary reservation coordination: opening and Save & Next / Nothing Usable
+  // & Next ask the server for the next AVAILABLE customer, so two employees
+  // working Contact Research on the same project never land on the same customer.
+  // The reservation is a soft, self-expiring lease the hook heartbeats while the
+  // screen is open and releases on save / skip / leave; it changes no customer
+  // record. The subject is the customer.
+  const { reserveNext, reserveOne, release } = useWorkReservation({
+    activity: 'contact_research',
+    subjectType: 'customer',
+  })
+
   const load = useCallback(async () => {
     setError(null)
     try {
@@ -215,8 +227,12 @@ export function ContactReviewClient({
     if (!target) return
     if (openedReopenRef.current === target.customer_id) return
     openedReopenRef.current = target.customer_id
+    // A deliberate reopen is coordination-tracked (reserved + heartbeated so a
+    // teammate sees it busy, released on leave) but never BLOCKED by the lease:
+    // open it regardless of whether the reservation was free.
+    void reserveOne(target.customer_id)
     setOpenId(target.customer_id)
-  }, [reopened, rows, initialCustomerId])
+  }, [reopened, rows, initialCustomerId, reserveOne])
 
   const directOpenedRef = useRef(false)
 
@@ -274,10 +290,16 @@ export function ContactReviewClient({
     if (loading || initialCustomerId) return
     if (directOpenedRef.current) return
     directOpenedRef.current = true
-    const first = workQueue[0]
-    if (first) setOpenId(first.customer_id)
-    else setShowingList(true)
-  }, [loading, initialCustomerId, workQueue])
+    // Reserve and land on the first AVAILABLE customer (one a teammate is not
+    // already working). reserveNext atomically skips reserved customers and
+    // hands back the first free one; null means nothing available, so show the
+    // list's done state.
+    const candidates = workQueue.map(r => r.customer_id)
+    void reserveNext(candidates).then(reserved => {
+      if (reserved) setOpenId(reserved)
+      else setShowingList(true)
+    })
+  }, [loading, initialCustomerId, workQueue, reserveNext])
 
   const openCustomer = useMemo(
     () =>
@@ -289,28 +311,43 @@ export function ContactReviewClient({
   // Mark a customer handled for this session and advance to the next unhandled
   // customer. If none remain, return to the (now empty) list so the worker sees
   // the done state. Used by both Save & Next and Nothing Usable & Next.
+  // Open a customer the worker picked deliberately (a list card, or the
+  // Start/Continue button). Coordination-tracked like the continuous flow —
+  // reserved and heartbeated so a teammate sees it busy, released on leave — but
+  // never BLOCKED: a deliberate pick always opens. The continuous Save & Next
+  // path uses reserveNext instead (it must skip a customer a teammate holds).
+  const openWithReservation = useCallback((customerId: string) => {
+    void reserveOne(customerId)
+    setOpenId(customerId)
+  }, [reserveOne])
+
   const markHandledAndAdvance = useCallback((customerId: string) => {
     setHandled(prev => {
       const next = new Set(prev)
       next.add(customerId)
       return next
     })
-    // Advance to the next customer in the current work queue — unresearched
-    // first, honoring the active missing-method filter, and only walking into
-    // previously-unsuccessful research when the worker has opted into that pass.
-    // `handled` updates on the next render, so exclude this id explicitly here.
-    const next = workQueue.find(
-      r => r.customer_id !== customerId && !handled.has(r.customer_id),
-    )
-    if (next) {
-      setOpenId(next.customer_id)
-    } else {
-      // Nothing left to work: fall back to the list so the worker sees the
-      // done state rather than a blank task.
-      setOpenId(null)
-      setShowingList(true)
-    }
-  }, [workQueue, handled])
+    // This customer is handled: release its reservation so a teammate is never
+    // blocked by a finished item, then reserve and advance to the next AVAILABLE
+    // customer in the work queue — unresearched first, honoring the active
+    // missing-method filter, and only walking into previously-unsuccessful
+    // research when the worker has opted into that pass. `handled` updates on the
+    // next render, so exclude this id explicitly here.
+    void release()
+    const candidates = workQueue
+      .filter(r => r.customer_id !== customerId && !handled.has(r.customer_id))
+      .map(r => r.customer_id)
+    void reserveNext(candidates).then(reserved => {
+      if (reserved) {
+        setOpenId(reserved)
+      } else {
+        // Nothing available to work: fall back to the list so the worker sees
+        // the done state rather than a blank task.
+        setOpenId(null)
+        setShowingList(true)
+      }
+    })
+  }, [workQueue, handled, release, reserveNext])
 
   // The compact, dynamically-updated filter summary, computed over the rows that
   // match the active missing-method filter so it tracks the checkboxes. Computed
@@ -467,7 +504,7 @@ export function ContactReviewClient({
           <PrimaryAction
             icon={ClipboardCheck}
             label={handledCount > 0 ? 'Continue where you left off' : 'Start the first customer'}
-            onClick={() => setOpenId(workQueue[0].customer_id)}
+            onClick={() => openWithReservation(workQueue[0].customer_id)}
           />
         )}
       </AssistantPanel>
@@ -498,7 +535,7 @@ export function ContactReviewClient({
               key={c.customer_id}
               name={fullName(c)}
               detail={gapDetail(c)}
-              onOpen={() => setOpenId(c.customer_id)}
+              onOpen={() => openWithReservation(c.customer_id)}
             />
           ))}
         </div>
@@ -526,7 +563,7 @@ export function ContactReviewClient({
                   name={fullName(c)}
                   detail="No email, no phone"
                   trailing={<OperationalTag tone="reason">Research needed</OperationalTag>}
-                  onOpen={() => setOpenId(c.customer_id)}
+                  onOpen={() => openWithReservation(c.customer_id)}
                 />
               ))}
             </div>
@@ -540,7 +577,7 @@ export function ContactReviewClient({
                   name={fullName(c)}
                   detail="No email, no phone"
                   trailing={<OperationalTag tone="exception">Research unsuccessful</OperationalTag>}
-                  onOpen={() => setOpenId(c.customer_id)}
+                  onOpen={() => openWithReservation(c.customer_id)}
                 />
               ))}
             </div>
