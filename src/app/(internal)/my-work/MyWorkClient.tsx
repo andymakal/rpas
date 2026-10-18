@@ -381,14 +381,15 @@ function PrioritiesColumn({ state }: { state: MyWorkState }) {
         />
       ))}
 
-      {/* Intake / first-touch — representative attention category drawn from the
-          real outreach activity's introductory-email sub-population (new
-          customers awaiting a first contact). Only shown when it has work. */}
-      <IntakePriority state={state} />
+      {/* NOTE: routine intake / first-touch is NOT a priority — it is ordinary
+          available work and is already represented in the Available Work column.
+          Priorities shows only genuine exceptions, commitments, and
+          management-directed focus, so it is intentionally absent here. */}
 
       {/* When nothing in this column needs attention, say so plainly without
-          implying the system has established there is no OTHER work. */}
-      {dueTotal === 0 && focusActivities.length === 0 && !hasIntake(state) && (
+          implying the system has established there is no OTHER work. Ordinary
+          available work being present is NOT a reason to flag attention. */}
+      {dueTotal === 0 && focusActivities.length === 0 && (
         <div className="rounded-xl border border-surface-border bg-surface-card p-3">
           <p className="flex items-center gap-2 text-sm text-ink-secondary">
             <CheckCircle2 className="size-4 shrink-0 text-status-confirmed" aria-hidden />
@@ -475,59 +476,6 @@ function CommitmentsSummary({
         </ComingSoon>
       </div>
     </div>
-  )
-}
-
-/** Whether the employee has intake (introductory-email first-touch) work. */
-function hasIntake(state: MyWorkState): boolean {
-  return introPopulation(state) > 0
-}
-
-/** The introductory-email first-touch population across outreach activities —
- * the real "new customers awaiting first contact" figure the composition emits
- * as an informational source. Counts the actionable-to-me subset. */
-function introPopulation(state: MyWorkState): number {
-  let n = 0
-  for (const a of state.activities) {
-    if (a.workFunction !== 'outreach') continue
-    for (const s of a.sources) {
-      if (s.informational && /introductory email/i.test(s.label)) {
-        n += s.ownedByMe + s.availableToMe
-      }
-    }
-  }
-  return n
-}
-
-/** The route into the introductory-email population, if present. */
-function introRoute(state: MyWorkState): string | null {
-  for (const a of state.activities) {
-    if (a.workFunction !== 'outreach') continue
-    for (const s of a.sources) {
-      if (s.informational && /introductory email/i.test(s.label)) return s.route
-    }
-  }
-  return null
-}
-
-function IntakePriority({ state }: { state: MyWorkState }) {
-  const count = introPopulation(state)
-  if (count <= 0) return null
-  return (
-    <PriorityCard
-      tone="attention"
-      icon={Users}
-      label="New customers to contact"
-      count={count}
-      steer="First-touch introductory emails for customers not yet contacted."
-      route={introRoute(state)}
-      mentoring={
-        <>
-          The first contact sets the tone. Confirm the referral, verify contact
-          details, and aim to make first contact the same day the work arrives.
-        </>
-      }
-    />
   )
 }
 
