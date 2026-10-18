@@ -88,6 +88,19 @@ function populationRoute(
 }
 
 /**
+ * The Send Introductory Emails DIRECT WORKING SCREEN. Unlike populationRoute
+ * (which opens the board's intermediate population list), this is the dedicated
+ * continuous surface that lands straight on the first eligible customer and
+ * advances automatically after each send — the same working-screen pattern as
+ * Contact Research. Project scope is carried through so a project-scoped link
+ * works exactly that project's first-touch population.
+ */
+function introductoryEmailsRoute(projectId?: string | null): string {
+  const base = `${STEWARDSHIP_ROUTE}/introductory-emails`
+  return projectId ? `${base}?project_id=${encodeURIComponent(projectId)}` : base
+}
+
+/**
  * Which stewardship queues map to which MY WORK activity. The shared board's
  * outreach queues (ready-to-call, ready-to-email, and the overdue follow-ups
  * routed into ready-to-call) are the Outreach activity. Waiting queues are not
@@ -984,10 +997,10 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
               claimedByOthers: 0,
               notEligible: 0,
               dueToMe: 0,
-              // Opens exactly this project's introductory-email population on the
-              // board (the SAME first-touch set this counted), not the whole
-              // Ready to Email queue.
-              route: populationRoute('introductory-emails', pid),
+              // Opens exactly this project's introductory-email population on
+              // the direct working screen (the SAME first-touch set this
+              // counted), landing on the first eligible customer.
+              route: introductoryEmailsRoute(pid),
             }
           }
           return Object.keys(out).length > 0 ? out : undefined
@@ -996,9 +1009,10 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
           kind: 'stewardship',
           label: 'Shared Stewardship board — Introductory emails',
           count: introEmails,
-          // Opens the introductory-email population (the first-touch subset of
-          // Ready to Email), exactly the customers this counted.
-          route: populationRoute('introductory-emails'),
+          // Opens the Send Introductory Emails direct working screen (the
+          // first-touch subset of Ready to Email), landing straight on the first
+          // eligible customer — exactly the set this counted.
+          route: introductoryEmailsRoute(),
           projectId: null,
           ownedByMe: 0,
           availableToMe: introEmails,

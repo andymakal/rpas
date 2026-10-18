@@ -1022,7 +1022,7 @@ function ProjectOnboardingNote({ project }: { project: { id: string; name: strin
 // Task screen — one outreach item, dispatched by queue.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function StewardshipTask({
+export function StewardshipTask({
   itemId, onBack, hasNextInActivity = false, onAdvanceToNext,
 }: {
   itemId: string

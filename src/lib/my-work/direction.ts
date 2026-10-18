@@ -363,7 +363,7 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
             reason:
               'A first email (carrying the authorization form) is efficient initial outreach before calling, for customers not yet contacted.',
             count: intro.count,
-            actionLabel: 'Open Ready to Email',
+            actionLabel: 'Send introductory emails',
             route: intro.route,
             emphasis,
           })
