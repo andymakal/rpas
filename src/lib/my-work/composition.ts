@@ -101,6 +101,22 @@ function introductoryEmailsRoute(projectId?: string | null): string {
 }
 
 /**
+ * The Call Reachable Customers DIRECT WORKING SCREEN for the Available to Call
+ * population. Like introductoryEmailsRoute (and unlike populationRoute, which
+ * opens the board's intermediate population list), this is the dedicated
+ * continuous calling surface that lands straight on the first available customer
+ * and advances automatically after each recorded interaction — the same
+ * working-screen pattern as Contact Research and Send Introductory Emails.
+ * Project scope is carried through so a project-scoped link works exactly that
+ * project's Available to Call population. Calls Due is deliberately NOT routed
+ * here: due callbacks stay on the board's Calls Due population for now.
+ */
+function availableToCallRoute(projectId?: string | null): string {
+  const base = `${STEWARDSHIP_ROUTE}/available-to-call`
+  return projectId ? `${base}?project_id=${encodeURIComponent(projectId)}` : base
+}
+
+/**
  * Which stewardship queues map to which MY WORK activity. The shared board's
  * outreach queues (ready-to-call, ready-to-email, and the overdue follow-ups
  * routed into ready-to-call) are the Outreach activity. Waiting queues are not
@@ -936,7 +952,11 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
             claimedByOthers: 0,
             notEligible: 0,
             dueToMe: due ? n : 0,
-            route: populationRoute(population, pid),
+            // Available to Call opens the direct calling workbench for exactly
+            // this project's slice; Calls Due stays on the board population list.
+            route: population === 'available-to-call'
+              ? availableToCallRoute(pid)
+              : populationRoute(population, pid),
           }
         }
         return Object.keys(out).length > 0 ? out : undefined
@@ -965,8 +985,10 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
           kind: 'stewardship',
           label: 'Shared Stewardship board — Available to Call',
           count: availableToCall,
-          // Opens the Available to Call population (callable, not yet due).
-          route: populationRoute('available-to-call'),
+          // Opens the Call Reachable Customers direct working screen (callable,
+          // not yet due), landing straight on the first available customer —
+          // exactly the set this counted — instead of the board's list.
+          route: availableToCallRoute(),
           projectId: null,
           ownedByMe: 0,
           availableToMe: availableToCall,

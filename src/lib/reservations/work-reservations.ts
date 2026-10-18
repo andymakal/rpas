@@ -29,7 +29,7 @@ export type ReservationSubjectType = 'stewardship_outreach' | 'customer'
 /** A stable activity key. Free-form by design (no schema change to add an
  * activity), but the known activities are named here so call sites share one
  * spelling. */
-export type ReservationActivityKey = 'introductory_emails' | 'contact_research'
+export type ReservationActivityKey = 'introductory_emails' | 'contact_research' | 'available_to_call'
 
 /**
  * How long a reservation lives without a heartbeat, in seconds. Short enough

@@ -387,7 +387,7 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
             reason:
               'These customers are callable now with no scheduled time. Good calling-hours work once due calls are handled.',
             count: otherCalls.count,
-            actionLabel: 'Open Available to Call',
+            actionLabel: 'Start calling',
             route: otherCalls.route,
             emphasis,
           })

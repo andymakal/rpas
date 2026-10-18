@@ -14,7 +14,7 @@ import { useSearchParams } from 'next/navigation'
 import {
   Mail, Phone, Search, Inbox, FileText, Building2, Check, ExternalLink,
   Clock, CircleAlert, Play, PenLine, MailX, Hand, UserCheck,
-  ShieldCheck, ShieldAlert,
+  ShieldCheck, ShieldAlert, Copy, Voicemail, MessageSquare, PhoneCall, PhoneOff,
 } from 'lucide-react'
 import {
   WorkflowPage, WorkflowHeader,
@@ -30,7 +30,7 @@ import {
 } from '@/lib/stewardship/queues'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { isPermanent } from '@/lib/policies/product-type'
-import { buildMailto } from '@/lib/templates'
+import { buildMailto, SCRIPTS, interpolate } from '@/lib/templates'
 import type { AgencyOption } from './page'
 
 /**
@@ -1023,7 +1023,7 @@ function ProjectOnboardingNote({ project }: { project: { id: string; name: strin
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function StewardshipTask({
-  itemId, onBack, hasNextInActivity = false, onAdvanceToNext, hideBackHeader = false,
+  itemId, onBack, hasNextInActivity = false, onAdvanceToNext, hideBackHeader = false, forceCall = false,
 }: {
   itemId: string
   onBack: () => void
@@ -1037,6 +1037,15 @@ export function StewardshipTask({
    * other Stewardship use leaves this false, keeping the original "All queues"
    * back button and page chrome unchanged. */
   hideBackHeader?: boolean
+  /** Drive the guided CALL flow regardless of the item's stored queue. Used by
+   * the Call Reachable Customers workbench: a callable customer may sit in Ready
+   * to Email (callable but not yet emailed), so the workbench forces the call
+   * flow rather than the stored-queue action. Also switches the right-side
+   * context to the shared Customer Contact card (verify/correct inline) and
+   * hides the separate record-an-attempt panel, since the guided flow IS the
+   * recording. Every other caller leaves this false, so their behavior is
+   * unchanged. */
+  forceCall?: boolean
 }) {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [busy, setBusy] = useState(false)
@@ -1115,11 +1124,11 @@ export function StewardshipTask({
         action={
           <TaskAction
             detail={detail} request={request} busy={busy} note={note} act={act}
-            hasNextInActivity={hasNextInActivity}
+            hasNextInActivity={hasNextInActivity} forceCall={forceCall}
           />
         }
         context={
-          <StewardshipContextPanel detail={detail} request={request} context={context} busy={busy} act={act} setDetail={setDetail} />
+          <StewardshipContextPanel detail={detail} request={request} context={context} busy={busy} act={act} setDetail={setDetail} forceCall={forceCall} />
         }
       />
     </Chrome>
@@ -1147,7 +1156,7 @@ function isIntroductoryEmailActivity(detail: Detail): boolean {
  * both capabilities stay fully available on the call and research activities.
  */
 function StewardshipContextPanel({
-  detail, request, context, busy, act, setDetail,
+  detail, request, context, busy, act, setDetail, forceCall = false,
 }: {
   detail: Detail
   request: Holding[]
@@ -1155,6 +1164,10 @@ function StewardshipContextPanel({
   busy: boolean
   act: (action: unknown, successNote?: string) => void
   setDetail: React.Dispatch<React.SetStateAction<Detail | null>>
+  /** The Call Reachable Customers workbench: show the shared Customer Contact
+   * card (verify/correct inline on the Reached path) and hide the separate
+   * record-an-attempt panel, because the guided call flow IS the recording. */
+  forceCall?: boolean
 }) {
   const introEmail = isIntroductoryEmailActivity(detail)
   // Research Needed is the second 1035 contact-gathering activity: like
@@ -1164,7 +1177,10 @@ function StewardshipContextPanel({
   // the former separate contact summary, mailing-address block, and verification
   // checkboxes. The research capture + routing stays in the left ActionPanel.
   const research = detail.queue === 'research-needed'
-  const useCard = introEmail || research
+  // The calling workbench also uses the shared card: verifying/correcting a
+  // phone, email, or mailing address is part of a reached call, and the card is
+  // the one editable contact surface across the app.
+  const useCard = introEmail || research || forceCall
   return (
     <>
       {useCard ? (
@@ -1174,10 +1190,11 @@ function StewardshipContextPanel({
       ) : (
         <CustomerContext detail={detail} busy={busy} act={act} showVerification />
       )}
-      {/* The record-an-attempt tool belongs to the call activities, not the
-          fast-send Introductory Emails flow nor the find-contact Research flow
-          (which records no contact attempt). */}
-      {!introEmail && !research && <RecordAttemptPanel detail={detail} busy={busy} act={act} />}
+      {/* The record-an-attempt tool belongs to the general call/research view,
+          not the fast-send Introductory Emails flow, the find-contact Research
+          flow (which records no contact attempt), nor the guided calling
+          workbench (whose Reached/Didn't Reach flow IS the single recording). */}
+      {!introEmail && !research && !forceCall && <RecordAttemptPanel detail={detail} busy={busy} act={act} />}
       <HoldingsContext request={request} context={context} />
     </>
   )
@@ -1242,7 +1259,7 @@ function StewardshipCustomerContact({
  * owns its own copy, controls, and transitions; the dispatcher only routes.
  */
 function TaskAction({
-  detail, request, busy, note, act, hasNextInActivity = false,
+  detail, request, busy, note, act, hasNextInActivity = false, forceCall = false,
 }: {
   detail: Detail
   request: Holding[]
@@ -1250,6 +1267,9 @@ function TaskAction({
   note: string | null
   act: (action: unknown, successNote?: string, opts?: { advanceToNext?: boolean }) => void
   hasNextInActivity?: boolean
+  /** Force the guided call flow regardless of the stored queue (the Call
+   * Reachable Customers workbench). */
+  forceCall?: boolean
 }) {
   const name = fullName(detail.customer)
 
@@ -1275,6 +1295,20 @@ function TaskAction({
   ) : null
 
   const panel = (() => {
+    // The Call Reachable Customers workbench forces the guided call flow for any
+    // callable customer, regardless of their stored queue (a callable customer
+    // may sit in Ready to Email, having never been emailed). The workbench owns
+    // the whole guided flow INCLUDING the reached authorization-form step, so it
+    // stays in control even after the reached call is recorded; it only hands
+    // off by advancing to the next customer once the form is sent.
+    if (forceCall) {
+      return (
+        <CallAction
+          detail={detail} request={request} busy={busy} noteBox={noteBox} act={act}
+          workbench hasNextInActivity={hasNextInActivity}
+        />
+      )
+    }
     switch (detail.queue) {
       case 'ready-to-email':
         return (
@@ -1284,7 +1318,12 @@ function TaskAction({
           />
         )
       case 'ready-to-call':
-        return <CallAction detail={detail} request={request} busy={busy} noteBox={noteBox} act={act} />
+        return (
+          <CallAction
+            detail={detail} request={request} busy={busy} noteBox={noteBox} act={act}
+            workbench={forceCall} hasNextInActivity={hasNextInActivity}
+          />
+        )
       case 'research-needed':
         return <ResearchAction detail={detail} request={request} busy={busy} noteBox={noteBox} act={act} />
       case 'waiting-for-response':
@@ -1690,7 +1729,92 @@ function WaitingForResponseAction({
   )
 }
 
+/**
+ * A light-theme copy-to-clipboard script card (voicemail / text talk tracks),
+ * the same interaction the dark ScriptCard carries, retoned for the workflow
+ * surface. Launching nothing — it only copies the text for the worker to paste
+ * into their own voicemail greeting notes, Hearsay text, or email.
+ */
+function CallScriptCard({ label, body }: { label: string; body: string }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="space-y-2 rounded-xl border border-surface-border bg-surface-muted p-3">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-semibold uppercase tracking-wide text-ink-supporting">{label}</p>
+        <button
+          type="button"
+          onClick={() => { navigator.clipboard?.writeText(body); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-surface-border-strong bg-surface-card px-2 py-0.5 text-xs font-medium text-ink-secondary transition-colors hover:border-brand-ring hover:bg-brand-wash hover:text-brand-subtle-foreground"
+        >
+          {copied ? <><Check className="size-3 text-status-confirmed" aria-hidden /> Copied</> : <><Copy className="size-3" aria-hidden /> Copy</>}
+        </button>
+      </div>
+      <p className="whitespace-pre-line text-base leading-relaxed text-ink-secondary">{body}</p>
+    </div>
+  )
+}
+
+/**
+ * The live-call opening talk track, shown at the top of the call workbench. It
+ * is a short, honest script keyed to the servicing-agent reason, matching the
+ * approved introductory-email wording. Static prose (no sender/LSP variable the
+ * calling context carries), so it reads cleanly without unresolved placeholders.
+ */
+function callOpeningScript(firstName: string): string {
+  return [
+    `Hi, is this ${firstName}? This is Allstate Financial Services calling about your life insurance policy.`,
+    'When Allstate\u2019s life insurance business moved to Everlake, our office lost access to policies unless we\u2019re listed as the servicing agent, and we\u2019re not currently listed on yours.',
+    'I\u2019d like to restore that access so we can keep helping you with questions and servicing. It doesn\u2019t change your policy or coverage in any way. Do you have a couple of minutes?',
+  ].join('\n\n')
+}
+
+/**
+ * The guided calling flow. Two modes:
+ *
+ *   - Board task (workbench=false): the established compact outcome recorder for
+ *     a Ready to Call item opened from the board. Unchanged behavior.
+ *   - Workbench (workbench=true): the Call Reachable Customers single-page
+ *     guided flow. It opens with the customer name, phone, and a short opening
+ *     script, then two choices — Reached / Didn\u2019t Reach — each progressively
+ *     revealing the next relevant section on the same page. Every path records
+ *     exactly ONE grouped attempt (the unified record-attempt), preserving only
+ *     communications actually completed, applying the established transition and
+ *     follow-up scheduling, and then advancing to the next customer.
+ *
+ * Both modes use the SAME record-attempt action, outcome vocabulary, callback
+ * persistence, and transitions — there is a single recording path.
+ */
 function CallAction({
+  detail, request, busy, noteBox, act, workbench = false, hasNextInActivity = false,
+}: {
+  detail: Detail
+  request: Holding[]
+  busy: boolean
+  noteBox: React.ReactNode
+  act: (action: unknown, successNote?: string, opts?: { advanceToNext?: boolean }) => void
+  /** Render the Call Reachable Customers guided single-page flow with
+   * auto-advance. False keeps the established compact board outcome recorder. */
+  workbench?: boolean
+  /** Whether another customer remains in the workbench to advance to (affects
+   * the confirmation wording on terminal outcomes). */
+  hasNextInActivity?: boolean
+}) {
+  if (workbench) {
+    return (
+      <CallWorkbenchAction
+        detail={detail} request={request} busy={busy} noteBox={noteBox} act={act}
+        hasNextInActivity={hasNextInActivity}
+      />
+    )
+  }
+  return <CallBoardAction detail={detail} request={request} busy={busy} noteBox={noteBox} act={act} />
+}
+
+/**
+ * The established compact Ready-to-Call outcome recorder (board task). Preserved
+ * verbatim so the board calling experience is unchanged.
+ */
+function CallBoardAction({
   detail, request, busy, noteBox, act,
 }: {
   detail: Detail
@@ -1789,6 +1913,310 @@ function CallAction({
             Set callback
           </WorkflowButton>
           <NextNote>The customer stays in Ready to Call and resurfaces on the callback date.</NextNote>
+        </div>
+      )}
+    </ActionPanel>
+  )
+}
+
+/** The reach decision in the guided workbench: not chosen yet, reached, or not. */
+type ReachChoice = null | 'reached' | 'not-reached'
+
+/**
+ * The Call Reachable Customers guided single-page flow. Opens with the opening
+ * script and the two choices, and progressively reveals the next section on the
+ * SAME page as the worker proceeds. Every terminal path records exactly ONE
+ * grouped attempt and then advances to the next customer.
+ */
+function CallWorkbenchAction({
+  detail, request, busy, noteBox, act, hasNextInActivity,
+}: {
+  detail: Detail
+  request: Holding[]
+  busy: boolean
+  noteBox: React.ReactNode
+  act: (action: unknown, successNote?: string, opts?: { advanceToNext?: boolean }) => void
+  hasNextInActivity: boolean
+}) {
+  const c = detail.customer
+  const name = fullName(c)
+  const phone = c.phone
+  // Whether the reached call has already been recorded (survives the reload that
+  // record-attempt triggers). When it has, the flow resumes at the reached
+  // decision with the authorization form ready, rather than restarting at the
+  // reach choice.
+  const reached = detail.last_call_outcome === 'reached'
+  const [reach, setReach] = useState<ReachChoice>(reached ? 'reached' : null)
+
+  // ── Didn\u2019t-reach sub-state ──────────────────────────────────────────────
+  // Whether a voicemail was actually left, whether the Hearsay text was sent,
+  // and whether the follow-up email was sent. Only completed communications are
+  // recorded, so these gate which channels the single grouped attempt carries.
+  const [voicemailLeft, setVoicemailLeft] = useState<boolean | null>(null)
+  const [textSent, setTextSent] = useState(false)
+  const [emailSent, setEmailSent] = useState(false)
+
+  // ── Reached sub-state ────────────────────────────────────────────────────
+  const [decision, setDecision] = useState<null | 'agreed' | 'callback' | 'not-interested'>(reached ? 'agreed' : null)
+  const [callbackWhen, setCallbackWhen] = useState('')
+
+  const nextSuffix = hasNextInActivity ? ' Next customer.' : ''
+
+  // Interpolated scripts. The calling context does not carry the sender/LSP
+  // identity the way the email templates do, so those variables resolve to the
+  // customer-facing content only; interpolate leaves unknown keys intact, and we
+  // supply first_name + phone so the common placeholders fill.
+  const scriptVars = { first_name: c.first_name ?? 'there', phone: phone ?? '' }
+  const voicemailScript = interpolate(SCRIPTS.voicemail.body, scriptVars)
+  const textScript = interpolate(
+    (voicemailLeft ? SCRIPTS.post_voicemail_text : SCRIPTS.first_attempt_text).body,
+    scriptVars,
+  )
+  const followUpMailto = buildMailto(c.email, SA_SUBJECT, saEmailBody(c.first_name))
+
+  // Record the DIDN\u2019T-REACH attempt as ONE grouping. The call channel's
+  // outcome is 'voicemail' (the no-answer outcome that schedules the next call);
+  // the separate voicemail CHANNEL is recorded as a completed touch ONLY when a
+  // voicemail was actually left, and the text/email channels ONLY when they were
+  // actually sent. So only communications actually completed are preserved.
+  function recordNotReached() {
+    const action: Record<string, unknown> = { type: 'record-attempt', call: 'voicemail' }
+    if (voicemailLeft) action.voicemail = 'touch'
+    if (textSent) action.text = 'touch'
+    if (emailSent) action.email = 'touch'
+    act(
+      action,
+      'Attempt recorded. Next call auto-scheduled; the customer moves to Waiting for Response.',
+      { advanceToNext: true },
+    )
+  }
+
+  // Bad number: a single grouped attempt recording the unusable call channel.
+  function recordBadNumber() {
+    act(
+      { type: 'record-attempt', call: 'bad-number' },
+      'Bad number recorded. Moved to Contact Research.',
+      { advanceToNext: true },
+    )
+  }
+
+  return (
+    <ActionPanel heading={`Call ${name}`}>
+      {noteBox}
+      {detail.call_reason && (
+        <OperationalTag tone="reason">
+          <CircleAlert className="mr-1.5 size-4" aria-hidden /> {callReasonLabel(detail.call_reason)}
+        </OperationalTag>
+      )}
+
+      {/* 1. Name + phone. A tel: link dials via the team member\u2019s configured
+          phone; launching the dialer is not proof the call happened. */}
+      {phone ? (
+        <a href={`tel:${phone}`} className="block">
+          <PrimaryAction icon={Phone} label={`Call ${phone}`} />
+        </a>
+      ) : (
+        <PrimaryAction icon={Phone} label="No phone on file" disabled />
+      )}
+
+      {/* 2. A short, relevant opening script. */}
+      <CallScriptCard label="Opening script" body={callOpeningScript(c.first_name ?? 'there')} />
+
+      {/* 3. Two choices — Reached / Didn\u2019t Reach. */}
+      <div className="border-t border-surface-divider pt-4">
+        <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-supporting">Did you reach the customer?</p>
+        <div className="flex flex-wrap gap-2">
+          <WorkflowButton icon={PhoneCall} selected={reach === 'reached'} disabled={busy}
+            onClick={() => setReach('reached')}>
+            Reached
+          </WorkflowButton>
+          <WorkflowButton icon={PhoneOff} selected={reach === 'not-reached'} disabled={busy}
+            onClick={() => setReach('not-reached')}>
+            Didn&apos;t reach
+          </WorkflowButton>
+        </div>
+      </div>
+
+      {/* ── DIDN\u2019T REACH ─────────────────────────────────────────────────── */}
+      {reach === 'not-reached' && (
+        <div className="space-y-4 border-t border-surface-divider pt-4">
+          {/* Voicemail script, always shown to read. */}
+          <div className="space-y-2">
+            <p className="flex items-center gap-1.5 text-base font-semibold text-ink">
+              <Voicemail className="size-4 text-ink-supporting" aria-hidden /> Voicemail
+            </p>
+            <CallScriptCard label={SCRIPTS.voicemail.label} body={voicemailScript} />
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-medium text-ink-secondary">Did you leave a voicemail?</span>
+              <WorkflowButton selected={voicemailLeft === true} disabled={busy} onClick={() => setVoicemailLeft(true)}>Yes</WorkflowButton>
+              <WorkflowButton selected={voicemailLeft === false} disabled={busy} onClick={() => setVoicemailLeft(false)}>No</WorkflowButton>
+            </div>
+          </div>
+
+          {/* Prepared Hearsay text with Copy; mark it sent only when actually sent. */}
+          {(detail.contact_options?.canText ?? !!phone) && (
+            <div className="space-y-2">
+              <p className="flex items-center gap-1.5 text-base font-semibold text-ink">
+                <MessageSquare className="size-4 text-ink-supporting" aria-hidden /> Text (Hearsay)
+              </p>
+              <CallScriptCard
+                label={voicemailLeft ? SCRIPTS.post_voicemail_text.label : SCRIPTS.first_attempt_text.label}
+                body={textScript}
+              />
+              <label className="flex cursor-pointer items-center gap-2.5 text-base font-medium text-ink">
+                <input type="checkbox" checked={textSent} disabled={busy}
+                  onChange={e => setTextSent(e.target.checked)}
+                  className="size-4 rounded border-slate-400 text-teal-600 focus:ring-teal-500" />
+                I sent this text through Hearsay
+              </label>
+            </div>
+          )}
+
+          {/* Prepared follow-up email via mailto; mark it sent only when sent. */}
+          {(detail.contact_options?.canEmail ?? !!c.email) && (
+            <div className="space-y-2">
+              <p className="flex items-center gap-1.5 text-base font-semibold text-ink">
+                <Mail className="size-4 text-ink-supporting" aria-hidden /> Follow-up email
+              </p>
+              <a href={followUpMailto} className="block">
+                <WorkflowButton icon={Mail}>Open prepared follow-up email</WorkflowButton>
+              </a>
+              <label className="flex cursor-pointer items-center gap-2.5 text-base font-medium text-ink">
+                <input type="checkbox" checked={emailSent} disabled={busy}
+                  onChange={e => setEmailSent(e.target.checked)}
+                  className="size-4 rounded border-slate-400 text-teal-600 focus:ring-teal-500" />
+                I sent this follow-up email
+              </label>
+            </div>
+          )}
+
+          {/* Record the whole no-reach interaction as ONE grouped attempt.
+              Recording waits until the worker has answered whether a voicemail
+              was left, so the attempt is honest about what was completed. */}
+          <div className="space-y-3 rounded-xl border border-surface-border bg-surface-card p-4">
+            <WorkflowButton icon={PenLine} selected disabled={busy || voicemailLeft === null} onClick={recordNotReached}>
+              {busy ? 'Recording\u2026' : 'Record this attempt'}
+            </WorkflowButton>
+            <NextNote>
+              Everything you completed is saved as one attempt: the call, the voicemail only if you left one,
+              and the text and email only if you marked them sent. The next call is scheduled automatically and
+              the customer moves to Waiting for Response.{nextSuffix}
+            </NextNote>
+          </div>
+
+          {/* Bad number: a distinct recorded outcome, kept out of the way. */}
+          <div className="border-t border-surface-divider pt-3">
+            <p className="mb-1 text-sm text-ink-supporting">Not a working number?</p>
+            <WorkflowButton icon={PhoneOff} disabled={busy} onClick={recordBadNumber}>
+              Bad number
+            </WorkflowButton>
+          </div>
+        </div>
+      )}
+
+      {/* ── REACHED ──────────────────────────────────────────────────────────── */}
+      {reach === 'reached' && (
+        <div className="space-y-4 border-t border-surface-divider pt-4">
+          {/* Reason for calling + the servicing-agent authorization explanation. */}
+          <div className="rounded-xl border border-surface-border bg-surface-muted p-4 text-base leading-relaxed text-ink-secondary">
+            <p className="mb-1 font-semibold text-ink">Why you&apos;re calling</p>
+            <p>
+              Our office lost access to {c.first_name ? `${c.first_name}\u2019s` : 'the customer\u2019s'} life insurance
+              policy when Allstate\u2019s life business moved to Everlake, because we are not listed as the servicing
+              agent. The servicing-agent authorization simply restores our access to help with questions and
+              servicing. It does not change the policy or coverage, and it needs a wet (ink) signature.
+            </p>
+          </div>
+
+          <NextNote>
+            Confirm or correct the customer&apos;s phone, email, and mailing address on the right as you speak,
+            then capture their decision below.
+          </NextNote>
+
+          {/* Capture the customer\u2019s actual decision. */}
+          <div>
+            <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-supporting">What did the customer decide?</p>
+            <div className="flex flex-wrap gap-2">
+              <WorkflowButton icon={Check} selected={decision === 'agreed'} disabled={busy}
+                onClick={() => {
+                  setDecision('agreed')
+                  // Record the reached call as ONE attempt; the form step then
+                  // appears (last_call_outcome becomes 'reached' after reload).
+                  if (!reached) act({ type: 'record-attempt', call: 'reached' }, 'Reached. Send the authorization form below.')
+                }}>
+                Agreed to authorize
+              </WorkflowButton>
+              <WorkflowButton icon={Clock} selected={decision === 'callback'} disabled={busy}
+                onClick={() => setDecision('callback')}>
+                Wants a callback
+              </WorkflowButton>
+              <WorkflowButton icon={CircleAlert} selected={decision === 'not-interested'} disabled={busy}
+                onClick={() => setDecision('not-interested')}>
+                Not interested
+              </WorkflowButton>
+            </div>
+          </div>
+
+          {/* Agreed -> the established authorization-form process. */}
+          {decision === 'agreed' && (
+            <div className="space-y-2 rounded-xl border border-status-confirmed-border bg-status-confirmed-soft p-4">
+              <p className="text-base font-semibold text-ink">Send the servicing-agent authorization form</p>
+              <ServicingFormDelivery
+                detail={detail}
+                request={request}
+                name={name}
+                busy={busy}
+                act={act}
+                confirmLabelFor={m => (m === 'postal' ? `Form mailed to customer.${nextSuffix}` : `Form sent to customer.${nextSuffix}`)}
+                onConfirm={() => act(
+                  { type: 'form-sent' },
+                  'Authorization form sent. Moved to Waiting for Form.',
+                  { advanceToNext: true },
+                )}
+              />
+              <NextNote>Generate the form, send it (email or postal), then record it here. That moves the customer to Waiting for Form and advances you to the next call. Nothing is auto-closed.</NextNote>
+            </div>
+          )}
+
+          {/* Callback -> capture the promised DATE (date only, no clock time). */}
+          {decision === 'callback' && (
+            <div className="space-y-2 rounded-xl border border-surface-border bg-surface-card p-4">
+              <label htmlFor="wb-cb" className="flex items-center gap-2 text-base font-medium text-ink">
+                <Clock className="size-4 text-ink-supporting" aria-hidden /> Promised callback date
+              </label>
+              {/* Date only. Right Path records no clock time or calling window
+                  for a callback yet (a separate future enhancement). */}
+              <input id="wb-cb" type="date" value={callbackWhen} onChange={e => setCallbackWhen(e.target.value)}
+                className="w-full max-w-xs rounded-lg border border-surface-border-strong bg-surface-card px-3 py-2 text-base text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-ring/40" />
+              <WorkflowButton icon={Check} selected disabled={busy || !callbackWhen}
+                onClick={() => act(
+                  { type: 'record-attempt', call: 'callback', callback_date: callbackWhen },
+                  `Callback promised for ${callbackWhen ? shortDate(callbackWhen) : ''}.`,
+                  { advanceToNext: true },
+                )}>
+                Save promised callback
+              </WorkflowButton>
+              <NextNote>The promised callback is saved as a customer commitment and resurfaces as a due call on that date. It outranks focus-based ordering.{nextSuffix}</NextNote>
+            </div>
+          )}
+
+          {/* Not interested -> the established reversible stop. */}
+          {decision === 'not-interested' && (
+            <div className="space-y-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-4">
+              <p className="text-base text-ink-secondary">
+                Records an explicit decline. Outreach stops until someone deliberately reopens it. Nothing is
+                auto-closed, and this is reversible.
+              </p>
+              <WorkflowButton icon={CircleAlert} selected disabled={busy}
+                onClick={() => act(
+                  { type: 'record-attempt', call: 'not-interested' },
+                  'Recorded as not interested. Outreach stopped; a human decides any next step.',
+                  { advanceToNext: true },
+                )}>
+                Record not interested
+              </WorkflowButton>
+            </div>
+          )}
         </div>
       )}
     </ActionPanel>
