@@ -56,7 +56,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import { useMentoring } from '@/lib/mentoring/MentoringProvider'
 import {
   WorkflowSurface,
@@ -271,69 +270,81 @@ function WorkFilters({
   onClear,
   active,
 }: WorkFiltersProps) {
+  // Mentoring for the filter bar now rides the same inline graduation-cap used
+  // by the other My Work items: a purple cap that expands coaching directly
+  // beneath the controls. Seeded from the global Mentoring toggle (and re-seeded
+  // when it changes), so the global on/off behavior is preserved exactly.
+  const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
+
   return (
     <section
       aria-label="Filter your work"
-      className="flex flex-wrap items-center gap-3 rounded-xl border border-surface-border bg-surface-muted p-3"
+      className="rounded-xl border border-surface-border bg-surface-muted p-3"
     >
-      <span className="flex items-center gap-1.5 text-sm font-medium text-ink-supporting">
-        <SlidersHorizontal className="size-4" aria-hidden /> Filter
-      </span>
-
-      {projectOptions.length > 0 && (
-        <label className="flex items-center gap-2 text-sm text-ink-secondary">
-          <span className="sr-only">Project</span>
-          <Select value={projectFilter} onValueChange={onProjectChange}>
-            <SelectTrigger className="h-9 min-w-44" aria-label="Project">
-              <SelectValue placeholder="All projects" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>All projects</SelectItem>
-              {projectOptions.map((o) => (
-                <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </label>
-      )}
-
-      {activityOptions.length > 1 && (
-        <label className="flex items-center gap-2 text-sm text-ink-secondary">
-          <span className="sr-only">Activity</span>
-          <Select value={activityFilter} onValueChange={onActivityChange}>
-            <SelectTrigger className="h-9 min-w-44" aria-label="Activity">
-              <SelectValue placeholder="All activities" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ALL}>All activities</SelectItem>
-              {activityOptions.map((o) => (
-                <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </label>
-      )}
-
-      {active && (
-        <button
-          type="button"
-          onClick={onClear}
-          className="text-sm font-medium text-brand-hover hover:underline"
-        >
-          Clear
-        </button>
-      )}
-
-      <MentorGuidance label="How to use these filters" className="w-full sm:w-auto">
-        <span className="block">
-          <span className="font-semibold">By project:</span> concentrate on a
-          particular objective, working everything one project needs.
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="flex items-center gap-1.5 text-sm font-medium text-ink-supporting">
+          <SlidersHorizontal className="size-4" aria-hidden /> Filter
         </span>
-        <span className="mt-1 block">
-          <span className="font-semibold">By activity:</span> work efficiently
-          through similar tasks across projects.
-        </span>
-      </MentorGuidance>
+
+        {projectOptions.length > 0 && (
+          <label className="flex items-center gap-2 text-sm text-ink-secondary">
+            <span className="sr-only">Project</span>
+            <Select value={projectFilter} onValueChange={onProjectChange}>
+              <SelectTrigger className="h-9 min-w-44 font-workflow" aria-label="Project">
+                <SelectValue placeholder="All projects" />
+              </SelectTrigger>
+              <SelectContent className="font-workflow">
+                <SelectItem value={ALL}>All projects</SelectItem>
+                {projectOptions.map((o) => (
+                  <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+        )}
+
+        {activityOptions.length > 1 && (
+          <label className="flex items-center gap-2 text-sm text-ink-secondary">
+            <span className="sr-only">Activity</span>
+            <Select value={activityFilter} onValueChange={onActivityChange}>
+              <SelectTrigger className="h-9 min-w-44 font-workflow" aria-label="Activity">
+                <SelectValue placeholder="All activities" />
+              </SelectTrigger>
+              <SelectContent className="font-workflow">
+                <SelectItem value={ALL}>All activities</SelectItem>
+                {activityOptions.map((o) => (
+                  <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </label>
+        )}
+
+        {active && (
+          <button
+            type="button"
+            onClick={onClear}
+            className="text-sm font-medium text-brand-hover hover:underline"
+          >
+            Clear
+          </button>
+        )}
+
+        {!mentorOpen && <MentorCapButton onOpen={() => setMentorOpen(true)} />}
+      </div>
+
+      {mentorOpen && (
+        <MentorCapPanel onClose={() => setMentorOpen(false)}>
+          <span className="block">
+            <span className="font-semibold">By project:</span> concentrate on a
+            particular objective, working everything one project needs.
+          </span>
+          <span className="mt-1 block">
+            <span className="font-semibold">By activity:</span> work efficiently
+            through similar tasks across projects.
+          </span>
+        </MentorCapPanel>
+      )}
     </section>
   )
 }
