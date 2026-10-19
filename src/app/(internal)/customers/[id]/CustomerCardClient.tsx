@@ -29,6 +29,30 @@ function fmt(n: number | null | undefined): string {
   return `$${Math.round(n)}`
 }
 
+/** Auto-format digits as MM/DD/YYYY while the user types */
+function formatDobInput(raw: string): string {
+  const digits = raw.replace(/\D/g, '').slice(0, 8)
+  if (digits.length <= 2) return digits
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`
+}
+
+/** Convert stored YYYY-MM-DD to MM/DD/YYYY for text input display */
+function dobToDisplay(iso: string): string {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(iso)) return iso
+  const [y, m, d] = iso.split('-')
+  return `${m}/${d}/${y}`
+}
+
+/** Convert MM/DD/YYYY back to YYYY-MM-DD for storage; pass through if already ISO */
+function dobToIso(val: string): string {
+  if (!val) return ''
+  if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val
+  const [m, d, y] = val.split('/')
+  if (m && d && y?.length === 4) return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`
+  return val
+}
+
 /** Display DOB as MM/xx/YYYY — never expose the day */
 function maskDob(iso: string | null): string {
   if (!iso) return '—'
@@ -565,7 +589,7 @@ export function CustomerCardClient({
   const [editCity,        setEditCity]        = useState(customer.city ?? '')
   const [editState,       setEditState]       = useState(customer.state ?? '')
   const [editZip,         setEditZip]         = useState(customer.zip ?? '')
-  const [editDob,         setEditDob]         = useState(customer.date_of_birth ?? '')
+  const [editDob,         setEditDob]         = useState(dobToDisplay(customer.date_of_birth ?? ''))
   const [editGender,      setEditGender]      = useState(customer.gender ?? '')
   const [editMarital,     setEditMarital]     = useState(customer.marital_status ?? '')
   const [editTobacco,     setEditTobacco]     = useState(customer.tobacco_use ?? 'none')
@@ -909,7 +933,7 @@ export function CustomerCardClient({
           city:            editCity.trim()   || null,
           state:           editState.trim()  || null,
           zip:             editZip.trim()    || null,
-          date_of_birth:   editDob           || null,
+          date_of_birth:   dobToIso(editDob)  || null,
           gender:          editGender        || null,
           marital_status:  editMarital       || null,
           tobacco_use:       editTobacco || 'none',
@@ -1226,7 +1250,7 @@ export function CustomerCardClient({
                     <div className="grid grid-cols-3 gap-3">
                       <div>
                         <label className="block text-xs text-slate-500 mb-1">Date of birth</label>
-                        <input value={editDob} onChange={e => setEditDob(e.target.value)} type="date" className={inputCls} />
+                        <input value={editDob} onChange={e => setEditDob(formatDobInput(e.target.value))} type="text" placeholder="MM/DD/YYYY" className={inputCls} />
                       </div>
                       <div>
                         <label className="block text-xs text-slate-500 mb-1">Gender</label>
