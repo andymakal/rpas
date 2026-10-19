@@ -27,6 +27,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { Loader2, FileCheck2, CheckCircle2, ArrowLeft, RefreshCw, Search } from 'lucide-react'
 import {
   MentorCapButton, MentorCapPanel, useMentorDisclosure,
@@ -68,6 +69,8 @@ export function ServicingAccessClient({
   actorTimeZone?: string | null
 }) {
   void actorTimeZone
+
+  const router = useRouter()
 
   const [items, setItems] = useState<PopulationItem[]>([])
   const [loading, setLoading] = useState(true)
@@ -142,6 +145,32 @@ export function ServicingAccessClient({
       })
     void load()
   }, [openId, remaining, load, release, reserveNext])
+
+  // The final servicing confirmation completed the request: open Operations
+  // Preparation for THIS customer immediately. operations_prep is a derived
+  // stage (the permanent policies are now all confirmed), so the customer is
+  // already in that stage on the project's review surface; we navigate there,
+  // focusing the customer. When no review-preparation project owns the customer
+  // (a non-project onboarding), there is no Operations Preparation surface to
+  // open, so we fall back to advancing to the next servicing-access customer.
+  const handleComplete = useCallback((info: { customerId: string | null; operationsPrepProjectId: string | null }) => {
+    // The just-completed customer has left the servicing-access population; drop
+    // our reservation and mark them handled for the session tally.
+    if (openId) {
+      const handledId = openId
+      setHandled(prev => { const next = new Set(prev); next.add(handledId); return next })
+    }
+    void release()
+    if (info.operationsPrepProjectId) {
+      const url = info.customerId
+        ? `/projects/${info.operationsPrepProjectId}/review?customer_id=${encodeURIComponent(info.customerId)}`
+        : `/projects/${info.operationsPrepProjectId}/review`
+      router.push(url)
+      return
+    }
+    // No project owns Operations Preparation for this customer: continue working.
+    advanceToNext()
+  }, [openId, release, router, advanceToNext])
 
   const handledCount = handled.size
 
@@ -287,12 +316,16 @@ export function ServicingAccessClient({
           forceServicingAccess
           hideBackHeader
           hasNextInActivity={hasNext}
-          // A submission or a completed servicing request advances the sequence.
+          // A recorded step that removes the customer from the servicing-access
+          // population advances the sequence to the next eligible customer.
           onAdvanceToNext={advanceToNext}
-          // A completed servicing request (all policies confirmed) deletes the
-          // outreach row and the task calls onBack; treat that as advancing to
-          // the next customer rather than leaving the screen.
-          onBack={advanceToNext}
+          // The FINAL servicing confirmation completes the request: open
+          // Operations Preparation for this customer immediately (or advance when
+          // no project owns prep). This is the dedicated completion path.
+          onComplete={handleComplete}
+          // A non-advancing terminal path just refreshes the population; it must
+          // never advance or leave the screen on its own.
+          onBack={() => { void load() }}
         />
       </div>
     )

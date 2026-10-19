@@ -1088,7 +1088,20 @@ export async function PATCH(
         console.error('stewardship carrier-confirm delete error:', delErr)
         return Response.json({ error: delErr.message }, { status: 500 })
       }
-      return Response.json({ data: null, completed_outreach: true })
+      // Carry the customer and the Operations Preparation project (when the
+      // customer belongs to an active review-preparation project) so the
+      // servicing-access screen can OPEN Operations Preparation for this customer
+      // immediately after the final servicing confirmation. operations_prep is a
+      // DERIVED stage (service_policies.sa_status now all confirmed), so the
+      // customer is already in that stage on the project's review surface; the
+      // response just tells the UI where to go. Null project means no project
+      // owns prep (non-project onboarding), and the UI falls back to advancing.
+      return Response.json({
+        data: null,
+        completed_outreach: true,
+        customer_id: customerId,
+        operations_prep_project_id: handoff.reviewProjectId ?? null,
+      })
     }
 
     // Still have policies awaiting confirmation — return the (still-open) row so

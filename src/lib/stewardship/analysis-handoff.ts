@@ -59,6 +59,14 @@ export type HandoffResult = {
   reviewsCreated: number
   /** Policies attached to the review (0 for the project-prep path). */
   policiesCovered: number
+  /**
+   * The ACTIVE review-preparation project that now owns this customer's
+   * Operations Preparation, when mode === 'project_prep'. Null otherwise. The
+   * caller uses it to open Operations Preparation for the customer immediately
+   * after the final servicing confirmation. Never invented: it is the project
+   * the customer actually belongs to.
+   */
+  reviewProjectId: string | null
 }
 
 /**
@@ -92,16 +100,19 @@ export async function handoffToInitialAnalysis(
 ): Promise<HandoffResult> {
   const result: HandoffResult = {
     status: 'done', mode: 'none', error: null, reviewsCreated: 0, policiesCovered: 0,
+    reviewProjectId: null,
   }
   const policyIds = Array.from(new Set(args.policyIds.filter(Boolean)))
 
   try {
     // Is the customer in an ACTIVE project that contains the Review Preparation
     // workflow? If so, that project's own review-preparation owns the downstream
-    // prep; do not create a competing general review.
-    const inActiveReviewProject = await customerInActiveReviewProject(supabase, args.customerId)
+    // prep; do not create a competing general review. The project id is captured
+    // so the caller can open Operations Preparation for this customer.
+    const reviewProjectId = await activeReviewProjectForCustomer(supabase, args.customerId)
+    result.reviewProjectId = reviewProjectId
 
-    if (inActiveReviewProject) {
+    if (reviewProjectId) {
       result.mode = 'project_prep'
     } else if (policyIds.length === 0) {
       result.mode = 'none'
@@ -180,10 +191,10 @@ export async function handoffToInitialAnalysis(
  * handoff branch is unchanged until the migration lands and then becomes
  * workflow-driven automatically.
  */
-async function customerInActiveReviewProject(
+async function activeReviewProjectForCustomer(
   supabase: SupabaseClient,
   customerId: string,
-): Promise<boolean> {
+): Promise<string | null> {
   // Projects (active) the customer belongs to.
   const { data: memberships } = await supabase
     .from('project_customers')
@@ -193,16 +204,21 @@ async function customerInActiveReviewProject(
   const projectIds = Array.from(
     new Set(((memberships ?? []) as { project_id: string }[]).map((m) => m.project_id)),
   )
-  if (projectIds.length === 0) return false
+  if (projectIds.length === 0) return null
 
-  // Does any of those projects contain the review_preparation workflow?
+  // Does any of those projects contain the review_preparation workflow? Return
+  // the first one that does (the project whose Operations Preparation owns this
+  // customer's downstream prep).
   const { data: wired, error } = await supabase
     .from('project_workflows')
     .select('project_id, workflows!inner ( key )')
     .in('project_id', projectIds)
     .eq('workflows.key', 'review_preparation')
     .limit(1)
-  if (!error) return (wired ?? []).length > 0
+  if (!error) {
+    const row = (wired ?? [])[0] as { project_id: string } | undefined
+    return row?.project_id ?? null
+  }
 
   // Fallback: workflow tables not present yet — preserve the prior 1035-type test.
   const { data: legacy } = await supabase
@@ -212,7 +228,8 @@ async function customerInActiveReviewProject(
     .eq('projects.status', 'active')
     .eq('projects.project_types.name', '1035 Exchange')
     .limit(1)
-  return (legacy ?? []).length > 0
+  const legacyRow = (legacy ?? [])[0] as { project_id: string } | undefined
+  return legacyRow?.project_id ?? null
 }
 
 /**

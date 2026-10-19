@@ -1100,7 +1100,20 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
           servicingAccessByProject.set(pid, (servicingAccessByProject.get(pid) ?? 0) + 1)
         }
       }
-      if (servicingAccess > 0) {
+      // Servicing Access is ALWAYS surfaced as a reachable entry point for an
+      // outreach-eligible employee — even when zero customers are waiting right
+      // now — so the screen (and its find-a-customer search, for a signed
+      // authorization that just arrived) is reachable from My Work without the
+      // board. It is INFORMATIONAL, so it never adds to the activity total or
+      // the ZEN band: the count shown is the honest real number (0 when none),
+      // and nothing invents a priority. When the employee is eligible only via
+      // specific projects, the default route carries no project scope (the whole
+      // servicing-access screen), while project scopes below open each project's
+      // slice. We emit it whenever the employee can act on outreach at all, so a
+      // quiet-but-eligible employee can still open it.
+      const outreachEligibleAnywhere =
+        agencyWideEligible('outreach') || scopedProjectsFor('outreach').size > 0
+      if (servicingAccess > 0 || outreachEligibleAnywhere) {
         const saScopes = ((): Record<string, WorkSourceProjectScope> | undefined => {
           if (servicingAccessByProject.size === 0) return undefined
           const out: Record<string, WorkSourceProjectScope> = {}
@@ -1124,7 +1137,9 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
           count: servicingAccess,
           // Opens the Servicing Access direct working screen (signed
           // authorization in hand), landing straight on the first eligible
-          // customer — exactly the set this counted.
+          // customer — exactly the set this counted — or, when none are waiting,
+          // on the screen's find-a-customer entry for a newly-arrived
+          // authorization.
           route: servicingAccessRoute(),
           projectId: null,
           ownedByMe: 0,
@@ -1400,6 +1415,12 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     // customers (e.g. Research with only researched-unsuccessfully customers
     // left) stays visible and directly accessible, as long as unresolved work
     // remains.
+    //
+    // Servicing Access reachability when the Outreach activity is otherwise
+    // empty is NOT handled by retaining an empty activity card (which would read
+    // as artificial). It is a standing entry point in Practice Direction (a
+    // zero-count, no-priority link for an outreach-routed employee), so the
+    // screen stays reachable from My Work without inflating or inventing work.
     if (a.total === 0 && a.unresolved === 0 && !(focusElevated && eligible)) continue
 
     // The employee's capability STANDING for this activity, across the scopes it

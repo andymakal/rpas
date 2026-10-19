@@ -28,7 +28,7 @@ import {
   CustomerHistoryCard, NextHistoryEntry,
 } from '@/components/workflow'
 import {
-  carrierEmailSubject, carrierEmailMessage, uniqueCarriers,
+  carrierEmailSubject, carrierEmailMessage, uniqueCarriers, resolveCarrierRecipient,
 } from '@/lib/stewardship/carrier-email'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import {
@@ -1048,7 +1048,7 @@ function ProjectOnboardingNote({ project }: { project: { id: string; name: strin
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function StewardshipTask({
-  itemId, onBack, hasNextInActivity = false, onAdvanceToNext, hideBackHeader = false, forceCall = false,
+  itemId, onBack, hasNextInActivity = false, onAdvanceToNext, onComplete, hideBackHeader = false, forceCall = false,
   forceServicingAccess = false,
 }: {
   itemId: string
@@ -1057,6 +1057,13 @@ export function StewardshipTask({
   hasNextInActivity?: boolean
   /** Open the next customer in this activity (Introductory Emails fast flow). */
   onAdvanceToNext?: () => void
+  /** Called when the whole servicing request COMPLETES (every request policy
+   * confirmed): the outreach row is gone and the customer has advanced out of
+   * outreach. Carries the customer id and, when the customer belongs to an
+   * active review-preparation project, that project id — so the caller can open
+   * Operations Preparation for this customer immediately. When omitted the task
+   * falls back to onBack (the board/default behavior is unchanged). */
+  onComplete?: (info: { customerId: string | null; operationsPrepProjectId: string | null }) => void
   /** Drive the SERVICING ACCESS working screen: the signed-authorization stage
    * of the workflow (upload the signed form, prepare the carrier email, send +
    * confirm, run the 7-day carrier follow-up, record carrier confirmation).
@@ -1118,9 +1125,20 @@ export function StewardshipTask({
       const json = await res.json()
       if (!res.ok) { setNote(json.error ?? 'Action failed.'); return }
       if (json.completed_outreach) {
-        // Carrier confirmed: the outreach row is gone and the customer has left
-        // outreach for the documentation layer. Return to the board.
-        onBack()
+        // Every request policy is confirmed: the outreach row is gone and the
+        // customer has advanced out of outreach. When a completion handler is
+        // supplied (the servicing-access screen), hand it the customer and the
+        // Operations Preparation project so it can open Operations Preparation
+        // for this customer immediately. Otherwise fall back to the default
+        // back navigation (the board behavior is unchanged).
+        if (onComplete) {
+          onComplete({
+            customerId: (json.customer_id as string | null) ?? null,
+            operationsPrepProjectId: (json.operations_prep_project_id as string | null) ?? null,
+          })
+        } else {
+          onBack()
+        }
         return
       }
       // Introductory Emails fast flow: a successful send removes this customer
@@ -1139,7 +1157,7 @@ export function StewardshipTask({
     } finally {
       setBusy(false)
     }
-  }, [itemId, load, onBack, onAdvanceToNext])
+  }, [itemId, load, onBack, onAdvanceToNext, onComplete])
 
   // The direct Send Introductory Emails screen hosts its own WorkflowPage and
   // "Back to My Work" nav, so there the task renders chromeless (no outer page
@@ -2724,13 +2742,31 @@ function ServicingAccessSubmit({
 }) {
   const received = !!detail.form_received_at
 
+  // Which action records receipt depends on where the customer currently sits.
+  // A customer already in Waiting for Form (reached through the normal funnel,
+  // form sent) records receipt with form-received. A customer still earlier in
+  // the pre-authorization funnel — the signed authorization simply ARRIVED
+  // (returned from the introductory email, or opened via the find-a-customer
+  // search) — advances to Waiting for Form AND records receipt in one step via
+  // form-returned, which is valid from anywhere in the funnel. Either way
+  // form_received_at ends up set, after which Submit to carrier is available.
+  const receiptAction = detail.queue === 'waiting-for-form'
+    ? { type: 'form-received' as const }
+    : { type: 'form-returned' as const }
+
   // The appropriate carrier(s) and the request's policy numbers for the carrier
   // email. Carriers come from the request policies (existing data, nothing
   // invented); the email asks the carrier to process the authorization.
   const carriers = uniqueCarriers(request.map(h => h.carrier))
   const policyNumbers = request.map(h => h.policy_number).filter(Boolean)
+  // The recipient is resolved from existing carrier contact information only.
+  // Right Path stores no carrier email addresses today, so this is empty and the
+  // draft opens with a blank To: the employee fills in. We never invent an
+  // address. (When carrier addresses are later stored, pass them here and the
+  // draft is pre-addressed automatically.)
+  const carrierRecipient = resolveCarrierRecipient(carriers)
   const carrierMailto = buildMailto(
-    '',
+    carrierRecipient ?? '',
     carrierEmailSubject(carriers),
     carrierEmailMessage({ carriers, policyNumbers, customerName: name }),
   )
@@ -2745,7 +2781,7 @@ function ServicingAccessSubmit({
           icon={FileText}
           label="Record authorization received"
           disabled={busy}
-          onClick={() => act({ type: 'form-received' }, 'Receipt recorded. Prepare the carrier email below.')}
+          onClick={() => act(receiptAction, 'Receipt recorded. Prepare the carrier email below.')}
         />
         <FollowUpChase detail={detail} busy={busy} act={act} label="Followed up on the signature" />
         <NextNote>Recording receipt does not submit anything. After it is recorded, prepare the carrier email and confirm it sent.</NextNote>
@@ -2769,6 +2805,20 @@ function ServicingAccessSubmit({
           Opens a prepared email to {carriers.length > 0 ? carriers.join(', ') : 'the carrier'} asking them to
           process the authorization. Attach the signed form, send it, then confirm below.
         </p>
+        {carrierRecipient ? (
+          <p className="flex items-center gap-1.5 text-sm text-slate-600">
+            <Mail className="size-4 shrink-0 text-slate-500" aria-hidden />
+            Prefilled recipient: <span className="font-medium text-slate-900">{carrierRecipient}</span>
+          </p>
+        ) : (
+          <p className="flex items-start gap-1.5 rounded-lg border border-amber-200 bg-amber-50 p-2.5 text-sm text-amber-900">
+            <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+            <span>
+              No carrier email address is on file, so the draft opens with the recipient blank. Add
+              {carriers.length === 1 ? ` ${carriers[0]}\u2019s` : ' the carrier\u2019s'} email address before sending.
+            </span>
+          </p>
+        )}
         <ExternalActionConfirm
           launchIcon={Mail}
           launchLabel="Prepare carrier email"

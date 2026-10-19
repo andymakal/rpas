@@ -25,10 +25,16 @@ export const dynamic = 'force-dynamic'
  */
 export default async function ProjectReviewPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>
+  // Optional deep link: ?customer_id= opens directly on that customer's task,
+  // used to open Operations Preparation for a customer the moment their
+  // servicing access is confirmed (the Servicing Access screen routes here).
+  searchParams: Promise<{ customer_id?: string }>
 }) {
   const { id } = await params
+  const { customer_id: initialCustomerId } = await searchParams
   const supabase = createAdminClient()
 
   const { data } = await supabase
@@ -68,7 +74,7 @@ export default async function ProjectReviewPage({
 
       <WorkflowHeader primary={project.name} secondary="1035 Exchange Review · Steps 2 & 3" />
 
-      <Review1035Client projectId={project.id} />
+      <Review1035Client projectId={project.id} initialCustomerId={initialCustomerId ?? null} />
     </WorkflowPage>
   )
 }

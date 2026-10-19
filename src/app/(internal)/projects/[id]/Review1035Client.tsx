@@ -114,7 +114,18 @@ function stageIsOnStewardshipBoard(stage: Stage): boolean {
   return stage === 'stewardship'
 }
 
-export function Review1035Client({ projectId }: { projectId: string }) {
+export function Review1035Client({
+  projectId,
+  initialCustomerId = null,
+}: {
+  projectId: string
+  /** When set (via ?customer_id=), open directly on this customer's task after
+   * load — used to OPEN Operations Preparation for a customer the moment their
+   * servicing access is confirmed (the servicing-access screen routes here). The
+   * customer's current derived stage decides which task view shows; for a
+   * just-confirmed customer that is Operations Preparation. */
+  initialCustomerId?: string | null
+}) {
   const router = useRouter()
   const [rows, setRows] = useState<CustomerWorkflow[]>([])
   const [summary, setSummary] = useState<Summary | null>(null)
@@ -126,6 +137,12 @@ export function Review1035Client({ projectId }: { projectId: string }) {
   // board -> list -> task shape rather than dumping every expanded card at once.
   const [openStage, setOpenStage] = useState<Stage | null>(null)
   const [openCustomerId, setOpenCustomerId] = useState<string | null>(null)
+  // Seed the deep-link focus exactly once, after the first successful load, so a
+  // ?customer_id= link lands straight on that customer's task (their current
+  // stage decides the view). Guarded so a later manual back-navigation is not
+  // overridden. A customer not present (e.g. filtered out) simply leaves the
+  // overview showing.
+  const seededRef = useRef(false)
 
   const load = useCallback(async () => {
     setError(null)
@@ -143,6 +160,18 @@ export function Review1035Client({ projectId }: { projectId: string }) {
   }, [projectId])
 
   useEffect(() => { load() }, [load])
+
+  // Deep-link focus: once rows are loaded, if a customer id was supplied and it
+  // is a real project member, open their single-customer task directly. Their
+  // derived stage drives which task view renders (Operations Preparation for a
+  // just-confirmed customer). Runs once so manual navigation afterward is free.
+  useEffect(() => {
+    if (seededRef.current || loading || !initialCustomerId) return
+    if (rows.some(r => r.customer_id === initialCustomerId)) {
+      seededRef.current = true
+      setOpenCustomerId(initialCustomerId)
+    }
+  }, [loading, rows, initialCustomerId])
 
   const rowsByStage = useMemo(() => {
     const m = new Map<Stage, CustomerWorkflow[]>()

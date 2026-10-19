@@ -27,6 +27,30 @@ export function uniqueCarriers(carriers: (string | null | undefined)[]): string[
   return out
 }
 
+/**
+ * Resolve the carrier email RECIPIENT for the prepared draft, from existing
+ * contact information only — never invented.
+ *
+ * `known` maps a normalized carrier name (lowercased, trimmed) to its on-file
+ * email address. Right Path does not store carrier email addresses today, so
+ * this map is empty in practice and the result is null: the draft opens with an
+ * EMPTY recipient and the UI tells the employee to add the carrier address.
+ * When a carrier's address IS known and the request involves exactly one
+ * carrier, that address is returned so the draft is pre-addressed. With more
+ * than one carrier we do not guess a single recipient. This never fabricates an
+ * address: an unknown carrier yields null.
+ */
+export function resolveCarrierRecipient(
+  carriers: string[],
+  known?: Record<string, string> | Map<string, string> | null,
+): string | null {
+  if (carriers.length !== 1 || !known) return null
+  const key = carriers[0].trim().toLowerCase()
+  const addr = known instanceof Map ? known.get(key) : known[key]
+  const value = (addr ?? '').trim()
+  return value.length > 0 ? value : null
+}
+
 /** Join carrier names for prose ("A", "A and B", "A, B, and C"). */
 function joinCarriers(carriers: string[]): string {
   if (carriers.length === 0) return 'the carrier'
