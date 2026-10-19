@@ -120,6 +120,12 @@ export function ServicingAccessClient({
     if (loading || error || directOpenedRef.current) return
     directOpenedRef.current = true
     const candidates = remaining.map(it => it.id)
+    // When the eligible population is empty, do NOT attempt a reservation —
+    // there is nothing to reserve. Fall straight through to the empty-state
+    // (openId stays null), which keeps the customer search available. Reserving
+    // an empty candidate list is not a failure, so it must never surface the
+    // reservation-failed error; only a genuine reservation attempt can.
+    if (candidates.length === 0) return
     void reserveNext(candidates)
       .then(reserved => { if (reserved) setOpenId(reserved) })
       .catch(() => {
@@ -137,6 +143,14 @@ export function ServicingAccessClient({
     setHandled(prev => { const next = new Set(prev); next.add(handledId); return next })
     void release()
     const candidates = remaining.filter(it => it.id !== handledId).map(it => it.id)
+    // No one left to work: go straight to the completion state (openId null)
+    // rather than reserving an empty list, which is not a failure and must never
+    // surface the advance-failed error. The search stays available there.
+    if (candidates.length === 0) {
+      setOpenId(null)
+      void load()
+      return
+    }
     void reserveNext(candidates)
       .then(reserved => setOpenId(reserved))
       .catch(() => {
