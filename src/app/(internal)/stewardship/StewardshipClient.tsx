@@ -15,16 +15,21 @@ import {
   Mail, Phone, Search, Inbox, FileText, Building2, Check, ExternalLink,
   Clock, CircleAlert, Play, PenLine, MailX, Hand, UserCheck,
   ShieldCheck, ShieldAlert, Copy, Voicemail, MessageSquare, PhoneCall, PhoneOff,
+  Upload, Download, Loader2,
 } from 'lucide-react'
 import {
   WorkflowPage, WorkflowHeader,
   QueueSection, QueueRow, QueueListHeader, CustomerQueueCard, QueueEmptyState,
   TaskShell, SlimTaskHeader, ContextHeader, type ContextField,
   ActionPanel, PrimaryAction, WorkflowButton, NextNote, OperationalTag,
+  ExternalActionConfirm,
   CustomerContactCard, type CustomerContact, GatewayLookup,
   PolicySummaryList, type PolicySummary,
   CustomerHistoryCard, NextHistoryEntry,
 } from '@/components/workflow'
+import {
+  carrierEmailSubject, carrierEmailMessage, uniqueCarriers,
+} from '@/lib/stewardship/carrier-email'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import {
   QUEUE_META, OUTREACH_QUEUES,
@@ -224,6 +229,10 @@ type Detail = BoardItem & {
    * working-screen Customer History card. Display only; supplied by the GET
    * route from the durable case_touches log. */
   customer_history?: HistoryEvent[]
+  /** Whether the signed servicing-agent authorization is uploaded/saved for this
+   * servicing request (servicing-access working screen). Supplied by the GET
+   * route from the shared document repository (policy_documents). */
+  authorization_on_file?: boolean
 }
 
 const QUEUE_ICON: Record<OutreachQueue, typeof Mail> = {
@@ -1040,6 +1049,7 @@ function ProjectOnboardingNote({ project }: { project: { id: string; name: strin
 
 export function StewardshipTask({
   itemId, onBack, hasNextInActivity = false, onAdvanceToNext, hideBackHeader = false, forceCall = false,
+  forceServicingAccess = false,
 }: {
   itemId: string
   onBack: () => void
@@ -1047,6 +1057,15 @@ export function StewardshipTask({
   hasNextInActivity?: boolean
   /** Open the next customer in this activity (Introductory Emails fast flow). */
   onAdvanceToNext?: () => void
+  /** Drive the SERVICING ACCESS working screen: the signed-authorization stage
+   * of the workflow (upload the signed form, prepare the carrier email, send +
+   * confirm, run the 7-day carrier follow-up, record carrier confirmation).
+   * Renders the three-column working layout and the servicing-access action
+   * column regardless of whether the item sits in waiting-for-form or
+   * waiting-for-carrier. Every other caller leaves this false, so their behavior
+   * is unchanged. A confirmed-and-complete servicing request advances the
+   * customer into Operations Preparation via the existing handoff. */
+  forceServicingAccess?: boolean
   /** Suppress the task's own "All queues" back header AND its outer page wrapper.
    * Used only by the dedicated Send Introductory Emails direct working screen,
    * which supplies its own WorkflowPage + "Back to My Work" navigation. Every
@@ -1151,18 +1170,24 @@ export function StewardshipTask({
   // two-column action/context layout, so their behavior is unchanged.
   const introEmail = isIntroductoryEmailActivity(detail)
   const research = detail.queue === 'research-needed'
-  const isWorkingScreen = introEmail || research || forceCall
+  const isWorkingScreen = introEmail || research || forceCall || forceServicingAccess
 
   return (
     <Chrome>
       <TaskShell
         header={hideBackHeader ? null : <SlimTaskHeader onBack={onBack} backLabel="All queues" />}
         action={
-          <TaskAction
-            detail={detail} request={request} busy={busy} note={note} act={act}
-            hasNextInActivity={hasNextInActivity} forceCall={forceCall}
-            onCallSelectionChange={setCallSelection}
-          />
+          forceServicingAccess ? (
+            <ServicingAccessAction
+              detail={detail} request={request} busy={busy} note={note} act={act}
+            />
+          ) : (
+            <TaskAction
+              detail={detail} request={request} busy={busy} note={note} act={act}
+              hasNextInActivity={hasNextInActivity} forceCall={forceCall}
+              onCallSelectionChange={setCallSelection}
+            />
+          )
         }
         context={
           <StewardshipContextPanel
@@ -1171,7 +1196,10 @@ export function StewardshipTask({
           />
         }
         history={isWorkingScreen
-          ? <StewardshipHistoryColumn detail={detail} forceCall={forceCall} callSelection={callSelection} />
+          ? <StewardshipHistoryColumn
+              detail={detail} forceCall={forceCall} callSelection={callSelection}
+              forceServicingAccess={forceServicingAccess}
+            />
           : undefined}
       />
     </Chrome>
@@ -1186,7 +1214,7 @@ export function StewardshipTask({
  * grouped customer history supplied by the GET route (display only).
  */
 function StewardshipHistoryColumn({
-  detail, forceCall, callSelection,
+  detail, forceCall, callSelection, forceServicingAccess = false,
 }: {
   detail: Detail
   forceCall: boolean
@@ -1194,8 +1222,11 @@ function StewardshipHistoryColumn({
    * dynamic preview; null on the other working screens or before a reach
    * decision. */
   callSelection: CallSelection | null
+  /** The servicing-access working screen, so the preview names the servicing
+   * step this work will record (receipt / submission / confirmation). */
+  forceServicingAccess?: boolean
 }) {
-  const activity = resolveWorkflowActivity(detail, forceCall)
+  const activity = resolveWorkflowActivity(detail, forceCall, forceServicingAccess)
   // The preview is built DYNAMICALLY from the live selection where the screen
   // makes one (the guided call flow, the intro email), so it reflects exactly
   // what completing the open work will record, combined into one concise entry.
@@ -1208,7 +1239,9 @@ function StewardshipHistoryColumn({
           : null)
       : activity === 'introductory-email'
         ? describeIntroEmailSelection({ formIncluded: true })
-        : describeNextHistoryEntry(activity, { customerName: detail.customer.first_name })
+        : activity === 'servicing-access'
+          ? describeServicingAccessStep(detail)
+          : describeNextHistoryEntry(activity, { customerName: detail.customer.first_name })
   return (
     <>
       {/* The card owns its single heading; blank until there is something to
@@ -1223,11 +1256,32 @@ function StewardshipHistoryColumn({
  * History Entry preview describes the right recorded outcome. The guided call
  * workbench (forceCall) is calling; Research Needed is contact research; an
  * untouched Ready-to-Email first touch is the introductory email. */
-function resolveWorkflowActivity(detail: Detail, forceCall: boolean): WorkflowActivity {
+function resolveWorkflowActivity(
+  detail: Detail,
+  forceCall: boolean,
+  forceServicingAccess = false,
+): WorkflowActivity {
+  if (forceServicingAccess) return 'servicing-access'
   if (forceCall) return 'calling'
   if (detail.queue === 'research-needed') return 'contact-research'
   if (isIntroductoryEmailActivity(detail)) return 'introductory-email'
   return 'record-attempt'
+}
+
+/**
+ * The Next History Entry preview for the servicing-access working screen, built
+ * from where the servicing request currently stands: before carrier submission
+ * the next recorded entry is the submission; in Waiting for Carrier it is the
+ * carrier confirmation. Concise, matching the history vocabulary.
+ */
+function describeServicingAccessStep(detail: Detail): NextHistoryEntryPreview {
+  if (detail.queue === 'waiting-for-carrier') {
+    return { summary: 'Servicing Access Confirmed' }
+  }
+  if (detail.form_received_at) {
+    return { summary: 'Submitted to Carrier' }
+  }
+  return { summary: 'Authorization Received' }
 }
 
 /** Map a holding onto the read-only Policy Summary shape. */
@@ -2491,6 +2545,250 @@ function CarrierPolicyRow({ h, busy, onConfirm }: { h: Holding; busy: boolean; o
           Confirm this policy
         </WorkflowButton>
       )}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Servicing Access — the working screen between Outreach and Operations
+// Preparation. It owns the signed-authorization stage of the EXISTING servicing
+// workflow: the signed servicing-agent authorization has arrived (returned from
+// the introductory email or any channel), so the next work is to save the
+// signed form, prepare the carrier email, send it and confirm, run the existing
+// seven-day carrier follow-up, and record the carrier's confirmation per policy.
+//
+// Every business transition is the EXISTING one (form-received, submit-to-
+// carrier, record-follow-up, carrier-confirmed); this panel only presents them
+// as one continuous servicing-access flow and adds the two steps the task calls
+// for that the funnel did not yet surface: saving the signed form into the
+// existing document repository, and a Prepare Carrier Email + Email Sent step.
+// When every request policy is confirmed, the existing handoff advances the
+// customer into Operations Preparation automatically.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ServicingAccessAction({
+  detail, request, busy, note, act,
+}: {
+  detail: Detail
+  request: Holding[]
+  busy: boolean
+  note: string | null
+  act: (action: unknown, successNote?: string, opts?: { advanceToNext?: boolean }) => void
+}) {
+  const name = fullName(detail.customer)
+  const noteBox = note && (
+    <div className="flex items-center gap-2 rounded-xl border border-status-confirmed-border bg-status-confirmed-soft p-4 text-base text-status-confirmed-strong">
+      <Check className="size-5" aria-hidden /> {note}
+    </div>
+  )
+
+  // Stage within servicing access, derived from the SAME durable facts the
+  // transitions use. Waiting for Carrier means the form is submitted and the
+  // carrier confirmation is outstanding; otherwise the request is pre-submission
+  // (receipt + upload + prepare-and-send the carrier email).
+  const awaitingCarrier = detail.queue === 'waiting-for-carrier'
+
+  return (
+    <ActionPanel heading={awaitingCarrier
+      ? `Confirm servicing access for ${name}`
+      : `Process ${name}\u2019s signed authorization`}>
+      {noteBox}
+
+      {/* Step 1 — save the signed authorization into the existing repository. */}
+      <AuthorizationUpload detail={detail} busy={busy} />
+
+      {awaitingCarrier ? (
+        // Step 4+ — the existing per-policy carrier-confirmation flow (with the
+        // seven-day carrier follow-up chase), reused verbatim.
+        <CarrierAction detail={detail} request={request} busy={busy} noteBox={null} act={act} />
+      ) : (
+        // Steps 2-3 — record receipt (if not yet), then prepare the carrier
+        // email and confirm it sent (which is the submit-to-carrier transition).
+        <ServicingAccessSubmit detail={detail} request={request} name={name} busy={busy} act={act} />
+      )}
+    </ActionPanel>
+  )
+}
+
+/**
+ * Save the signed servicing-agent authorization into Right Path's existing
+ * document repository (the shared rightpath-documents bucket + policy_documents
+ * table) via the stewardship authorization route. Upload, replace, and
+ * open/download of the stored form; uploading records a receipt in Customer
+ * History on the server. This is the task's "upload and save the signed form"
+ * step; it adds no new storage system.
+ */
+function AuthorizationUpload({
+  detail, busy,
+}: {
+  detail: Detail
+  busy: boolean
+}) {
+  const [onFile, setOnFile] = useState(!!detail.authorization_on_file)
+  const [uploading, setUploading] = useState(false)
+  const [opening, setOpening] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  async function upload(file: File) {
+    setErr(null)
+    setUploading(true)
+    try {
+      const body = new FormData()
+      body.set('file', file)
+      const res = await fetch(`/api/stewardship/${detail.id}/authorization`, { method: 'POST', body })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) { setErr(json.error ?? 'Upload failed.'); return }
+      setOnFile(true)
+    } catch {
+      setErr('Network error during upload.')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  async function openStored() {
+    setErr(null)
+    setOpening(true)
+    try {
+      const res = await fetch(`/api/stewardship/${detail.id}/authorization`, { cache: 'no-store' })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) { setErr(json.error ?? 'Could not open the saved authorization.'); return }
+      if (json?.data?.url) window.open(json.data.url as string, '_blank', 'noopener')
+    } catch {
+      setErr('Network error opening the saved authorization.')
+    } finally {
+      setOpening(false)
+    }
+  }
+
+  return (
+    <div className={`space-y-2 rounded-xl border p-4 ${onFile ? 'border-emerald-200 bg-emerald-50' : 'border-slate-200 bg-white'}`}>
+      <p className="flex items-center gap-2 text-base font-semibold text-slate-900">
+        <FileText className="size-4 text-slate-600" aria-hidden /> Signed authorization
+      </p>
+      {onFile ? (
+        <p className="flex items-center gap-1.5 text-sm text-emerald-800">
+          <Check className="size-4" aria-hidden /> Saved to the customer&apos;s documents.
+        </p>
+      ) : (
+        <p className="text-sm text-slate-600">
+          Upload the signed servicing-agent authorization to save it in the customer&apos;s documents.
+        </p>
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) void upload(f); e.currentTarget.value = '' }}
+      />
+      <div className="flex flex-wrap gap-2">
+        <WorkflowButton
+          icon={uploading ? Loader2 : Upload}
+          disabled={busy || uploading}
+          onClick={() => inputRef.current?.click()}
+        >
+          {uploading ? 'Uploading\u2026' : (onFile ? 'Replace signed form' : 'Upload signed form')}
+        </WorkflowButton>
+        {onFile && (
+          <WorkflowButton
+            icon={opening ? Loader2 : Download}
+            disabled={busy || opening}
+            onClick={() => void openStored()}
+          >
+            {opening ? 'Opening\u2026' : 'Open saved form'}
+          </WorkflowButton>
+        )}
+      </div>
+      {err && <p className="text-sm text-rose-700">{err}</p>}
+      <NextNote>Saved to the customer&apos;s documents and recorded in their history. Signature verification is not required here.</NextNote>
+    </div>
+  )
+}
+
+/**
+ * Record receipt (if not yet recorded), then prepare the carrier email and
+ * confirm it sent. "Email Sent" is the existing submit-to-carrier transition:
+ * it moves the customer to Waiting for Carrier and starts the existing
+ * seven-day carrier follow-up. The employee attaches the signed form and sends
+ * the email manually from the opened draft; launching is not completion.
+ */
+function ServicingAccessSubmit({
+  detail, request, name, busy, act,
+}: {
+  detail: Detail
+  request: Holding[]
+  name: string
+  busy: boolean
+  act: (action: unknown, successNote?: string) => void
+}) {
+  const received = !!detail.form_received_at
+
+  // The appropriate carrier(s) and the request's policy numbers for the carrier
+  // email. Carriers come from the request policies (existing data, nothing
+  // invented); the email asks the carrier to process the authorization.
+  const carriers = uniqueCarriers(request.map(h => h.carrier))
+  const policyNumbers = request.map(h => h.policy_number).filter(Boolean)
+  const carrierMailto = buildMailto(
+    '',
+    carrierEmailSubject(carriers),
+    carrierEmailMessage({ carriers, policyNumbers, customerName: name }),
+  )
+
+  if (!received) {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-slate-600">
+          First record that the signed form came back. One form can cover several policy numbers.
+        </p>
+        <PrimaryAction
+          icon={FileText}
+          label="Record authorization received"
+          disabled={busy}
+          onClick={() => act({ type: 'form-received' }, 'Receipt recorded. Prepare the carrier email below.')}
+        />
+        <FollowUpChase detail={detail} busy={busy} act={act} label="Followed up on the signature" />
+        <NextNote>Recording receipt does not submit anything. After it is recorded, prepare the carrier email and confirm it sent.</NextNote>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+        <Check className="size-4" aria-hidden /> Authorization received{detail.form_received_at ? ` ${shortDate(detail.form_received_at)}` : ''}.
+      </div>
+
+      <FormCoverage request={request} />
+
+      <div className="space-y-2 rounded-xl border border-slate-200 bg-white p-4">
+        <p className="flex items-center gap-2 text-base font-semibold text-slate-900">
+          <Building2 className="size-4 text-slate-600" aria-hidden /> Prepare carrier email
+        </p>
+        <p className="text-sm text-slate-600">
+          Opens a prepared email to {carriers.length > 0 ? carriers.join(', ') : 'the carrier'} asking them to
+          process the authorization. Attach the signed form, send it, then confirm below.
+        </p>
+        <ExternalActionConfirm
+          launchIcon={Mail}
+          launchLabel="Prepare carrier email"
+          confirmLabel="Email Sent"
+          confirmedNote="Submitted to the carrier. Waiting for Carrier, with the seven-day follow-up started."
+          hint="Confirming Email Sent submits the authorization and starts the seven-day carrier follow-up."
+          onLaunch={() => { window.location.href = carrierMailto }}
+          onConfirmed={() => act(
+            { type: 'submit-to-carrier' },
+            'Submitted. Moved to Waiting for Carrier; seven-day follow-up started.',
+          )}
+        />
+      </div>
+
+      <FollowUpChase detail={detail} busy={busy} act={act} label="Followed up on the signature" />
+      <NextNote>
+        Email Sent is the submission: {name} moves to Waiting for Carrier and the seven-day carrier follow-up
+        begins. Carrier confirmations are recorded there; once every policy is confirmed, {name} opens in
+        Operations Preparation automatically.
+      </NextNote>
     </div>
   )
 }

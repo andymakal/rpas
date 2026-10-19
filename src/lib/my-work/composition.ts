@@ -121,6 +121,20 @@ function callsDueRoute(projectId?: string | null): string {
 }
 
 /**
+ * The Servicing Access DIRECT WORKING SCREEN for the servicing-access
+ * population: customers whose signed servicing-agent authorization is in hand
+ * (the form has returned). It is the stage between Outreach and Operations
+ * Preparation — save the signed form, prepare the carrier email, submit and
+ * confirm, run the seven-day carrier follow-up, and record carrier confirmation,
+ * which opens Operations Preparation automatically. Lands straight on the first
+ * eligible customer with no intermediate list. Project scope is carried through.
+ */
+function servicingAccessRoute(projectId?: string | null): string {
+  const base = `${STEWARDSHIP_ROUTE}/servicing-access`
+  return projectId ? `${base}?project_id=${encodeURIComponent(projectId)}` : base
+}
+
+/**
  * Which stewardship queues map to which MY WORK activity. The shared board's
  * outreach queues (ready-to-call, ready-to-email, and the overdue follow-ups
  * routed into ready-to-call) are the Outreach activity. Waiting queues are not
@@ -231,6 +245,9 @@ type BoardRow = {
   intro_email_recipient: string | null
   callback_date: string | null
   follow_up_due: string | null
+  /** Whether the signed authorization has returned, used to count the
+   * servicing-access population (the stage between Outreach and Ops Prep). */
+  form_received_at: string | null
   refused_at: string | null
   claimed_by_producer_id: string | null
   customer_prereviews: {
@@ -475,7 +492,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   const { data: boardData, error: boardErr } = await supabase
     .from('stewardship_outreach')
     .select(`
-      id, queue, call_reason, research_reason, last_call_outcome, email_sent_at, intro_email_recipient, callback_date, follow_up_due, refused_at, claimed_by_producer_id,
+      id, queue, call_reason, research_reason, last_call_outcome, email_sent_at, intro_email_recipient, callback_date, follow_up_due, form_received_at, refused_at, claimed_by_producer_id,
       customer_prereviews!inner ( decision, customer_id, customers!inner ( phone, email ) )
     `)
     .order('updated_at', { ascending: true })
@@ -1051,6 +1068,72 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
           dueToMe: 0,
           informational: true,
           projectScopes: introScopes,
+        })
+      }
+
+      // Servicing Access: the stage between Outreach and Operations Preparation.
+      // The signed authorization is in hand (the form has returned) — its
+      // effective queue is waiting-for-form or waiting-for-carrier, OR receipt
+      // has been recorded — so the work is to save the signed form, prepare the
+      // carrier email, submit, run the seven-day carrier follow-up, and record
+      // the carrier's confirmation (which opens Operations Preparation). Counted
+      // as an actionable Outreach source (the same outreach team does this work)
+      // that this employee can pick up: eligible by the outreach capability and
+      // not claimed by someone else. It opens the Servicing Access direct working
+      // screen, landing straight on the first eligible customer — no intermediate
+      // customer-list screen. It is NOT informational: this is actionable work
+      // the My Work count should surface and route directly.
+      let servicingAccess = 0
+      const servicingAccessByProject = new Map<string, number>()
+      for (const r of openRows) {
+        const eq = effectiveQueue(r)
+        const inServicingAccess =
+          eq === 'waiting-for-form' ||
+          eq === 'waiting-for-carrier' ||
+          r.form_received_at != null
+        if (!inServicingAccess) continue
+        const itemProjects = projectsByCustomer.get(r.customer_prereviews.customer_id) ?? new Set<string>()
+        if (!canActOnItem(profile, 'outreach', requiredQualByActivity.get('outreach') ?? null, itemProjects)) continue
+        if (claimedByOther(r.claimed_by_producer_id, myProducerId)) continue
+        servicingAccess += 1
+        for (const pid of itemProjects) {
+          servicingAccessByProject.set(pid, (servicingAccessByProject.get(pid) ?? 0) + 1)
+        }
+      }
+      if (servicingAccess > 0) {
+        const saScopes = ((): Record<string, WorkSourceProjectScope> | undefined => {
+          if (servicingAccessByProject.size === 0) return undefined
+          const out: Record<string, WorkSourceProjectScope> = {}
+          for (const [pid, n] of servicingAccessByProject) {
+            if (n <= 0) continue
+            out[pid] = {
+              count: n,
+              ownedByMe: 0,
+              availableToMe: n,
+              claimedByOthers: 0,
+              notEligible: 0,
+              dueToMe: 0,
+              route: servicingAccessRoute(pid),
+            }
+          }
+          return Object.keys(out).length > 0 ? out : undefined
+        })()
+        outreach.sources.push({
+          kind: 'stewardship',
+          label: 'Shared Stewardship board — Servicing access',
+          count: servicingAccess,
+          // Opens the Servicing Access direct working screen (signed
+          // authorization in hand), landing straight on the first eligible
+          // customer — exactly the set this counted.
+          route: servicingAccessRoute(),
+          projectId: null,
+          ownedByMe: 0,
+          availableToMe: servicingAccess,
+          claimedByOthers: 0,
+          notEligible: 0,
+          dueToMe: 0,
+          informational: true,
+          projectScopes: saScopes,
         })
       }
     }

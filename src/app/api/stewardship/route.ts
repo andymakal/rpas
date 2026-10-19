@@ -17,7 +17,7 @@ import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
  * subset of Ready to Email. Each opens EXACTLY the customers My Work counted,
  * gated by the same capability + claim rules.
  */
-type PopulationFilter = 'calls-due' | 'available-to-call' | 'introductory-emails'
+type PopulationFilter = 'calls-due' | 'available-to-call' | 'introductory-emails' | 'servicing-access'
 
 /**
  * GET /api/stewardship
@@ -55,7 +55,8 @@ export async function GET(request: NextRequest) {
   const populationFilter: PopulationFilter | null =
     populationParam === 'calls-due' ||
     populationParam === 'available-to-call' ||
-    populationParam === 'introductory-emails'
+    populationParam === 'introductory-emails' ||
+    populationParam === 'servicing-access'
       ? populationParam
       : null
 
@@ -337,6 +338,16 @@ export async function GET(request: NextRequest) {
       // Whether this item is in the first-touch introductory-email population,
       // carried so the board can open that population exactly as counted.
       is_intro_email: introEmail,
+      // Whether this item is in the SERVICING-ACCESS population: the signed
+      // authorization is in hand (form returned), so the work is to save the
+      // form, prepare the carrier email, submit, follow up, and confirm. Its
+      // effective queue is waiting-for-form or waiting-for-carrier, OR the form
+      // has already been recorded received. Carried so the servicing-access
+      // direct screen opens exactly the customers My Work counted.
+      servicing_access:
+        effectiveQueue === 'waiting-for-form' ||
+        effectiveQueue === 'waiting-for-carrier' ||
+        r.form_received_at != null,
       // Research outcome: set below for research-needed items whose every
       // still-missing method has been researched unsuccessfully. Default false.
       research_unsuccessful: false as boolean,
@@ -449,6 +460,9 @@ export async function GET(request: NextRequest) {
               lastCallOutcome: null,
               callbackDate: null,
             }),
+            // A derived onboarding item has no recorded outreach yet, so no
+            // authorization has returned — never in the servicing-access set.
+            servicing_access: false,
             research_unsuccessful: false as boolean,
             prereview_id: null as unknown as string,
             customer: { id: cid, first_name: contact.first_name, last_name: contact.last_name, email: contact.email, phone: contact.phone },
@@ -534,7 +548,9 @@ export async function GET(request: NextRequest) {
   // first-touch flag. One place, so membership is defined identically for the
   // filter and the count.
   const inPopulation = (it: (typeof items)[number], pop: PopulationFilter): boolean =>
-    pop === 'introductory-emails' ? it.is_intro_email === true : it.call_population === pop
+    pop === 'introductory-emails' ? it.is_intro_email === true
+      : pop === 'servicing-access' ? it.servicing_access === true
+      : it.call_population === pop
 
   // The caller's actionable items for a requested population: in that population,
   // pickable by capability, and not claimed by another employee. Mirrors My Work
@@ -579,11 +595,13 @@ export async function GET(request: NextRequest) {
         'calls-due': items.filter(it => isActionableToMe(it, 'calls-due')).length,
         'available-to-call': items.filter(it => isActionableToMe(it, 'available-to-call')).length,
         'introductory-emails': items.filter(it => isActionableToMe(it, 'introductory-emails')).length,
+        'servicing-access': items.filter(it => isActionableToMe(it, 'servicing-access')).length,
       }
     : {
         'calls-due': items.filter(it => it.call_population === 'calls-due').length,
         'available-to-call': items.filter(it => it.call_population === 'available-to-call').length,
         'introductory-emails': items.filter(it => it.is_intro_email === true).length,
+        'servicing-access': items.filter(it => it.servicing_access === true).length,
       }
 
   return Response.json({

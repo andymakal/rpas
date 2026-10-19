@@ -422,6 +422,7 @@ export type WorkflowActivity =
   | 'record-attempt'
   | 'form-sent'
   | 'follow-up'
+  | 'servicing-access'
 
 export interface NextHistoryEntryPreview {
   /** The one-line description of the entry that completing the work will log. */
@@ -455,6 +456,8 @@ export function describeNextHistoryEntry(
       return { summary: 'Form Sent' }
     case 'follow-up':
       return { summary: 'Follow-up' }
+    case 'servicing-access':
+      return { summary: 'Servicing Access' }
     case 'calling': {
       const o = options?.callOutcome
       if (o === 'reached') return { summary: 'Reached' }

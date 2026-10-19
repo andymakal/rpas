@@ -22,6 +22,7 @@ import {
   NONRESPONSIVE_LABEL,
 } from '@/lib/stewardship/cadence-status'
 import { normalizeEmailInput, normalizePhoneInput } from '@/lib/contact-input'
+import { SERVICING_AUTHORIZATION_TYPE } from '@/lib/stewardship/authorization-document'
 import { activeContactResearchProjectForCustomer } from '@/lib/projects/contact-review'
 import {
   applyAction,
@@ -282,10 +283,40 @@ export async function GET(
   const effectiveCallReason: CallReason | null = emailPatch ? (emailPatch.call_reason ?? null) : o.call_reason
   const effectiveResearchReason: ResearchReason | null = emailPatch ? (emailPatch.research_reason ?? null) : o.research_reason
 
+  // Whether a signed servicing-agent authorization is already on file for this
+  // servicing request, so the working screen can reflect it (uploaded vs not).
+  // Reuses the one document repository (policy_documents); the authorization is
+  // anchored to the request's representative policy with the project scope (or
+  // null for the standalone intake path).
+  const requestPolicyIds = holdings.filter(h => h.in_request).map(h => h.id)
+  let authorizationOnFile = false
+  if (requestPolicyIds.length > 0) {
+    const anchorPolicyId = [...requestPolicyIds].sort()[0]
+    const { data: member } = await supabase
+      .from('project_customers')
+      .select('project_id')
+      .eq('customer_id', customerId)
+      .limit(1)
+      .maybeSingle()
+    const projectId = (member?.project_id as string | undefined) ?? null
+    let authQ = supabase
+      .from('policy_documents')
+      .select('id')
+      .eq('customer_id', customerId)
+      .eq('policy_id', anchorPolicyId)
+      .eq('document_type', SERVICING_AUTHORIZATION_TYPE)
+    authQ = projectId ? authQ.eq('project_id', projectId) : authQ.is('project_id', null)
+    const { data: authRow } = await authQ.maybeSingle()
+    authorizationOnFile = !!authRow
+  }
+
   // requires that confirmation.
   return Response.json({
     data: {
       id: o.id,
+      // Whether the signed servicing-agent authorization is uploaded/saved for
+      // this servicing request (servicing-access working screen).
+      authorization_on_file: authorizationOnFile,
       prereview_id: o.prereview_id,
       queue: effectiveQueue,
       call_reason: effectiveCallReason,
@@ -780,6 +811,48 @@ export async function PATCH(
     }
   }
 
+  // form-received: the signed authorization came back and receipt is being
+  // recorded (the servicing-access working screen's first step, or the board's
+  // Waiting-for-Form receipt). Record the RECEIPT in Customer History so it is
+  // logged automatically. Best-effort attribution; never blocks the transition.
+  if (action.type === 'form-received') {
+    const touchedBy = await resolveEmployeeName(supabase)
+    const { error: touchErr } = await supabase
+      .from('case_touches')
+      .insert({
+        customer_id: customerId,
+        case_id:     null,
+        touch_type:  'email', // inbound return (a scan/email is the usual channel)
+        notes:       'Signed servicing-agent authorization received.',
+        touched_at:  new Date().toISOString(),
+        touched_by:  touchedBy,
+      })
+    if (touchErr) {
+      console.error('stewardship form-received touch log error:', touchErr)
+    }
+  }
+
+  // submit-to-carrier: the signed authorization was submitted to the carrier
+  // (the servicing-access working screen's Email Sent step, or the board's
+  // Submit action). Record the SUBMISSION in Customer History automatically so
+  // the carrier hand-off is logged. Best-effort; never blocks the transition.
+  if (action.type === 'submit-to-carrier') {
+    const touchedBy = await resolveEmployeeName(supabase)
+    const { error: touchErr } = await supabase
+      .from('case_touches')
+      .insert({
+        customer_id: customerId,
+        case_id:     null,
+        touch_type:  'email', // the authorization is emailed to the carrier
+        notes:       'Signed servicing-agent authorization submitted to the carrier for processing.',
+        touched_at:  new Date().toISOString(),
+        touched_by:  touchedBy,
+      })
+    if (touchErr) {
+      console.error('stewardship submit-to-carrier touch log error:', touchErr)
+    }
+  }
+
   // form-returned: the signed form came back on its own after the intro email.
   // Record the RECEIPT only — never a fictitious second mailing/send.
   if (action.type === 'form-returned') {
@@ -873,6 +946,34 @@ export async function PATCH(
         { error: 'Could not update servicing status; the item was left in Waiting for Carrier.' },
         { status: 500 },
       )
+    }
+
+    // Record the carrier's per-policy confirmation in Customer History so each
+    // servicing-access confirmation is logged automatically. Best-effort; never
+    // blocks the confirmation. The policy number makes the entry readable.
+    {
+      const { data: confirmedPolicy } = await supabase
+        .from('service_policies')
+        .select('policy_number')
+        .eq('id', result.confirmPolicyId)
+        .maybeSingle()
+      const policyNumber = (confirmedPolicy as { policy_number: string } | null)?.policy_number ?? null
+      const touchedBy = await resolveEmployeeName(supabase)
+      const { error: touchErr } = await supabase
+        .from('case_touches')
+        .insert({
+          customer_id: customerId,
+          case_id:     null,
+          touch_type:  'call', // carrier confirmation is an inbound/attributed event
+          notes:       policyNumber
+            ? `Carrier confirmed servicing access on policy ${policyNumber}.`
+            : 'Carrier confirmed servicing access on a request policy.',
+          touched_at:  new Date().toISOString(),
+          touched_by:  touchedBy,
+        })
+      if (touchErr) {
+        console.error('stewardship carrier-confirm touch log error:', touchErr)
+      }
     }
 
     // NOTE: promotion and the Initial Analysis handoff happen ONLY when the
