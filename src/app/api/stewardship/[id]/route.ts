@@ -24,6 +24,7 @@ import {
 import { normalizeEmailInput, normalizePhoneInput } from '@/lib/contact-input'
 import { SERVICING_AUTHORIZATION_TYPE } from '@/lib/stewardship/authorization-document'
 import { activeContactResearchProjectForCustomer } from '@/lib/projects/contact-review'
+import { getCustomerEnrollmentEvents } from '@/lib/projects/customer-enrollments'
 import {
   applyAction,
   deriveEmailRouting,
@@ -197,9 +198,15 @@ export async function GET(
     .select('id, touch_type, notes, touched_at, touched_by')
     .eq('customer_id', customerId)
     .order('touched_at', { ascending: false })
+  // Project enrollments ("Added to Project") come from the deduped membership
+  // records and interleave chronologically with the contact history. One
+  // history, not a separate store.
+  const enrollmentRows = await getCustomerEnrollmentEvents(supabase, customerId)
   const customerHistory = buildCustomerHistory(
     (historyRows ?? []) as HistoryTouchRow[],
     actorTimeZone,
+    undefined,
+    enrollmentRows,
   )
 
   // The AVAILABLE CONTACT OPTIONS for this customer, decided by the ZEN

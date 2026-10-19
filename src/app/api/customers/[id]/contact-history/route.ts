@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { buildCustomerHistory, type HistoryTouchRow } from '@/lib/stewardship/customer-history'
+import { getCustomerEnrollmentEvents } from '@/lib/projects/customer-enrollments'
 import type { PolicySummary } from '@/components/workflow'
 
 /**
@@ -38,9 +39,15 @@ export async function GET(
     .select('id, touch_type, notes, touched_at, touched_by')
     .eq('customer_id', customerId)
     .order('touched_at', { ascending: false })
+  // Project enrollments ("Added to Project") come from the deduped membership
+  // records and interleave chronologically with the contact history. Reusing
+  // the one history, not a separate store.
+  const enrollmentRows = await getCustomerEnrollmentEvents(supabase, customerId)
   const customerHistory = buildCustomerHistory(
     (historyRows ?? []) as HistoryTouchRow[],
     actorTimeZone,
+    undefined,
+    enrollmentRows,
   )
 
   // The customer's policies, mapped onto the read-only Policy Summary shape.

@@ -23,7 +23,7 @@
  */
 
 import { useState } from 'react'
-import { History, ChevronDown, ChevronUp, CheckCircle2, PhoneCall, Search } from 'lucide-react'
+import { History, ChevronDown, ChevronUp, CheckCircle2, PhoneCall, Search, FolderPlus } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { HistoryEvent } from '@/lib/stewardship/customer-history'
 import { formatHistoryTimestamp } from '@/lib/stewardship/customer-history'
@@ -87,6 +87,7 @@ function HistoryEventRow({
     .filter((d): d is string => !!d && d !== event.summary)
 
   const isResearch = event.kind === 'research'
+  const isEnrollment = event.kind === 'enrollment'
 
   return (
     <li className="py-3 first:pt-0 last:pb-0">
@@ -94,17 +95,26 @@ function HistoryEventRow({
         <span
           className={cn(
             'mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full',
-            // Research is internal work (its own affordance); a reached contact
-            // reads as confirmed; every other contact is a neutral touch.
-            isResearch
+            // Enrollment is a project membership event (its own affordance);
+            // research is internal work; a reached contact reads as confirmed;
+            // every other contact is a neutral touch.
+            isEnrollment
               ? 'bg-surface-muted text-ink-supporting'
-              : event.reached
-                ? 'bg-status-confirmed-fill text-status-confirmed-foreground'
-                : 'bg-surface-muted text-ink-supporting',
+              : isResearch
+                ? 'bg-surface-muted text-ink-supporting'
+                : event.reached
+                  ? 'bg-status-confirmed-fill text-status-confirmed-foreground'
+                  : 'bg-surface-muted text-ink-supporting',
           )}
           aria-hidden
         >
-          {isResearch ? <Search className="size-3" /> : <PhoneCall className="size-3" />}
+          {isEnrollment ? (
+            <FolderPlus className="size-3" />
+          ) : isResearch ? (
+            <Search className="size-3" />
+          ) : (
+            <PhoneCall className="size-3" />
+          )}
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-base font-medium text-ink">{event.summary}</p>
@@ -112,6 +122,10 @@ function HistoryEventRow({
             {event.by ? `${event.by} \u00b7 ` : ''}
             {formatHistoryTimestamp(event.at, actorTimeZone)}
           </p>
+          {/* An enrollment names the project it added the customer to. */}
+          {isEnrollment && event.projectName && (
+            <p className="mt-1 text-sm leading-relaxed text-ink-secondary">{event.projectName}</p>
+          )}
           {/* The underlying communications' notes, preserved, when they add
               detail beyond the one-line summary. */}
           {extraDetails.length > 0 && (

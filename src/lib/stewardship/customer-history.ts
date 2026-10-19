@@ -46,6 +46,23 @@ export interface HistoryTouchRow {
   touched_by: string | null
 }
 
+// Raw input — one project-enrollment fact: the single membership row that first
+// added a customer to a project (project_customers), already joined to the
+// project name and, when known, the operator who ran the draw. One row per
+// customer per project (the membership is deduped at write time), so this
+// yields exactly one "Added to Project" event per project. This module never
+// reads the database itself; the route selects these and hands them in.
+export interface HistoryEnrollmentRow {
+  /** project_customers.id — a stable key for the event. */
+  id: string
+  /** The project the customer was added to (projects.name). */
+  project_name: string
+  /** When the customer was first added (project_customers.added_at, ISO). */
+  added_at: string
+  /** Who ran the draw that added them (a resolved display name), when known. */
+  added_by: string | null
+}
+
 // ---------------------------------------------------------------------------
 // Display model — one grouped event (one interaction) and the individual
 // communications it comprises (preserved, never collapsed away).
@@ -73,9 +90,13 @@ export interface HistoryEvent {
   /** True when any communication in the interaction reached the customer. */
   reached: boolean
   /** What kind of event this is, so the card can render the right affordance:
-   * a customer communication ('contact') or an internal research record
-   * ('research'). Defaults to 'contact' when absent. */
-  kind?: 'contact' | 'research'
+   * a customer communication ('contact'), an internal research record
+   * ('research'), or a project enrollment ('enrollment'). Defaults to 'contact'
+   * when absent. */
+  kind?: 'contact' | 'research' | 'enrollment'
+  /** For an enrollment event, the project the customer was added to, shown as
+   * the detail line under the summary. Unused for other kinds. */
+  projectName?: string
   /** The underlying communications, preserved. */
   communications: HistoryCommunication[]
 }
@@ -285,6 +306,27 @@ function buildResearchEvents(rows: HistoryTouchRow[]): HistoryEvent[] {
   return events
 }
 
+/**
+ * Build the project-enrollment history events. One "Added to Project" event per
+ * membership row — the membership is deduped at write time (one row per
+ * customer per project, keyed on the FIRST run that added them), so subsequent
+ * draws that re-include an already-enrolled customer never produce a second
+ * event. The event carries the operator attribution and the first-added
+ * timestamp, with the project name shown as the detail line. These are a
+ * distinct kind, never folded into a contact or research event.
+ */
+function buildEnrollmentEvents(rows: HistoryEnrollmentRow[]): HistoryEvent[] {
+  return rows.map((r) => ({
+    at: r.added_at,
+    summary: 'Added to Project',
+    by: r.added_by,
+    reached: false,
+    kind: 'enrollment' as const,
+    projectName: r.project_name,
+    communications: [],
+  }))
+}
+
 function zoneOf(actorTimeZone: string | null): string {
   return isValidTimeZone(actorTimeZone) ? (actorTimeZone as string) : FALLBACK_ACTOR_TIME_ZONE
 }
@@ -330,6 +372,7 @@ export function buildCustomerHistory(
   rows: HistoryTouchRow[],
   actorTimeZone: string | null,
   overrides?: Partial<Record<OutreachChannel, Partial<ChannelDescriptions>>>,
+  enrollmentRows: HistoryEnrollmentRow[] = [],
 ): HistoryEvent[] {
   const contactRows = rows.filter((r) => HISTORY_CHANNELS.has(r.touch_type))
 
@@ -390,8 +433,14 @@ export function buildCustomerHistory(
   // never folded into a call interaction.
   const researchEvents = buildResearchEvents(rows)
 
+  // Project enrollments are their own events, interleaved chronologically with
+  // the communication and research events. They come from the deduped
+  // membership records, not case_touches, so they add to the one history
+  // without a separate history system and without duplicating on re-draws.
+  const enrollmentEvents = buildEnrollmentEvents(enrollmentRows)
+
   // Newest first for the card (the grouping returns oldest-first).
-  return [...events, ...researchEvents].sort(
+  return [...events, ...researchEvents, ...enrollmentEvents].sort(
     (x, y) => new Date(y.at).getTime() - new Date(x.at).getTime(),
   )
 }
