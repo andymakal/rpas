@@ -1,0 +1,373 @@
+/**
+ * Customer History — the display model over the one durable history system
+ * (case_touches). This is NOT a second history store. It reuses the existing
+ * IPF attempt-grouping (`groupIntoAttempts`) so the several communications of
+ * one interaction (a call plus the voicemail/text/email recorded with it, at a
+ * shared timestamp) collapse into ONE readable event, while every underlying
+ * case_touches row is preserved and still available on the event.
+ *
+ * Two halves, matching the GoRules division of labor used across stewardship:
+ * TypeScript owns normalization and the operator-facing prose; nothing here
+ * queries the database (the route supplies the rows) and nothing decides
+ * eligibility or priority.
+ *
+ *   - buildCustomerHistory(rows, zone): the display events, newest first.
+ *   - ACTIVITY_DESCRIPTIONS + describeActivity: the configurable vocabulary that
+ *     turns a recorded touch into "what happened" prose. It is data, not a
+ *     per-screen hardcode, so the phrasing can evolve centrally as workflows
+ *     change without editing every screen.
+ *   - describeNextHistoryEntry: the preview of the history entry the CURRENT
+ *     workflow will record when the worker completes the open action, so a
+ *     worker sees what completing the work will log (and never logs it twice by
+ *     hand).
+ */
+
+import { DateTime } from 'luxon'
+import { FALLBACK_ACTOR_TIME_ZONE, isValidTimeZone } from '@/lib/time'
+import {
+  groupIntoAttempts,
+  parseOutcomeFromNote,
+  noteIndicatesReached,
+  type Communication,
+  type OutreachChannel,
+  type ChannelOutcome,
+} from './outreach-attempts'
+
+// ---------------------------------------------------------------------------
+// Raw input — one case_touches row, exactly as stored. The route selects these
+// columns and hands them over; this module never reads the database itself.
+// ---------------------------------------------------------------------------
+
+export interface HistoryTouchRow {
+  id: string
+  touch_type: string
+  notes: string | null
+  touched_at: string
+  touched_by: string | null
+}
+
+// ---------------------------------------------------------------------------
+// Display model — one grouped event (one interaction) and the individual
+// communications it comprises (preserved, never collapsed away).
+// ---------------------------------------------------------------------------
+
+/** One preserved underlying communication within a grouped event. */
+export interface HistoryCommunication {
+  id: string
+  channel: OutreachChannel
+  outcome: ChannelOutcome
+  reached: boolean
+  /** The touch note with internal machine markers stripped, for display. */
+  detail: string | null
+}
+
+/** One readable history event: the several communications of a single
+ * interaction, summarized once, with who recorded it and when. */
+export interface HistoryEvent {
+  /** Grouping key: the shared ISO instant of the interaction. */
+  at: string
+  /** The one-line "what happened" summary for the whole interaction. */
+  summary: string
+  /** Who recorded it (the employee name on the touches), when known. */
+  by: string | null
+  /** True when any communication in the interaction reached the customer. */
+  reached: boolean
+  /** The underlying communications, preserved. */
+  communications: HistoryCommunication[]
+}
+
+// ---------------------------------------------------------------------------
+// Configurable activity descriptions.
+//
+// The phrasing that turns a recorded channel + outcome into human prose lives
+// here as DATA, so it is tuned in one place as workflows evolve rather than
+// being hardcoded into each screen. A channel maps to its reached / touch /
+// no_contact / unusable wording. `describeActivity` resolves one communication;
+// `summarizeInteraction` composes the one-line event summary from the mix of
+// channels in an interaction.
+// ---------------------------------------------------------------------------
+
+export type ActivityOutcomeKey = 'reached' | 'touch' | 'no_contact' | 'unusable'
+
+type ChannelDescriptions = Partial<Record<ActivityOutcomeKey, string>> & { touch: string }
+
+/** The default, configurable vocabulary. Override via `describeActivity`'s
+ * `overrides` argument (or extend this map) as workflows change; screens read
+ * it rather than embedding their own strings. */
+export const ACTIVITY_DESCRIPTIONS: Record<OutreachChannel, ChannelDescriptions> = {
+  call: {
+    reached: 'Spoke with the customer',
+    touch: 'Called the customer',
+    no_contact: 'Called the customer, no answer',
+    unusable: 'Called the customer, number unusable',
+  },
+  voicemail: {
+    touch: 'Left a voicemail',
+    no_contact: 'Tried a voicemail, none left',
+    unusable: 'Voicemail unavailable',
+  },
+  text: {
+    touch: 'Sent a text',
+    no_contact: 'Attempted a text, not sent',
+    unusable: 'Text unusable',
+  },
+  email: {
+    touch: 'Sent an email',
+    no_contact: 'Attempted an email, not sent',
+    unusable: 'Email unusable',
+  },
+  postal: {
+    touch: 'Sent postal mail',
+    no_contact: 'Attempted postal mail, not sent',
+    unusable: 'Mailing address unusable',
+  },
+}
+
+/** Resolve the configurable phrase for one communication. A reached call uses
+ * the `reached` phrasing; otherwise the per-outcome phrasing, falling back to
+ * the channel's `touch` phrase. `overrides` lets a caller adjust the vocabulary
+ * without editing the shared map. */
+export function describeActivity(
+  channel: OutreachChannel,
+  outcome: ChannelOutcome,
+  reached: boolean,
+  overrides?: Partial<Record<OutreachChannel, Partial<ChannelDescriptions>>>,
+): string {
+  const base = ACTIVITY_DESCRIPTIONS[channel]
+  const over = overrides?.[channel]
+  const key: ActivityOutcomeKey = reached && channel === 'call' ? 'reached' : outcome
+  return over?.[key] ?? base[key] ?? over?.touch ?? base.touch
+}
+
+// ---------------------------------------------------------------------------
+// Note cleaning — strip the internal machine markers so the detail reads as
+// clean prose. Mirrors the dark screen's cleanTouchNote; kept here so the
+// shared history card does not depend on a page component.
+// ---------------------------------------------------------------------------
+
+export function cleanHistoryNote(note: string | null): string | null {
+  if (!note) return null
+  const cleaned = note
+    .replace(/\[research-(?:email|phone)-not-found\]/gi, '')
+    .replace(/\[channel-unusable(?::[^\]]*)?\]/gi, '')
+    .replace(/\[no-contact\]/gi, '')
+    .replace(/\[reached\]/gi, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+  return cleaned.length > 0 ? cleaned : null
+}
+
+/** The channels this module treats as customer-history communications. Mirrors
+ * the outreach channels; other touch types are ignored so the history stays
+ * about customer contact. */
+const HISTORY_CHANNELS: ReadonlySet<string> = new Set([
+  'call',
+  'voicemail',
+  'text',
+  'email',
+  'postal',
+])
+
+function zoneOf(actorTimeZone: string | null): string {
+  return isValidTimeZone(actorTimeZone) ? (actorTimeZone as string) : FALLBACK_ACTOR_TIME_ZONE
+}
+
+/**
+ * Compose the one-line summary for a whole interaction from its communications.
+ * A reached call leads (it is the meaningful outcome); otherwise the channels
+ * are listed in the recorded order. Preserves honesty: it describes exactly the
+ * channels that were recorded, nothing more.
+ */
+function summarizeInteraction(
+  comms: HistoryCommunication[],
+  overrides?: Partial<Record<OutreachChannel, Partial<ChannelDescriptions>>>,
+): string {
+  if (comms.length === 0) return 'Contact recorded'
+
+  const reachedCall = comms.find((c) => c.channel === 'call' && c.reached)
+  if (reachedCall) {
+    const others = comms.filter((c) => c !== reachedCall)
+    const lead = describeActivity('call', reachedCall.outcome, true, overrides)
+    if (others.length === 0) return lead
+    const rest = others.map((c) => describeActivity(c.channel, c.outcome, c.reached, overrides).toLowerCase())
+    return `${lead} (also ${rest.join(', ')})`
+  }
+
+  const phrases = comms.map((c) => describeActivity(c.channel, c.outcome, c.reached, overrides))
+  if (phrases.length === 1) return phrases[0]
+  // Join the attempt's channels into one readable line: "Called the customer,
+  // no answer · Left a voicemail · Sent a text".
+  return phrases.join(' \u00b7 ')
+}
+
+/**
+ * Build the display customer history from raw case_touches rows. Groups the
+ * communications of one interaction into one event (reusing the IPF grouping),
+ * newest event first, preserving every underlying communication. Rows whose
+ * touch_type is not a contact channel are ignored.
+ */
+export function buildCustomerHistory(
+  rows: HistoryTouchRow[],
+  actorTimeZone: string | null,
+  overrides?: Partial<Record<OutreachChannel, Partial<ChannelDescriptions>>>,
+): HistoryEvent[] {
+  const contactRows = rows.filter((r) => HISTORY_CHANNELS.has(r.touch_type))
+
+  // Map rows to the grouping input; keep a parallel lookup to the source row so
+  // the preserved communications carry their id and cleaned detail.
+  const byAt = new Map<string, HistoryTouchRow[]>()
+  const comms: Communication[] = contactRows.map((r) => {
+    const list = byAt.get(r.touched_at) ?? []
+    list.push(r)
+    byAt.set(r.touched_at, list)
+    return {
+      channel: r.touch_type as OutreachChannel,
+      at: r.touched_at,
+      outcome: parseOutcomeFromNote(r.notes),
+      reached: noteIndicatesReached(r.notes),
+    }
+  })
+
+  const attempts = groupIntoAttempts(comms, actorTimeZone)
+
+  const events: HistoryEvent[] = attempts.map((a) => {
+    // Recover the source rows for this attempt by its communications' instants.
+    // The grouping preserves communication order; match each back to a row,
+    // consuming matched rows so duplicate-timestamp channels map 1:1.
+    const used = new Set<HistoryTouchRow>()
+    const communications: HistoryCommunication[] = a.communications.map((c) => {
+      const candidates = byAt.get(c.at) ?? []
+      const row =
+        candidates.find((r) => !used.has(r) && r.touch_type === c.channel) ??
+        candidates.find((r) => !used.has(r))
+      if (row) used.add(row)
+      return {
+        id: row?.id ?? `${c.at}-${c.channel}`,
+        channel: c.channel,
+        outcome: c.outcome ?? 'touch',
+        reached: c.reached === true,
+        detail: cleanHistoryNote(row?.notes ?? null),
+      }
+    })
+    // Attribution: the employee name on any communication in the interaction.
+    const by =
+      a.communications
+        .map((c) => (byAt.get(c.at) ?? []).find((r) => r.touch_type === c.channel)?.touched_by)
+        .find((n) => !!n) ?? null
+    return {
+      at: a.at,
+      summary: summarizeInteraction(communications, overrides),
+      by,
+      reached: a.reached,
+      communications,
+    }
+  })
+
+  // Newest first for the card (the grouping returns oldest-first).
+  return events.sort((x, y) => new Date(y.at).getTime() - new Date(x.at).getTime())
+}
+
+/** Format an instant as the customer-history display timestamp:
+ * MM/DD/YYYY, h:mm AM/PM, on the actor's calendar. */
+export function formatHistoryTimestamp(at: string, actorTimeZone: string | null): string {
+  const dt = DateTime.fromISO(at, { zone: zoneOf(actorTimeZone) })
+  const valid = dt.isValid ? dt : DateTime.fromJSDate(new Date(at), { zone: zoneOf(actorTimeZone) })
+  if (!valid.isValid) return at
+  return valid.toFormat('LL/dd/yyyy, h:mm a')
+}
+
+// ---------------------------------------------------------------------------
+// Next History Entry — the preview of what completing the CURRENT workflow will
+// record. The worker sees what the system will log on their behalf, so they do
+// not separately log the same activity. This is configurable per activity, not
+// hardcoded on each screen: the screen names its activity; the phrasing lives
+// here and evolves centrally.
+// ---------------------------------------------------------------------------
+
+/** The activities a working screen can be performing. Keep in step with the
+ * stewardship queues / working screens. */
+export type WorkflowActivity =
+  | 'introductory-email'
+  | 'calling'
+  | 'contact-research'
+  | 'record-attempt'
+  | 'form-sent'
+  | 'follow-up'
+
+export interface NextHistoryEntryPreview {
+  /** The one-line description of the entry that completing the work will log. */
+  summary: string
+  /** A short clarifying note about how/when it is recorded. */
+  note?: string
+}
+
+/**
+ * Describe the history entry the current workflow will record on completion.
+ * `outcome` lets the preview reflect a chosen call result where the screen
+ * already knows it (e.g. the guided call flow); omit it for the general case.
+ */
+export function describeNextHistoryEntry(
+  activity: WorkflowActivity,
+  options?: {
+    /** The customer first name, to personalize the preview where useful. */
+    customerName?: string | null
+    /** A chosen call outcome, when the screen already knows it. */
+    callOutcome?: 'reached' | 'voicemail' | 'bad-number' | 'not-interested' | 'callback' | null
+  },
+): NextHistoryEntryPreview {
+  const who = options?.customerName?.trim() || 'the customer'
+
+  switch (activity) {
+    case 'introductory-email':
+      return {
+        summary: `Introductory servicing-agent email sent to ${who}`,
+        note: 'Recorded automatically when you confirm the send, with the follow-up scheduled.',
+      }
+    case 'contact-research':
+      return {
+        summary: 'Contact research recorded',
+        note: 'When no usable method is found, the unsuccessful research is recorded per method.',
+      }
+    case 'form-sent':
+      return {
+        summary: `Authorization form sent to ${who}`,
+        note: 'Recorded automatically when you confirm the send.',
+      }
+    case 'follow-up':
+      return {
+        summary: 'Follow-up recorded',
+        note: 'Recorded automatically when you log the chase; the next follow-up is scheduled.',
+      }
+    case 'calling': {
+      const o = options?.callOutcome
+      if (o === 'reached') {
+        return {
+          summary: `Spoke with ${who}`,
+          note: 'Recorded automatically when you save the call outcome.',
+        }
+      }
+      if (o === 'callback') {
+        return {
+          summary: `Call to ${who}, callback promised`,
+          note: 'Recorded as one attempt when you save; the callback is scheduled.',
+        }
+      }
+      if (o === 'bad-number') {
+        return {
+          summary: `Call to ${who}, number unusable`,
+          note: 'Recorded automatically when you save the call outcome.',
+        }
+      }
+      return {
+        summary: `Call to ${who}${o === 'voicemail' ? ', voicemail left' : ''}`,
+        note: 'Everything you did in this attempt is recorded once when you save.',
+      }
+    }
+    case 'record-attempt':
+    default:
+      return {
+        summary: `Outreach attempt to ${who}`,
+        note: 'Every channel you used in this attempt is recorded once when you save.',
+      }
+  }
+}

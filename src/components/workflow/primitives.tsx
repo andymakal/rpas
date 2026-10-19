@@ -212,24 +212,42 @@ export function FieldStatusDot({
 // CONTEXT sits on the right (identity, contact, signers, holdings). The worker
 // sees the next action immediately without scanning across the page. Stacks to
 // one column on narrow screens, action first.
+//
+// A THIRD `history` column is optional: when supplied, the task uses the
+// working-screen three-column layout — current work and actions on the LEFT,
+// the customer context (identity + policy summary) in the CENTER, and the
+// customer's history (with the preview of what this work will record) on the
+// RIGHT. Omitting `history` keeps the original two-column action/context layout
+// unchanged, so existing callers are untouched.
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function TaskShell({
-  header, action, context,
+  header, action, context, history,
 }: {
   header: ReactNode
   /** The current action: what the worker should do now (left column). */
   action: ReactNode
-  /** Customer/relationship context supporting the action (right column). */
+  /** Customer/relationship context supporting the action (center/right column). */
   context: ReactNode
+  /** Optional customer-history column. When present the layout is three columns
+   * (work · context · history); when absent it stays the two-column default. */
+  history?: ReactNode
 }) {
   return (
     <div className={cn('mx-auto w-full', WORKFLOW_MAX_WIDTH, 'space-y-6 text-ink-secondary')}>
       {header}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[3fr_2fr]">
-        <div className="space-y-5">{action}</div>
-        <div className="space-y-5">{context}</div>
-      </div>
+      {history != null ? (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-[minmax(0,5fr)_minmax(0,4fr)_minmax(0,4fr)]">
+          <div className="space-y-5">{action}</div>
+          <div className="space-y-5">{context}</div>
+          <div className="space-y-5">{history}</div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[3fr_2fr]">
+          <div className="space-y-5">{action}</div>
+          <div className="space-y-5">{context}</div>
+        </div>
+      )}
     </div>
   )
 }

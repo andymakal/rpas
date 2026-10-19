@@ -20,14 +20,21 @@ import {
   WorkflowPage, WorkflowHeader,
   QueueSection, QueueRow, QueueListHeader, CustomerQueueCard, QueueEmptyState,
   TaskShell, SlimTaskHeader, ContextHeader, type ContextField,
-  ActionPanel, PrimaryAction, WorkflowButton, NextNote, OperationalTag,
+  ActionPanel, ContextLabel, PrimaryAction, WorkflowButton, NextNote, OperationalTag,
   CustomerContactCard, type CustomerContact, GatewayLookup,
+  PolicySummaryList, type PolicySummary,
+  CustomerHistoryCard, NextHistoryEntry,
 } from '@/components/workflow'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import {
   QUEUE_META, OUTREACH_QUEUES,
   type OutreachQueue, type CallOutcome,
 } from '@/lib/stewardship/queues'
+import {
+  describeNextHistoryEntry,
+  type HistoryEvent,
+  type WorkflowActivity,
+} from '@/lib/stewardship/customer-history'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { isPermanent } from '@/lib/policies/product-type'
 import { buildMailto, SCRIPTS, interpolate } from '@/lib/templates'
@@ -156,6 +163,7 @@ type Holding = {
   product_type: string | null
   face_amount: number | null
   cash_value_amount: number | null
+  issue_date: string | null
   coverage_status: string
   insured_name: string | null
   sa_status: string
@@ -208,6 +216,10 @@ type Detail = BoardItem & {
    * correction screen, so contact research is one surface. Null when not in an
    * active 1035 project. */
   contact_research_project_id?: string | null
+  /** The display customer history (grouped interactions, newest first) for the
+   * working-screen Customer History card. Display only; supplied by the GET
+   * route from the durable case_touches log. */
+  customer_history?: HistoryEvent[]
 }
 
 const QUEUE_ICON: Record<OutreachQueue, typeof Mail> = {
@@ -1117,6 +1129,17 @@ export function StewardshipTask({
   const request = detail.holdings.filter(h => h.in_request)
   const context = detail.holdings.filter(h => !h.in_request)
 
+  // The three working screens (Send Introductory Emails, the guided Calling
+  // workbench, and Contact Research) use the shared Customer Contact card, so
+  // they also get the working-screen THREE-COLUMN layout: current work and
+  // actions on the left, the customer context (contact card + policy summary)
+  // in the center, and the customer history (with the Next History Entry
+  // preview) on the right. Every other stewardship caller keeps the original
+  // two-column action/context layout, so their behavior is unchanged.
+  const introEmail = isIntroductoryEmailActivity(detail)
+  const research = detail.queue === 'research-needed'
+  const isWorkingScreen = introEmail || research || forceCall
+
   return (
     <Chrome>
       <TaskShell
@@ -1128,11 +1151,58 @@ export function StewardshipTask({
           />
         }
         context={
-          <StewardshipContextPanel detail={detail} request={request} context={context} busy={busy} act={act} setDetail={setDetail} forceCall={forceCall} />
+          <StewardshipContextPanel
+            detail={detail} request={request} context={context} busy={busy} act={act}
+            setDetail={setDetail} forceCall={forceCall} withHistoryColumn={isWorkingScreen}
+          />
         }
+        history={isWorkingScreen ? <StewardshipHistoryColumn detail={detail} forceCall={forceCall} /> : undefined}
       />
     </Chrome>
   )
+}
+
+/**
+ * The right-hand history column for the working screens: the Next History Entry
+ * preview (what completing this work will record) above the Customer History.
+ * Completing the work records the entry automatically, so the preview tells the
+ * worker what will be logged rather than asking them to log it. History is the
+ * grouped customer history supplied by the GET route (display only).
+ */
+function StewardshipHistoryColumn({ detail, forceCall }: { detail: Detail; forceCall: boolean }) {
+  const activity = resolveWorkflowActivity(detail, forceCall)
+  const preview = describeNextHistoryEntry(activity, { customerName: detail.customer.first_name })
+  return (
+    <>
+      <ContextLabel>Next history entry</ContextLabel>
+      <NextHistoryEntry preview={preview} showNotes={false} />
+      <CustomerHistoryCard events={detail.customer_history ?? []} />
+    </>
+  )
+}
+
+/** Resolve which workflow activity a working screen is performing, so the Next
+ * History Entry preview describes the right recorded outcome. The guided call
+ * workbench (forceCall) is calling; Research Needed is contact research; an
+ * untouched Ready-to-Email first touch is the introductory email. */
+function resolveWorkflowActivity(detail: Detail, forceCall: boolean): WorkflowActivity {
+  if (forceCall) return 'calling'
+  if (detail.queue === 'research-needed') return 'contact-research'
+  if (isIntroductoryEmailActivity(detail)) return 'introductory-email'
+  return 'record-attempt'
+}
+
+/** Map a holding onto the read-only Policy Summary shape. */
+function holdingToPolicySummary(h: Holding): PolicySummary {
+  return {
+    id: h.id,
+    policy_number: h.policy_number,
+    product_type: h.product_type,
+    face_amount: h.face_amount,
+    issue_date: h.issue_date,
+    cash_value_amount: h.cash_value_amount,
+    carrier: h.carrier,
+  }
 }
 
 /**
@@ -1156,7 +1226,7 @@ function isIntroductoryEmailActivity(detail: Detail): boolean {
  * both capabilities stay fully available on the call and research activities.
  */
 function StewardshipContextPanel({
-  detail, request, context, busy, act, setDetail, forceCall = false,
+  detail, request, context, busy, act, setDetail, forceCall = false, withHistoryColumn = false,
 }: {
   detail: Detail
   request: Holding[]
@@ -1168,6 +1238,11 @@ function StewardshipContextPanel({
    * card (verify/correct inline on the Reached path) and hide the separate
    * record-an-attempt panel, because the guided call flow IS the recording. */
   forceCall?: boolean
+  /** On the three working screens, history moves to its own third column, so
+   * the center context column shows the contact card + the read-only Policy
+   * Summary beneath it (replacing the raw holdings list). Every other caller
+   * keeps the original holdings context. */
+  withHistoryColumn?: boolean
 }) {
   const introEmail = isIntroductoryEmailActivity(detail)
   // Research Needed is the second 1035 contact-gathering activity: like
@@ -1181,6 +1256,13 @@ function StewardshipContextPanel({
   // phone, email, or mailing address is part of a reached call, and the card is
   // the one editable contact surface across the app.
   const useCard = introEmail || research || forceCall
+
+  // Policy Summary on the working screens replaces the raw holdings list in the
+  // center column. Summarize the servicing-request policies when the request
+  // names them, otherwise all known holdings, so the worker still sees the
+  // customer's policy facts. Existing policy data only; nothing invented.
+  const summaryPolicies = (request.length > 0 ? request : context).map(holdingToPolicySummary)
+
   return (
     <>
       {useCard ? (
@@ -1195,7 +1277,18 @@ function StewardshipContextPanel({
           flow (which records no contact attempt), nor the guided calling
           workbench (whose Reached/Didn't Reach flow IS the single recording). */}
       {!introEmail && !research && !forceCall && <RecordAttemptPanel detail={detail} busy={busy} act={act} />}
-      <HoldingsContext request={request} context={context} />
+      {withHistoryColumn ? (
+        // Working-screen center column: the read-only Policy Summary beneath the
+        // contact card. Holdings-as-context is replaced by the summary here; the
+        // request/other-holdings distinction is preserved by summarizing the
+        // request policies first.
+        <>
+          <ContextLabel>Policy summary</ContextLabel>
+          <PolicySummaryList policies={summaryPolicies} />
+        </>
+      ) : (
+        <HoldingsContext request={request} context={context} />
+      )}
     </>
   )
 }

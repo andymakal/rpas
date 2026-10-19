@@ -5,6 +5,7 @@ import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { handoffToInitialAnalysis } from '@/lib/stewardship/analysis-handoff'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { getAttemptHistory } from '@/lib/stewardship/attempt-history'
+import { buildCustomerHistory, type HistoryTouchRow } from '@/lib/stewardship/customer-history'
 import { resolveNextCallDate } from '@/lib/stewardship/call-cadence'
 import { resolveContactOptions } from '@/lib/stewardship/contact-options'
 import { OUTCOME_MARKERS, REACHED_MARKER, buildUnusableMarker } from '@/lib/stewardship/outreach-attempts'
@@ -128,7 +129,7 @@ export async function GET(
   const [{ data: allPolicies }, { data: requestLinks }] = await Promise.all([
     supabase
       .from('service_policies')
-      .select('id, policy_number, carrier, product_type, face_amount, cash_value_amount, coverage_status, insured_first_name, insured_last_name, sa_status, sa_form_sent_at')
+      .select('id, policy_number, carrier, product_type, face_amount, cash_value_amount, issue_date, coverage_status, insured_first_name, insured_last_name, sa_status, sa_form_sent_at')
       .eq('customer_id', customerId)
       .eq('is_test', false),
     supabase
@@ -146,6 +147,7 @@ export async function GET(
     product_type: p.product_type as string | null,
     face_amount: p.face_amount as number | null,
     cash_value_amount: p.cash_value_amount as number | null,
+    issue_date: p.issue_date as string | null,
     coverage_status: p.coverage_status as string,
     insured_name: [p.insured_first_name, p.insured_last_name].filter(Boolean).join(' ') || null,
     sa_status: p.sa_status as string,
@@ -181,6 +183,23 @@ export async function GET(
     // the old failure stays in history.
     current: { email: cust.email, phone: cust.phone },
   })
+
+  // The DISPLAY customer history for the working-screen Customer History card.
+  // It reads the one durable history (case_touches) and groups the several
+  // communications of a single interaction into one readable event, newest
+  // first, preserving every underlying communication. This is display only; it
+  // does not influence cadence, eligibility, or any workflow decision (those
+  // come from getAttemptHistory above). Unlike the cadence read it is NOT scoped
+  // to the current run, so the worker sees the customer's whole contact history.
+  const { data: historyRows } = await supabase
+    .from('case_touches')
+    .select('id, touch_type, notes, touched_at, touched_by')
+    .eq('customer_id', customerId)
+    .order('touched_at', { ascending: false })
+  const customerHistory = buildCustomerHistory(
+    (historyRows ?? []) as HistoryTouchRow[],
+    actorTimeZone,
+  )
 
   // The AVAILABLE CONTACT OPTIONS for this customer, decided by the ZEN
   // contact-options decision over the real contact facts, with any channel
@@ -309,6 +328,9 @@ export async function GET(
       outreach_attempts: history.outreachAttempts,
       call_attempts: history.callAttempts,
       nonresponsive,
+      // The display customer history (grouped interactions, newest first) for
+      // the working-screen Customer History card. Display only.
+      customer_history: customerHistory,
       // Signer identity cannot be determined from durable data.
       signer_identity_known: false,
     },
