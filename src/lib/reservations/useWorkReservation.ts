@@ -46,24 +46,44 @@ export function useWorkReservation(opts: {
   // without re-subscribing, and holding it never needs to trigger a render.
   const heldRef = useRef<string | null>(null)
 
+  /** POST to the reservations endpoint. On a transport or HTTP failure (network
+   * error, 4xx/5xx) it THROWS, so the caller can distinguish a real failure
+   * from a successful "nothing available" response. A successful 2xx returns
+   * the response `data` (which may legitimately be null-ish fields). The
+   * heartbeat and unload paths pass `swallow: true` to keep best-effort
+   * renew/release calls from throwing into an interval or an unload handler. */
   const post = useCallback(
-    async (payload: Record<string, unknown>): Promise<unknown> => {
-      const res = await fetch('/api/reservations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ activity, subject_type: subjectType, ...payload }),
-        cache: 'no-store',
-      })
-      if (!res.ok) return null
-      const json = await res.json().catch(() => null)
-      return json?.data ?? null
+    async (
+      payload: Record<string, unknown>,
+      opts?: { swallow?: boolean },
+    ): Promise<unknown> => {
+      try {
+        const res = await fetch('/api/reservations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ activity, subject_type: subjectType, ...payload }),
+          cache: 'no-store',
+        })
+        if (!res.ok) {
+          if (opts?.swallow) return null
+          const err = await res.json().catch(() => null)
+          throw new Error(err?.error ?? `Reservation request failed (${res.status})`)
+        }
+        const json = await res.json().catch(() => null)
+        return json?.data ?? null
+      } catch (e) {
+        if (opts?.swallow) return null
+        throw e instanceof Error ? e : new Error('Reservation request failed')
+      }
     },
     [activity, subjectType],
   )
 
   /** Reserve the next available subject from an ordered candidate list. Returns
-   * the reserved subject id, or null when every candidate is currently taken.
-   * Updates the held subject so the heartbeat tracks it. */
+   * the reserved subject id, or null when every candidate is currently taken
+   * (a successful, empty result). THROWS on a reservation/transport failure so
+   * the caller can surface an error instead of mistaking a failure for an empty
+   * population. Updates the held subject so the heartbeat tracks it. */
   const reserveNext = useCallback(
     async (candidateIds: string[]): Promise<string | null> => {
       const data = (await post({ action: 'next', candidate_ids: candidateIds })) as
@@ -83,9 +103,14 @@ export function useWorkReservation(opts: {
    * frees it on leave. Updates the held subject so the heartbeat tracks it. */
   const reserveOne = useCallback(
     async (subjectId: string): Promise<boolean> => {
-      const data = (await post({ action: 'reserve', subject_id: subjectId })) as
-        | { mine: boolean; subject_id: string | null }
-        | null
+      // A deliberate reopen opens the subject regardless of the lease outcome,
+      // so a reservation failure here must not throw: swallow and report "not
+      // mine" (false). The caller opens either way; the TTL reclaims any stale
+      // lease.
+      const data = (await post(
+        { action: 'reserve', subject_id: subjectId },
+        { swallow: true },
+      )) as { mine: boolean; subject_id: string | null } | null
       const mine = !!data?.mine
       if (mine) heldRef.current = subjectId
       return mine
@@ -99,7 +124,8 @@ export function useWorkReservation(opts: {
     const held = heldRef.current
     if (!held) return
     heldRef.current = null
-    await post({ action: 'release', subject_id: held })
+    // Best-effort: a failed release is reclaimed by the TTL, so never throw.
+    await post({ action: 'release', subject_id: held }, { swallow: true })
   }, [post])
 
   // Heartbeat the held subject while the screen is mounted.
@@ -107,7 +133,8 @@ export function useWorkReservation(opts: {
     const t = setInterval(() => {
       const held = heldRef.current
       if (!held) return
-      void post({ action: 'heartbeat', subject_id: held })
+      // Best-effort renew: a missed heartbeat only risks TTL lapse, never throw.
+      void post({ action: 'heartbeat', subject_id: held }, { swallow: true })
     }, HEARTBEAT_MS)
     return () => clearInterval(t)
   }, [post])

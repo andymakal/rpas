@@ -73,27 +73,17 @@ function stewardshipRoute(queue: OutreachQueue, projectId?: string | null): stri
 }
 
 /**
- * A link to a derived ACTION POPULATION on the board (not a single stored
- * queue). The populations are callability-based, so a customer callable from
- * Ready to Email still appears under the call populations. The board opens
- * exactly the customers the population counted (Rule 1): the same derivation
- * runs on the board route, so the counted and opened sets match.
- */
-function populationRoute(
-  population: 'available-to-call' | 'calls-due' | 'introductory-emails',
-  projectId?: string | null,
-): string {
-  const base = `${STEWARDSHIP_ROUTE}?population=${encodeURIComponent(population)}`
-  return projectId ? `${base}&project_id=${encodeURIComponent(projectId)}` : base
-}
-
 /**
- * The Send Introductory Emails DIRECT WORKING SCREEN. Unlike populationRoute
- * (which opens the board's intermediate population list), this is the dedicated
+ * The Send Introductory Emails DIRECT WORKING SCREEN. This is the dedicated
  * continuous surface that lands straight on the first eligible customer and
  * advances automatically after each send — the same working-screen pattern as
  * Contact Research. Project scope is carried through so a project-scoped link
  * works exactly that project's first-touch population.
+ *
+ * (The board still exposes a `?population=` list view for each population as a
+ * deep link, but My Work no longer routes any activity to that intermediate
+ * list: both call populations and the introductory-email population open their
+ * dedicated direct working screens.)
  */
 function introductoryEmailsRoute(projectId?: string | null): string {
   const base = `${STEWARDSHIP_ROUTE}/introductory-emails`
@@ -102,17 +92,31 @@ function introductoryEmailsRoute(projectId?: string | null): string {
 
 /**
  * The Call Reachable Customers DIRECT WORKING SCREEN for the Available to Call
- * population. Like introductoryEmailsRoute (and unlike populationRoute, which
- * opens the board's intermediate population list), this is the dedicated
- * continuous calling surface that lands straight on the first available customer
- * and advances automatically after each recorded interaction — the same
- * working-screen pattern as Contact Research and Send Introductory Emails.
- * Project scope is carried through so a project-scoped link works exactly that
- * project's Available to Call population. Calls Due is deliberately NOT routed
- * here: due callbacks stay on the board's Calls Due population for now.
+ * population. This is the dedicated continuous calling surface that lands
+ * straight on the first available customer and advances automatically after each
+ * recorded interaction — the same working-screen pattern as Contact Research and
+ * Send Introductory Emails. Project scope is carried through so a project-scoped
+ * link works exactly that project's Available to Call population. Calls Due is
+ * worked on the same guided workbench in due mode (callsDueRoute).
  */
 function availableToCallRoute(projectId?: string | null): string {
   const base = `${STEWARDSHIP_ROUTE}/available-to-call`
+  return projectId ? `${base}?project_id=${encodeURIComponent(projectId)}` : base
+}
+
+/**
+ * The Make the Calls That Are Due DIRECT WORKING SCREEN for the Calls Due
+ * population. The SAME guided calling workbench as availableToCallRoute, opened
+ * in due mode: it lands straight on the first due customer (promised callback or
+ * automatic retry that has come due), advances automatically after each recorded
+ * interaction, and offers continuing with ordinary available calls when no due
+ * calls remain. This replaces the board's intermediate Calls Due population
+ * list; due work is now worked on the continuous calling surface, not browsed as
+ * a list. Project scope is carried through so a
+ * project-scoped link works exactly that project's Calls Due population.
+ */
+function callsDueRoute(projectId?: string | null): string {
+  const base = `${STEWARDSHIP_ROUTE}/calls-due`
   return projectId ? `${base}?project_id=${encodeURIComponent(projectId)}` : base
 }
 
@@ -952,11 +956,13 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
             claimedByOthers: 0,
             notEligible: 0,
             dueToMe: due ? n : 0,
-            // Available to Call opens the direct calling workbench for exactly
-            // this project's slice; Calls Due stays on the board population list.
+            // Both call populations open the SAME guided calling workbench for
+            // exactly this project's slice: Available to Call in its default
+            // mode, Calls Due in due mode. Neither uses the board's intermediate
+            // population list anymore.
             route: population === 'available-to-call'
               ? availableToCallRoute(pid)
-              : populationRoute(population, pid),
+              : callsDueRoute(pid),
           }
         }
         return Object.keys(out).length > 0 ? out : undefined
@@ -967,9 +973,11 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
           kind: 'stewardship',
           label: 'Shared Stewardship board — Calls Due',
           count: callsDue,
-          // Opens the Calls Due population (callable + scheduled-due), the SAME
-          // set this counted, regardless of each item's stored queue.
-          route: populationRoute('calls-due'),
+          // Opens the Make the Calls That Are Due guided workbench (callable +
+          // scheduled-due), landing straight on the first due customer — the
+          // SAME set this counted, regardless of each item's stored queue —
+          // instead of the board's intermediate population list.
+          route: callsDueRoute(),
           projectId: null,
           ownedByMe: 0,
           availableToMe: callsDue,
