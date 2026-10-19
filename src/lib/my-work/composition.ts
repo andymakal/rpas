@@ -1408,20 +1408,30 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     const eligible = a.eligible > 0
     const focusElevated = a.focusEligible > 0
 
+    // An activity with an always-present reachable STANDING entry point stays
+    // visible to an eligible employee even when it is otherwise empty, so a
+    // standing working screen is never hidden just because no items are waiting
+    // right now. Today this is Outreach's Servicing Access source (an
+    // informational, zero-or-more count link): keeping the activity lets the
+    // Available-work plan render the Servicing Access step at its real count
+    // (0 when none) in working order. This adds no priority and inflates no
+    // total — the source is informational, so the activity total stays the real
+    // work (0 when quiet) and the ZEN band is the ordinary empty/shared band.
+    const hasStandingEntryPoint = eligible && a.sources.some((s) => s.informational && !!s.route)
+
     // Drop activities with no work that are not a directed focus for this
-    // eligible employee. (An ineligible, empty activity is simply not shown.)
-    // "No work" means no OUTSTANDING items AND no unresolved population: an
-    // activity whose outstanding count has reached zero but still has unresolved
-    // customers (e.g. Research with only researched-unsuccessfully customers
-    // left) stays visible and directly accessible, as long as unresolved work
-    // remains.
-    //
-    // Servicing Access reachability when the Outreach activity is otherwise
-    // empty is NOT handled by retaining an empty activity card (which would read
-    // as artificial). It is a standing entry point in Practice Direction (a
-    // zero-count, no-priority link for an outreach-routed employee), so the
-    // screen stays reachable from My Work without inflating or inventing work.
-    if (a.total === 0 && a.unresolved === 0 && !(focusElevated && eligible)) continue
+    // eligible employee AND have no standing entry point. (An ineligible, empty
+    // activity is simply not shown.) "No work" means no OUTSTANDING items AND no
+    // unresolved population: an activity whose outstanding count has reached zero
+    // but still has unresolved customers (e.g. Research with only
+    // researched-unsuccessfully customers left) stays visible as long as
+    // unresolved work remains.
+    if (
+      a.total === 0 &&
+      a.unresolved === 0 &&
+      !(focusElevated && eligible) &&
+      !hasStandingEntryPoint
+    ) continue
 
     // The employee's capability STANDING for this activity, across the scopes it
     // touches. This distinguishes the non-routable situations so each routes

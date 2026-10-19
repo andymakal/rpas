@@ -196,8 +196,16 @@ export function deriveMyWorkDirection(state: MyWorkState): MyWorkDirection {
   // primary/support/work-mode groups or the quiet decision — only the plan shows it.
   const hasUnresolvedOnly = (a: ActivityGroup): boolean =>
     !isActionable(a) && (a.unresolvedCount ?? 0) > 0
+  // The Outreach activity stays in the plan when it carries the always-present
+  // Servicing Access standing source, even if it is not otherwise actionable, so
+  // Servicing Access is a reachable Available-work step (showing 0 when no forms
+  // await processing). Like hasUnresolvedOnly, this is PLAN-ONLY: such an
+  // activity is not added to primary/support/work-mode groups, and it does not
+  // by itself make the briefing non-quiet below.
+  const hasServicingAccessStandingStep = (a: ActivityGroup): boolean =>
+    a.workFunction === 'outreach' && outreachServicingAccess(a) != null
   const planActivities = state.activities.filter(
-    (a) => isActionable(a) || hasUnresolvedOnly(a),
+    (a) => isActionable(a) || hasUnresolvedOnly(a) || hasServicingAccessStandingStep(a),
   )
 
   if (planActivities.length === 0) {
@@ -305,6 +313,25 @@ function outreachSubPopulation(
 }
 
 /**
+ * The Servicing Access sub-population source, read WITHOUT the count>0 gate the
+ * other outreach sub-populations use. The composition always emits this
+ * informational source for an outreach-eligible employee (count 0 or more), so
+ * Servicing Access stays a reachable Available-work step even when no forms are
+ * awaiting processing — the task is to keep it clickable, showing 0 when
+ * appropriate. The count is the real pending-work figure (owned + available)
+ * and the route preserves the composition's project/eligibility scoping.
+ */
+function outreachServicingAccess(
+  outreach: ActivityGroup,
+): { count: number; route: string | null } | null {
+  const s = outreach.sources.find(
+    (src) => src.informational && /servicing access/i.test(src.label),
+  )
+  if (!s) return null
+  return { count: s.ownedByMe + s.availableToMe, route: s.route }
+}
+
+/**
  * Build the ordered working plan from the actionable activities (already in ZEN
  * rank + catalog working order). Each activity becomes one step, except Outreach
  * which expands into its real sub-populations in working order: introductory
@@ -392,10 +419,37 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
             emphasis,
           })
         }
+        // Servicing Access sits between calling and operations preparation in the
+        // working order: a signed authorization in hand is worked after outreach
+        // reaches the customer and before operations collects documents. It is
+        // ALWAYS shown as a reachable step for an outreach-eligible employee,
+        // even at count 0 (a signed authorization can arrive at any time and the
+        // screen's find-a-customer search starts the work), so unlike the other
+        // outreach sub-populations it is NOT gated on count > 0. The count is the
+        // real pending-work figure from the composition's informational source
+        // (0 when none), and the route preserves project/eligibility scope.
+        const servicingAccess = outreachServicingAccess(a)
+        if (servicingAccess) {
+          steps.push({
+            key: 'outreach:servicing-access',
+            title: 'Process servicing access',
+            reason:
+              'A signed servicing-agent authorization is in hand: save the form, send it to the carrier, follow up, and record confirmation, which opens Operations Preparation. Open it any time a signed authorization arrives.',
+            count: servicingAccess.count,
+            actionLabel: 'Open Servicing Access',
+            route: servicingAccess.route,
+            emphasis,
+          })
+        }
         // Fallback: outreach is actionable but carries no recognized sub-
         // population (e.g. only follow-up chases). Offer the activity directly
-        // so the step is never silently dropped.
-        if (!intro && !callsDue && !otherCalls) {
+        // so the step is never silently dropped. The always-present Servicing
+        // Access standing step does NOT count as a recognized actionable
+        // sub-population here: when it is the only thing present (an otherwise
+        // empty, eligible Outreach), the fallback must not add a redundant
+        // zero-count "Continue outreach" step on top of it.
+        const hasActionableSubPopulation = !!intro || !!callsDue || !!otherCalls
+        if (!hasActionableSubPopulation && !servicingAccess) {
           steps.push({
             key: 'outreach',
             title: 'Continue outreach',

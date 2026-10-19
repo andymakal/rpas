@@ -46,7 +46,7 @@ import Link from 'next/link'
 import {
   Sparkles, ArrowRight, Phone, Mail, Users, CheckCircle2, Lock,
   ListChecks, ChevronRight, SlidersHorizontal,
-  CalendarClock, Target, Briefcase, Hourglass, FileCheck2,
+  CalendarClock, Target, Briefcase, Hourglass,
 } from 'lucide-react'
 import {
   Select,
@@ -747,22 +747,6 @@ function PracticeDirectionColumn({ state }: { state: MyWorkState }) {
             No activities are routed to you yet. An administrator can assign them
             on the Team page.
           </p>
-        )}
-
-        {/* Servicing Access is always reachable for an outreach-routed employee,
-            even when no customers are waiting right now: a signed authorization
-            can arrive at any moment, and the screen's find-a-customer search
-            starts the work. This is a standing entry point, not a work tally —
-            it shows no count and sets no priority. */}
-        {responsibilities.some((r) => r.workFunction === 'outreach') && (
-          <Link
-            href="/stewardship/servicing-access"
-            className="mt-2.5 inline-flex items-center gap-1.5 text-sm font-medium text-brand-hover hover:underline"
-          >
-            <FileCheck2 className="size-4 shrink-0" aria-hidden />
-            Open Servicing Access
-            <ArrowRight className="size-3.5" aria-hidden />
-          </Link>
         )}
       </div>
 
