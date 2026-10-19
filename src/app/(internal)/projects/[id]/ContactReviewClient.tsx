@@ -34,7 +34,7 @@ import {
   Loader2, Save, SkipForward, ClipboardCheck, UserRound, PhoneOff,
 } from 'lucide-react'
 import {
-  TaskShell, ActionPanel, PrimaryAction, WorkflowButton, ContextLabel,
+  TaskShell, ActionPanel, PrimaryAction, WorkflowButton,
   AssistantPanel, GatewayLookup,
   CustomerContactCard, type CustomerContact,
   PolicySummaryList, type PolicySummary,
@@ -851,7 +851,7 @@ function ContactReviewTask({
             customer={toCardCustomer(customer)}
             onChange={onContactChange}
           />
-          <ContextLabel>Policy summary</ContextLabel>
+          {/* The Policies card owns its single "Policies" heading. */}
           <PolicySummaryList policies={policies} />
         </>
       }
@@ -860,12 +860,11 @@ function ContactReviewTask({
         // work will record) above the Customer History. Contact Research records
         // a research outcome rather than a contact attempt, so the preview is
         // the research entry; the Customer History below shows the customer's
-        // whole grouped contact history, display only.
+        // whole grouped contact history, display only. Each card owns its own
+        // single heading.
         <>
-          <ContextLabel>Next history entry</ContextLabel>
           <NextHistoryEntry
             preview={describeNextHistoryEntry('contact-research', { customerName: customer.first_name })}
-            showNotes={false}
           />
           <CustomerHistoryCard events={history} actorTimeZone={historyTz} />
         </>

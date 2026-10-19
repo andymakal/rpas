@@ -20,7 +20,7 @@ import {
   WorkflowPage, WorkflowHeader,
   QueueSection, QueueRow, QueueListHeader, CustomerQueueCard, QueueEmptyState,
   TaskShell, SlimTaskHeader, ContextHeader, type ContextField,
-  ActionPanel, ContextLabel, PrimaryAction, WorkflowButton, NextNote, OperationalTag,
+  ActionPanel, PrimaryAction, WorkflowButton, NextNote, OperationalTag,
   CustomerContactCard, type CustomerContact, GatewayLookup,
   PolicySummaryList, type PolicySummary,
   CustomerHistoryCard, NextHistoryEntry,
@@ -1211,9 +1211,9 @@ function StewardshipHistoryColumn({
         : describeNextHistoryEntry(activity, { customerName: detail.customer.first_name })
   return (
     <>
-      <ContextLabel>Next history entry</ContextLabel>
-      {/* Only shown when the workflow can actually generate a history event. */}
-      {preview && <NextHistoryEntry preview={preview} showNotes={false} />}
+      {/* The card owns its single heading; blank until there is something to
+          record (the calling flow before a reach decision passes null). */}
+      <NextHistoryEntry preview={preview} />
       <CustomerHistoryCard events={detail.customer_history ?? []} />
     </>
   )
@@ -1316,14 +1316,11 @@ function StewardshipContextPanel({
           workbench (whose Reached/Didn't Reach flow IS the single recording). */}
       {!introEmail && !research && !forceCall && <RecordAttemptPanel detail={detail} busy={busy} act={act} />}
       {withHistoryColumn ? (
-        // Working-screen center column: the read-only Policy Summary beneath the
-        // contact card. Holdings-as-context is replaced by the summary here; the
-        // request/other-holdings distinction is preserved by summarizing the
-        // request policies first.
-        <>
-          <ContextLabel>Policy summary</ContextLabel>
-          <PolicySummaryList policies={summaryPolicies} />
-        </>
+        // Working-screen center column: the read-only Policies card beneath the
+        // contact card (it owns its single "Policies" heading). Holdings-as-
+        // context is replaced by it here; the request/other-holdings distinction
+        // is preserved by summarizing the request policies first.
+        <PolicySummaryList policies={summaryPolicies} />
       ) : (
         <HoldingsContext request={request} context={context} />
       )}

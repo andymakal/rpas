@@ -38,18 +38,11 @@ const PREVIEW_COUNT = 5
 
 export function NextHistoryEntry({
   preview,
-  notes,
-  onNotesChange,
-  showNotes = true,
   className,
 }: {
-  preview: NextHistoryEntryPreview
-  /** The optional additional notes value (controlled). Omit with onNotesChange
-   * to hide the notes field. */
-  notes?: string
-  onNotesChange?: (value: string) => void
-  /** Whether to offer the optional additional-notes field. */
-  showNotes?: boolean
+  /** The concise entry being built, or null when there is nothing to record
+   * yet. When null the card shows its heading with a blank state. */
+  preview: NextHistoryEntryPreview | null
   className?: string
 }) {
   return (
@@ -60,30 +53,19 @@ export function NextHistoryEntry({
       )}
       aria-label="Next history entry"
     >
+      {/* The single heading for this card — the column no longer repeats it
+          above. Matches the Customer Contact card's heading treatment. */}
       <div className="flex items-center gap-2">
         <CheckCircle2 className="size-5 text-brand" aria-hidden />
         <h3 className="text-[22px] font-semibold leading-tight text-ink">Next history entry</h3>
       </div>
 
-      <p className="mt-2 text-base font-medium text-ink">{preview.summary}</p>
-      {preview.note && (
-        <p className="mt-1 text-sm leading-relaxed text-ink-supporting">{preview.note}</p>
-      )}
-
-      {showNotes && onNotesChange && (
-        <div className="mt-3">
-          <label className="text-sm uppercase tracking-wide text-ink-supporting" htmlFor="next-history-notes">
-            Additional notes (optional)
-          </label>
-          <textarea
-            id="next-history-notes"
-            value={notes ?? ''}
-            onChange={(e) => onNotesChange(e.target.value)}
-            rows={2}
-            placeholder="Anything extra to attach to this entry"
-            className="mt-1 w-full rounded-lg border border-surface-border-strong bg-surface-card px-3 py-2 text-base text-ink placeholder:text-ink-muted focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-ring/40"
-          />
-        </div>
+      {/* Only the concise entry being built — no explanatory text. Blank until
+          there is something to record. */}
+      {preview?.summary ? (
+        <p className="mt-2 text-base font-medium text-ink">{preview.summary}</p>
+      ) : (
+        <p className="mt-2 text-base italic text-ink-muted">Nothing to record yet.</p>
       )}
     </section>
   )

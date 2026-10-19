@@ -1,5 +1,4 @@
 import type { Meta, StoryObj } from '@storybook/react'
-import { useState } from 'react'
 
 import { CustomerHistoryCard, NextHistoryEntry } from './CustomerHistoryCard'
 import type { HistoryEvent } from '@/lib/stewardship/customer-history'
@@ -108,20 +107,16 @@ export const Empty: Story = {
   args: { events: [] },
 }
 
-/** The Next History Entry preview for the calling activity, with the optional
- * additional-notes field enabled. */
+/** The Next History Entry preview: only the concise entry being built, no
+ * heading repetition and no explanatory text. */
 export const NextEntryPreview: StoryObj = {
-  render: () => {
-    const Demo = () => {
-      const [notes, setNotes] = useState('')
-      return (
-        <NextHistoryEntry
-          preview={describeNextHistoryEntry('calling', { customerName: 'Stephen' })}
-          notes={notes}
-          onNotesChange={setNotes}
-        />
-      )
-    }
-    return <Demo />
-  },
+  render: () => (
+    <NextHistoryEntry preview={describeNextHistoryEntry('calling', { customerName: 'Stephen' })} />
+  ),
+}
+
+/** The Next History Entry before anything is chosen: blank until there is
+ * something to record. */
+export const NextEntryBlank: StoryObj = {
+  render: () => <NextHistoryEntry preview={null} />,
 }
