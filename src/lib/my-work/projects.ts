@@ -18,6 +18,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveProducerForUser } from '@/lib/capabilities/resolve'
 import { buildProjectWorkflow, summarizeWorkflow, type WorkflowStage } from '@/lib/projects/review-1035'
 import { projectHasWorkflow, isPermanentPolicyReviewTypeName } from '@/lib/projects/workflows'
+import { getProjectTeam, type ProjectPerson } from '@/lib/projects/team'
 import { STAGE_LABEL } from '@/lib/my-work/project-labels'
 
 // Re-export so existing server importers of STAGE_LABEL keep working. The
@@ -26,23 +27,10 @@ import { STAGE_LABEL } from '@/lib/my-work/project-labels'
 // server-only composition into the client bundle.
 export { STAGE_LABEL }
 
-/** One participant or escalation contact, for the "responsible people" view. */
-export interface ProjectPerson {
-  producerId: string
-  name: string
-  /** Participation note, or the escalation tier note. */
-  note: string | null
-  /** The participant's project responsibility (owner, operations_manager, ...).
-   * This is a PROJECT responsibility, kept distinct from the producer's job
-   * title, their licensing facts, and their routing/capability assignments. */
-  role?: string | null
-  /** The producer's life-license FACT (a qualification, NOT a responsibility):
-   * true = affirmatively held, false = affirmatively not, null = unknown. Shown
-   * as a small annotation beside the responsibility, never merged into it. */
-  isLifeLicensed?: boolean | null
-  /** Set for escalation contacts: 1 = first destination. */
-  tier?: number
-}
+// The project team shape lives in the shared team module (the single reader /
+// writer of project_participants + project_escalation_contacts). Re-exported
+// here so existing importers of ProjectPerson keep working.
+export type { ProjectPerson }
 
 /** The progress + bottleneck summary for a project the employee is in. */
 export interface MyProjectCard {
@@ -78,9 +66,6 @@ export interface MyProjectsState {
 /** The active (non-terminal) stages that can represent a bottleneck. */
 const ACTIVE_STAGES: WorkflowStage[] = ['stewardship', 'operations_prep', 'bob_evaluation']
 
-type ParticipantRow = { producer_id: string; note: string | null; role: string | null; producers: { first_name: string | null; last_name: string | null; is_life_licensed: boolean | null } }
-type EscalationRow = { producer_id: string; tier: number; note: string | null; producers: { first_name: string | null; last_name: string | null } }
-
 export async function getMyProjects(authUserId: string): Promise<MyProjectsState> {
   const supabase = createAdminClient()
   const producer = await resolveProducerForUser(authUserId)
@@ -113,43 +98,17 @@ export async function getMyProjects(authUserId: string): Promise<MyProjectsState
     .in('id', myProjectIds)
     .order('created_at', { ascending: false })
 
-  // All participants + escalation for these projects, in one read each.
-  const [{ data: allParticipants }, { data: allEscalation }] = await Promise.all([
-    supabase
-      .from('project_participants')
-      .select('project_id, producer_id, note, role, producers ( first_name, last_name, is_life_licensed )')
-      .in('project_id', myProjectIds),
-    supabase
-      .from('project_escalation_contacts')
-      .select('project_id, producer_id, tier, note, producers ( first_name, last_name )')
-      .in('project_id', myProjectIds)
-      .order('tier', { ascending: true }),
-  ])
-
+  // Team (participants + ordered escalation) for each project, read through the
+  // shared team module so this view and the Project Overview Team section agree.
   const participantsByProject = new Map<string, ProjectPerson[]>()
-  for (const p of (allParticipants ?? []) as unknown as (ParticipantRow & { project_id: string })[]) {
-    const list = participantsByProject.get(p.project_id) ?? []
-    list.push({
-      producerId: p.producer_id,
-      name: `${p.producers?.first_name ?? ''} ${p.producers?.last_name ?? ''}`.trim() || 'Team member',
-      note: p.note,
-      role: p.role,
-      isLifeLicensed: p.producers?.is_life_licensed ?? null,
-    })
-    participantsByProject.set(p.project_id, list)
-  }
-
   const escalationByProject = new Map<string, ProjectPerson[]>()
-  for (const e of (allEscalation ?? []) as unknown as (EscalationRow & { project_id: string })[]) {
-    const list = escalationByProject.get(e.project_id) ?? []
-    list.push({
-      producerId: e.producer_id,
-      name: `${e.producers?.first_name ?? ''} ${e.producers?.last_name ?? ''}`.trim() || 'Team member',
-      note: e.note,
-      tier: e.tier,
-    })
-    escalationByProject.set(e.project_id, list)
-  }
+  await Promise.all(
+    myProjectIds.map(async (pid) => {
+      const team = await getProjectTeam(supabase, pid)
+      participantsByProject.set(pid, team.participants)
+      escalationByProject.set(pid, team.escalation)
+    }),
+  )
 
   const projects: MyProjectCard[] = []
   for (const pr of (projRows ?? []) as unknown as {

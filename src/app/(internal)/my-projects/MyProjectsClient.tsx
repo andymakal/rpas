@@ -18,6 +18,7 @@ import Link from 'next/link'
 import { ArrowRight, Users, AlertTriangle, Play, FolderGit2 } from 'lucide-react'
 import { WorkflowPage, WorkflowHeader, OperationalTag } from '@/components/workflow'
 import { STAGE_LABEL } from '@/lib/my-work/project-labels'
+import { roleLabel } from '@/lib/projects/project-roles'
 import type { MyProjectCard, MyProjectsState } from '@/lib/my-work/projects'
 import type { WorkflowStage } from '@/lib/projects/review-1035'
 
@@ -182,20 +183,6 @@ function ProjectCard({ project }: { project: MyProjectCard }) {
       </div>
     </article>
   )
-}
-
-/** Human label for a project participation RESPONSIBILITY (not a job title or a
- * routing assignment). */
-function roleLabel(role: string): string {
-  switch (role) {
-    case 'owner': return 'Project owner and operations manager'
-    case 'operations_manager': return 'Operations manager'
-    case 'senior_producer': return 'Senior producer'
-    case 'operations': return 'Operations'
-    case 'underwriting_support': return 'Underwriting support'
-    case 'outreach': return 'Outreach'
-    default: return role.replace(/_/g, ' ')
-  }
 }
 
 /**

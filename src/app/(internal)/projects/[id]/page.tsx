@@ -11,6 +11,7 @@ import {
 } from '@/components/workflow'
 import { fmtDate } from '@/lib/fmt'
 import { ProjectWorkflowsClient } from './ProjectWorkflowsClient'
+import { ProjectTeamClient } from './ProjectTeamClient'
 
 export const metadata: Metadata = { title: 'Project' }
 
@@ -205,6 +206,11 @@ export default async function ProjectDetailPage({
             Each run is preserved separately. Adding a new run never removes customers already in the project.
           </p>
         </section>
+
+        {/* Team — participants, their project responsibilities, and the ordered
+            operations escalation path. Read-only while archived. Separate from
+            capabilities, licensing, and work routing; changes no work assignment. */}
+        <ProjectTeamClient projectId={project.id} readOnly={isArchived} />
 
         {/* Workflow configuration — select reusable workflows and wire their
             dependencies. Read-only while archived (no new activity). */}
