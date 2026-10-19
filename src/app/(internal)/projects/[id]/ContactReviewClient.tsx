@@ -42,7 +42,7 @@ import {
   QueueListHeader, CustomerQueueCard, QueueEmptyState, OperationalTag,
 } from '@/components/workflow'
 import {
-  describeNextHistoryEntry,
+  describeContactResearchSelection,
   type HistoryEvent,
 } from '@/lib/stewardship/customer-history'
 import {
@@ -724,6 +724,23 @@ function ContactReviewTask({
   const [policies, setPolicies] = useState<PolicySummary[]>([])
   const [historyTz, setHistoryTz] = useState<string | null>(null)
 
+  // The method presence when this customer opened, captured once via a lazy
+  // state initializer (so it is the first-render baseline and is safe to read
+  // during render). The Next History Entry preview reflects the ACTUAL
+  // selection by comparing the current presence against this baseline: once a
+  // previously-missing method is filled, the preview reads "Contact Updated
+  // (…)". The task remounts per customer (keyed by id), so the baseline is this
+  // customer's state at open.
+  const [initialPresence] = useState(() => ({
+    hasEmail: customer.has_email,
+    hasPhone: customer.has_phone,
+    hasAddress: customer.has_address,
+  }))
+  const researchPreview = describeContactResearchSelection(
+    initialPresence,
+    { hasEmail: customer.has_email, hasPhone: customer.has_phone, hasAddress: customer.has_address },
+  )
+
   const loadHistory = useCallback(async () => {
     try {
       const res = await fetch(`/api/customers/${customer.customer_id}/contact-history`, { cache: 'no-store' })
@@ -818,23 +835,30 @@ function ContactReviewTask({
             </p>
           )}
 
-          {/* The two advancing actions, side by side at half width each. Save &
-              Next stays the primary teal action and advances to the next customer
-              (edits are already persisted by the card); Nothing Usable & Next
-              records the unsuccessful research durably and continues. */}
-          <div className="grid grid-cols-2 gap-3">
-            <PrimaryAction
+          {/* The two advancing actions, equal width and visually balanced. Save
+              & Next is the primary teal action (advances to the next customer;
+              edits are already persisted by the card); Nothing Usable & Next
+              records the unsuccessful research durably and continues. Both are
+              the same structural control so they stay balanced, and both allow
+              their label to WRAP to two lines (whitespace-normal + auto height)
+              so neither truncates in the narrower equal-thirds column. */}
+          <div className="grid grid-cols-2 items-stretch gap-3">
+            <WorkflowButton
               icon={Save}
-              label="Save & Next"
+              selected
+              size="lg"
               onClick={onSaved}
               disabled={busy}
-            />
+              className="h-auto min-h-14 justify-center whitespace-normal rounded-xl px-5 py-3 text-center text-lg font-semibold leading-tight"
+            >
+              Save &amp; Next
+            </WorkflowButton>
             <WorkflowButton
               icon={SkipForward}
               size="lg"
               onClick={nothingUsable}
               disabled={busy}
-              className="h-14 justify-center rounded-xl px-5 text-lg font-semibold"
+              className="h-auto min-h-14 justify-center whitespace-normal rounded-xl px-5 py-3 text-center text-lg font-semibold leading-tight"
             >
               Nothing Usable &amp; Next
             </WorkflowButton>
@@ -863,9 +887,11 @@ function ContactReviewTask({
         // whole grouped contact history, display only. Each card owns its own
         // single heading.
         <>
-          <NextHistoryEntry
-            preview={describeNextHistoryEntry('contact-research', { customerName: customer.first_name })}
-          />
+          {/* Reflects the actual selection: "Contact Updated (…)" once a
+              previously-missing method is filled; blank until there is something
+              to record (a filled value, or the deliberate Nothing Usable action
+              which records the research outcome). */}
+          <NextHistoryEntry preview={researchPreview} />
           <CustomerHistoryCard events={history} actorTimeZone={historyTz} />
         </>
       }

@@ -72,6 +72,10 @@ export interface HistoryEvent {
   by: string | null
   /** True when any communication in the interaction reached the customer. */
   reached: boolean
+  /** What kind of event this is, so the card can render the right affordance:
+   * a customer communication ('contact') or an internal research record
+   * ('research'). Defaults to 'contact' when absent. */
+  kind?: 'contact' | 'research'
   /** The underlying communications, preserved. */
   communications: HistoryCommunication[]
 }
@@ -102,8 +106,11 @@ export const ACTIVITY_DESCRIPTIONS: Record<OutreachChannel, ChannelDescriptions>
     unusable: 'Bad Number',
   },
   voicemail: {
+    // A voicemail touch_type exists only because a voicemail was left, so it
+    // always reads "Voicemail" — the [no-contact] marker on it means the call
+    // did not reach, not that no voicemail was left.
     touch: 'Voicemail',
-    no_contact: 'No voicemail',
+    no_contact: 'Voicemail',
     unusable: 'Voicemail unavailable',
   },
   text: {
@@ -145,15 +152,52 @@ export function describeActivity(
 // shared history card does not depend on a page component.
 // ---------------------------------------------------------------------------
 
+/** The system-generated outcome phrases the workflow writes onto a touch note.
+ * They duplicate what the concise summary already says, so they are stripped
+ * from the displayed detail; only a genuine employee-typed note survives. The
+ * list mirrors the fixed phrases the stewardship PATCH / call-outcome paths
+ * write (see /api/stewardship/[id]). A trailing clause after a period (e.g.
+ * "Follow-up auto-scheduled.") is also system prose and is removed. */
+const SYSTEM_OUTCOME_PHRASES: readonly RegExp[] = [
+  /^Reached the customer\.?/i,
+  /^Left a voicemail\.?(\s*Follow-up auto-scheduled\.?)?/i,
+  /^Bad number\.?(\s*Moved to Research Needed\.?)?/i,
+  /^Customer declined\.?(\s*Outreach stopped until deliberately reopened\.?)?/i,
+  /^Customer asked for a callback(\s+on\s+\S+)?\.?/i,
+  /^Contact research completed: no usable (?:email|phone|mailing address) found\.?/i,
+  // The authorization-email / form-sent confirmations the send paths write.
+  // These are system descriptions, redundant with the concise channel summary.
+  /^1035 servicing-agent authorization email sent to the customer(\s+at\s+\S+)?\.?/i,
+  /^Servicing-agent authorization form sent to the customer(\s+\w+)?\.?/i,
+]
+
+/**
+ * Strip the internal machine markers AND the system-generated boilerplate so
+ * the displayed detail is only a genuine employee-typed note (or nothing). It
+ * removes the "Servicing-agent onboarding <channel>" prefix the routes prepend,
+ * the fixed system outcome phrases, and every outcome/research marker. What
+ * remains is the operator's own words, which are preserved. Display only; it
+ * never changes the stored note.
+ */
 export function cleanHistoryNote(note: string | null): string | null {
   if (!note) return null
-  const cleaned = note
-    .replace(/\[research-(?:email|phone)-not-found\]/gi, '')
+  let cleaned = note
+    // Every stored machine marker, including the address research marker.
+    .replace(/\[research-(?:email|phone|address)-not-found\]/gi, '')
     .replace(/\[channel-unusable(?::[^\]]*)?\]/gi, '')
     .replace(/\[no-contact\]/gi, '')
     .replace(/\[reached\]/gi, '')
-    .replace(/\s{2,}/g, ' ')
+    // The "Servicing-agent onboarding <channel>" boilerplate prefix, with or
+    // without the trailing ": " (employee note) or "." (no note).
+    .replace(/^Servicing-agent onboarding\s+(?:call|voicemail|text|email|postal)\s*[:.]?\s*/i, '')
     .trim()
+  // Remove a leading system outcome phrase; a genuine employee note (if any)
+  // follows it and is kept.
+  for (const re of SYSTEM_OUTCOME_PHRASES) {
+    const next = cleaned.replace(re, '').trim()
+    if (next !== cleaned) { cleaned = next; break }
+  }
+  cleaned = cleaned.replace(/\s{2,}/g, ' ').trim()
   return cleaned.length > 0 ? cleaned : null
 }
 
@@ -167,6 +211,79 @@ const HISTORY_CHANNELS: ReadonlySet<string> = new Set([
   'email',
   'postal',
 ])
+
+/** The touch_type recorded contact research is stored under (see
+ * research-record.ts). It is internal research, not a customer communication,
+ * so it is shown as its own distinct, concise history event. */
+const RESEARCH_TOUCH_TYPE = 'research'
+
+/** Which contact method an unsuccessful-research touch note refers to, from its
+ * stable marker. null when the note carries no recognizable research marker. */
+function researchMethodOfNote(note: string | null): 'email' | 'phone' | 'address' | null {
+  if (!note) return null
+  const n = note.toLowerCase()
+  if (n.includes('[research-email-not-found]')) return 'email'
+  if (n.includes('[research-phone-not-found]')) return 'phone'
+  if (n.includes('[research-address-not-found]')) return 'address'
+  return null
+}
+
+const RESEARCH_METHOD_LABEL: Record<'email' | 'phone' | 'address', string> = {
+  email: 'email',
+  phone: 'phone',
+  address: 'mailing address',
+}
+
+/**
+ * Build the recorded-research history events from the research touches, grouped
+ * so the per-method rows written together in one research pass (shared
+ * timestamp) read as ONE concise "Research Unsuccessful" event naming the
+ * methods. Internal research is distinct from outreach, so these are their own
+ * events rather than folded into a call attempt. The redundant system sentence
+ * on each note is not shown; the concise label carries the meaning.
+ */
+function buildResearchEvents(rows: HistoryTouchRow[]): HistoryEvent[] {
+  const researchRows = rows.filter((r) => r.touch_type === RESEARCH_TOUCH_TYPE)
+  if (researchRows.length === 0) return []
+
+  // Group by the shared touched_at (one research pass).
+  const byAt = new Map<string, HistoryTouchRow[]>()
+  for (const r of researchRows) {
+    const list = byAt.get(r.touched_at) ?? []
+    list.push(r)
+    byAt.set(r.touched_at, list)
+  }
+
+  const events: HistoryEvent[] = []
+  for (const [at, group] of byAt) {
+    const methods = group
+      .map((r) => researchMethodOfNote(r.notes))
+      .filter((m): m is 'email' | 'phone' | 'address' => m != null)
+    const methodLabels = Array.from(new Set(methods)).map((m) => RESEARCH_METHOD_LABEL[m])
+    // "Research Unsuccessful (email, phone)" — concise, the methods in parens.
+    const summary = methodLabels.length > 0
+      ? `Research Unsuccessful (${methodLabels.join(', ')})`
+      : 'Research Unsuccessful'
+    const by = group.map((r) => r.touched_by).find((n) => !!n) ?? null
+    events.push({
+      at,
+      summary,
+      by,
+      reached: false,
+      kind: 'research',
+      // Preserve the underlying rows, but suppress the redundant system note:
+      // cleanHistoryNote strips the research sentence, leaving detail null.
+      communications: group.map((r) => ({
+        id: r.id,
+        channel: 'email' as OutreachChannel, // nominal; research is not a channel
+        outcome: 'no_contact' as ChannelOutcome,
+        reached: false,
+        detail: cleanHistoryNote(r.notes),
+      })),
+    })
+  }
+  return events
+}
 
 function zoneOf(actorTimeZone: string | null): string {
   return isValidTimeZone(actorTimeZone) ? (actorTimeZone as string) : FALLBACK_ACTOR_TIME_ZONE
@@ -262,12 +379,21 @@ export function buildCustomerHistory(
       summary: summarizeInteraction(communications, overrides),
       by,
       reached: a.reached,
+      kind: 'contact' as const,
       communications,
     }
   })
 
+  // Include the recorded contact-research activity (including unsuccessful
+  // research) as its own concise events, then interleave newest-first with the
+  // communication events. Research is distinct from a contact attempt, so it is
+  // never folded into a call interaction.
+  const researchEvents = buildResearchEvents(rows)
+
   // Newest first for the card (the grouping returns oldest-first).
-  return events.sort((x, y) => new Date(y.at).getTime() - new Date(x.at).getTime())
+  return [...events, ...researchEvents].sort(
+    (x, y) => new Date(y.at).getTime() - new Date(x.at).getTime(),
+  )
 }
 
 /** Format an instant as the customer-history display timestamp:
@@ -318,61 +444,48 @@ export function describeNextHistoryEntry(
     callOutcome?: 'reached' | 'voicemail' | 'bad-number' | 'not-interested' | 'callback' | null
   },
 ): NextHistoryEntryPreview {
-  const who = options?.customerName?.trim() || 'the customer'
-
+  // Concise labels only — no generic system explanation. The preview reads as
+  // the entry that will be recorded, in the same vocabulary the history uses.
   switch (activity) {
     case 'introductory-email':
-      return {
-        summary: `Introductory servicing-agent email sent to ${who}`,
-        note: 'Recorded automatically when you confirm the send, with the follow-up scheduled.',
-      }
+      return { summary: 'Email' }
     case 'contact-research':
-      return {
-        summary: 'Contact research recorded',
-        note: 'When no usable method is found, the unsuccessful research is recorded per method.',
-      }
+      return { summary: 'Contact Research' }
     case 'form-sent':
-      return {
-        summary: `Authorization form sent to ${who}`,
-        note: 'Recorded automatically when you confirm the send.',
-      }
+      return { summary: 'Form Sent' }
     case 'follow-up':
-      return {
-        summary: 'Follow-up recorded',
-        note: 'Recorded automatically when you log the chase; the next follow-up is scheduled.',
-      }
+      return { summary: 'Follow-up' }
     case 'calling': {
       const o = options?.callOutcome
-      if (o === 'reached') {
-        return {
-          summary: `Spoke with ${who}`,
-          note: 'Recorded automatically when you save the call outcome.',
-        }
-      }
-      if (o === 'callback') {
-        return {
-          summary: `Call to ${who}, callback promised`,
-          note: 'Recorded as one attempt when you save; the callback is scheduled.',
-        }
-      }
-      if (o === 'bad-number') {
-        return {
-          summary: `Call to ${who}, number unusable`,
-          note: 'Recorded automatically when you save the call outcome.',
-        }
-      }
-      return {
-        summary: `Call to ${who}${o === 'voicemail' ? ', voicemail left' : ''}`,
-        note: 'Everything you did in this attempt is recorded once when you save.',
-      }
+      if (o === 'reached') return { summary: 'Reached' }
+      if (o === 'callback') return { summary: 'Reached \u00b7 Callback Scheduled' }
+      if (o === 'bad-number') return { summary: 'No Answer \u00b7 Bad Number' }
+      return { summary: o === 'voicemail' ? 'No Answer \u00b7 Voicemail' : 'No Answer' }
     }
     case 'record-attempt':
     default:
-      return {
-        summary: `Outreach attempt to ${who}`,
-        note: 'Every channel you used in this attempt is recorded once when you save.',
-      }
+      return { summary: 'Outreach attempt' }
   }
+}
+
+/**
+ * The Next History Entry preview for Contact Research, built from the methods
+ * the worker has FILLED on the contact card during this task versus what was
+ * missing when it opened. Reflects the actual selection: "Contact Updated
+ * (email, phone)" once something previously missing is now present; otherwise
+ * null, so the preview stays blank until there is something to record (a filled
+ * value, or the deliberate Nothing Usable action which records research).
+ */
+export function describeContactResearchSelection(
+  before: { hasEmail: boolean; hasPhone: boolean; hasAddress: boolean },
+  now: { hasEmail: boolean; hasPhone: boolean; hasAddress: boolean },
+): NextHistoryEntryPreview | null {
+  const filled: string[] = []
+  if (!before.hasEmail && now.hasEmail) filled.push('email')
+  if (!before.hasPhone && now.hasPhone) filled.push('phone')
+  if (!before.hasAddress && now.hasAddress) filled.push('mailing address')
+  if (filled.length === 0) return null
+  return { summary: `Contact Updated (${filled.join(', ')})` }
 }
 
 // ---------------------------------------------------------------------------

@@ -237,7 +237,12 @@ export function TaskShell({
     <div className={cn('mx-auto w-full', WORKFLOW_MAX_WIDTH, 'space-y-6 text-ink-secondary')}>
       {header}
       {history != null ? (
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-[minmax(0,5fr)_minmax(0,4fr)_minmax(0,4fr)]">
+        // Three EQUAL-width columns on the widest screens, staying responsive:
+        // one column on narrow, two on medium, three equal thirds on xl. Equal
+        // thirds keep work · context · history balanced across the working
+        // screens. minmax(0,1fr) lets each column shrink so its content wraps
+        // instead of forcing overflow.
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,1fr))]">
           <div className="space-y-5">{action}</div>
           <div className="space-y-5">{context}</div>
           <div className="space-y-5">{history}</div>

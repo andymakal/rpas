@@ -23,7 +23,7 @@
  */
 
 import { useState } from 'react'
-import { History, ChevronDown, ChevronUp, CheckCircle2, PhoneCall } from 'lucide-react'
+import { History, ChevronDown, ChevronUp, CheckCircle2, PhoneCall, Search } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { HistoryEvent } from '@/lib/stewardship/customer-history'
 import { formatHistoryTimestamp } from '@/lib/stewardship/customer-history'
@@ -86,19 +86,25 @@ function HistoryEventRow({
     .map((c) => c.detail)
     .filter((d): d is string => !!d && d !== event.summary)
 
+  const isResearch = event.kind === 'research'
+
   return (
     <li className="py-3 first:pt-0 last:pb-0">
       <div className="flex items-start gap-2">
         <span
           className={cn(
             'mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full',
-            event.reached
-              ? 'bg-status-confirmed-fill text-status-confirmed-foreground'
-              : 'bg-surface-muted text-ink-supporting',
+            // Research is internal work (its own affordance); a reached contact
+            // reads as confirmed; every other contact is a neutral touch.
+            isResearch
+              ? 'bg-surface-muted text-ink-supporting'
+              : event.reached
+                ? 'bg-status-confirmed-fill text-status-confirmed-foreground'
+                : 'bg-surface-muted text-ink-supporting',
           )}
           aria-hidden
         >
-          <PhoneCall className="size-3" />
+          {isResearch ? <Search className="size-3" /> : <PhoneCall className="size-3" />}
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-base font-medium text-ink">{event.summary}</p>
