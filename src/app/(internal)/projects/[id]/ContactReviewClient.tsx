@@ -34,11 +34,17 @@ import {
   Loader2, Save, SkipForward, ClipboardCheck, UserRound, PhoneOff,
 } from 'lucide-react'
 import {
-  TaskShell, ActionPanel, PrimaryAction, WorkflowButton,
+  TaskShell, ActionPanel, PrimaryAction, WorkflowButton, ContextLabel,
   AssistantPanel, GatewayLookup,
   CustomerContactCard, type CustomerContact,
+  PolicySummaryList, type PolicySummary,
+  CustomerHistoryCard, NextHistoryEntry,
   QueueListHeader, CustomerQueueCard, QueueEmptyState, OperationalTag,
 } from '@/components/workflow'
+import {
+  describeNextHistoryEntry,
+  type HistoryEvent,
+} from '@/lib/stewardship/customer-history'
 import {
   MentorGuidance, useMentorDisclosure, MentorCapButton, MentorCapPanel,
 } from '@/lib/mentoring/MentorUi'
@@ -708,6 +714,33 @@ function ContactReviewTask({
   const [saveError, setSaveError] = useState<string | null>(null)
   const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
 
+  // The open customer's grouped history and policy summary for the shared
+  // three-column working layout: the Customer History (with the Next History
+  // Entry preview) on the right, and the read-only Policy Summary beneath the
+  // contact card in the center. Loaded when the customer opens, so the Contact
+  // Research LIST read stays thin while the opened customer gets the same
+  // context the stewardship working screens have. Display only.
+  const [history, setHistory] = useState<HistoryEvent[]>([])
+  const [policies, setPolicies] = useState<PolicySummary[]>([])
+  const [historyTz, setHistoryTz] = useState<string | null>(null)
+
+  const loadHistory = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/customers/${customer.customer_id}/contact-history`, { cache: 'no-store' })
+      const json = await res.json()
+      if (res.ok && json.data) {
+        setHistory((json.data.customer_history ?? []) as HistoryEvent[])
+        setPolicies((json.data.policies ?? []) as PolicySummary[])
+        setHistoryTz((json.data.actor_time_zone ?? null) as string | null)
+      }
+    } catch {
+      // History/policy context is supplementary; a load failure leaves the
+      // column empty rather than blocking the research work.
+    }
+  }, [customer.customer_id])
+
+  useEffect(() => { void loadHistory() }, [loadHistory])
+
   // Nothing Usable & Next records the unsuccessful research DURABLY (per
   // still-missing method) before advancing, so the customer stops coming back on
   // later passes instead of only being hidden for this session. The record is
@@ -809,10 +842,33 @@ function ContactReviewTask({
         </ActionPanel>
       }
       context={
-        <CustomerContactCard
-          customer={toCardCustomer(customer)}
-          onChange={onContactChange}
-        />
+        // Center column: the shared Customer Contact card (unchanged) with the
+        // read-only Policy Summary beneath it, matching the stewardship working
+        // screens so the worker sees the customer's policy facts while
+        // researching contact information.
+        <>
+          <CustomerContactCard
+            customer={toCardCustomer(customer)}
+            onChange={onContactChange}
+          />
+          <ContextLabel>Policy summary</ContextLabel>
+          <PolicySummaryList policies={policies} />
+        </>
+      }
+      history={
+        // Right column: the Next History Entry preview (what completing this
+        // work will record) above the Customer History. Contact Research records
+        // a research outcome rather than a contact attempt, so the preview is
+        // the research entry; the Customer History below shows the customer's
+        // whole grouped contact history, display only.
+        <>
+          <ContextLabel>Next history entry</ContextLabel>
+          <NextHistoryEntry
+            preview={describeNextHistoryEntry('contact-research', { customerName: customer.first_name })}
+            showNotes={false}
+          />
+          <CustomerHistoryCard events={history} actorTimeZone={historyTz} />
+        </>
       }
     />
   )

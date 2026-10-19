@@ -96,29 +96,29 @@ type ChannelDescriptions = Partial<Record<ActivityOutcomeKey, string>> & { touch
  * it rather than embedding their own strings. */
 export const ACTIVITY_DESCRIPTIONS: Record<OutreachChannel, ChannelDescriptions> = {
   call: {
-    reached: 'Spoke with the customer',
-    touch: 'Called the customer',
-    no_contact: 'Called the customer, no answer',
-    unusable: 'Called the customer, number unusable',
+    reached: 'Reached',
+    touch: 'Called',
+    no_contact: 'No Answer',
+    unusable: 'Bad Number',
   },
   voicemail: {
-    touch: 'Left a voicemail',
-    no_contact: 'Tried a voicemail, none left',
+    touch: 'Voicemail',
+    no_contact: 'No voicemail',
     unusable: 'Voicemail unavailable',
   },
   text: {
-    touch: 'Sent a text',
-    no_contact: 'Attempted a text, not sent',
+    touch: 'Text',
+    no_contact: 'Text not sent',
     unusable: 'Text unusable',
   },
   email: {
-    touch: 'Sent an email',
-    no_contact: 'Attempted an email, not sent',
+    touch: 'Email',
+    no_contact: 'Email not sent',
     unusable: 'Email unusable',
   },
   postal: {
-    touch: 'Sent postal mail',
-    no_contact: 'Attempted postal mail, not sent',
+    touch: 'Postal mail',
+    no_contact: 'Postal not sent',
     unusable: 'Mailing address unusable',
   },
 }
@@ -189,14 +189,17 @@ function summarizeInteraction(
     const others = comms.filter((c) => c !== reachedCall)
     const lead = describeActivity('call', reachedCall.outcome, true, overrides)
     if (others.length === 0) return lead
-    const rest = others.map((c) => describeActivity(c.channel, c.outcome, c.reached, overrides).toLowerCase())
-    return `${lead} (also ${rest.join(', ')})`
+    // Combine the reached call with its other channels into ONE concise entry,
+    // the same "·"-joined format the Next History Entry preview uses, e.g.
+    // "Reached · Form Sent".
+    const rest = others.map((c) => describeActivity(c.channel, c.outcome, c.reached, overrides))
+    return [lead, ...rest].join(' \u00b7 ')
   }
 
   const phrases = comms.map((c) => describeActivity(c.channel, c.outcome, c.reached, overrides))
   if (phrases.length === 1) return phrases[0]
-  // Join the attempt's channels into one readable line: "Called the customer,
-  // no answer · Left a voicemail · Sent a text".
+  // Join the attempt's channels into one concise line, e.g.
+  // "No Answer · Voicemail · Text".
   return phrases.join(' \u00b7 ')
 }
 
@@ -369,5 +372,118 @@ export function describeNextHistoryEntry(
         summary: `Outreach attempt to ${who}`,
         note: 'Every channel you used in this attempt is recorded once when you save.',
       }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic Next History Entry — built live from the selections the worker is
+// making in the workflow, so the preview reflects exactly what completing the
+// open action will record, combined into ONE entry. This is the same honesty
+// the recorded history keeps: it names only the channels/outcomes the worker
+// has actually chosen, in concise labels, joined with the same "·" separator
+// the grouped history uses. The screen owns the live selection; the phrasing
+// lives here.
+// ---------------------------------------------------------------------------
+
+/** The live call-workbench selection the preview is built from. Mirrors the
+ * guided call flow's state: whether the customer was reached, and the channels
+ * / decision chosen on each branch. Nothing here is recorded until the worker
+ * completes the action; this only previews it. */
+export interface CallSelection {
+  /** The reach decision so far: not yet chosen, reached, or not reached. */
+  reach: 'reached' | 'not-reached' | null
+  // Didn't-reach branch — only channels actually completed are previewed.
+  voicemailLeft?: boolean | null
+  textSent?: boolean
+  emailSent?: boolean
+  badNumber?: boolean
+  // Reached branch — the customer's decision and, for a callback, the date.
+  decision?: 'agreed' | 'callback' | 'not-interested' | null
+  callbackDate?: string | null
+  /** Whether the authorization form has been confirmed sent on the reached ·
+   * agreed path, so the preview can fold "Form Sent" into the entry. */
+  formSent?: boolean
+}
+
+/**
+ * Build the Next History Entry preview for the guided call flow from the live
+ * selections. Returns null when the worker has not chosen enough to record
+ * anything yet (no reach decision), so the preview only appears once the work
+ * can generate a history event. Otherwise it composes ONE concise entry from
+ * the chosen outcome and channels, e.g. "No Answer · Voicemail · Text · Email"
+ * or "Reached · Form Sent".
+ */
+export function describeCallSelection(
+  selection: CallSelection,
+  options?: { customerName?: string | null; note?: string | null },
+): NextHistoryEntryPreview | null {
+  const who = options?.customerName?.trim() || 'the customer'
+  const extraNote = options?.note?.trim() || undefined
+
+  // Bad number is a distinct terminal outcome regardless of the reach choice.
+  if (selection.badNumber) {
+    return { summary: 'No Answer · Bad Number', note: extraNote }
+  }
+
+  if (selection.reach === 'not-reached') {
+    // Only completed channels are previewed, matching how the attempt records.
+    const parts = ['No Answer']
+    if (selection.voicemailLeft) parts.push('Voicemail')
+    if (selection.textSent) parts.push('Text')
+    if (selection.emailSent) parts.push('Email')
+    return { summary: parts.join(' \u00b7 '), note: extraNote }
+  }
+
+  if (selection.reach === 'reached') {
+    if (selection.decision === 'callback') {
+      const when = selection.callbackDate ? formatCallbackDate(selection.callbackDate) : null
+      return {
+        summary: when ? `Reached · Callback Scheduled ${when}` : 'Reached · Callback Scheduled',
+        note: extraNote,
+      }
+    }
+    if (selection.decision === 'not-interested') {
+      return { summary: 'Reached · Not Interested', note: extraNote }
+    }
+    if (selection.decision === 'agreed') {
+      return {
+        summary: selection.formSent ? 'Reached · Form Sent' : 'Reached',
+        note: extraNote,
+      }
+    }
+    // Reached but no decision captured yet.
+    return { summary: `Reached ${who}`.trim(), note: extraNote }
+  }
+
+  // No reach decision yet: nothing to record.
+  return null
+}
+
+/** Format a date-only callback as MM/DD/YYYY for the preview. Parses a bare
+ * date at noon so a timezone shift never rolls it a day. */
+function formatCallbackDate(raw: string): string | null {
+  if (!raw) return null
+  const iso = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? `${raw}T12:00:00` : raw
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  const mm = String(d.getMonth() + 1).padStart(2, '0')
+  const dd = String(d.getDate()).padStart(2, '0')
+  return `${mm}/${dd}/${d.getFullYear()}`
+}
+
+/**
+ * The Next History Entry preview for the introductory-email send, built from
+ * whether the email has been confirmed sent. Combines into one concise entry;
+ * an optional note is folded in. Kept here so the phrasing stays central and
+ * concise ("Email", or "Email · Form Sent" when the authorization form rode
+ * with it).
+ */
+export function describeIntroEmailSelection(
+  options?: { note?: string | null; formIncluded?: boolean },
+): NextHistoryEntryPreview {
+  const extraNote = options?.note?.trim() || undefined
+  return {
+    summary: options?.formIncluded ? 'Email \u00b7 Form Sent' : 'Email',
+    note: extraNote,
   }
 }

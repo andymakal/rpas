@@ -32,8 +32,12 @@ import {
 } from '@/lib/stewardship/queues'
 import {
   describeNextHistoryEntry,
+  describeCallSelection,
+  describeIntroEmailSelection,
   type HistoryEvent,
   type WorkflowActivity,
+  type NextHistoryEntryPreview,
+  type CallSelection,
 } from '@/lib/stewardship/customer-history'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { isPermanent } from '@/lib/policies/product-type'
@@ -1062,6 +1066,15 @@ export function StewardshipTask({
   const [detail, setDetail] = useState<Detail | null>(null)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
+  // Live Next History Entry preview, built from the selections the worker is
+  // making in the guided call flow. The action column owns the selections and
+  // reports them up here; the history column renders the preview. null means
+  // the worker has not yet chosen enough to record anything (no reach decision),
+  // so the preview is hidden until the work can generate a history event.
+  const [callSelection, setCallSelection] = useState<CallSelection | null>(null)
+  // Reset the live preview whenever the open item changes, so a stale selection
+  // from a prior customer never leaks onto the next one.
+  useEffect(() => { setCallSelection(null) }, [itemId])
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/stewardship/${itemId}`, { cache: 'no-store' })
@@ -1148,6 +1161,7 @@ export function StewardshipTask({
           <TaskAction
             detail={detail} request={request} busy={busy} note={note} act={act}
             hasNextInActivity={hasNextInActivity} forceCall={forceCall}
+            onCallSelectionChange={setCallSelection}
           />
         }
         context={
@@ -1156,7 +1170,9 @@ export function StewardshipTask({
             setDetail={setDetail} forceCall={forceCall} withHistoryColumn={isWorkingScreen}
           />
         }
-        history={isWorkingScreen ? <StewardshipHistoryColumn detail={detail} forceCall={forceCall} /> : undefined}
+        history={isWorkingScreen
+          ? <StewardshipHistoryColumn detail={detail} forceCall={forceCall} callSelection={callSelection} />
+          : undefined}
       />
     </Chrome>
   )
@@ -1169,13 +1185,35 @@ export function StewardshipTask({
  * worker what will be logged rather than asking them to log it. History is the
  * grouped customer history supplied by the GET route (display only).
  */
-function StewardshipHistoryColumn({ detail, forceCall }: { detail: Detail; forceCall: boolean }) {
+function StewardshipHistoryColumn({
+  detail, forceCall, callSelection,
+}: {
+  detail: Detail
+  forceCall: boolean
+  /** The live call-flow selection, when a guided call is in progress. Drives the
+   * dynamic preview; null on the other working screens or before a reach
+   * decision. */
+  callSelection: CallSelection | null
+}) {
   const activity = resolveWorkflowActivity(detail, forceCall)
-  const preview = describeNextHistoryEntry(activity, { customerName: detail.customer.first_name })
+  // The preview is built DYNAMICALLY from the live selection where the screen
+  // makes one (the guided call flow, the intro email), so it reflects exactly
+  // what completing the open work will record, combined into one concise entry.
+  // The calling flow only generates an event once a reach decision is made, so
+  // before that the preview is withheld.
+  const preview: NextHistoryEntryPreview | null =
+    activity === 'calling'
+      ? (callSelection
+          ? describeCallSelection(callSelection, { customerName: detail.customer.first_name })
+          : null)
+      : activity === 'introductory-email'
+        ? describeIntroEmailSelection({ formIncluded: true })
+        : describeNextHistoryEntry(activity, { customerName: detail.customer.first_name })
   return (
     <>
       <ContextLabel>Next history entry</ContextLabel>
-      <NextHistoryEntry preview={preview} showNotes={false} />
+      {/* Only shown when the workflow can actually generate a history event. */}
+      {preview && <NextHistoryEntry preview={preview} showNotes={false} />}
       <CustomerHistoryCard events={detail.customer_history ?? []} />
     </>
   )
@@ -1353,6 +1391,7 @@ function StewardshipCustomerContact({
  */
 function TaskAction({
   detail, request, busy, note, act, hasNextInActivity = false, forceCall = false,
+  onCallSelectionChange,
 }: {
   detail: Detail
   request: Holding[]
@@ -1363,6 +1402,9 @@ function TaskAction({
   /** Force the guided call flow regardless of the stored queue (the Call
    * Reachable Customers workbench). */
   forceCall?: boolean
+  /** Report the live guided-call selection up so the history column can preview
+   * the entry that completing the call will record. */
+  onCallSelectionChange?: (selection: CallSelection | null) => void
 }) {
   const name = fullName(detail.customer)
 
@@ -1399,6 +1441,7 @@ function TaskAction({
         <CallAction
           detail={detail} request={request} busy={busy} noteBox={noteBox} act={act}
           workbench hasNextInActivity={hasNextInActivity}
+          onSelectionChange={onCallSelectionChange}
         />
       )
     }
@@ -1415,6 +1458,7 @@ function TaskAction({
           <CallAction
             detail={detail} request={request} busy={busy} noteBox={noteBox} act={act}
             workbench={forceCall} hasNextInActivity={hasNextInActivity}
+            onSelectionChange={onCallSelectionChange}
           />
         )
       case 'research-needed':
@@ -1879,6 +1923,7 @@ function callOpeningScript(firstName: string): string {
  */
 function CallAction({
   detail, request, busy, noteBox, act, workbench = false, hasNextInActivity = false,
+  onSelectionChange,
 }: {
   detail: Detail
   request: Holding[]
@@ -1891,12 +1936,15 @@ function CallAction({
   /** Whether another customer remains in the workbench to advance to (affects
    * the confirmation wording on terminal outcomes). */
   hasNextInActivity?: boolean
+  /** Report the live guided-call selection up for the history-column preview. */
+  onSelectionChange?: (selection: CallSelection | null) => void
 }) {
   if (workbench) {
     return (
       <CallWorkbenchAction
         detail={detail} request={request} busy={busy} noteBox={noteBox} act={act}
         hasNextInActivity={hasNextInActivity}
+        onSelectionChange={onSelectionChange}
       />
     )
   }
@@ -2022,7 +2070,7 @@ type ReachChoice = null | 'reached' | 'not-reached'
  * grouped attempt and then advances to the next customer.
  */
 function CallWorkbenchAction({
-  detail, request, busy, noteBox, act, hasNextInActivity,
+  detail, request, busy, noteBox, act, hasNextInActivity, onSelectionChange,
 }: {
   detail: Detail
   request: Holding[]
@@ -2030,6 +2078,9 @@ function CallWorkbenchAction({
   noteBox: React.ReactNode
   act: (action: unknown, successNote?: string, opts?: { advanceToNext?: boolean }) => void
   hasNextInActivity: boolean
+  /** Report the live selection up so the history column previews the entry this
+   * call will record, built dynamically as the worker proceeds. */
+  onSelectionChange?: (selection: CallSelection | null) => void
 }) {
   const c = detail.customer
   const name = fullName(c)
@@ -2052,6 +2103,24 @@ function CallWorkbenchAction({
   // ── Reached sub-state ────────────────────────────────────────────────────
   const [decision, setDecision] = useState<null | 'agreed' | 'callback' | 'not-interested'>(reached ? 'agreed' : null)
   const [callbackWhen, setCallbackWhen] = useState('')
+
+  // Report the live selection up so the Next History Entry column previews
+  // exactly what completing this call will record, combined into one concise
+  // entry, updating as the worker proceeds. The reached authorization form is
+  // folded in once the reached call has been recorded (reached === true), since
+  // the form send is part of that one reached interaction.
+  useEffect(() => {
+    if (!onSelectionChange) return
+    onSelectionChange({
+      reach,
+      voicemailLeft,
+      textSent,
+      emailSent,
+      decision,
+      callbackDate: callbackWhen || null,
+      formSent: reached && decision === 'agreed',
+    })
+  }, [onSelectionChange, reach, voicemailLeft, textSent, emailSent, decision, callbackWhen, reached])
 
   const nextSuffix = hasNextInActivity ? ' Next customer.' : ''
 
