@@ -425,9 +425,11 @@ function NewProjectDialog({
       open={open}
       onOpenChange={v => { if (!saving) { onOpenChange(v); if (!v) reset() } }}
     >
-      <DialogContent className="bg-surface-card text-ink-secondary sm:max-w-md">
+      <DialogContent className="bg-surface-card font-workflow text-ink-secondary sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-xl font-semibold text-ink">Start a new project</DialogTitle>
+          <DialogTitle className="font-workflow text-2xl font-bold tracking-tight text-ink-heading">
+            Start a new project
+          </DialogTitle>
           <DialogDescription className="text-ink-supporting">
             Create the project record. It starts active; you add population and runs later.
           </DialogDescription>
@@ -471,7 +473,7 @@ function NewProjectDialog({
               <p className="text-sm font-medium text-status-missing-foreground">{typesError}</p>
             )}
             {noTypes && !typesError && (
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-ink-supporting">
                 Add an active project type before creating a project.
               </p>
             )}
@@ -502,7 +504,7 @@ function NewProjectDialog({
               type="button"
               onClick={() => { if (!saving) { onOpenChange(false); reset() } }}
               disabled={saving}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-ink-supporting transition-colors hover:bg-slate-100 disabled:opacity-50"
+              className="rounded-lg px-4 py-2 text-sm font-medium text-ink-supporting transition-colors hover:bg-surface-muted hover:text-ink disabled:opacity-50"
             >
               Cancel
             </button>
@@ -582,9 +584,11 @@ function EditProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={v => { if (!saving) onOpenChange(v) }}>
-      <DialogContent className="bg-surface-card text-ink-secondary sm:max-w-md">
+      <DialogContent className="bg-surface-card font-workflow text-ink-secondary sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="text-xl font-semibold text-ink">Edit project</DialogTitle>
+          <DialogTitle className="font-workflow text-2xl font-bold tracking-tight text-ink-heading">
+            Edit project
+          </DialogTitle>
           <DialogDescription className="text-ink-supporting">
             Update the project name or description. Type and status are unchanged.
           </DialogDescription>
@@ -630,7 +634,7 @@ function EditProjectDialog({
               type="button"
               onClick={() => { if (!saving) onOpenChange(false) }}
               disabled={saving}
-              className="rounded-lg px-4 py-2 text-sm font-medium text-ink-supporting transition-colors hover:bg-slate-100 disabled:opacity-50"
+              className="rounded-lg px-4 py-2 text-sm font-medium text-ink-supporting transition-colors hover:bg-surface-muted hover:text-ink disabled:opacity-50"
             >
               Cancel
             </button>

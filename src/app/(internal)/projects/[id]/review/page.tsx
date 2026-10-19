@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { isPermanentPolicyReviewTypeName } from '@/lib/projects/workflows'
 import { WorkflowPage, WorkflowHeader } from '@/components/workflow'
 import { Review1035Client } from '../Review1035Client'
 
@@ -48,11 +49,12 @@ export default async function ProjectReviewPage({
   const { project_types, ...rest } = data as typeof data & { project_types: { name: string } | null }
   const project = { ...rest, project_type: project_types?.name ?? '' }
 
-  // Guard the surface the same way the detail page gates it: only 1035 projects
-  // reach the working interface, and an archived project takes no new activity.
-  const is1035 = /1035/.test(project.project_type)
+  // Guard the surface the same way the detail page gates it: only Permanent
+  // Policy Review projects (the type formerly named "1035 Exchange") reach the
+  // working interface, and an archived project takes no new activity.
+  const isReviewType = isPermanentPolicyReviewTypeName(project.project_type)
   const isArchived = project.status === 'archived'
-  if (!is1035 || isArchived) notFound()
+  if (!isReviewType || isArchived) notFound()
 
   return (
     <WorkflowPage>
@@ -72,7 +74,7 @@ export default async function ProjectReviewPage({
         </Link>
       </div>
 
-      <WorkflowHeader primary={project.name} secondary="1035 Exchange Review · Steps 2 & 3" />
+      <WorkflowHeader primary={project.name} secondary="Permanent Policy Review · Steps 2 & 3" />
 
       <Review1035Client projectId={project.id} initialCustomerId={initialCustomerId ?? null} />
     </WorkflowPage>

@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft, Users, FolderPlus, Play } from 'lucide-react'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { projectHasWorkflow } from '@/lib/projects/workflows'
+import { projectHasWorkflow, isPermanentPolicyReviewTypeName } from '@/lib/projects/workflows'
 import {
   WorkflowPage,
   WorkflowHeader,
@@ -42,10 +42,11 @@ export default async function ProjectDetailPage({
   // Whether this project exposes the "Work Project" review surface is decided by
   // the WORKFLOW WIRING — does the project contain the review_preparation
   // workflow? — not by the project's name or type. Fallback (pre-migration,
-  // tables absent): the prior /1035/ type-name test, so behavior is unchanged
-  // until the migration lands.
+  // tables absent): the prior type-name test, so behavior is unchanged until the
+  // migration lands. The test recognizes the renamed "Permanent Policy Review"
+  // type as well as the legacy "1035" name, so it stays correct per branch.
   const hasReviewWorkflow = await projectHasWorkflow(
-    supabase, id, 'review_preparation', /1035/.test(project.project_type),
+    supabase, id, 'review_preparation', isPermanentPolicyReviewTypeName(project.project_type),
   )
 
   // Population summary: how many customers are in the project, and the runs so

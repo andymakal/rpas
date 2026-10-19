@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { isPermanentPolicyReviewTypeName } from '@/lib/projects/workflows'
 import { WorkflowPage, WorkflowHeader } from '@/components/workflow'
 import { ContactReviewClient } from '../ContactReviewClient'
 
@@ -46,9 +47,9 @@ export default async function ProjectContactReviewPage({
   const { project_types, ...rest } = data as typeof data & { project_types: { name: string } | null }
   const project = { ...rest, project_type: project_types?.name ?? '' }
 
-  const is1035 = /1035/.test(project.project_type)
+  const isReviewType = isPermanentPolicyReviewTypeName(project.project_type)
   const isArchived = project.status === 'archived'
-  if (!is1035 || isArchived) notFound()
+  if (!isReviewType || isArchived) notFound()
 
   return (
     <WorkflowPage>

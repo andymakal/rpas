@@ -5,7 +5,7 @@ import {
 } from '@/lib/stewardship/research-record'
 import { readUnusableChannelsByCustomer } from '@/lib/stewardship/attempt-history'
 import type { OutreachChannel } from '@/lib/stewardship/outreach-attempts'
-import { activeProjectsWithWorkflow } from '@/lib/projects/workflows'
+import { activeProjectsWithWorkflow, isPermanentPolicyReviewTypeName } from '@/lib/projects/workflows'
 
 /**
  * Effective contact usability folds the recorded-UNUSABLE fact into mere
@@ -536,7 +536,8 @@ export async function activeContactResearchProjectForCustomer(
     // net (a 1035 project may predate its wiring).
   }
 
-  // Fallback / safety net: an active project whose type name is 1035.
+  // Fallback / safety net: an active Permanent Policy Review project (the type
+  // formerly named "1035 Exchange"; the test still matches that legacy name).
   const { data: projects } = await supabase
     .from('projects')
     .select('id, status, project_types ( name )')
@@ -544,7 +545,7 @@ export async function activeContactResearchProjectForCustomer(
   for (const p of (projects ?? []) as { id: string; status: string | null; project_types: { name: string } | { name: string }[] | null }[]) {
     const typeRaw = p.project_types
     const typeName = (Array.isArray(typeRaw) ? typeRaw[0]?.name : typeRaw?.name) ?? ''
-    if (p.status !== 'archived' && /1035/.test(typeName)) return p.id
+    if (p.status !== 'archived' && isPermanentPolicyReviewTypeName(typeName)) return p.id
   }
   return null
 }

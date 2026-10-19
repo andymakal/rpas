@@ -127,6 +127,24 @@ export function projectContainsWorkflow(workflows: ProjectWorkflow[], key: Workf
 }
 
 /**
+ * Legacy TYPE-NAME test for the Permanent Policy Review project (formerly named
+ * "1035 Exchange" in the catalog). The authoritative signal for whether a
+ * project exposes the review surfaces is the WORKFLOW WIRING (does it contain
+ * review_preparation?), resolved via projectHasWorkflow / getProjectWorkflows.
+ * This predicate only exists as the pre-migration FALLBACK those callers pass
+ * when the workflow tables are absent, and as the hard gate on the standalone
+ * review / contact-research surfaces until they too read the wiring.
+ *
+ * It matches BOTH the current catalog name ("Permanent Policy Review") and the
+ * legacy "1035" name, so the gate stays correct across environments regardless
+ * of whether the rename migration has landed on that branch. Do not use this to
+ * DRIVE behavior from the name — it is a compatibility test, not business logic.
+ */
+export function isPermanentPolicyReviewTypeName(projectTypeName: string): boolean {
+  return /1035|permanent policy review/i.test(projectTypeName)
+}
+
+/**
  * Whether a project CONTAINS a given workflow, resolved from the project_workflows
  * wiring (data — never the project name/type).
  *
