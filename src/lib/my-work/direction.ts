@@ -297,19 +297,111 @@ export interface PlanStep {
   emphasis?: boolean
 }
 
-/** Find an outreach informational sub-population source by its label fragment,
- * returning its actionable count and route. These are emitted by the
- * composition (Introductory emails / Calls Due / Available to Call) as
- * informational sources that do not inflate the activity total. */
+/**
+ * A route opens the dedicated DIRECT WORKING screen (land on the first eligible
+ * customer, advance automatically) rather than an intermediate board queue list.
+ * The direct screens live at /stewardship/introductory-emails and
+ * /stewardship/available-to-call; a plain /stewardship?queue=... link is the
+ * board list, which the working plan must never use for these sub-populations.
+ */
+function isDirectWorkingRoute(route: string | null | undefined): boolean {
+  return !!route && /\/stewardship\/(introductory-emails|available-to-call|calls-due)\b/.test(route)
+}
+
+/**
+ * Find an outreach informational sub-population across ALL matching sources, not
+ * just the first.
+ *
+ * The composition emits the SAME sub-population (Introductory emails / Available
+ * to Call) as more than one informational source: the recorded Shared
+ * Stewardship board source AND the derived record-less onboarding source for a
+ * project. These describe DISJOINT customer sets (the derived population excludes
+ * every customer already represented by a recorded outreach row), so summing
+ * their actionable counts includes all eligible recorded AND record-less
+ * customers while counting each customer exactly once.
+ *
+ * Previously this took the FIRST matching source, so once a single recorded
+ * outreach customer existed the recorded source (count 1) shadowed the derived
+ * population (the 100+ record-less members), and the step both under-counted and
+ * routed to the recorded source's screen. Aggregating fixes the count; the route
+ * is chosen to open the COMPLETE population on the direct working screen.
+ *
+ * Route selection: prefer a direct-working route (the dedicated screen that
+ * lands on the first eligible customer and auto-advances). When every matching
+ * source's work is in ONE project, use that project's scoped direct-working
+ * route so the screen opens exactly the full project population; otherwise use
+ * the unscoped direct-working route, which loads the employee's entire eligible
+ * population. A board-queue route is used only as a last resort when no source
+ * exposes a direct-working route at all.
+ */
 function outreachSubPopulation(
   outreach: ActivityGroup,
   match: RegExp,
 ): { count: number; route: string | null } | null {
-  const s = outreach.sources.find((src) => src.informational && match.test(src.label))
-  if (!s) return null
-  const count = s.ownedByMe + s.availableToMe
+  const matching = outreach.sources.filter(
+    (src) => src.informational && match.test(src.label),
+  )
+  if (matching.length === 0) return null
+
+  // Total actionable work across every matching source (recorded + derived).
+  // The sets are disjoint by construction, so this counts each customer once.
+  let count = 0
+  for (const s of matching) count += s.ownedByMe + s.availableToMe
   if (count <= 0) return null
-  return { count, route: s.route }
+
+  // The distinct projects that actually carry actionable work for this
+  // sub-population, gathered from each source's own project and its per-project
+  // scopes. Used to decide whether a single project's direct screen covers the
+  // whole population.
+  const projectsWithWork = new Set<string>()
+  for (const s of matching) {
+    if (s.projectId && s.ownedByMe + s.availableToMe > 0) projectsWithWork.add(s.projectId)
+    if (s.projectScopes) {
+      for (const [pid, scope] of Object.entries(s.projectScopes)) {
+        if (scope.ownedByMe + scope.availableToMe > 0) projectsWithWork.add(pid)
+      }
+    }
+  }
+
+  // Choose the route that opens the COMPLETE population on the direct working
+  // screen. When all work is one project, prefer that project's scoped
+  // direct-working route (from any source's top-level route or project scope);
+  // otherwise prefer an unscoped direct-working route. Fall back to a
+  // direct-working route from a project scope, then to any source route.
+  let route: string | null = null
+  if (projectsWithWork.size === 1) {
+    const onlyPid = [...projectsWithWork][0]
+    for (const s of matching) {
+      const scoped = s.projectScopes?.[onlyPid]?.route
+      if (isDirectWorkingRoute(scoped)) { route = scoped!; break }
+    }
+  }
+  if (!route) {
+    // An unscoped direct-working route (no project_id) loads the whole eligible
+    // population; a scoped one is still direct-working. Prefer unscoped when the
+    // work spans projects, else accept any direct-working top-level route.
+    const unscoped = matching.find(
+      (s) => isDirectWorkingRoute(s.route) && !/project_id=/.test(s.route ?? ''),
+    )?.route
+    const anyTopLevel = matching.find((s) => isDirectWorkingRoute(s.route))?.route
+    route =
+      (projectsWithWork.size > 1 ? unscoped : undefined) ??
+      anyTopLevel ??
+      unscoped ??
+      null
+  }
+  if (!route) {
+    // Last resort: a direct-working route from any project scope, else the first
+    // source's route (board queue) so the step is never unreachable.
+    for (const s of matching) {
+      if (!s.projectScopes) continue
+      const scoped = Object.values(s.projectScopes).find((sc) => isDirectWorkingRoute(sc.route))?.route
+      if (scoped) { route = scoped; break }
+    }
+    if (!route) route = matching[0].route
+  }
+
+  return { count, route }
 }
 
 /**

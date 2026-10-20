@@ -164,6 +164,86 @@ test('plan: outreach expands into intro emails -> due calls -> other calls, in o
   assert.equal(d.workingPlan[0].emphasis, false)
 })
 
+test('plan: outreach sub-population sums recorded + derived sources and routes to the direct screen', () => {
+  // The exact production defect: a single RECORDED board source (count 1, direct
+  // working route) is emitted BEFORE the DERIVED record-less onboarding source
+  // (the large project population, routed to the board queue list). Taking the
+  // first match alone under-counted (1) and mis-routed. The fix aggregates both
+  // disjoint sets and opens the complete population on the direct screen.
+  const PID = 'proj-1035'
+  const recordedIntro: WorkSource = {
+    kind: 'stewardship',
+    label: 'Shared Stewardship board — Introductory emails',
+    count: 1,
+    route: '/stewardship/introductory-emails', // direct working screen (unscoped)
+    projectId: null,
+    ownedByMe: 0,
+    availableToMe: 1,
+    claimedByOthers: 0,
+    notEligible: 0,
+    dueToMe: 0,
+    informational: true,
+    projectScopes: { [PID]: { count: 1, ownedByMe: 0, availableToMe: 1, claimedByOthers: 0, notEligible: 0, dueToMe: 0, route: `/stewardship/introductory-emails?project_id=${PID}` } },
+  }
+  const derivedIntro: WorkSource = {
+    kind: 'project',
+    label: 'Q4 1035 Review — Introductory emails',
+    count: 116,
+    route: `/stewardship?queue=ready-to-email&project_id=${PID}`, // board queue list (must NOT win)
+    projectId: PID,
+    ownedByMe: 0,
+    availableToMe: 116,
+    claimedByOthers: 0,
+    notEligible: 0,
+    dueToMe: 0,
+    informational: true,
+  }
+  const recordedCalls: WorkSource = {
+    kind: 'stewardship',
+    label: 'Shared Stewardship board — Available to Call',
+    count: 1,
+    route: '/stewardship/available-to-call',
+    projectId: null,
+    ownedByMe: 0,
+    availableToMe: 1,
+    claimedByOthers: 0,
+    notEligible: 0,
+    dueToMe: 0,
+    informational: true,
+    projectScopes: { [PID]: { count: 1, ownedByMe: 0, availableToMe: 1, claimedByOthers: 0, notEligible: 0, dueToMe: 0, route: `/stewardship/available-to-call?project_id=${PID}` } },
+  }
+  const derivedCalls: WorkSource = {
+    kind: 'project',
+    label: 'Q4 1035 Review — Available to call',
+    count: 137,
+    route: `/stewardship?queue=ready-to-call&project_id=${PID}`,
+    projectId: PID,
+    ownedByMe: 0,
+    availableToMe: 137,
+    claimedByOthers: 0,
+    notEligible: 0,
+    dueToMe: 0,
+    informational: true,
+  }
+  const outreach = activity({
+    workFunction: 'outreach', band: 'shared', rank: 5, label: 'Outreach',
+    availableCount: 117 + 138, // activity total (not asserted here)
+    sources: [recordedIntro, derivedIntro, recordedCalls, derivedCalls],
+  })
+  const d = deriveMyWorkDirection(state([outreach]))
+  const intro = d.workingPlan.find((s) => s.key === 'outreach:intro')
+  const calls = d.workingPlan.find((s) => s.key === 'outreach:calls-other')
+  assert.ok(intro, 'intro step present')
+  assert.ok(calls, 'available-to-call step present')
+  // Count is the SUM of recorded (1) + derived (116 / 137), each customer once.
+  assert.equal(intro!.count, 117)
+  assert.equal(calls!.count, 138)
+  // Route opens the DIRECT working screen, scoped to the single project that
+  // carries the work — never the board queue list.
+  assert.equal(intro!.route, `/stewardship/introductory-emails?project_id=${PID}`)
+  assert.equal(calls!.route, `/stewardship/available-to-call?project_id=${PID}`)
+})
+
 test('plan: outreach with no recognized sub-population falls back to one step', () => {
   // Only a generic (non-informational) source: e.g. follow-up chases. The step
   // is never silently dropped.
