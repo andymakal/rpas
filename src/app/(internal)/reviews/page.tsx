@@ -47,7 +47,7 @@ export default async function ReviewsPage() {
     .select(`
       id, review_number, review_type, assigned_to, status, outcome,
       tobacco_asked, created_at, call_completed_at,
-      service_policies (
+      service_policies!policy_reviews_policy_id_fkey (
         id, client_name, policy_number, carrier, product_type,
         rate_class, face_amount, annual_premium, issue_date, term_length, sa_status
       )

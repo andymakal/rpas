@@ -82,7 +82,7 @@ export async function generateMetadata(
   const supabase = createAdminClient()
   const { data } = await supabase
     .from('policy_reviews')
-    .select('review_number, service_policies(client_name)')
+    .select('review_number, service_policies!policy_reviews_policy_id_fkey(client_name)')
     .eq('id', id)
     .single()
   const r    = data as { review_number: string | null; service_policies: { client_name: string } | null } | null
@@ -112,7 +112,7 @@ export default async function ReviewPrepPage(
       scheduled_date, term_expiry_date,
       is_declining_ul, tobacco_reclass_flag, beneficiary_missing,
       is_1035_eligible, cash_value_stale,
-      service_policies (
+      service_policies!policy_reviews_policy_id_fkey (
         id, client_name, policy_number, carrier, product_type,
         issue_date, term_length, face_amount, death_benefit_amount,
         cash_value_amount, cash_value_as_of_date, cost_basis, annual_premium, premium_mode,

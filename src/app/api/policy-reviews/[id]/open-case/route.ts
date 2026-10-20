@@ -35,7 +35,7 @@ export async function POST(
     .from('policy_reviews')
     .select(`
       id, resulting_case_id,
-      service_policies (
+      service_policies!policy_reviews_policy_id_fkey (
         customer_id, agency_id, agent_id,
         client_name, carrier, product_type
       )

@@ -325,7 +325,7 @@ export default async function CustomerCardPage({
       .limit(20),
     supabase
       .from('policy_reviews')
-      .select('id, review_number, review_type, status, outcome, scheduled_date, assigned_to, service_policies ( policy_number, carrier )')
+      .select('id, review_number, review_type, status, outcome, scheduled_date, assigned_to, service_policies!policy_reviews_policy_id_fkey ( policy_number, carrier )')
       .eq('customer_id', id)
       .order('created_at', { ascending: false })
       .limit(20),

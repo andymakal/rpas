@@ -62,7 +62,7 @@ export default async function ReviewPrintPage(
     .select(`
       id, review_number, review_type, assigned_to, status, outcome,
       call_completed_at, prep_notes, primary_beneficiary_confirmed,
-      service_policies (
+      service_policies!policy_reviews_policy_id_fkey (
         id, client_name, policy_number, carrier, product_type,
         issue_date, term_length, face_amount, death_benefit_amount,
         cash_value_amount, cost_basis, annual_premium, premium_mode,

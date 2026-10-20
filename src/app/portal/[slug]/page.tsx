@@ -153,7 +153,7 @@ export default async function PortalPage({
         .select(`
           id, review_number, review_type, status,
           assigned_to, outcome, call_completed_at, created_at,
-          service_policies!inner ( client_name, policy_number, agents ( first_name, last_name ) )
+          service_policies!policy_reviews_policy_id_fkey!inner ( client_name, policy_number, agents ( first_name, last_name ) )
         `)
         .in('service_policies.agency_id', agencyIds)
         .eq('is_test', false)
