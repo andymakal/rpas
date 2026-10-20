@@ -148,11 +148,11 @@ export interface ContactReviewSummary {
   /** Of the list, how many have NO usable contact at all (the No Usable Contact
    * Information section) — both the outstanding and the previously-unsuccessful. */
   no_usable_contact: number
-  /** Of the list, how many are OUTSTANDING research worth recommending now:
-   * every row whose research is not yet exhausted (researched_unsuccessfully
-   * === false), regardless of reachability. This is the recommendable count My
-   * Work drives its recommendation from; the previously-unsuccessful rows are
-   * visible but excluded so completed research is never re-recommended. */
+  /** Of the list, how many are available Contact Research work: every incomplete
+   * customer, regardless of prior research history. Equal to total — a customer
+   * stays available work until the gap is actually resolved. Previously
+   * unsuccessful research is a visible sub-label, not an exclusion. My Work
+   * drives its count from this. */
   actionable: number
 }
 
@@ -319,11 +319,13 @@ export async function buildContactReview(
     //     allows a re-check).
     const noUsableContact = !hasEmail && !hasPhone
 
-    // Drop ONLY a reachable customer whose every missing method is settled by
-    // research. A no-usable-contact customer is never dropped: it stays visible
-    // in its section regardless of research state.
-    if (!noUsableContact && !stillRecommend) continue
-
+    // Every incomplete customer stays in the list until the gap is actually
+    // resolved (a usable email, phone, and complete mailing address on file).
+    // Previously unsuccessful research is recorded in customer history and
+    // surfaces here only as a sub-label (researched_unsuccessfully); it NEVER
+    // removes the customer from Contact Research. A found value self-heals the
+    // method (it is no longer missing), so a completed customer leaves the list
+    // naturally. There is no research-history suppression.
     out.push({
       customer_id: c.id,
       first_name: c.first_name,
@@ -347,10 +349,11 @@ export async function buildContactReview(
       // row; researched_unsuccessfully sub-labels outstanding vs previously
       // unsuccessful. 'needs_research' is the reachable, active-list population.
       status: noUsableContact ? 'no_usable_contact' : 'needs_research',
-      // Whether research is already exhausted (not worth recommending again).
-      // For a reachable missing-one row this is always false here (a settled one
-      // was dropped above); for a no-usable-contact row it is true only when
-      // every missing method has been researched unsuccessfully.
+      // History sub-label only: true when every still-missing method has a
+      // recorded unsuccessful-research outcome. It no longer gates inclusion or
+      // the count — the customer stays in Contact Research regardless — it only
+      // tells the worker that earlier research came up empty (a re-check, not
+      // fresh work).
       researched_unsuccessfully: !stillRecommend,
     })
   }
@@ -564,11 +567,10 @@ export function summarizeContactReview(
     else if (count === 1) oneUsable++
     if (r.status === 'no_usable_contact') noUsableContact++
     else needsResearch++
-    // Recommendable outstanding research: research not yet exhausted. Covers a
-    // reachable missing-one row AND a no-usable-contact row still outstanding;
-    // excludes previously-unsuccessful rows so completed research is not
-    // re-recommended.
-    if (!r.researched_unsuccessfully) actionable++
+    // Every incomplete customer is available work until the gap is resolved.
+    // Previously unsuccessful research is a visible history sub-label, not a
+    // reason to drop the customer from the count, so every row is actionable.
+    actionable++
   }
   return {
     total: rows.length,
