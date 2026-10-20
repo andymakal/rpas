@@ -22,7 +22,7 @@ import {
   QueueSection, QueueRow, QueueListHeader, CustomerQueueCard, QueueEmptyState,
   TaskShell, SlimTaskHeader, ContextHeader, type ContextField,
   ActionPanel, PrimaryAction, WorkflowButton, NextNote, OperationalTag,
-  ExternalActionConfirm,
+  ExternalActionConfirm, SpokenScriptCard,
   CustomerContactCard, type CustomerContact, GatewayLookup,
   PolicySummaryList, type PolicySummary,
   CustomerHistoryCard, NextHistoryEntry,
@@ -2453,8 +2453,11 @@ function CallWorkbenchAction({
         <PrimaryAction icon={Phone} label="No phone on file" disabled />
       )}
 
-      {/* 2. The approved opening script, with the employee + customer names filled in. */}
-      <CallScriptCard label={SERVICING_CALL_SCRIPTS.opening.label} body={callOpeningScript(c.first_name ?? 'there', senderName)} />
+      {/* 2. The approved opening script, with the employee + customer names
+          filled in. This is read aloud to the customer on the line, so it uses
+          the spoken-script card (no Copy) — not the copy-to-paste CallScriptCard
+          the voicemail/text/email channels use. */}
+      <SpokenScriptCard label={SERVICING_CALL_SCRIPTS.opening.label} body={callOpeningScript(c.first_name ?? 'there', senderName)} />
 
       {/* 3. Two choices — Reached / Didn\u2019t Reach. */}
       <div className="border-t border-surface-divider pt-4">

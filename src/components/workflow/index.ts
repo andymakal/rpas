@@ -20,6 +20,7 @@ export {
   WorkflowButton,
   NextNote,
   ExternalActionConfirm,
+  SpokenScriptCard,
 } from './primitives'
 
 export {

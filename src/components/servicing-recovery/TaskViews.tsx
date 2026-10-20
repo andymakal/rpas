@@ -35,7 +35,7 @@ import {
   shortDate,
 } from './data'
 import {
-  HoldingsPanel, RoutineContact, RequiredSigners, ScriptBlock, ContactFacts,
+  HoldingsPanel, RoutineContact, RequiredSigners, ContactFacts,
   ViewFullCustomer,
 } from './parts'
 import {
@@ -46,6 +46,7 @@ import {
   WorkflowButton,
   NextNote,
   OperationalTag,
+  SpokenScriptCard,
 } from '@/components/workflow'
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -466,10 +467,11 @@ export function ReadyToCallTask({ item, onBack }: { item: WorkItem; onBack?: () 
         <p className="-mt-2 text-base text-slate-700">Routine contact: {personName(routinePerson)}</p>
       )}
 
-      {/* The call script sits directly below the call action. */}
-      <ScriptBlock
+      {/* The call script sits directly below the call action. Read aloud to the
+          customer, so it uses the shared spoken-script card (no Copy). */}
+      <SpokenScriptCard
         label="Call script"
-        text={`Hi, may I speak with ${toName}? This is your Right Path servicing agent calling about ${fullName(item)}'s policies. We are confirming the servicing agent on the account so we can keep helping you. Do you have a couple of minutes?`}
+        body={`Hi, may I speak with ${toName}? This is your Right Path servicing agent calling about ${fullName(item)}'s policies. We are confirming the servicing agent on the account so we can keep helping you. Do you have a couple of minutes?`}
       />
 
       <div className="border-t border-slate-100 pt-4">

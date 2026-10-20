@@ -16,7 +16,7 @@
  */
 
 import type { ComponentType, ReactNode } from 'react'
-import { ExternalLink } from 'lucide-react'
+import { ExternalLink, MessageSquareQuote } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 
@@ -460,6 +460,41 @@ export function ExternalActionConfirm({
       </div>
 
       {hint && <NextNote>{hint}</NextNote>}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SpokenScriptCard — a read-aloud talk track.
+//
+// For script text the worker SAYS to a person who is on the line right now: a
+// live call opening, an in-person greeting, any prompt read out loud. It is
+// deliberately NOT the copy-to-clipboard CallScriptCard / LightScriptCard, which
+// exist for text the worker transmits through another channel (a voicemail
+// greeting note, a Hearsay text, an email). Spoken words have no paste
+// destination, so this card carries NO Copy affordance; it only presents the
+// label and the script to be read.
+//
+// Generic and data-type-agnostic, so any workflow screen with a spoken prompt
+// reuses it. The talk track is operational information the worker performs, so
+// it is rendered at a readable (not muted) tier per the workflow visual rules.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export function SpokenScriptCard({
+  label,
+  body,
+}: {
+  /** The short uppercase section label (e.g. "Opening script"). */
+  label: string
+  /** The talk track to read aloud. Preserves its own line breaks. */
+  body: string
+}) {
+  return (
+    <div className="space-y-2 rounded-xl border border-surface-border bg-surface-muted p-3">
+      <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-supporting">
+        <MessageSquareQuote className="size-3.5" aria-hidden /> {label}
+      </p>
+      <p className="whitespace-pre-line text-base leading-relaxed text-ink-secondary">{body}</p>
     </div>
   )
 }
