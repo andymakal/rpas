@@ -1395,12 +1395,12 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         const crRoute = `/projects/${crProjectId}/contact-review`
         const crRows = await buildContactReview(supabase, crProjectId)
         const crSummary = summarizeContactReview(crRows)
-        // Recommended outstanding research (every row whose research is not yet
-        // exhausted — reachable missing-one AND no-usable-contact-but-outstanding),
-        // so completed research is never re-recommended.
+        // Every incomplete customer is available work (actionable === total):
+        // a customer stays in Contact Research until the gap is resolved,
+        // regardless of prior research. The unsuccessful figure is a history
+        // sub-label for presentation, not an exclusion from the count.
         const actionable = crSummary.actionable
         const unresolved = crSummary.total
-        // The previously-unsuccessful population kept visible but not recommended.
         const unsuccessful = crSummary.total - crSummary.actionable
         if (unresolved <= 0) continue
 
