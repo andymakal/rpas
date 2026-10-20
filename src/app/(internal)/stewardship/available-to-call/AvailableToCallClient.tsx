@@ -51,6 +51,7 @@ import {
   MentorCapButton, MentorCapPanel, useMentorDisclosure,
 } from '@/lib/mentoring/MentorUi'
 import { useWorkReservation } from '@/lib/reservations/useWorkReservation'
+import { reserveNextDirectCandidate } from '@/lib/reservations/reserveNextDirectCandidate'
 import { StewardshipTask } from '../StewardshipClient'
 
 type PopulationCustomer = {
@@ -60,7 +61,12 @@ type PopulationCustomer = {
 }
 
 type PopulationItem = {
-  id: string
+  // A recorded item carries its real stewardship_outreach id; a derived
+  // (record-less) onboarding item carries a null id with virtual + customer_id,
+  // so it is materialized into a real record on first action (reserve/open).
+  id: string | null
+  virtual?: boolean
+  customer_id?: string | null
   customer: PopulationCustomer
 }
 
@@ -177,12 +183,24 @@ export function AvailableToCallClient({
 
   useEffect(() => { void load() }, [load])
 
+  // A stable per-candidate key for session handled-tracking. A recorded item is
+  // keyed by its real outreach id; a record-less (virtual) item is keyed by its
+  // customer id (it has no outreach id until it is materialized), so the
+  // completion tally and the still-to-do set stay correct for both. When a
+  // virtual item is materialized and worked, its NEW real id is also marked
+  // handled, so a reloaded population (which then contains the real row) never
+  // re-presents it.
+  const candidateKey = useCallback(
+    (it: PopulationItem): string => it.id ?? `virtual:${it.customer_id ?? ''}`,
+    [],
+  )
+
   // The still-to-do work: population items not yet handled this session. The
   // server already gated the population to this employee's actionable set; this
   // only removes the ones completed in the current pass.
   const remaining = useMemo(
-    () => items.filter(it => !handled.has(it.id)),
-    [items, handled],
+    () => items.filter(it => !handled.has(candidateKey(it))),
+    [items, handled, candidateKey],
   )
 
   // Direct working workflow: once loaded, RESERVE and land straight on the first
@@ -191,12 +209,17 @@ export function AvailableToCallClient({
   // advances deliberately with each recorded interaction. A reservation FAILURE
   // (not an empty result) surfaces as an error; only a successful empty result
   // falls through to the completion state.
+  //
+  // A record-less onboarding customer (virtual) has no outreach row yet, so the
+  // shared helper materializes it into its durable record on this first action
+  // (create-on-first-action, idempotent) before reserving — the same seam the
+  // board queue list uses — so newly populated project customers are callable
+  // directly here instead of falling through to an intermediate list.
   const directOpenedRef = useRef(false)
   useEffect(() => {
     if (loading || error || directOpenedRef.current) return
     directOpenedRef.current = true
-    const candidates = remaining.map(it => it.id)
-    void reserveNext(candidates)
+    void reserveNextDirectCandidate(remaining, reserveNext)
       .then(reserved => {
         if (reserved) setOpenId(reserved)
         // else: a successful empty result — nobody available. Completion shows.
@@ -217,17 +240,25 @@ export function AvailableToCallClient({
   const advanceAfterCall = useCallback(() => {
     if (!openId) return
     const handledId = openId
+    // Mark handled by both keys that can identify this customer: the real id now
+    // open (which also covers a materialized virtual item once reloaded) and, if
+    // the open customer came from a still-virtual candidate, its virtual key.
+    const handledVirtual = remaining.find(it => it.virtual && it.customer_id && it.id === null)
     setHandled(prev => {
       const next = new Set(prev)
       next.add(handledId)
+      if (handledVirtual?.customer_id) next.add(`virtual:${handledVirtual.customer_id}`)
       return next
     })
     // The handled customer has left this population for the session; release its
     // reservation so a teammate is never blocked.
     void release()
-    // `handled` updates on the next render, so exclude the just-handled id here.
-    const candidates = remaining.filter(it => it.id !== handledId).map(it => it.id)
-    void reserveNext(candidates)
+    // `handled` updates on the next render, so exclude the just-handled customer
+    // here (by real id and, for a materialized virtual one, its virtual key).
+    const candidates = remaining.filter(
+      it => it.id !== handledId && candidateKey(it) !== (handledVirtual ? `virtual:${handledVirtual.customer_id}` : ''),
+    )
+    void reserveNextDirectCandidate(candidates, reserveNext)
       .then(reserved => {
         setOpenId(reserved) // reserved id, or null -> completion state renders
       })
@@ -239,7 +270,7 @@ export function AvailableToCallClient({
       })
     // Keep the local population in step with the server; harmless if already gone.
     void load()
-  }, [openId, remaining, load, release, reserveNext])
+  }, [openId, remaining, load, release, reserveNext, candidateKey])
 
   const handledCount = handled.size
 
@@ -281,7 +312,14 @@ export function AvailableToCallClient({
   // and `onAdvanceToNext` fires after a recorded terminal interaction to move to
   // the next customer.
   if (openId) {
-    const hasNext = remaining.some(it => it.id !== openId)
+    // Another customer remains when a still-to-do candidate is neither the open
+    // real id nor the virtual candidate that was just materialized into it. A
+    // virtual candidate (id === null) that is NOT the open one still counts; the
+    // open one is excluded by matching its real id or, for a freshly
+    // materialized virtual, by it being the only remaining virtual.
+    const otherRemaining = remaining.filter(it => it.id !== null && it.id !== openId)
+    const remainingVirtuals = remaining.filter(it => it.id === null)
+    const hasNext = otherRemaining.length > 0 || remainingVirtuals.length > 1
     return (
       <StewardshipTask
         key={openId}
