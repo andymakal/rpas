@@ -341,6 +341,80 @@ export const SCRIPTS = {
 
 } as const
 
+// ── Servicing-agent calling scripts ────────────────────────────────────────────
+//
+// The approved scripts for the servicing-agent outreach CALL activities (both
+// "Make the Calls That Are Due" and "Call Other Reachable Customers"). They are
+// the servicing-agent talk tracks — distinct from the LSP-referral SCRIPTS above
+// and used only by the guided calling workbench.
+//
+// Variables (filled by interpolate at render time, never shown as placeholders):
+//   first_name  — the customer's first name
+//   sender_name — the signed-in employee's first name (the caller)
+//   phone       — the employee's/office CALLBACK number, never the customer's
+//
+// The opening script is a verbal talk track read live; voicemail and the Hearsay
+// text are copy cards; the follow-up email opens pre-composed in Outlook. The
+// employee always does the actual sending.
+
+export const SERVICING_CALL_SCRIPTS = {
+
+  /** Opening — the live talk track at the top of the call workbench. */
+  opening: {
+    label: 'Opening script',
+    body: [
+      'Hi, this is {sender_name} with Allstate Financial Services.',
+      '',
+      'Is this {first_name}?',
+      '',
+      '[Wait for response.]',
+      '',
+      'We\u2019re calling about your life insurance policy. When Allstate\u2019s life insurance business moved to Everlake, our office was no longer listed as the servicing agent on your policy.',
+      '',
+      'We\u2019d like to restore that access so we can continue helping you with your policy. Do you have a couple of minutes?',
+    ].join('\n'),
+  },
+
+  /** Voicemail — read when there is no answer. */
+  voicemail: {
+    label: 'Voicemail script',
+    body: [
+      'Hi {first_name}, this is {sender_name} calling from Allstate Financial Services.',
+      '',
+      'We need to speak with you briefly about your life insurance policy. There\u2019s nothing wrong with your policy, but it is important that we speak with you soon.',
+      '',
+      'Please give me a call back at {phone}. Again, that\u2019s {phone}.',
+    ].join('\n'),
+  },
+
+  /** Hearsay text — copied and sent manually through Hearsay. */
+  hearsay_text: {
+    label: 'Hearsay text',
+    body: [
+      'Hi {first_name}, this is {sender_name} with Allstate Financial Services.',
+      'We need to speak with you briefly about your life insurance policy.',
+      'Is there a good time for a call this week?',
+    ].join(' '),
+  },
+
+  /** Follow-up email — opens pre-composed in Outlook via mailto. */
+  follow_up_email: {
+    subject: 'Regarding Your Life Insurance Policy',
+    body: [
+      'Hi {first_name},',
+      '',
+      'This is {sender_name} with Allstate Financial Services.',
+      '',
+      'We need to speak with you briefly about your life insurance policy. Is there a convenient time for a call this week?',
+      '',
+      'You can also reach me at {phone}.',
+      '',
+      '{sender_name}',
+    ].join('\n'),
+  },
+
+} as const
+
 // ── Appointment type config ───────────────────────────────────────────────────
 //
 // Used in the confirmation / reminder email UI to fill {appointment_type}

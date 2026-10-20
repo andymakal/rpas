@@ -46,7 +46,7 @@ import {
 } from '@/lib/stewardship/customer-history'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { isPermanent } from '@/lib/policies/product-type'
-import { buildMailto, SCRIPTS, interpolate } from '@/lib/templates'
+import { buildMailto, SERVICING_CALL_SCRIPTS, interpolate } from '@/lib/templates'
 import type { AgencyOption } from './page'
 
 /**
@@ -244,6 +244,14 @@ type Detail = BoardItem & {
   } | null
   /** Signer identity is not derivable from durable data; always false today. */
   signer_identity_known: boolean
+  /** The signed-in employee as the CALLER for the guided calling scripts: their
+   * first name (fills "[Employee]") and their validated CALLBACK number (fills
+   * "[Callback Number]", the office/employee number — never the customer's).
+   * Either field may be null when not resolvable or the employee has no usable
+   * callback number; the workbench then shows the callback-dependent channels as
+   * unavailable rather than an unresolved placeholder. Supplied by the GET route
+   * from the established producer source. */
+  call_actor?: { first_name: string | null; callback_phone: string | null } | null
   /** The active 1035 project whose consolidated Contact Research task owns this
    * customer. The Research Needed task links here instead of hosting its own
    * correction screen, so contact research is one surface. Null when not in an
@@ -2037,17 +2045,32 @@ function CallScriptCard({ label, body }: { label: string; body: string }) {
 }
 
 /**
- * The live-call opening talk track, shown at the top of the call workbench. It
- * is a short, honest script keyed to the servicing-agent reason, matching the
- * approved introductory-email wording. Static prose (no sender/LSP variable the
- * calling context carries), so it reads cleanly without unresolved placeholders.
+ * An explicitly UNAVAILABLE communication channel in the Didn't Reach workflow.
+ * Shown in place of a channel's script/action when the contact information it
+ * needs is missing, so the worker sees the channel exists but cannot be used —
+ * never a hidden channel and never an implication that it was sent.
  */
-function callOpeningScript(firstName: string): string {
-  return [
-    `Hi, is this ${firstName}? This is Allstate Financial Services calling about your life insurance policy.`,
-    'When Allstate\u2019s life insurance business moved to Everlake, our office lost access to policies unless we\u2019re listed as the servicing agent, and we\u2019re not currently listed on yours.',
-    'I\u2019d like to restore that access so we can keep helping you with questions and servicing. It doesn\u2019t change your policy or coverage in any way. Do you have a couple of minutes?',
-  ].join('\n\n')
+function ChannelUnavailable({ body }: { body: string }) {
+  return (
+    <div className="flex items-start gap-2 rounded-xl border border-dashed border-surface-border-strong bg-surface-muted p-3 text-sm text-ink-supporting">
+      <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+      <p>{body}</p>
+    </div>
+  )
+}
+
+/**
+ * The live-call opening talk track, shown at the top of the call workbench. The
+ * approved servicing-agent opening script (SERVICING_CALL_SCRIPTS.opening) with
+ * the employee's and customer's first names filled in. When the employee name
+ * is not resolvable it falls back to the office name ("our office") so the
+ * script still reads cleanly with no unresolved placeholder.
+ */
+function callOpeningScript(firstName: string, senderName: string | null): string {
+  return interpolate(SERVICING_CALL_SCRIPTS.opening.body, {
+    first_name: firstName,
+    sender_name: senderName ?? 'our office',
+  })
 }
 
 /**
@@ -2269,17 +2292,42 @@ function CallWorkbenchAction({
 
   const nextSuffix = hasNextInActivity ? ' Next customer.' : ''
 
-  // Interpolated scripts. The calling context does not carry the sender/LSP
-  // identity the way the email templates do, so those variables resolve to the
-  // customer-facing content only; interpolate leaves unknown keys intact, and we
-  // supply first_name + phone so the common placeholders fill.
-  const scriptVars = { first_name: c.first_name ?? 'there', phone: phone ?? '' }
-  const voicemailScript = interpolate(SCRIPTS.voicemail.body, scriptVars)
-  const textScript = interpolate(
-    (voicemailLeft ? SCRIPTS.post_voicemail_text : SCRIPTS.first_attempt_text).body,
-    scriptVars,
+  // The CALLER identity for the scripts, from the established producer source:
+  // the signed-in employee's first name ("[Employee]") and their validated
+  // CALLBACK number ("[Callback Number]"). The callback number is the
+  // employee's/office number, NEVER the customer's phone. Either may be absent;
+  // the UI never prints an unresolved placeholder or an empty number.
+  const senderName = detail.call_actor?.first_name ?? null
+  const callbackPhone = detail.call_actor?.callback_phone ?? null
+
+  // Interpolated servicing-agent scripts. The customer's first name and the
+  // caller's identity fill the placeholders; nothing is left as a raw
+  // placeholder. The customer-facing wording falls back to a neutral form when a
+  // value is absent so a script still reads cleanly.
+  const scriptVars = {
+    first_name: c.first_name ?? 'there',
+    sender_name: senderName ?? 'our office',
+    phone: callbackPhone ?? '',
+  }
+  const voicemailScript = interpolate(SERVICING_CALL_SCRIPTS.voicemail.body, scriptVars)
+  const textScript = interpolate(SERVICING_CALL_SCRIPTS.hearsay_text.body, scriptVars)
+  const followUpMailto = buildMailto(
+    c.email,
+    SERVICING_CALL_SCRIPTS.follow_up_email.subject,
+    interpolate(SERVICING_CALL_SCRIPTS.follow_up_email.body, scriptVars),
   )
-  const followUpMailto = buildMailto(c.email, SA_SUBJECT, saEmailBody(c.first_name))
+
+  // Channel availability. A channel is shown as AVAILABLE only when it can
+  // actually be completed; otherwise it is shown explicitly as unavailable, so
+  // the worker never pretends a channel was used that could not be.
+  //   - The voicemail script asks the customer to call back AT the callback
+  //     number, so leaving a usable voicemail needs that number.
+  //   - The Hearsay text needs a textable phone AND the callback number is not
+  //     required (the text does not state it), but it does identify the caller.
+  //   - The follow-up email needs a usable email.
+  const canText = detail.contact_options?.canText ?? !!phone
+  const canEmail = detail.contact_options?.canEmail ?? !!c.email
+  const hasCallbackNumber = !!callbackPhone
 
   // Record the DIDN\u2019T-REACH attempt as ONE grouping. The call channel's
   // outcome is 'voicemail' (the no-answer outcome that schedules the next call);
@@ -2288,7 +2336,10 @@ function CallWorkbenchAction({
   // actually sent. So only communications actually completed are preserved.
   function recordNotReached() {
     const action: Record<string, unknown> = { type: 'record-attempt', call: 'voicemail' }
-    if (voicemailLeft) action.voicemail = 'touch'
+    // Record a voicemail touch only when one was actually left. When no callback
+    // number resolves, the voicemail channel is unavailable (no Yes/No shown), so
+    // it is never recorded as completed.
+    if (callbackPhone && voicemailLeft) action.voicemail = 'touch'
     if (textSent) action.text = 'touch'
     if (emailSent) action.email = 'touch'
     act(
@@ -2326,8 +2377,8 @@ function CallWorkbenchAction({
         <PrimaryAction icon={Phone} label="No phone on file" disabled />
       )}
 
-      {/* 2. A short, relevant opening script. */}
-      <CallScriptCard label="Opening script" body={callOpeningScript(c.first_name ?? 'there')} />
+      {/* 2. The approved opening script, with the employee + customer names filled in. */}
+      <CallScriptCard label={SERVICING_CALL_SCRIPTS.opening.label} body={callOpeningScript(c.first_name ?? 'there', senderName)} />
 
       {/* 3. Two choices — Reached / Didn\u2019t Reach. */}
       <div className="border-t border-surface-divider pt-4">
@@ -2347,61 +2398,81 @@ function CallWorkbenchAction({
       {/* ── DIDN\u2019T REACH ─────────────────────────────────────────────────── */}
       {reach === 'not-reached' && (
         <div className="space-y-4 border-t border-surface-divider pt-4">
-          {/* Voicemail script, always shown to read. */}
+          {/* Voicemail. The approved script asks the customer to call back at the
+              callback number, so it can only be read when that number resolves.
+              Without it, the channel is shown as unavailable rather than offering
+              a script with a missing number. */}
           <div className="space-y-2">
             <p className="flex items-center gap-1.5 text-base font-semibold text-ink">
               <Voicemail className="size-4 text-ink-supporting" aria-hidden /> Voicemail
             </p>
-            <CallScriptCard label={SCRIPTS.voicemail.label} body={voicemailScript} />
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm font-medium text-ink-secondary">Did you leave a voicemail?</span>
-              <WorkflowButton selected={voicemailLeft === true} disabled={busy} onClick={() => setVoicemailLeft(true)}>Yes</WorkflowButton>
-              <WorkflowButton selected={voicemailLeft === false} disabled={busy} onClick={() => setVoicemailLeft(false)}>No</WorkflowButton>
-            </div>
+            {hasCallbackNumber ? (
+              <>
+                <CallScriptCard label={SERVICING_CALL_SCRIPTS.voicemail.label} body={voicemailScript} />
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm font-medium text-ink-secondary">Did you leave a voicemail?</span>
+                  <WorkflowButton selected={voicemailLeft === true} disabled={busy} onClick={() => setVoicemailLeft(true)}>Yes</WorkflowButton>
+                  <WorkflowButton selected={voicemailLeft === false} disabled={busy} onClick={() => setVoicemailLeft(false)}>No</WorkflowButton>
+                </div>
+              </>
+            ) : (
+              <ChannelUnavailable
+                body="No callback number is set for your profile, so the voicemail script can’t name a number to call back. Ask an admin to add your phone on the Team page, then this voicemail script becomes available."
+              />
+            )}
           </div>
 
-          {/* Prepared Hearsay text with Copy; mark it sent only when actually sent. */}
-          {(detail.contact_options?.canText ?? !!phone) && (
-            <div className="space-y-2">
-              <p className="flex items-center gap-1.5 text-base font-semibold text-ink">
-                <MessageSquare className="size-4 text-ink-supporting" aria-hidden /> Text (Hearsay)
-              </p>
-              <CallScriptCard
-                label={voicemailLeft ? SCRIPTS.post_voicemail_text.label : SCRIPTS.first_attempt_text.label}
-                body={textScript}
-              />
-              <label className="flex cursor-pointer items-center gap-2.5 text-base font-medium text-ink">
-                <input type="checkbox" checked={textSent} disabled={busy}
-                  onChange={e => setTextSent(e.target.checked)}
-                  className="size-4 rounded border-slate-400 text-teal-600 focus:ring-teal-500" />
-                I sent this text through Hearsay
-              </label>
-            </div>
-          )}
+          {/* Hearsay text: the prepared script with Copy for manual sending.
+              When there is no textable number, the channel is shown as
+              unavailable rather than hidden or implying a text could be sent. */}
+          <div className="space-y-2">
+            <p className="flex items-center gap-1.5 text-base font-semibold text-ink">
+              <MessageSquare className="size-4 text-ink-supporting" aria-hidden /> Text (Hearsay)
+            </p>
+            {canText ? (
+              <>
+                <CallScriptCard label={SERVICING_CALL_SCRIPTS.hearsay_text.label} body={textScript} />
+                <label className="flex cursor-pointer items-center gap-2.5 text-base font-medium text-ink">
+                  <input type="checkbox" checked={textSent} disabled={busy}
+                    onChange={e => setTextSent(e.target.checked)}
+                    className="size-4 rounded border-slate-400 text-teal-600 focus:ring-teal-500" />
+                  I sent this text through Hearsay
+                </label>
+              </>
+            ) : (
+              <ChannelUnavailable body="No usable mobile number on file, so a Hearsay text can’t be sent. Add or correct the phone in Contact Research to make this available." />
+            )}
+          </div>
 
-          {/* Prepared follow-up email via mailto; mark it sent only when sent. */}
-          {(detail.contact_options?.canEmail ?? !!c.email) && (
-            <div className="space-y-2">
-              <p className="flex items-center gap-1.5 text-base font-semibold text-ink">
-                <Mail className="size-4 text-ink-supporting" aria-hidden /> Follow-up email
-              </p>
-              <a href={followUpMailto} className="block">
-                <WorkflowButton icon={Mail}>Open prepared follow-up email</WorkflowButton>
-              </a>
-              <label className="flex cursor-pointer items-center gap-2.5 text-base font-medium text-ink">
-                <input type="checkbox" checked={emailSent} disabled={busy}
-                  onChange={e => setEmailSent(e.target.checked)}
-                  className="size-4 rounded border-slate-400 text-teal-600 focus:ring-teal-500" />
-                I sent this follow-up email
-              </label>
-            </div>
-          )}
+          {/* Follow-up email: opens pre-composed in Outlook via mailto. When
+              there is no usable email, the channel is shown as unavailable
+              rather than hidden or implying an email was sent. */}
+          <div className="space-y-2">
+            <p className="flex items-center gap-1.5 text-base font-semibold text-ink">
+              <Mail className="size-4 text-ink-supporting" aria-hidden /> Follow-up email
+            </p>
+            {canEmail ? (
+              <>
+                <a href={followUpMailto} className="block">
+                  <WorkflowButton icon={Mail}>Open prepared follow-up email</WorkflowButton>
+                </a>
+                <label className="flex cursor-pointer items-center gap-2.5 text-base font-medium text-ink">
+                  <input type="checkbox" checked={emailSent} disabled={busy}
+                    onChange={e => setEmailSent(e.target.checked)}
+                    className="size-4 rounded border-slate-400 text-teal-600 focus:ring-teal-500" />
+                  I sent this follow-up email
+                </label>
+              </>
+            ) : (
+              <ChannelUnavailable body="No usable email on file, so a follow-up email can’t be sent. Add or correct the email in Contact Research to make this available." />
+            )}
+          </div>
 
           {/* Record the whole no-reach interaction as ONE grouped attempt.
               Recording waits until the worker has answered whether a voicemail
               was left, so the attempt is honest about what was completed. */}
           <div className="space-y-3 rounded-xl border border-surface-border bg-surface-card p-4">
-            <WorkflowButton icon={PenLine} selected disabled={busy || voicemailLeft === null} onClick={recordNotReached}>
+            <WorkflowButton icon={PenLine} selected disabled={busy || (hasCallbackNumber && voicemailLeft === null)} onClick={recordNotReached}>
               {busy ? 'Recording\u2026' : 'Record this attempt'}
             </WorkflowButton>
             <NextNote>

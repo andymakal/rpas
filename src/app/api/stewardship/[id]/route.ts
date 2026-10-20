@@ -22,6 +22,7 @@ import {
   NONRESPONSIVE_LABEL,
 } from '@/lib/stewardship/cadence-status'
 import { normalizeEmailInput, normalizePhoneInput } from '@/lib/contact-input'
+import { resolveProducerForUser } from '@/lib/capabilities/resolve'
 import { SERVICING_AUTHORIZATION_TYPE } from '@/lib/stewardship/authorization-document'
 import { activeContactResearchProjectForCustomer } from '@/lib/projects/contact-review'
 import { getCustomerEnrollmentEvents } from '@/lib/projects/customer-enrollments'
@@ -80,6 +81,42 @@ async function resolveEmployeeName(
     return profile?.display_name ?? user.email?.split('@')[0] ?? null
   } catch {
     return null
+  }
+}
+
+/**
+ * Resolve the signed-in employee as the CALLER for the guided calling scripts:
+ * their first name (populates "[Employee]") and their validated CALLBACK number
+ * (populates "[Callback Number]").
+ *
+ * Reuses the established producer source (producers row for the signed-in user);
+ * the callback number is the employee's own `producers.phone`, NEVER the
+ * customer's number. The phone is run through the shared contact-input validator
+ * so a missing or malformed employee number resolves to null (the UI then treats
+ * the callback-dependent channels as unavailable) rather than printing a bad or
+ * placeholder number. Best-effort and never blocks the workflow.
+ */
+async function resolveCallActor(
+  admin: ReturnType<typeof createAdminClient>,
+): Promise<{ first_name: string | null; callback_phone: string | null }> {
+  try {
+    const sessionClient = await createClient()
+    const { data: { user } } = await sessionClient.auth.getUser()
+    if (!user) return { first_name: null, callback_phone: null }
+    const producer = await resolveProducerForUser(user.id)
+    if (!producer) return { first_name: null, callback_phone: null }
+    const { data: row } = await admin
+      .from('producers')
+      .select('phone')
+      .eq('id', producer.id)
+      .maybeSingle()
+    const phoneResult = normalizePhoneInput((row?.phone as string | null) ?? null)
+    return {
+      first_name: (producer.first_name ?? '').trim() || null,
+      callback_phone: phoneResult.status === 'valid' ? phoneResult.value : null,
+    }
+  } catch {
+    return { first_name: null, callback_phone: null }
   }
 }
 
@@ -295,6 +332,11 @@ export async function GET(
   // Reuses the one document repository (policy_documents); the authorization is
   // anchored to the request's representative policy with the project scope (or
   // null for the standalone intake path).
+  // The signed-in employee as the CALLER for the guided calling scripts: their
+  // first name and validated callback number, from the established producer
+  // source. Used to fill the opening/voicemail/text/email scripts dynamically.
+  const callActor = await resolveCallActor(supabase)
+
   const requestPolicyIds = holdings.filter(h => h.in_request).map(h => h.id)
   let authorizationOnFile = false
   if (requestPolicyIds.length > 0) {
@@ -371,6 +413,12 @@ export async function GET(
       customer_history: customerHistory,
       // Signer identity cannot be determined from durable data.
       signer_identity_known: false,
+      // The signed-in employee as the CALLER for the guided calling scripts:
+      // first name ("[Employee]") and validated callback number
+      // ("[Callback Number]"). Either may be null when not resolvable or the
+      // employee has no usable callback number; the workbench then renders the
+      // callback-dependent channels as unavailable rather than a placeholder.
+      call_actor: callActor,
     },
   })
 }
