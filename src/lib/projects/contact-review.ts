@@ -148,11 +148,13 @@ export interface ContactReviewSummary {
   /** Of the list, how many have NO usable contact at all (the No Usable Contact
    * Information section) — both the outstanding and the previously-unsuccessful. */
   no_usable_contact: number
-  /** Of the list, how many are available Contact Research work: every incomplete
-   * customer, regardless of prior research history. Equal to total — a customer
-   * stays available work until the gap is actually resolved. Previously
-   * unsuccessful research is a visible sub-label, not an exclusion. My Work
-   * drives its count from this. */
+  /** Of the list, how many are OUTSTANDING ("not yet researched"): research not
+   * yet exhausted (researched_unsuccessfully === false). This is the outstanding
+   * figure that drives the My Work recommendation band and the "not yet
+   * researched" breakdown. The full incomplete population is `total`; the
+   * previously-researched-unsuccessfully subset is `total - actionable`, read
+   * from actual customer history. Every incomplete customer still counts as
+   * available work via the unresolved/total figure. */
   actionable: number
 }
 
@@ -567,10 +569,14 @@ export function summarizeContactReview(
     else if (count === 1) oneUsable++
     if (r.status === 'no_usable_contact') noUsableContact++
     else needsResearch++
-    // Every incomplete customer is available work until the gap is resolved.
-    // Previously unsuccessful research is a visible history sub-label, not a
-    // reason to drop the customer from the count, so every row is actionable.
-    actionable++
+    // Outstanding ("not yet researched") work: a customer whose research is not
+    // yet exhausted. This is the OUTSTANDING figure that drives the
+    // recommendation band and the "not yet researched" breakdown. The FULL
+    // incomplete population is carried separately as `total` (and surfaced to My
+    // Work as unresolvedCount), so every incomplete customer still counts as
+    // available work; `total - actionable` is the previously-researched-
+    // unsuccessfully subset, read from actual customer history.
+    if (!r.researched_unsuccessfully) actionable++
   }
   return {
     total: rows.length,
