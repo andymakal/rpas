@@ -20,9 +20,9 @@ import {
 import { cn } from '@/lib/utils'
 import {
   type CallOutcome,
-  type CallReason,
   type ResearchReason,
   type WorkItem,
+  callNumberLabel,
   contextHoldings,
   formatDob,
   fullName,
@@ -256,13 +256,6 @@ export function ReadyToEmailTask({ item, onBack }: { item: WorkItem; onBack?: ()
 // Ready to Call
 // ─────────────────────────────────────────────────────────────────────────────
 
-const CALL_REASON_COPY: Record<CallReason, { label: string; line: string }> = {
-  'no-email':      { label: 'No email on file', line: 'There is no email for this customer, so we are calling.' },
-  'email-bounced': { label: 'Email bounced',    line: 'The emailed outreach bounced, so we are calling the phone on file.' },
-  'no-response':   { label: 'No response',      line: 'The follow-up window lapsed with no response, so we are calling.' },
-  'callback-due':  { label: 'Callback due',     line: 'The customer asked us to call back and that date is here.' },
-}
-
 const CALL_OUTCOMES: { id: CallOutcome; label: string }[] = [
   { id: 'reached',        label: 'Reached' },
   { id: 'voicemail',      label: 'Voicemail' },
@@ -420,9 +413,29 @@ export function ReadyToCallTask({ item, onBack }: { item: WorkItem; onBack?: () 
   const [callbackWhen, setCallbackWhen] = useState('')
 
   const reason = item.callReason ?? 'no-email'
-  const reasonCopy = CALL_REASON_COPY[reason]
   const toPhone = routinePerson ? preferredPhoneField(routinePerson.contact).value : null
   const toName = routinePerson ? personName(routinePerson) : fullName(item)
+
+  // The one-line reason the customer is due for contact, built from the record.
+  // A customer-promised callback (callback-due) is distinguished from an
+  // automatic follow-up call (no-response). Presentation only.
+  function reasonLine(): string {
+    switch (reason) {
+      case 'callback-due':
+        return item.callbackDate
+          ? `Promised callback due ${shortDate(item.callbackDate)}.`
+          : 'Promised callback due.'
+      case 'no-response':
+        return item.emailSentDate
+          ? `Introductory email sent ${shortDate(item.emailSentDate)}. No response yet.`
+          : 'Previous call unsuccessful. Scheduled follow-up due.'
+      case 'email-bounced':
+        return 'The introductory email bounced, so we are calling the phone on file.'
+      case 'no-email':
+      default:
+        return 'No email on file, so we are reaching out by phone.'
+    }
+  }
 
   const context = (
     <>
@@ -434,15 +447,11 @@ export function ReadyToCallTask({ item, onBack }: { item: WorkItem; onBack?: () 
 
   const action = (
     <ActionPanel heading={`Call ${fullName(item)}`}>
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="space-y-1">
         <span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-sm font-medium text-amber-800">
-          <CircleAlert className="size-3.5" aria-hidden /> {reasonCopy.label}
+          <CircleAlert className="size-3.5" aria-hidden /> {callNumberLabel(item.priorCallCount)}
         </span>
-        {reason === 'callback-due' && item.callbackDate && (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-white px-3 py-1 text-sm text-slate-600">
-            <Clock className="size-3.5" aria-hidden /> Callback {shortDate(item.callbackDate)}
-          </span>
-        )}
+        <p className="text-sm text-slate-600">{reasonLine()}</p>
       </div>
 
       {/* The one prominent primary action. Opening it launches the existing

@@ -878,6 +878,90 @@ function shortDate(iso: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Guided-call presentation — the call number and a one-line reason the customer
+// is due for contact.
+//
+// Presentation only: it reads the EXISTING recorded call-attempt count
+// (detail.call_attempts, grouped phone attempts in the current onboarding run)
+// and the durable reason/date facts the GET route already supplies. It creates
+// no counter and changes no cadence, history, or routing. Opening a screen does
+// not advance anything — the count moves only when a call is recorded.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CALL_ORDINALS = [
+  'First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth',
+  'Ninth', 'Tenth',
+]
+
+/**
+ * The call number label for the call about to be placed. The first call after
+ * the introductory email is Call 1, so the label is the existing recorded call
+ * count + 1. Beyond the named ordinals it falls back to "Nth Outreach Call".
+ */
+function callNumberLabel(callAttempts: number | undefined): string {
+  const next = (callAttempts ?? 0) + 1
+  const ordinal = CALL_ORDINALS[next - 1]
+  if (ordinal) return `${ordinal} Outreach Call`
+  return `${next}th Outreach Call`
+}
+
+/**
+ * A one-line explanation of WHY the customer is due for contact, built from the
+ * durable records. A customer-promised callback is distinguished from an
+ * automatic follow-up call: 'callback-due' is a commitment the customer made
+ * (shown with its promised date); 'no-response' is an automatic cadence retry
+ * after an unsuccessful previous call. Returns null when there is nothing
+ * meaningful to add beyond the call number.
+ */
+function callReasonLine(detail: {
+  call_reason: string | null
+  email_sent_at: string | null
+  follow_up_due: string | null
+  callback_date: string | null
+  last_call_outcome: string | null
+}): string | null {
+  switch (detail.call_reason) {
+    case 'callback-due':
+      return detail.callback_date
+        ? `Promised callback due ${shortDate(detail.callback_date)}.`
+        : 'Promised callback due.'
+    case 'no-response':
+      // Automatic follow-up. Distinguish the first call after the introductory
+      // email (no prior call outcome) from a retry after an unsuccessful call.
+      if (detail.last_call_outcome === 'voicemail') {
+        return 'Previous call unsuccessful. Scheduled follow-up due.'
+      }
+      return detail.email_sent_at
+        ? `Introductory email sent ${shortDate(detail.email_sent_at)}. No response yet.`
+        : 'Follow-up window lapsed with no response.'
+    case 'email-bounced':
+      return 'The introductory email bounced, so we are calling the phone on file.'
+    case 'no-email':
+      return 'No email on file, so we are reaching out by phone.'
+    default:
+      return null
+  }
+}
+
+/**
+ * The guided-call context block: the call number ("First Outreach Call", …) and
+ * a one-line reason the customer is due for contact. Shared by both guided
+ * calling modes (board recorder and workbench) so they read identically.
+ * Presentation only.
+ */
+function CallContext({ detail }: { detail: Detail }) {
+  const line = callReasonLine(detail)
+  return (
+    <div className="space-y-1">
+      <OperationalTag tone="reason">
+        <CircleAlert className="mr-1.5 size-4" aria-hidden /> {callNumberLabel(detail.call_attempts)}
+      </OperationalTag>
+      {line && <p className="text-sm text-ink-secondary">{line}</p>}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Start Capture — begin stewardship work for a selected agency book.
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -2147,11 +2231,7 @@ function CallBoardAction({
   return (
     <ActionPanel heading={`Call ${fullName(detail.customer)}`}>
       {noteBox}
-      {detail.call_reason && (
-        <OperationalTag tone="reason">
-          <CircleAlert className="mr-1.5 size-4" aria-hidden /> {callReasonLabel(detail.call_reason)}
-        </OperationalTag>
-      )}
+      <CallContext detail={detail} />
       {/* Established call behavior: a tel: link dials via the team member's
           configured phone (RingCentral). Launching the dialer is not proof the
           call happened — the worker records the outcome below. */}
@@ -2361,11 +2441,7 @@ function CallWorkbenchAction({
   return (
     <ActionPanel heading={`Call ${name}`}>
       {noteBox}
-      {detail.call_reason && (
-        <OperationalTag tone="reason">
-          <CircleAlert className="mr-1.5 size-4" aria-hidden /> {callReasonLabel(detail.call_reason)}
-        </OperationalTag>
-      )}
+      <CallContext detail={detail} />
 
       {/* 1. Name + phone. A tel: link dials via the team member\u2019s configured
           phone; launching the dialer is not proof the call happened. */}

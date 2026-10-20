@@ -358,6 +358,24 @@ export const CALL_REASON_LABEL: Record<CallReason, string> = {
   'callback-due':  'Callback due',
 }
 
+const CALL_ORDINALS = [
+  'First', 'Second', 'Third', 'Fourth', 'Fifth', 'Sixth', 'Seventh', 'Eighth',
+  'Ninth', 'Tenth',
+]
+
+/**
+ * The call-number label for the call about to be placed. The first call after
+ * the introductory email is Call 1, so the label is the recorded call count + 1.
+ * In the durable app that count is the grouped call-attempt history; this
+ * prototype carries it as fixture data (WorkItem.priorCallCount), since the mock
+ * has no attempt history. Presentation only.
+ */
+export function callNumberLabel(priorCallCount: number | undefined): string {
+  const next = (priorCallCount ?? 0) + 1
+  const ordinal = CALL_ORDINALS[next - 1]
+  return ordinal ? `${ordinal} Outreach Call` : `${next}th Outreach Call`
+}
+
 /** Why a Research Needed item is in research. */
 export type ResearchReason =
   | 'no-contact'        // no usable email or phone at intake
@@ -396,6 +414,14 @@ export interface WorkItem {
   queue: QueueId
   /** Set when queue is 'ready-to-call'. Drives the call script. */
   callReason?: CallReason
+  /**
+   * How many calls have already been recorded for this onboarding run. Drives
+   * the "First / Second / … Outreach Call" label (the call about to be placed
+   * is priorCallCount + 1). Fixture data in this prototype; the durable app
+   * derives it from the grouped call-attempt history and never from screen
+   * opens. Defaults to 0 (so the label reads "First Outreach Call").
+   */
+  priorCallCount?: number
   /** Set when queue is 'research-needed'. */
   researchReason?: ResearchReason
   /** Scheduled callback date (ISO), when the item is a callback. */
