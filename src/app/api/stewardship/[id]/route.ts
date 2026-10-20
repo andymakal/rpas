@@ -1225,7 +1225,12 @@ export async function PATCH(
         .select(OUTREACH_COLUMNS)
         .eq('id', id)
         .single()
-      return Response.json({ data: currentRow, completed_outreach: false, duplicate: true })
+      // The introduction to this same address is already recorded history; this
+      // is a duplicate confirmation, not a lost send. `recorded: true` tells the
+      // caller the required history exists, so a successful completion is
+      // honestly reported (and the fast flow may advance) without writing a
+      // second touch.
+      return Response.json({ data: currentRow, completed_outreach: false, duplicate: true, recorded: true })
     }
     // The advancing send IS the introduction, so stamp the recipient alongside
     // the funnel advance. A chase email (non-advancing) does not move the
@@ -1245,15 +1250,42 @@ export async function PATCH(
         console.error('stewardship email-sent advance error:', advErr)
         return Response.json({ error: advErr.message }, { status: 500 })
       }
-      // Zero rows: another request already advanced this item (duplicate or
-      // concurrent submit). Nothing further to record. Return the current row.
+      // Zero rows: the item's stored queue was not what this request acted on,
+      // so the atomic flip matched nothing and NO touch was written for this
+      // confirmation. This is the case that must never be reported as a
+      // successful send: another request already advanced the item (a genuine
+      // duplicate, whose history is checked below), OR the row changed under a
+      // stale view and this attempt recorded nothing at all. Re-read the row to
+      // decide which. If the item did advance to waiting-for-response AND an
+      // introduction touch exists, the required history is present and this is a
+      // harmless duplicate (recorded: true). Otherwise nothing is recorded, so
+      // return a non-OK status: the caller must surface a retry and must NOT
+      // advance or claim success on missing history.
       if (!advancedRows || advancedRows.length === 0) {
         const { data: currentRow } = await supabase
           .from('stewardship_outreach')
           .select(OUTREACH_COLUMNS)
           .eq('id', id)
           .single()
-        return Response.json({ data: currentRow, completed_outreach: false })
+        const { count: introTouches } = await supabase
+          .from('case_touches')
+          .select('id', { count: 'exact', head: true })
+          .eq('customer_id', customerId)
+          .in('touch_type', ['email', 'postal'])
+        const alreadyRecorded =
+          (currentRow as OutreachRow | null)?.email_sent_at != null &&
+          (introTouches ?? 0) > 0
+        if (alreadyRecorded) {
+          return Response.json({ data: currentRow, completed_outreach: false, duplicate: true, recorded: true })
+        }
+        console.error('stewardship email-sent recorded nothing (stale queue, no touch):', { id, storedQueue: state.queue })
+        return Response.json(
+          {
+            error: 'The send could not be recorded because this item has changed. Reopen the customer and try again.',
+            recorded: false,
+          },
+          { status: 409 },
+        )
       }
       advanced = advancedRows[0] as unknown as OutreachRow
     } else {
@@ -1308,12 +1340,16 @@ export async function PATCH(
       // so the worker knows to retry rather than believing it logged.
       console.error('stewardship send touch log error:', touchErr)
       return Response.json(
-        { error: 'The send was recorded but its history entry could not be saved. Please try again.' },
+        { error: 'The send was recorded but its history entry could not be saved. Please try again.', recorded: false },
         { status: 500 },
       )
     }
 
-    return Response.json({ data: advanced, completed_outreach: false })
+    // The touch is written and the transition applied: the required history
+    // exists. `recorded: true` is the explicit signal the caller gates success
+    // and advancement on, so the interface never reports a completed send when
+    // the history is missing.
+    return Response.json({ data: advanced, completed_outreach: false, recorded: true })
   }
 
   // Normal case: persist the outreach patch.
