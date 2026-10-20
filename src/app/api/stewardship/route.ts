@@ -5,9 +5,9 @@ import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { resolveCapabilityProfile, loadWorkFunctions } from '@/lib/capabilities/resolve'
 import { canActOnItem, claimedByOther } from '@/lib/capabilities/work-functions'
 import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
-import { initialQueueFromOptions, resolveContactOptions } from '@/lib/stewardship/contact-options'
 import { readResearchedUnsuccessfullyBatch, stillNeedsResearchRecommendation } from '@/lib/stewardship/research-record'
 import { getProjectWorkflows, projectContainsWorkflow, onboardingCompleteForPolicies } from '@/lib/projects/workflows'
+import { deriveOnboardingPopulation } from '@/lib/stewardship/derived-onboarding'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 
@@ -381,99 +381,48 @@ export async function GET(request: NextRequest) {
   // represented by that row above and are not duplicated here.
   const virtualItems: typeof items = []
   if (projectId && projectCustomerIds && projectCustomerIds.size > 0 && projectHasOnboarding) {
-    {
-      // Members needing access = project members minus those already represented
-      // by a recorded (open, non-refused) outreach row, minus those whose
-      // onboarding is derived-COMPLETE (already advanced). No duplication, and
-      // completed members are never resurfaced.
-      const recordedCustomerIds = new Set(items.map(it => it.customer_id))
-      const memberIds = Array.from(projectCustomerIds).filter(
-        id => !recordedCustomerIds.has(id) && !onboardingCompleteMemberIds.has(id),
-      )
-      if (memberIds.length > 0) {
-        // Policy facts for onboarding completion + the derived opening action.
-        const policiesByCustomer = new Map<string, { product_type: string | null; sa_status: string | null }[]>()
-        const contactByCustomer = new Map<string, { email: string | null; phone: string | null; first_name: string; last_name: string }>()
-        for (let i = 0; i < memberIds.length; i += 300) {
-          const chunk = memberIds.slice(i, i + 300)
-          const [{ data: pols }, { data: custs }] = await Promise.all([
-            supabase
-              .from('service_policies')
-              .select('customer_id, product_type, sa_status, is_test')
-              .in('customer_id', chunk)
-              .eq('is_test', false),
-            supabase
-              .from('customers')
-              .select('id, first_name, last_name, email, phone, is_test')
-              .in('id', chunk)
-              .eq('is_test', false),
-          ])
-          for (const p of (pols ?? []) as { customer_id: string; product_type: string | null; sa_status: string | null }[]) {
-            const list = policiesByCustomer.get(p.customer_id) ?? []
-            list.push({ product_type: p.product_type, sa_status: p.sa_status })
-            policiesByCustomer.set(p.customer_id, list)
-          }
-          for (const c of (custs ?? []) as { id: string; first_name: string; last_name: string; email: string | null; phone: string | null }[]) {
-            contactByCustomer.set(c.id, { email: c.email, phone: c.phone, first_name: c.first_name, last_name: c.last_name })
-          }
-        }
-
-        for (const cid of memberIds) {
-          const contact = contactByCustomer.get(cid)
-          if (!contact) continue // test record or missing — not surfaced
-          const policies = policiesByCustomer.get(cid) ?? []
-          if (policies.length === 0) continue // no known policy: nothing to pursue
-          // Already complete (access confirmed): advanced past onboarding, not surfaced.
-          if (onboardingCompleteForPolicies(policies)) continue
-
-          // The recommended opening action, derived from live contact facts the
-          // same way a created record would be.
-          const options = await resolveContactOptions({ email: contact.email, phone: contact.phone })
-          const route = initialQueueFromOptions(options)
-          const effectiveQueue = route.queue as OutreachQueue
-          const population = callPopulationOf({
-            effectiveQueue,
-            callReason: route.call_reason as CallReason | null,
-            hasUsablePhone: !!contact.phone?.trim(),
-            callbackDue: false,
-          })
-          virtualItems.push({
-            id: null as unknown as string,
-            queue: effectiveQueue,
-            call_reason: route.call_reason,
-            research_reason: route.research_reason,
-            last_call_outcome: null,
-            callback_date: null,
-            email_sent_at: null,
-            follow_up_due: null,
-            form_received_at: null,
-            submitted_at: null,
-            carrier_correction: null,
-            follow_up_due_now: false,
-            call_population: population,
-            // A derived onboarding item is untouched by construction (no email
-            // sent, no call outcome, no callback), so it is an introductory email
-            // exactly when its opening queue is ready-to-email.
-            is_intro_email: isIntroductoryEmail({
-              effectiveQueue,
-              emailSentAt: null,
-              lastCallOutcome: null,
-              callbackDate: null,
-            }),
-            // A derived onboarding item has no recorded outreach yet, so no
-            // authorization has returned — never in the servicing-access set.
-            servicing_access: false,
-            research_unsuccessful: false as boolean,
-            prereview_id: null as unknown as string,
-            customer: { id: cid, first_name: contact.first_name, last_name: contact.last_name, email: contact.email, phone: contact.phone },
-            claimed_by_producer_id: null,
-            claimed_by_name: null,
-            is_mine: false,
-            virtual: true as boolean,
-            customer_id: cid,
-          })
-        }
-      }
+    // Members needing access = project members minus those already represented
+    // by a recorded (open, non-refused) outreach row, minus those whose
+    // onboarding is derived-COMPLETE (already advanced). No duplication, and
+    // completed members are never resurfaced. The derivation (contact facts ->
+    // opening queue / call population / intro-email) is the shared helper, so
+    // this board list and the My Work counts are built from one computation.
+    const recordedCustomerIds = new Set(items.map(it => it.customer_id))
+    const derived = await deriveOnboardingPopulation(supabase, projectId, {
+      memberCustomerIds: projectCustomerIds,
+      excludeCustomerIds: [...recordedCustomerIds, ...onboardingCompleteMemberIds],
+    })
+    for (const d of derived) {
+      virtualItems.push({
+        id: null as unknown as string,
+        queue: d.queue,
+        call_reason: d.callReason,
+        research_reason: d.researchReason,
+        last_call_outcome: null,
+        callback_date: null,
+        email_sent_at: null,
+        follow_up_due: null,
+        form_received_at: null,
+        submitted_at: null,
+        carrier_correction: null,
+        follow_up_due_now: false,
+        call_population: d.callPopulation,
+        // A derived onboarding item is untouched by construction (no email sent,
+        // no call outcome, no callback), so it is an introductory email exactly
+        // when its opening queue is ready-to-email (the helper computes this).
+        is_intro_email: d.isIntroEmail,
+        // A derived onboarding item has no recorded outreach yet, so no
+        // authorization has returned — never in the servicing-access set.
+        servicing_access: false,
+        research_unsuccessful: false as boolean,
+        prereview_id: null as unknown as string,
+        customer: { id: d.customerId, first_name: d.firstName ?? '', last_name: d.lastName ?? '', email: d.email, phone: d.phone },
+        claimed_by_producer_id: null,
+        claimed_by_name: null,
+        is_mine: false,
+        virtual: true as boolean,
+        customer_id: d.customerId,
+      })
     }
   }
   // Merge derived items into the working set so counts and the list include the

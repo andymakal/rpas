@@ -30,6 +30,7 @@ import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
 import { activeProjectsWithWorkflow, onboardingCompleteForPolicies } from '@/lib/projects/workflows'
 import { buildContactReview, summarizeContactReview } from '@/lib/projects/contact-review'
+import { deriveOnboardingPopulation } from '@/lib/stewardship/derived-onboarding'
 import {
   loadWorkFunctions,
   resolveCapabilityProfile,
@@ -1252,6 +1253,106 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     }
     addProjectActivity('operations_prep', prepCount)
     addProjectActivity('determination', determineCount)
+
+    // Servicing Agent Onboarding — the first-touch OUTREACH populations, derived
+    // from FACTS for members who have no outreach record yet. A freshly
+    // populated project (e.g. a newly duplicated 1035 sweep) has real, workable
+    // introductory-email and phone-call work the moment it is populated, before
+    // anyone acts. My Work's shared-board pass (step 3) only sees members with
+    // an existing stewardship_outreach row, so without this a brand-new project
+    // shows no outreach work at all. We derive the record-less onboarding
+    // population here — the SAME computation the board route uses (one shared
+    // helper) — and surface its independent, NON-EXCLUSIVE populations:
+    //   - Introductory Emails: every derived member whose opening action is a
+    //     first-touch email (has a usable email).
+    //   - Available to Call: every derived member who is callable (has a usable
+    //     phone), regardless of whether they also qualify for an email. Missing
+    //     one method never blocks the other — a member with both appears in
+    //     both, counted as one customer per population, not forced to choose.
+    // The no-usable-contact members flow through Contact Research (step 4a),
+    // which already covers every member missing a usable method, so they are not
+    // also added to Outreach here. No records are created; each source links to
+    // the project-scoped board queue view, which lists these derived customers
+    // and materializes the durable record on the first action.
+    //
+    // No duplication with the shared board: members already represented by an
+    // open outreach row are excluded (boardCustomerIds), so a customer is counted
+    // once across the recorded and derived sources.
+    const derivedOnboarding = await deriveOnboardingPopulation(supabase, projectId, {
+      memberCustomerIds: workflow.map((w) => w.customer_id),
+      excludeCustomerIds: boardCustomerIds,
+    })
+    if (derivedOnboarding.length > 0) {
+      const outreach = acc.get('outreach')
+      if (outreach) {
+        const eligible = itemEligible('outreach', projectSet)
+        const status = activityCapabilityStatus('outreach', projectSet)
+        const canPickUp = eligible || status === 'assist'
+        const focusElevated = canPickUp && eligible && itemFocusElevated('outreach', projectSet)
+
+        const introEmailCount = derivedOnboarding.filter((d) => d.isIntroEmail).length
+        const availableToCallCount = derivedOnboarding.filter(
+          (d) => d.callPopulation === 'available-to-call',
+        ).length
+
+        // The Outreach activity TOTAL counts each derived onboarding customer
+        // once (the actionable onboarding work), regardless of how many channels
+        // they qualify for — the per-population sources below are independent
+        // views OF that work, not additional work. This mirrors how the board
+        // pass counts one row once while still surfacing Calls / Emails as
+        // separate populations.
+        const derivedCustomerCount = derivedOnboarding.length
+        outreach.total += derivedCustomerCount
+        outreach.projectIds.add(projectId)
+        if (canPickUp) {
+          outreach.availableToMe += derivedCustomerCount
+          if (eligible) {
+            outreach.eligible += derivedCustomerCount
+            if (focusElevated) outreach.focusEligible += derivedCustomerCount
+          }
+        }
+        const b = projectBucket(outreach, projectId)
+        b.totalCount += derivedCustomerCount
+        if (canPickUp) b.availableCount += derivedCustomerCount
+        else b.notEligibleCount += derivedCustomerCount
+
+        // Independent, non-exclusive population sources. Each links to the
+        // project-scoped board queue view that can work the derived (record-less)
+        // customers: Ready to Email for introductions, Ready to Call for calls.
+        // They are informational VIEWS of the activity's work (they do not add to
+        // the activity total, which already counts each customer once above).
+        if (introEmailCount > 0) {
+          outreach.sources.push({
+            kind: 'project',
+            label: `${projectName} — Introductory emails`,
+            count: introEmailCount,
+            route: stewardshipRoute('ready-to-email', projectId),
+            projectId,
+            ownedByMe: 0,
+            availableToMe: canPickUp ? introEmailCount : 0,
+            claimedByOthers: 0,
+            notEligible: canPickUp ? 0 : introEmailCount,
+            dueToMe: 0,
+            informational: true,
+          })
+        }
+        if (availableToCallCount > 0) {
+          outreach.sources.push({
+            kind: 'project',
+            label: `${projectName} — Available to call`,
+            count: availableToCallCount,
+            route: stewardshipRoute('ready-to-call', projectId),
+            projectId,
+            ownedByMe: 0,
+            availableToMe: canPickUp ? availableToCallCount : 0,
+            claimedByOthers: 0,
+            notEligible: canPickUp ? 0 : availableToCallCount,
+            dueToMe: 0,
+            informational: true,
+          })
+        }
+      }
+    }
   }
 
   // 4a. Contact Research — the SINGLE consolidated contact-finding activity,
