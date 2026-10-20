@@ -18,7 +18,7 @@ import Link from 'next/link'
 import { ArrowRight, Users, AlertTriangle, Play, FolderGit2 } from 'lucide-react'
 import { WorkflowPage, WorkflowHeader, OperationalTag } from '@/components/workflow'
 import { STAGE_LABEL } from '@/lib/my-work/project-labels'
-import { roleLabel } from '@/lib/projects/project-roles'
+import { roleLabel, OPERATIONS_ESCALATION_LABEL } from '@/lib/projects/project-roles'
 import type { MyProjectCard, MyProjectsState } from '@/lib/my-work/projects'
 import type { WorkflowStage } from '@/lib/projects/review-1035'
 
@@ -139,12 +139,14 @@ function ProjectCard({ project }: { project: MyProjectCard }) {
               <li className="text-sm text-ink-muted">No participants recorded.</li>
             ) : (
               project.participants.map((p) => {
-                const licensing = licensingNote(p.role ?? null, p.isLifeLicensed ?? null)
+                const roles = p.roles ?? []
+                const licensing = licensingNote(roles, p.isLifeLicensed ?? null)
+                const summary = responsibilitySummary(roles, p.escalationTier ?? null)
                 return (
                   <li key={p.producerId} className="text-sm text-ink">
                     <span className="font-medium">{p.name}</span>
-                    {p.role ? (
-                      <span className="text-ink-supporting"> — {roleLabel(p.role)}</span>
+                    {summary ? (
+                      <span className="text-ink-supporting"> — {summary}</span>
                     ) : p.note ? (
                       <span className="text-ink-supporting"> — {p.note}</span>
                     ) : null}
@@ -186,17 +188,32 @@ function ProjectCard({ project }: { project: MyProjectCard }) {
 }
 
 /**
+ * The comma-joined responsibility labels for a participant, with the derived
+ * "Operations escalation" badge appended (from the escalation path) so a person
+ * holding several responsibilities reads completely.
+ */
+function responsibilitySummary(roles: string[], escalationTier: number | null): string {
+  const labels = roles.map(roleLabel)
+  if (escalationTier !== null) {
+    labels.push(
+      escalationTier === 1
+        ? `${OPERATIONS_ESCALATION_LABEL} (first contact)`
+        : `${OPERATIONS_ESCALATION_LABEL} (tier ${escalationTier})`,
+    )
+  }
+  return labels.join(', ')
+}
+
+/**
  * A small, derived licensing annotation shown beside a participant's
- * responsibility. This is a QUALIFICATION fact, kept distinct from the
- * responsibility label itself:
+ * responsibilities. This is a QUALIFICATION fact, kept distinct from the
+ * responsibility labels themselves:
  *   - life licensed held        -> "life licensed"
  *   - underwriting support with licensing not established -> "licensing unconfirmed"
- * Everyone else gets no annotation (absence of a license fact is not noteworthy
- * for roles that do not turn on it).
+ * Everyone else gets no annotation.
  */
-function licensingNote(role: string | null, isLifeLicensed: boolean | null): string | null {
+function licensingNote(roles: string[], isLifeLicensed: boolean | null): string | null {
   if (isLifeLicensed === true) return 'life licensed'
-  // Reached only when the license is not affirmatively held (false or unknown).
-  if (role === 'underwriting_support') return 'licensing unconfirmed'
+  if (roles.includes('underwriting_support')) return 'licensing unconfirmed'
   return null
 }

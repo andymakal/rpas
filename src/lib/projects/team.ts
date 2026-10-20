@@ -29,22 +29,28 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 /**
  * One person on a project. Shared shape for a participant and for an escalation
- * contact (escalation rows carry `tier`; participants carry `role`).
+ * contact (escalation rows carry `tier`; participants carry `roles`).
  */
 export interface ProjectPerson {
   producerId: string
   name: string
   /** Participation note, or the escalation tier note. */
   note: string | null
-  /** The participant's project responsibility (owner, operations, producer, ...).
-   * A PROJECT responsibility, kept distinct from the producer's job title, their
-   * licensing facts, and their routing / capability assignments. */
-  role?: string | null
+  /** The participant's SET of project responsibilities (project_owner,
+   * operations_manager, operations, producer, ...). A person can hold several.
+   * PROJECT responsibilities, kept distinct from the producer's job title, their
+   * licensing facts, and their routing / capability assignments. Empty when none
+   * are set. Operations escalation is NOT in this set — see `escalationTier`. */
+  roles: string[]
   /** The producer's life-license FACT (a qualification, NOT a responsibility):
    * true = affirmatively held, false = affirmatively not, null = unknown. Shown
    * as a small annotation beside the responsibility, never merged into it. */
   isLifeLicensed?: boolean | null
-  /** Set for escalation contacts: 1 = first destination. */
+  /** DERIVED from the escalation path: this participant's escalation tier (1 =
+   * first destination), or null if they are not on the escalation path. The
+   * single source of truth is project_escalation_contacts, not a stored role. */
+  escalationTier?: number | null
+  /** Set for rows that ARE escalation entries: 1 = first destination. */
   tier?: number
 }
 
@@ -66,6 +72,9 @@ export interface ProjectTeam {
 type ParticipantRow = {
   producer_id: string
   note: string | null
+  /** Current responsibilities. */
+  roles: string[] | null
+  /** Legacy single responsibility, read-mapped when `roles` is empty. */
   role: string | null
   producers: { first_name: string | null; last_name: string | null; is_life_licensed: boolean | null }
     | { first_name: string | null; last_name: string | null; is_life_licensed: boolean | null }[]
@@ -96,7 +105,7 @@ export async function getProjectTeam(
   const [{ data: participants }, { data: escalation }] = await Promise.all([
     supabase
       .from('project_participants')
-      .select('producer_id, note, role, producers ( first_name, last_name, is_life_licensed )')
+      .select('producer_id, note, roles, role, producers ( first_name, last_name, is_life_licensed )')
       .eq('project_id', projectId),
     supabase
       .from('project_escalation_contacts')
@@ -105,29 +114,50 @@ export async function getProjectTeam(
       .order('tier', { ascending: true }),
   ])
 
-  const people: ProjectPerson[] = ((participants ?? []) as unknown as ParticipantRow[]).map((p) => {
-    const prod = Array.isArray(p.producers) ? p.producers[0] : p.producers
-    return {
-      producerId: p.producer_id,
-      name: fullName(prod?.first_name, prod?.last_name),
-      note: p.note,
-      role: p.role,
-      isLifeLicensed: prod?.is_life_licensed ?? null,
-    }
-  })
-  people.sort((a, b) => a.name.localeCompare(b.name))
-
   const path: ProjectPerson[] = ((escalation ?? []) as unknown as EscalationRow[]).map((e) => {
     const prod = Array.isArray(e.producers) ? e.producers[0] : e.producers
     return {
       producerId: e.producer_id,
       name: fullName(prod?.first_name, prod?.last_name),
       note: e.note,
+      roles: [],
       tier: e.tier,
     }
   })
+  // Derive each participant's escalation tier from the path (single source of truth).
+  const tierByProducer = new Map(path.map((e) => [e.producerId, e.tier as number]))
+
+  const people: ProjectPerson[] = ((participants ?? []) as unknown as ParticipantRow[]).map((p) => {
+    const prod = Array.isArray(p.producers) ? p.producers[0] : p.producers
+    // Prefer the multi-value `roles`; fall back to the legacy single `role`
+    // (expanding the combined 'owner' token) for any not-yet-migrated row.
+    const roles = normalizeRoles(p.roles, p.role)
+    return {
+      producerId: p.producer_id,
+      name: fullName(prod?.first_name, prod?.last_name),
+      note: p.note,
+      roles,
+      isLifeLicensed: prod?.is_life_licensed ?? null,
+      escalationTier: tierByProducer.get(p.producer_id) ?? null,
+    }
+  })
+  people.sort((a, b) => a.name.localeCompare(b.name))
 
   return { participants: people, escalation: path }
+}
+
+/**
+ * The stored responsibility set, preferring the multi-value `roles`. Falls back
+ * to the legacy single `role` for a row not yet migrated: 'owner' expands to
+ * project_owner + operations_manager, and 'operations_escalation' contributes
+ * nothing (it lives in the escalation path, not the role set).
+ */
+function normalizeRoles(roles: string[] | null, legacyRole: string | null): string[] {
+  if (roles && roles.length > 0) return roles
+  if (!legacyRole) return []
+  if (legacyRole === 'owner') return ['project_owner', 'operations_manager']
+  if (legacyRole === 'operations_escalation') return []
+  return [legacyRole]
 }
 
 /**
@@ -148,18 +178,28 @@ export async function getTeamRoster(supabase: SupabaseClient): Promise<RosterMem
 type WriteResult = { ok: true } | { ok: false; error: string }
 
 /**
- * Add a participant to the project, or update their responsibility / note if
+ * Add a participant to the project, or update their responsibility SET / note if
  * they are already on it (idempotent on the unique (project, producer) pair).
- * `role` null clears the responsibility; `note` null clears the note.
+ * `roles` is the full desired set (an empty array clears all responsibilities);
+ * `note` null clears the note. The legacy single `role` column is cleared so the
+ * array is the sole authoritative value.
+ *
+ * Operations escalation is NOT a role here — pass it through the escalation path
+ * helpers; any such token is ignored defensively.
  */
 export async function upsertParticipant(
   supabase: SupabaseClient,
   projectId: string,
   producerId: string,
-  role: string | null,
+  roles: string[],
   note: string | null,
 ): Promise<WriteResult> {
   if (!producerId) return { ok: false, error: 'A team member is required.' }
+
+  // De-duplicate and drop any escalation token (escalation is not a stored role).
+  const cleanRoles = Array.from(
+    new Set((roles ?? []).filter((r) => r && r !== 'operations_escalation' && r !== 'owner')),
+  )
 
   const { data: existing, error: readErr } = await supabase
     .from('project_participants')
@@ -172,7 +212,7 @@ export async function upsertParticipant(
   if (existing) {
     const { error } = await supabase
       .from('project_participants')
-      .update({ role, note })
+      .update({ roles: cleanRoles, role: null, note })
       .eq('id', existing.id)
     if (error) return { ok: false, error: error.message }
     return { ok: true }
@@ -180,7 +220,7 @@ export async function upsertParticipant(
 
   const { error } = await supabase
     .from('project_participants')
-    .insert({ project_id: projectId, producer_id: producerId, role, note })
+    .insert({ project_id: projectId, producer_id: producerId, roles: cleanRoles, role: null, note })
   if (error) return { ok: false, error: error.message }
   return { ok: true }
 }

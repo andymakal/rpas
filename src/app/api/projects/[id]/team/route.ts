@@ -9,6 +9,7 @@ import {
   setEscalationContact,
   removeEscalationContact,
 } from '@/lib/projects/team'
+import { isProjectRole } from '@/lib/projects/project-roles'
 
 /**
  * Project TEAM management — add / edit / remove project participants, assign
@@ -50,7 +51,8 @@ export async function GET(
 type Body = {
   action?: 'upsert-participant' | 'remove-participant' | 'set-escalation' | 'remove-escalation'
   producer_id?: string
-  role?: string | null
+  /** The full desired responsibility SET for the participant. */
+  roles?: string[]
   note?: string | null
   tier?: number
 }
@@ -76,12 +78,18 @@ export async function POST(
   switch (body.action) {
     case 'upsert-participant': {
       if (!body.producer_id) return Response.json({ error: 'producer_id is required' }, { status: 400 })
+      const roles = Array.isArray(body.roles) ? body.roles : []
+      // Only accept known, storable responsibilities. Operations escalation is
+      // not a role here — it is managed through the escalation path actions.
+      const invalid = roles.filter((r) => !isProjectRole(r))
+      if (invalid.length > 0) {
+        return Response.json({ error: `Unknown responsibility: ${invalid.join(', ')}` }, { status: 400 })
+      }
       result = await upsertParticipant(
         supabase,
         id,
         body.producer_id,
-        // Normalize empty strings to null so "no responsibility" is stored as NULL.
-        body.role ? body.role : null,
+        roles,
         body.note && body.note.trim() ? body.note.trim() : null,
       )
       break

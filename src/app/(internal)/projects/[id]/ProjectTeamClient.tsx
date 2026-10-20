@@ -1,16 +1,22 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
-import { Users, Plus, X, ShieldAlert, ArrowUpDown } from 'lucide-react'
-import { ROLE_OPTIONS, roleLabel } from '@/lib/projects/project-roles'
+import { Users, Plus, X, ShieldAlert } from 'lucide-react'
+import {
+  ROLE_OPTIONS,
+  roleLabel,
+  OPERATIONS_ESCALATION_LABEL,
+  type ProjectRole,
+} from '@/lib/projects/project-roles'
 
 /** Mirrors ProjectPerson / RosterMember from '@/lib/projects/team' (serialized). */
 type Person = {
   producerId: string
   name: string
   note: string | null
-  role?: string | null
+  roles: string[]
   isLifeLicensed?: boolean | null
+  escalationTier?: number | null
   tier?: number
 }
 type RosterMember = { producerId: string; name: string; title: string | null }
@@ -18,15 +24,19 @@ type Team = { participants: Person[]; escalation: Person[] }
 
 /**
  * Project TEAM section — add / edit / remove project participants, assign each
- * participant's project RESPONSIBILITY, and set the ordered OPERATIONS
- * ESCALATION path. Rendered on the project overview, read-only when the project
- * is archived.
+ * participant's project RESPONSIBILITIES (any combination), and set the ordered
+ * OPERATIONS ESCALATION path. Rendered on the project overview, read-only when
+ * the project is archived.
  *
- * A project responsibility describes what a participant is responsible for on
- * this project. It is deliberately distinct from the producer's job title,
- * their licensing facts, and their capability / work-routing assignments — this
- * section changes none of those. Escalation is the ordered exception path
- * (tier 1 = first destination), not an approval step on routine work.
+ * Responsibilities are independent choices (checkboxes): a person can be both
+ * Project owner AND Operations manager AND Producer. A project responsibility is
+ * distinct from the producer's job title, licensing facts, and capability /
+ * work-routing assignments — this section changes none of those.
+ *
+ * "Operations escalation" is NOT a plain checkbox-role: it is the escalation
+ * path (project_escalation_contacts, tier 1 = first destination), the single
+ * source of truth. The escalation checkbox adds/removes the person on that path;
+ * the badge is derived from it.
  */
 export function ProjectTeamClient({
   projectId,
@@ -41,12 +51,7 @@ export function ProjectTeamClient({
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
 
-  // Add-participant form state.
   const [addProducerId, setAddProducerId] = useState('')
-  const [addRole, setAddRole] = useState('')
-
-  // Add-escalation form state.
-  const [escProducerId, setEscProducerId] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -89,19 +94,25 @@ export function ProjectTeamClient({
 
   const onTeam = new Set(team.participants.map((p) => p.producerId))
   const addable = roster.filter((r) => !onTeam.has(r.producerId))
-  const inEscalation = new Set(team.escalation.map((e) => e.producerId))
-  // Escalation contacts are drawn from the team, not an outside directory.
-  const escalatable = team.participants.filter((p) => !inEscalation.has(p.producerId))
   const nextTier = team.escalation.reduce((max, e) => Math.max(max, e.tier ?? 0), 0) + 1
 
-  async function handleAddParticipant() {
-    if (!addProducerId) return
-    const ok = await post({
-      action: 'upsert-participant',
-      producer_id: addProducerId,
-      role: addRole || null,
-    })
-    if (ok) { setAddProducerId(''); setAddRole('') }
+  /** Toggle one responsibility for a participant, saving the full new set. */
+  async function toggleRole(p: Person, role: ProjectRole, checked: boolean) {
+    const next = checked
+      ? Array.from(new Set([...p.roles, role]))
+      : p.roles.filter((r) => r !== role)
+    await post({ action: 'upsert-participant', producer_id: p.producerId, roles: next })
+  }
+
+  /** Toggle the person on the escalation path. On -> place at the first open
+   * tier (tier 1 when the path is empty); off -> remove from the path. */
+  async function toggleEscalation(p: Person, checked: boolean) {
+    if (checked) {
+      const tier = team.escalation.length === 0 ? 1 : nextTier
+      await post({ action: 'set-escalation', producer_id: p.producerId, tier })
+    } else {
+      await post({ action: 'remove-escalation', producer_id: p.producerId })
+    }
   }
 
   return (
@@ -111,10 +122,11 @@ export function ProjectTeamClient({
         <h2 className="text-lg font-semibold text-ink">Team</h2>
       </div>
       <p className="max-w-3xl text-sm text-ink-secondary">
-        Who is on this project and what they are responsible for. A project responsibility is
-        separate from a person&apos;s job title, licensing, and work routing — adding someone here
-        changes no work assignment. The escalation path is the ordered destination for operational
-        exceptions, not an approval step on routine work.
+        Who is on this project and what they are responsible for. A person can hold any combination
+        of responsibilities. These are project responsibilities, separate from a person&apos;s job
+        title, licensing, and work routing — editing the team changes no work assignment. The
+        escalation path is the ordered destination for operational exceptions, not an approval step
+        on routine work.
       </p>
 
       {loading ? (
@@ -130,42 +142,24 @@ export function ProjectTeamClient({
             ) : (
               <ul className="divide-y divide-surface-border">
                 {team.participants.map((p) => {
-                  const licensing = licensingNote(p.role ?? null, p.isLifeLicensed ?? null)
+                  const licensing = licensingNote(p.roles, p.isLifeLicensed ?? null)
+                  const onEscalation = (p.escalationTier ?? null) !== null
+                  const summary = responsibilitySummary(p.roles, p.escalationTier ?? null)
                   return (
-                    <li key={p.producerId} className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-                      <div className="min-w-0">
-                        <span className="font-medium text-ink">{p.name}</span>
-                        {p.role ? (
-                          <span className="text-ink-supporting"> — {roleLabel(p.role)}</span>
-                        ) : p.note ? (
-                          <span className="text-ink-supporting"> — {p.note}</span>
-                        ) : (
-                          <span className="text-ink-muted"> — no responsibility set</span>
-                        )}
-                        {/* Licensing is a separate parenthetical, never folded into the responsibility. */}
-                        {licensing && <span className="text-ink-muted"> ({licensing})</span>}
-                      </div>
+                    <li key={p.producerId} className="px-5 py-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <span className="font-medium text-ink">{p.name}</span>
+                          {summary ? (
+                            <span className="text-ink-supporting"> — {summary}</span>
+                          ) : (
+                            <span className="text-ink-muted"> — no responsibilities set</span>
+                          )}
+                          {/* Licensing is a separate parenthetical, never folded in. */}
+                          {licensing && <span className="text-ink-muted"> ({licensing})</span>}
+                        </div>
 
-                      {!readOnly && (
-                        <div className="flex items-center gap-2">
-                          <label className="text-xs text-ink-supporting">
-                            Responsibility
-                            <select
-                              className="ml-2 rounded-lg border border-surface-border bg-surface-card px-2 py-1 text-sm text-ink disabled:opacity-50"
-                              value={p.role ?? ''}
-                              disabled={busy}
-                              onChange={(e) => void post({
-                                action: 'upsert-participant',
-                                producer_id: p.producerId,
-                                role: e.target.value || null,
-                              })}
-                            >
-                              <option value="">(none)</option>
-                              {ROLE_OPTIONS.map((o) => (
-                                <option key={o.value} value={o.value}>{o.label}</option>
-                              ))}
-                            </select>
-                          </label>
+                        {!readOnly && (
                           <button
                             type="button"
                             disabled={busy}
@@ -174,7 +168,37 @@ export function ProjectTeamClient({
                           >
                             <X className="size-3.5" aria-hidden /> Remove
                           </button>
-                        </div>
+                        )}
+                      </div>
+
+                      {!readOnly && (
+                        <fieldset className="mt-3" disabled={busy}>
+                          <legend className="sr-only">Responsibilities for {p.name}</legend>
+                          <div className="flex flex-wrap gap-x-5 gap-y-2">
+                            {ROLE_OPTIONS.map((o) => (
+                              <label key={o.value} className="inline-flex items-center gap-2 text-sm text-ink-secondary">
+                                <input
+                                  type="checkbox"
+                                  className="size-4 rounded border-surface-border-strong text-brand focus:ring-brand/30 disabled:opacity-50"
+                                  checked={p.roles.includes(o.value)}
+                                  onChange={(e) => void toggleRole(p, o.value, e.target.checked)}
+                                />
+                                {o.label}
+                              </label>
+                            ))}
+                            {/* Escalation is wired to the escalation path, not a stored role. */}
+                            <label className="inline-flex items-center gap-2 text-sm font-medium text-ink-secondary">
+                              <input
+                                type="checkbox"
+                                className="size-4 rounded border-surface-border-strong text-brand focus:ring-brand/30 disabled:opacity-50"
+                                checked={onEscalation}
+                                onChange={(e) => void toggleEscalation(p, e.target.checked)}
+                              />
+                              Operations escalation
+                              <span className="text-ink-muted">(exception path)</span>
+                            </label>
+                          </div>
+                        </fieldset>
                       )}
                     </li>
                   )
@@ -199,21 +223,15 @@ export function ProjectTeamClient({
                   </option>
                 ))}
               </select>
-              <select
-                className="rounded-lg border border-surface-border bg-surface-card px-3 py-2 text-sm text-ink"
-                value={addRole}
-                disabled={busy || !addProducerId}
-                onChange={(e) => setAddRole(e.target.value)}
-              >
-                <option value="">Responsibility (optional)…</option>
-                {ROLE_OPTIONS.map((o) => (
-                  <option key={o.value} value={o.value}>{o.label}</option>
-                ))}
-              </select>
               <button
                 type="button"
                 disabled={busy || !addProducerId}
-                onClick={() => void handleAddParticipant()}
+                onClick={async () => {
+                  // Add with no responsibilities yet; they are chosen via the
+                  // checkboxes on the new row.
+                  const ok = await post({ action: 'upsert-participant', producer_id: addProducerId, roles: [] })
+                  if (ok) setAddProducerId('')
+                }}
                 className="inline-flex h-9 items-center gap-2 rounded-xl bg-teal-600 px-3 text-sm font-semibold text-white transition-colors hover:bg-teal-700 disabled:opacity-50"
               >
                 <Plus className="size-4" aria-hidden /> Add
@@ -221,7 +239,7 @@ export function ProjectTeamClient({
             </div>
           )}
 
-          {/* Operations escalation path */}
+          {/* Operations escalation path (ordered, derived from the path rows) */}
           <div className="pt-2">
             <div className="flex items-center gap-2">
               <ShieldAlert className="size-4 text-teal-700" aria-hidden />
@@ -233,7 +251,7 @@ export function ProjectTeamClient({
             <div className="mt-2 overflow-hidden rounded-2xl border border-surface-border bg-surface-card">
               {team.escalation.length === 0 ? (
                 <p className="px-5 py-5 text-sm text-ink-supporting">
-                  No escalation contact set.{readOnly ? '' : ' Choose a team member below as the first escalation contact.'}
+                  No escalation contact set.{readOnly ? '' : ' Check “Operations escalation” on a team member above to set the first contact.'}
                 </p>
               ) : (
                 <ol className="divide-y divide-surface-border">
@@ -284,34 +302,6 @@ export function ProjectTeamClient({
                 </ol>
               )}
             </div>
-
-            {/* Add an escalation contact (from the team) */}
-            {!readOnly && escalatable.length > 0 && (
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <select
-                  className="rounded-lg border border-surface-border bg-surface-card px-3 py-2 text-sm text-ink"
-                  value={escProducerId}
-                  disabled={busy}
-                  onChange={(e) => setEscProducerId(e.target.value)}
-                >
-                  <option value="">Add an escalation contact…</option>
-                  {escalatable.map((p) => (
-                    <option key={p.producerId} value={p.producerId}>{p.name}</option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  disabled={busy || !escProducerId}
-                  onClick={async () => {
-                    const ok = await post({ action: 'set-escalation', producer_id: escProducerId, tier: nextTier })
-                    if (ok) setEscProducerId('')
-                  }}
-                  className="inline-flex h-9 items-center gap-2 rounded-xl border border-surface-border bg-surface-card px-3 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted disabled:opacity-50"
-                >
-                  <ArrowUpDown className="size-4" aria-hidden /> Add at tier {nextTier}
-                </button>
-              </div>
-            )}
           </div>
 
           {msg && <p className="text-sm font-medium text-amber-700">{msg}</p>}
@@ -322,13 +312,29 @@ export function ProjectTeamClient({
 }
 
 /**
- * A small, derived licensing annotation shown beside a participant's
- * responsibility — a QUALIFICATION fact, kept distinct from the responsibility
- * label itself. Mirrors the My Projects treatment so the two surfaces read the
- * same.
+ * The comma-joined responsibility labels for a participant, with the derived
+ * "Operations escalation" badge appended (and tier when it is not the first
+ * contact) so the escalation fact reads alongside the stored responsibilities.
  */
-function licensingNote(role: string | null, isLifeLicensed: boolean | null): string | null {
+function responsibilitySummary(roles: string[], escalationTier: number | null): string {
+  const labels = roles.map(roleLabel)
+  if (escalationTier !== null) {
+    labels.push(
+      escalationTier === 1
+        ? `${OPERATIONS_ESCALATION_LABEL} (first contact)`
+        : `${OPERATIONS_ESCALATION_LABEL} (tier ${escalationTier})`,
+    )
+  }
+  return labels.join(', ')
+}
+
+/**
+ * A small, derived licensing annotation shown beside a participant's
+ * responsibilities — a QUALIFICATION fact, kept distinct from the responsibility
+ * labels. Mirrors the My Projects treatment.
+ */
+function licensingNote(roles: string[], isLifeLicensed: boolean | null): string | null {
   if (isLifeLicensed === true) return 'life licensed'
-  if (role === 'underwriting_support') return 'licensing unconfirmed'
+  if (roles.includes('underwriting_support')) return 'licensing unconfirmed'
   return null
 }

@@ -167,7 +167,7 @@ export async function getMyProjects(authUserId: string): Promise<MyProjectsState
       stageCounts,
       bottleneck,
       participants: participantsByProject.get(pr.id) ?? [],
-      owner: (participantsByProject.get(pr.id) ?? []).find((x) => x.role === 'owner') ?? null,
+      owner: (participantsByProject.get(pr.id) ?? []).find((x) => (x.roles ?? []).includes('project_owner')) ?? null,
       escalation: escalationByProject.get(pr.id) ?? [],
       route: `/projects/${pr.id}`,
       reviewRoute: hasReviewWorkflow && pr.status !== 'archived' ? `/projects/${pr.id}/review` : null,
