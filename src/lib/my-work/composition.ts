@@ -1273,13 +1273,27 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       const contactResearchProjects: { id: string; name: string }[] =
         reviewProjects !== null ? reviewProjects : proj ? [proj] : []
 
+      // DEDUP ACROSS PROJECTS. A customer who belongs to more than one active
+      // review-preparation project is returned by buildContactReview once PER
+      // project, so summing each project's summary double-counts the shared
+      // population (e.g. 132 when the distinct population is 66). The activity's
+      // HEADLINE totals (research.total/unresolved/unsuccessful and this
+      // employee's pickable counts) must count each customer ONCE; the PER-
+      // PROJECT source and projectTotals bucket keep that project's own full
+      // subset so the Project filter still shows every customer that belongs to
+      // it (a customer in two projects legitimately appears under each project's
+      // filter, but is only one unit of work overall). We achieve this by giving
+      // each customer a single "home" project — the first scanned project that
+      // contains them — and feeding the activity-level totals only from a
+      // customer's home project, while per-project counts use the full rows.
+      const homeProjectByCustomer = new Map<string, string>()
+
       for (const crp of contactResearchProjects) {
         const crProjectId = crp.id
         const crProjectName = crp.name || 'Review Preparation'
         const crRoute = `/projects/${crProjectId}/contact-review`
-        const crSummary = summarizeContactReview(
-          await buildContactReview(supabase, crProjectId),
-        )
+        const crRows = await buildContactReview(supabase, crProjectId)
+        const crSummary = summarizeContactReview(crRows)
         // Recommended outstanding research (every row whose research is not yet
         // exhausted — reachable missing-one AND no-usable-contact-but-outstanding),
         // so completed research is never re-recommended.
@@ -1289,36 +1303,57 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         const unsuccessful = crSummary.total - crSummary.actionable
         if (unresolved <= 0) continue
 
+        // The DISTINCT (not-yet-claimed-by-an-earlier-project) subset of this
+        // project's rows, used for the activity-level totals so each customer is
+        // counted once across projects. Per-project figures below still use the
+        // full rows. Claim each distinct customer to this project as their home.
+        const distinctRows = crRows.filter((row) => {
+          if (homeProjectByCustomer.has(row.customer_id)) return false
+          homeProjectByCustomer.set(row.customer_id, crProjectId)
+          return true
+        })
+        const distinctSummary = summarizeContactReview(distinctRows)
+        const distinctActionable = distinctSummary.actionable
+        const distinctUnresolved = distinctSummary.total
+        const distinctUnsuccessful = distinctSummary.total - distinctSummary.actionable
+
         const crProjectSet = new Set<string>([crProjectId])
         const eligible = itemEligible('research', crProjectSet)
         const status = activityCapabilityStatus('research', crProjectSet)
         const canPickUp = eligible || status === 'assist'
 
         research.projectIds.add(crProjectId)
-        // Unresolved/unsuccessful presentation (each customer once), per project.
-        research.unresolved += unresolved
-        research.unsuccessful += unsuccessful
+        // Activity-level unresolved/unsuccessful count each customer ONCE (home
+        // project only). The per-project bucket keeps THIS project's own full
+        // subset so the Project filter is unchanged.
+        research.unresolved += distinctUnresolved
+        research.unsuccessful += distinctUnsuccessful
         const b = projectBucket(research, crProjectId)
         b.unresolvedCount = (b.unresolvedCount ?? 0) + unresolved
         b.unsuccessfulCount = (b.unsuccessfulCount ?? 0) + unsuccessful
 
         // The actionable (recommended) outstanding research feeds the activity
-        // total and this employee's pickable counts, bucketed exactly as
-        // addProjectActivity does (project-stage work has no claim model, so
-        // pickable -> available, otherwise awareness-only notEligible).
-        if (actionable > 0) {
-          research.total += actionable
-          b.totalCount += actionable
+        // total (deduped, each customer once) and this employee's pickable
+        // counts (also deduped), bucketed exactly as addProjectActivity does
+        // (project-stage work has no claim model, so pickable -> available,
+        // otherwise awareness-only notEligible). The per-project bucket uses the
+        // project's FULL actionable subset.
+        if (distinctActionable > 0) {
+          research.total += distinctActionable
           if (canPickUp) {
-            research.availableToMe += actionable
-            b.availableCount += actionable
+            research.availableToMe += distinctActionable
             if (eligible) {
-              research.eligible += actionable
-              if (itemFocusElevated('research', crProjectSet)) research.focusEligible += actionable
+              research.eligible += distinctActionable
+              if (itemFocusElevated('research', crProjectSet)) research.focusEligible += distinctActionable
             }
-          } else {
-            b.notEligibleCount += actionable
           }
+        }
+        if (actionable > 0) {
+          // Per-project bucket: THIS project's full actionable subset (a shared
+          // customer counts under each project's own filter).
+          b.totalCount += actionable
+          if (canPickUp) b.availableCount += actionable
+          else b.notEligibleCount += actionable
           research.sources.push({
             kind: 'project',
             label: crProjectName,

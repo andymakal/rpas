@@ -65,6 +65,30 @@ function dueCallbackRank(
   return it.call_reason === 'callback-due' && isCallbackDue(it.callback_date, actorTimeZone) ? 0 : 1
 }
 
+/**
+ * Open a mailto: draft WITHOUT navigating the single-page app.
+ *
+ * Assigning `window.location.href = 'mailto:…'` starts a top-level navigation to
+ * the mail scheme. When the OS hands off to a mail client the current page is
+ * usually kept, but in environments where the handoff stalls (no default mail
+ * handler, or a Chromium state that leaves the aborted navigation pending) Right
+ * Path is left unresponsive — the worker cannot get back to My Work. Triggering
+ * the draft through a transient anchor click (the SAME technique the form PDF
+ * download already uses) lets the browser invoke the handler while the SPA keeps
+ * running, so the "Back to My Work" link always works afterward. Guarded for SSR.
+ */
+function openMailto(mailto: string): void {
+  if (typeof document === 'undefined') return
+  const a = document.createElement('a')
+  a.href = mailto
+  // No target/_blank: a mailto opened in a new tab leaves an empty tab behind in
+  // some browsers; a same-document anchor click hands off and keeps the SPA.
+  a.rel = 'noopener'
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+}
+
 const SA_SUBJECT = 'Regarding Your Life Insurance Policy'
 
 /**
@@ -1102,6 +1126,20 @@ export function StewardshipTask({
   // from a prior customer never leaks onto the next one.
   useEffect(() => { setCallSelection(null) }, [itemId])
 
+  // The action column reports its live selection up through this callback on
+  // every render (via an effect in CallWorkbenchAction), each time with a FRESH
+  // object literal. Writing that straight into state would re-render this task
+  // on every report, which re-runs the action subtree and re-fires the report —
+  // a churn loop that never lets the guided-call buttons settle, so clicks
+  // appear dead. Gate the write to actual changes: compare the incoming
+  // selection field-by-field against the current one and bail out (return the
+  // same reference, so React skips the re-render) when nothing changed. Stable
+  // identity (useCallback with no deps, functional update) so the child effect's
+  // dependency on it never itself triggers churn.
+  const reportCallSelection = useCallback((next: CallSelection | null) => {
+    setCallSelection((prev) => (sameCallSelection(prev, next) ? prev : next))
+  }, [])
+
   const load = useCallback(async () => {
     const res = await fetch(`/api/stewardship/${itemId}`, { cache: 'no-store' })
     const json = await res.json()
@@ -1163,16 +1201,20 @@ export function StewardshipTask({
   // "Back to My Work" nav, so there the task renders chromeless (no outer page
   // wrapper, no "All queues" header). Every other Stewardship caller gets the
   // original page chrome and the "All queues" back header, unchanged.
-  const Chrome = hideBackHeader
-    ? ({ children }: { children: React.ReactNode }) => <>{children}</>
-    : WorkflowPage
+  //
+  // Chrome is a STABLE module-level component chosen by a prop, never one
+  // created during render. A component created inside render gets a fresh
+  // identity each pass, so React would unmount and REMOUNT the whole task
+  // subtree on every re-render — resetting the guided-call flow's state and
+  // making the Reached/Didn't-Reach buttons lose what the worker just did. A
+  // stable component keeps the subtree mounted across re-renders.
 
   if (!detail) {
     return (
-      <Chrome>
+      <TaskChrome chromeless={hideBackHeader}>
         {!hideBackHeader && <SlimTaskHeader onBack={onBack} />}
         <p className="mt-4 text-sm text-slate-500">Loading…</p>
-      </Chrome>
+      </TaskChrome>
     )
   }
 
@@ -1191,7 +1233,7 @@ export function StewardshipTask({
   const isWorkingScreen = introEmail || research || forceCall || forceServicingAccess
 
   return (
-    <Chrome>
+    <TaskChrome chromeless={hideBackHeader}>
       <TaskShell
         header={hideBackHeader ? null : <SlimTaskHeader onBack={onBack} backLabel="All queues" />}
         action={
@@ -1203,7 +1245,7 @@ export function StewardshipTask({
             <TaskAction
               detail={detail} request={request} busy={busy} note={note} act={act}
               hasNextInActivity={hasNextInActivity} forceCall={forceCall}
-              onCallSelectionChange={setCallSelection}
+              onCallSelectionChange={reportCallSelection}
             />
           )
         }
@@ -1220,8 +1262,21 @@ export function StewardshipTask({
             />
           : undefined}
       />
-    </Chrome>
+    </TaskChrome>
   )
+}
+
+/**
+ * Stable page chrome for a Stewardship task. `chromeless` renders the children
+ * bare (the direct working screens supply their own WorkflowPage + "Back to My
+ * Work" nav); otherwise the original WorkflowPage wrapper is used. Declared once
+ * at module level — NOT created inside StewardshipTask's render — so the task
+ * subtree is never remounted (and its guided-call state never reset) just
+ * because the parent re-rendered.
+ */
+function TaskChrome({ chromeless, children }: { chromeless: boolean; children: React.ReactNode }) {
+  if (chromeless) return <>{children}</>
+  return <WorkflowPage>{children}</WorkflowPage>
 }
 
 /**
@@ -1231,6 +1286,27 @@ export function StewardshipTask({
  * worker what will be logged rather than asking them to log it. History is the
  * grouped customer history supplied by the GET route (display only).
  */
+/**
+ * Field-by-field equality for the live call selection, so the parent only
+ * re-renders when the worker's guided-call choices actually change rather than
+ * on every render-phase report from the action column. Covers every field the
+ * reporter sets; a null on either side only matches another null.
+ */
+function sameCallSelection(a: CallSelection | null, b: CallSelection | null): boolean {
+  if (a === b) return true
+  if (a == null || b == null) return false
+  return (
+    a.reach === b.reach &&
+    a.voicemailLeft === b.voicemailLeft &&
+    a.textSent === b.textSent &&
+    a.emailSent === b.emailSent &&
+    a.badNumber === b.badNumber &&
+    a.decision === b.decision &&
+    a.callbackDate === b.callbackDate &&
+    a.formSent === b.formSent
+  )
+}
+
 function StewardshipHistoryColumn({
   detail, forceCall, callSelection, forceServicingAccess = false,
 }: {
@@ -1672,7 +1748,7 @@ function ServicingFormDelivery({
       }
       setPreparing(false)
     }
-    if (method === 'email') window.location.href = mailto
+    if (method === 'email') openMailto(mailto)
   }
 
   const genLabel = preparing
@@ -2825,7 +2901,7 @@ function ServicingAccessSubmit({
           confirmLabel="Email Sent"
           confirmedNote="Submitted to the carrier. Waiting for Carrier, with the seven-day follow-up started."
           hint="Confirming Email Sent submits the authorization and starts the seven-day carrier follow-up."
-          onLaunch={() => { window.location.href = carrierMailto }}
+          onLaunch={() => { openMailto(carrierMailto) }}
           onConfirmed={() => act(
             { type: 'submit-to-carrier' },
             'Submitted. Moved to Waiting for Carrier; seven-day follow-up started.',

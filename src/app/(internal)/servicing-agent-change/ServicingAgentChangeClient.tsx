@@ -170,7 +170,18 @@ export function ServicingAgentChangeClient({
         `mailto:${encodeURIComponent(to)}` +
         `?subject=${encodeURIComponent(servicingAgentEmailSubject())}` +
         `&body=${encodeURIComponent(servicingAgentEmailMessage(ownerName || 'there'))}`
-      window.location.href = mailto
+      // Open the draft through a transient anchor click (the same technique the
+      // PDF download above uses) rather than assigning window.location.href. A
+      // location assignment to a mailto: starts a top-level navigation that can
+      // leave Right Path unresponsive if the OS mail handoff stalls; a synthetic
+      // anchor click hands off to the mail client while this page keeps running,
+      // so the back-to-app navigation always works afterward.
+      const mailAnchor = document.createElement('a')
+      mailAnchor.href = mailto
+      mailAnchor.rel = 'noopener'
+      document.body.appendChild(mailAnchor)
+      mailAnchor.click()
+      mailAnchor.remove()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not generate the PDF.')
     } finally {
