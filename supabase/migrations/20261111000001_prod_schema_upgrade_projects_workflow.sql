@@ -5758,6 +5758,72 @@ notify pgrst, 'reload schema';
 --  single email-resolved settled-config block at the end of this migration]
 
 -- =============================================================================
+-- OWNER-AS-INSURED BACKFILL (approved business-data correction)
+-- Source rule: 20261015000001_owner_as_insured_backfill.sql, applied inline here
+-- so it ACTUALLY EXECUTES as part of this upgrade. It must not rely on that
+-- historical version being replayed: the history reconciliation below records
+-- 20261015000001 as superseded, so a future db push would skip the standalone
+-- file. This block is the real, executing copy.
+--
+-- Business rule (unchanged):
+--   * A policy with an explicitly identified insured keeps that insured.
+--   * A policy with NO identified insured (insured_last_name IS NULL) takes the
+--     linked customer as the insured.
+--   * Copy the customer's name; copy state only as a clean 2-letter code; copy
+--     DOB only at exact precision from a full, plausible (1900-2100) customer
+--     date — otherwise precision stays 'missing' and no DOB component is set.
+--   * Never invent missing information. Policies with no linked customer, or an
+--     already-identified insured, are left untouched.
+--
+-- Depends on the insured_* columns + shape/range constraints added earlier in
+-- this migration (from 20261008000001). Runs inside this migration's single
+-- transaction. Previously identified as affecting 8 production policies.
+-- The guard on insured_last_name IS NULL makes it self-limiting and safe.
+-- =============================================================================
+update public.service_policies sp
+set
+  insured_first_name = cu.first_name,
+  insured_last_name  = cu.last_name,
+
+  -- Owner state only when it is a clean 2-letter code; otherwise leave NULL.
+  insured_state = case
+    when cu.state is not null and upper(cu.state) ~ '^[A-Z]{2}$'
+      then upper(cu.state)
+    else null
+  end,
+
+  -- Owner DOB only at exact precision from a full, PLAUSIBLE customer date. No
+  -- day is invented: without a usable customer DOB, precision stays 'missing'
+  -- and all DOB components stay NULL (shape constraint for 'missing').
+  insured_dob = case
+    when extract(year from cu.date_of_birth) between 1900 and 2100 then cu.date_of_birth
+    else null
+  end,
+  insured_dob_year = case
+    when extract(year from cu.date_of_birth) between 1900 and 2100
+      then extract(year from cu.date_of_birth)::smallint
+    else null
+  end,
+  insured_dob_month = case
+    when extract(year from cu.date_of_birth) between 1900 and 2100
+      then extract(month from cu.date_of_birth)::smallint
+    else null
+  end,
+  insured_dob_precision = case
+    when extract(year from cu.date_of_birth) between 1900 and 2100 then 'exact'
+    else 'missing'
+  end,
+
+  updated_at = now()
+from public.customers cu
+where sp.customer_id = cu.id
+  and sp.insured_last_name is null       -- no identified insured (idempotency guard)
+  and cu.last_name is not null
+  and cu.last_name <> ''
+  and cu.is_test = false
+  and sp.is_test = false;
+
+-- =============================================================================
 -- SETTLED EMPLOYEE QUALIFICATIONS & AGENCY-WIDE CAPABILITIES (business rules)
 --
 -- The only employee-record writes in this migration. Each person is resolved by
@@ -5874,7 +5940,7 @@ insert into supabase_migrations.schema_migrations (version, name) values
   ('20261014000002','population_source_view'),
   ('20261014000003','population_age_after_base_filter'),
   ('20261014000004','population_facets_lazy_age'),
-  ('20261015000001','owner_as_insured_backfill__excluded_business_data'),
+  ('20261015000001','owner_as_insured_backfill__applied_inline_in_20261111000001'),
   ('20261016000001','stewardship_grants'),
   ('20261017000001','project_1035_step3_prepare_evaluate'),
   ('20261018000001','rightpath_documents_storage'),
