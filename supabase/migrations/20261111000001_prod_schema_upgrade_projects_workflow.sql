@@ -2,50 +2,36 @@
 -- Production schema upgrade: Right Path projects/workflow/stewardship feature set
 -- Migration: 20261111000001_prod_schema_upgrade_projects_workflow.sql
 --
--- PURPOSE. Bring production's schema up to what the completed application
--- requires, WITHOUT changing any existing business data. Production currently
--- lacks the entire projects / population / stewardship / capability / workflow
--- feature schema (20 tables), plus a few columns on existing tables
--- (case_touches.customer_id, customers.{phone,email,address}_verified_at,
--- producers licensing/management flags) and the supporting functions/grants/RLS.
+-- Brings production's schema up to the completed application WITHOUT changing
+-- existing customer/policy/case business data. Fresh, additive reconciliation
+-- authored against production's ACTUAL schema (NOT a replay of the historical
+-- dev migration chain; the drift-reconcile 20261008215325 and the owner-as-
+-- insured backfill 20261015000001 are excluded).
 --
--- This is a FRESH, additive, idempotent reconciliation authored against
--- production's ACTUAL schema. It is NOT a replay of the historical dev migration
--- chain: the historical drift-reconcile (20261008215325) and the owner-as-insured
--- policy backfill (20261015000001) are DELIBERATELY EXCLUDED because the former
--- collides with / drops existing production objects and the latter mutates
--- existing production policy records.
+-- INCLUDES: the 20 missing projects/workflow/stewardship tables; columns on
+-- existing tables (case_touches.customer_id + postal/research touch types;
+-- customers.{phone,email,address}_verified_at; producers licensing/management
+-- flags); functions, grants, RLS; and the reusable system CATALOGS (project
+-- types, work-function capability catalog, workflow catalog, document bucket).
 --
--- WHAT IS INCLUDED: tables, columns, constraints, indexes, functions, triggers,
--- grants, RLS policies, the storage bucket config, and the project-type /
--- work-function / workflow CATALOGS (configuration the app reads).
+-- EMPLOYEE BUSINESS RULES: the ONLY employee-record writes are the settled
+-- qualifications and agency-wide capabilities for the four real staff, applied
+-- in ONE block at the end, resolved by VERIFIED email identity (never a
+-- hardcoded dev UUID, never inferred from job title). Every other
+-- environment-specific business-data write from the source migrations
+-- (title-inferred capability guesses, per-project participation/escalation for
+-- the dev "1035 Reviews" project, the Q4 1035 initiative team, population runs/
+-- enrollments, and the dev-only TEST roster) is REMOVED.
 --
--- WHAT IS EXCLUDED (environment-specific business data): development project
--- records, population runs/enrollments, per-producer capability assignments,
--- project team participation / escalation, the Q4 initiative team, and the
--- owner-as-insured policy backfill. The per-producer/per-project SEED blocks in
--- the source migrations are GUARDED (they resolve dev-clone producer/project ids
--- and no-op when absent), so on production they create no business data. This
--- was verified in rehearsal against a full copy of production's schema:
--- projects=0, project_participants=0, producer_work_functions=0 after apply.
---
--- IDEMPOTENT: every create is IF NOT EXISTS / CREATE OR REPLACE; each updated-at
--- trigger is guarded with DROP TRIGGER IF EXISTS so a replay is a clean no-op.
--- Rehearsed: full clean apply AND clean idempotent replay against production's
--- actual schema in an isolated ephemeral Postgres 17.
---
--- Assembled from the settled, source-controlled feature migrations
--- (20260927000002 .. 20261110000001, excluding the two noted above), in order.
---
--- ATOMIC: the whole upgrade runs in ONE transaction. Any failure rolls the
--- entire migration back, so production can never be left half-upgraded and a
--- re-run always starts from a clean state. Designed to be applied once and
--- tracked in supabase_migrations.schema_migrations.
+-- ATOMIC + TRACKED: the whole upgrade runs in ONE transaction, so a failure
+-- rolls back entirely, and it records itself once in
+-- supabase_migrations.schema_migrations. It is applied once (not designed for
+-- repeated replay).
 -- =============================================================================
 
 begin;
 
--- >>> from 20260927000002_stewardship_prereview.sql >>>
+-- >>> schema/catalog from 20260927000002_stewardship_prereview.sql >>>
 -- =============================================================================
 -- Stewardship / Producer Pre-Review — database foundation
 -- Migration: 20260927000002_stewardship_prereview.sql
@@ -130,8 +116,6 @@ create index if not exists customer_prereviews_next_review_idx
   on public.customer_prereviews (next_review_date)
   where next_review_date is not null;
 
-drop trigger if exists customer_prereviews_set_updated_at on public.customer_prereviews;
-
 create trigger customer_prereviews_set_updated_at
   before update on public.customer_prereviews
   for each row execute function public.set_updated_at();
@@ -214,38 +198,31 @@ alter table public.customer_prereviews     enable row level security;
 alter table public.policy_documents        enable row level security;
 alter table public.policy_review_policies  enable row level security;
 
-drop policy if exists "customer_prereviews_admin_select" on public.customer_prereviews;
 create policy customer_prereviews_admin_select
   on public.customer_prereviews for select to authenticated
   using (public.jwt_is_admin());
 
-drop policy if exists "customer_prereviews_all" on public.customer_prereviews;
 create policy customer_prereviews_all
   on public.customer_prereviews for all to service_role
   using (true) with check (true);
 
-drop policy if exists "policy_documents_admin_select" on public.policy_documents;
 create policy policy_documents_admin_select
   on public.policy_documents for select to authenticated
   using (public.jwt_is_admin());
 
-drop policy if exists "policy_documents_all" on public.policy_documents;
 create policy policy_documents_all
   on public.policy_documents for all to service_role
   using (true) with check (true);
 
-drop policy if exists "policy_review_policies_admin_select" on public.policy_review_policies;
 create policy policy_review_policies_admin_select
   on public.policy_review_policies for select to authenticated
   using (public.jwt_is_admin());
 
-drop policy if exists "policy_review_policies_all" on public.policy_review_policies;
 create policy policy_review_policies_all
   on public.policy_review_policies for all to service_role
   using (true) with check (true);
 
-
--- >>> from 20260927000003_stewardship_outreach.sql >>>
+-- >>> schema/catalog from 20260927000003_stewardship_outreach.sql >>>
 -- =============================================================================
 -- Stewardship outreach — durable operational state for the capture flow
 -- Migration: 20260927000003_stewardship_outreach.sql
@@ -354,8 +331,6 @@ create index if not exists stewardship_outreach_callback_idx
   on public.stewardship_outreach (callback_date)
   where callback_date is not null;
 
-drop trigger if exists stewardship_outreach_set_updated_at on public.stewardship_outreach;
-
 create trigger stewardship_outreach_set_updated_at
   before update on public.stewardship_outreach
   for each row execute function public.set_updated_at();
@@ -392,28 +367,23 @@ create index if not exists stewardship_outreach_policies_policy_idx
 alter table public.stewardship_outreach          enable row level security;
 alter table public.stewardship_outreach_policies enable row level security;
 
-drop policy if exists "stewardship_outreach_admin_select" on public.stewardship_outreach;
 create policy stewardship_outreach_admin_select
   on public.stewardship_outreach for select to authenticated
   using (public.jwt_is_admin());
 
-drop policy if exists "stewardship_outreach_all" on public.stewardship_outreach;
 create policy stewardship_outreach_all
   on public.stewardship_outreach for all to service_role
   using (true) with check (true);
 
-drop policy if exists "stewardship_outreach_policies_admin_select" on public.stewardship_outreach_policies;
 create policy stewardship_outreach_policies_admin_select
   on public.stewardship_outreach_policies for select to authenticated
   using (public.jwt_is_admin());
 
-drop policy if exists "stewardship_outreach_policies_all" on public.stewardship_outreach_policies;
 create policy stewardship_outreach_policies_all
   on public.stewardship_outreach_policies for all to service_role
   using (true) with check (true);
 
-
--- >>> from 20261008000001_service_policies_review_initiative_fields.sql >>>
+-- >>> schema/catalog from 20261008000001_service_policies_review_initiative_fields.sql >>>
 -- =============================================================================
 -- Policy fields needed for Review Initiatives
 -- Migration: 20261008000001_service_policies_review_initiative_fields.sql
@@ -551,8 +521,7 @@ create index if not exists service_policies_termination_date_idx
   on public.service_policies (policy_termination_date)
   where policy_termination_date is not null;
 
-
--- >>> from 20261008230000_projects_foundation.sql >>>
+-- >>> schema/catalog from 20261008230000_projects_foundation.sql >>>
 -- =============================================================================
 -- Projects foundation — durable schema for the Projects module
 -- Migration: 20261008230000_projects_foundation.sql
@@ -645,8 +614,6 @@ create index if not exists projects_status_idx
 create index if not exists projects_created_at_idx
   on public.projects (created_at desc);
 
-drop trigger if exists projects_set_updated_at on public.projects;
-
 create trigger projects_set_updated_at
   before update on public.projects
   for each row execute function public.set_updated_at();
@@ -699,8 +666,6 @@ create unique index if not exists project_runs_project_run_number_key
 
 create index if not exists project_runs_project_idx
   on public.project_runs (project_id);
-
-drop trigger if exists project_runs_set_updated_at on public.project_runs;
 
 create trigger project_runs_set_updated_at
   before update on public.project_runs
@@ -834,48 +799,39 @@ alter table public.project_runs      enable row level security;
 alter table public.project_customers enable row level security;
 alter table public.project_matches   enable row level security;
 
-drop policy if exists "projects_admin_select" on public.projects;
 create policy projects_admin_select
   on public.projects for select to authenticated
   using (public.jwt_is_admin());
 
-drop policy if exists "projects_all" on public.projects;
 create policy projects_all
   on public.projects for all to service_role
   using (true) with check (true);
 
-drop policy if exists "project_runs_admin_select" on public.project_runs;
 create policy project_runs_admin_select
   on public.project_runs for select to authenticated
   using (public.jwt_is_admin());
 
-drop policy if exists "project_runs_all" on public.project_runs;
 create policy project_runs_all
   on public.project_runs for all to service_role
   using (true) with check (true);
 
-drop policy if exists "project_customers_admin_select" on public.project_customers;
 create policy project_customers_admin_select
   on public.project_customers for select to authenticated
   using (public.jwt_is_admin());
 
-drop policy if exists "project_customers_all" on public.project_customers;
 create policy project_customers_all
   on public.project_customers for all to service_role
   using (true) with check (true);
 
-drop policy if exists "project_matches_admin_select" on public.project_matches;
 create policy project_matches_admin_select
   on public.project_matches for select to authenticated
   using (public.jwt_is_admin());
 
-drop policy if exists "project_matches_all" on public.project_matches;
 create policy project_matches_all
   on public.project_matches for all to service_role
   using (true) with check (true);
 
-
--- >>> from 20261009000001_project_types.sql >>>
+-- >>> schema/catalog from 20261009000001_project_types.sql >>>
 -- =============================================================================
 -- Project types — durable lookup for project_type, replacing free text
 -- Migration: 20261009000001_project_types.sql
@@ -1027,12 +983,10 @@ grant all on public.project_types to anon, authenticated, service_role;
 -- =============================================================================
 alter table public.project_types enable row level security;
 
-drop policy if exists "project_types_admin_select" on public.project_types;
 create policy project_types_admin_select
   on public.project_types for select to authenticated
   using (public.jwt_is_admin());
 
-drop policy if exists "project_types_all" on public.project_types;
 create policy project_types_all
   on public.project_types for all to service_role
   using (true) with check (true);
@@ -1042,8 +996,7 @@ create policy project_types_all
 -- API immediately.
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261010000001_project_population_engine.sql >>>
+-- >>> schema/catalog from 20261010000001_project_population_engine.sql >>>
 -- =============================================================================
 -- Project Population Builder — server-side query engine
 -- Migration: 20261010000001_project_population_engine.sql
@@ -1346,8 +1299,7 @@ grant execute on function public.project_population_facets(jsonb)     to service
 
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261011000001_population_commit_and_status.sql >>>
+-- >>> schema/catalog from 20261011000001_population_commit_and_status.sql >>>
 -- =============================================================================
 -- Population Builder corrections — atomic commit + honest active classification
 -- Migration: 20261011000001_population_commit_and_status.sql
@@ -1592,8 +1544,7 @@ grant execute on function public.project_population_commit(uuid, jsonb, uuid) to
 
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261012000001_population_age_precision.sql >>>
+-- >>> schema/catalog from 20261012000001_population_age_precision.sql >>>
 -- =============================================================================
 -- Population Builder — age from best available DOB precision
 -- Migration: 20261012000001_population_age_precision.sql
@@ -1911,8 +1862,7 @@ grant execute on function public.project_insured_age(date, int, int)      to ser
 
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261013000001_customer_age_conflict_unknown.sql >>>
+-- >>> schema/catalog from 20261013000001_customer_age_conflict_unknown.sql >>>
 -- =============================================================================
 -- Population Builder — customer age: conflicting owner DOB => unknown
 -- Migration: 20261013000001_customer_age_conflict_unknown.sql
@@ -1994,8 +1944,7 @@ comment on function public.project_customer_age(uuid, date) is
 
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261014000001_customer_age_setbased_perf.sql >>>
+-- >>> schema/catalog from 20261014000001_customer_age_setbased_perf.sql >>>
 -- =============================================================================
 -- Population Builder — set-based customer age (fix facets statement timeout)
 -- Migration: 20261014000001_customer_age_setbased_perf.sql
@@ -2348,8 +2297,7 @@ grant execute on function public._pop_discrete_pred(jsonb, text) to service_role
 
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261014000002_population_source_view.sql >>>
+-- >>> schema/catalog from 20261014000002_population_source_view.sql >>>
 -- =============================================================================
 -- Population Builder — derived population-source view (perf refactor)
 -- Migration: 20261014000002_population_source_view.sql
@@ -2593,8 +2541,7 @@ $$;
 
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261014000003_population_age_after_base_filter.sql >>>
+-- >>> schema/catalog from 20261014000003_population_age_after_base_filter.sql >>>
 -- =============================================================================
 -- Population Builder — compute customer age AFTER base filtering (perf)
 -- Migration: 20261014000003_population_age_after_base_filter.sql
@@ -2924,8 +2871,7 @@ $$;
 
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261014000004_population_facets_lazy_age.sql >>>
+-- >>> schema/catalog from 20261014000004_population_facets_lazy_age.sql >>>
 -- =============================================================================
 -- Population Builder — lazy / on-demand age in facets
 -- Migration: 20261014000004_population_facets_lazy_age.sql
@@ -3108,8 +3054,7 @@ grant execute on function public.project_population_facets(jsonb)         to ser
 
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261016000001_stewardship_grants.sql >>>
+-- >>> schema/catalog from 20261016000001_stewardship_grants.sql >>>
 -- =============================================================================
 -- Stewardship tables — missing API-role table privileges
 -- Migration: 20261016000001_stewardship_grants.sql
@@ -3142,8 +3087,7 @@ grant all on public.stewardship_outreach_policies to anon, authenticated, servic
 grant all on public.policy_documents       to anon, authenticated, service_role;
 grant all on public.policy_review_policies to anon, authenticated, service_role;
 
-
--- >>> from 20261017000001_project_1035_step3_prepare_evaluate.sql >>>
+-- >>> schema/catalog from 20261017000001_project_1035_step3_prepare_evaluate.sql >>>
 -- =============================================================================
 -- 1035 Exchange Review — Step 3 (Prepare & Evaluate) foundation
 -- Migration: 20261017000001_project_1035_step3_prepare_evaluate.sql
@@ -3280,8 +3224,6 @@ create index if not exists project_customer_reviews_project_idx
 create index if not exists project_customer_reviews_determination_idx
   on public.project_customer_reviews (project_id, determination);
 
-drop trigger if exists project_customer_reviews_set_updated_at on public.project_customer_reviews;
-
 create trigger project_customer_reviews_set_updated_at
   before update on public.project_customer_reviews
   for each row execute function public.set_updated_at();
@@ -3303,12 +3245,10 @@ grant all on public.project_customer_reviews to anon, authenticated, service_rol
 -- =============================================================================
 alter table public.project_customer_reviews enable row level security;
 
-drop policy if exists "project_customer_reviews_admin_select" on public.project_customer_reviews;
 create policy project_customer_reviews_admin_select
   on public.project_customer_reviews for select to authenticated
   using (public.jwt_is_admin());
 
-drop policy if exists "project_customer_reviews_all" on public.project_customer_reviews;
 create policy project_customer_reviews_all
   on public.project_customer_reviews for all to service_role
   using (true) with check (true);
@@ -3318,8 +3258,7 @@ create policy project_customer_reviews_all
 -- the API immediately.
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261018000001_rightpath_documents_storage.sql >>>
+-- >>> schema/catalog from 20261018000001_rightpath_documents_storage.sql >>>
 -- =============================================================================
 -- Right Path document storage — private Supabase Storage bucket
 -- Migration: 20261018000001_rightpath_documents_storage.sql
@@ -3370,21 +3309,18 @@ on conflict (id) do update set public = false;
 -- Internal admins may read objects in this bucket (e.g. if a future authenticated
 -- client reads directly; the current app uses signed URLs via the server).
 drop policy if exists rightpath_documents_admin_select on storage.objects;
-drop policy if exists "rightpath_documents_admin_select" on storage.objects;
 create policy rightpath_documents_admin_select
   on storage.objects for select to authenticated
   using (bucket_id = 'rightpath-documents' and public.jwt_is_admin());
 
 -- Internal admins may insert objects in this bucket.
 drop policy if exists rightpath_documents_admin_insert on storage.objects;
-drop policy if exists "rightpath_documents_admin_insert" on storage.objects;
 create policy rightpath_documents_admin_insert
   on storage.objects for insert to authenticated
   with check (bucket_id = 'rightpath-documents' and public.jwt_is_admin());
 
 -- Internal admins may update objects in this bucket (overwrite / supersede).
 drop policy if exists rightpath_documents_admin_update on storage.objects;
-drop policy if exists "rightpath_documents_admin_update" on storage.objects;
 create policy rightpath_documents_admin_update
   on storage.objects for update to authenticated
   using (bucket_id = 'rightpath-documents' and public.jwt_is_admin())
@@ -3392,14 +3328,12 @@ create policy rightpath_documents_admin_update
 
 -- Internal admins may delete objects in this bucket.
 drop policy if exists rightpath_documents_admin_delete on storage.objects;
-drop policy if exists "rightpath_documents_admin_delete" on storage.objects;
 create policy rightpath_documents_admin_delete
   on storage.objects for delete to authenticated
   using (bucket_id = 'rightpath-documents' and public.jwt_is_admin());
 
 -- service_role: full access (the server upload/download/supersede path).
 drop policy if exists rightpath_documents_service_all on storage.objects;
-drop policy if exists "rightpath_documents_service_all" on storage.objects;
 create policy rightpath_documents_service_all
   on storage.objects for all to service_role
   using (bucket_id = 'rightpath-documents')
@@ -3409,8 +3343,7 @@ create policy rightpath_documents_service_all
 -- Refresh PostgREST schema cache (harmless for storage; keeps convention).
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261019000001_policy_documents_policy_scoped.sql >>>
+-- >>> schema/catalog from 20261019000001_policy_documents_policy_scoped.sql >>>
 -- =============================================================================
 -- 1035 Exchange Review — Step 3 documents become POLICY-specific
 -- Migration: 20261019000001_policy_documents_policy_scoped.sql
@@ -3487,8 +3420,7 @@ create unique index if not exists policy_documents_project_customer_policy_type_
 -- usable via the API immediately.
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261020000001_projects_lifecycle_archive.sql >>>
+-- >>> schema/catalog from 20261020000001_projects_lifecycle_archive.sql >>>
 -- =============================================================================
 -- Projects lifecycle — ARCHIVE / RESTORE (plus the audit for complete/reopen)
 -- Migration: 20261020000001_projects_lifecycle_archive.sql
@@ -3624,8 +3556,7 @@ alter table public.projects
 -- immediately.
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261021000001_ipf_work_overlay.sql >>>
+-- >>> schema/catalog from 20261021000001_ipf_work_overlay.sql >>>
 -- =============================================================================
 -- IPF work overlay — employee capabilities, shared-queue claiming, project
 -- participation / escalation, and Today's Focus
@@ -4015,95 +3946,8 @@ create index if not exists todays_focus_active_idx
 -- the FIRST workable slice; they are declared data, not a permanent hierarchy,
 -- and the Team settings UI can change them. on conflict keeps replays idempotent.
 -- =============================================================================
-do $$
-declare
-  wf_outreach   uuid;
-  wf_research   uuid;
-  wf_ops_prep   uuid;
-  wf_determine  uuid;
-  wf_office     uuid;
-  -- producers (resolved by stable id; verified against the live dev roster)
-  p_ashley  uuid := '067ca02d-7618-4aea-84ad-9abaa5d166e0'; -- Director of Operations
-  p_angie   uuid := '6fbce54f-5c02-4589-90b3-f4eb19248256'; -- Case Manager (ops)
-  p_nikki   uuid := 'dcb3c1f9-a260-44ae-b02a-70fd000ea117'; -- Case Manager (ops)
-  p_gabe    uuid := '7a8ffc03-a89a-4dfc-96d9-2cb552ca6036'; -- Client Relations (outreach)
-  p_dulce   uuid := 'afc210a6-9974-4459-95bf-87dee6274f30'; -- Client Relations (outreach)
-  p_bob     uuid := '55c0e564-35d1-4bcc-888d-8edaa4e2fdf7'; -- IAR / PFR (senior producer)
-  p_tyler   uuid := '280f5f81-939c-4b29-b73c-97cf05f4411d'; -- Life Insurance Specialist
-  proj_1035 uuid := '60d8ca7d-56fa-44e2-9cae-29a542d4eb48'; -- the "1035 Reviews" project
-  has_proj  boolean;
-begin
-  select id into wf_outreach  from public.work_functions where canonical_key = 'outreach';
-  select id into wf_research  from public.work_functions where canonical_key = 'research';
-  select id into wf_ops_prep  from public.work_functions where canonical_key = 'operations_prep';
-  select id into wf_determine from public.work_functions where canonical_key = 'determination';
-  select id into wf_office    from public.work_functions where canonical_key = 'office_support';
-
-  -- Bob is the senior producer who makes 1035 determinations -> affirmatively
-  -- life licensed so the determination capability (life_licensed gate) can be
-  -- assigned to him. No other licensing fact is asserted here; unestablished
-  -- flags stay NULL (unknown), per the eligibility-fact design.
-  update public.producers set is_life_licensed = true where id = p_bob;
-
-  -- Bob's life-license fact only applies if that producer exists here.
-  if not exists (select 1 from public.producers where id = p_bob) then
-    -- No roster overlap in this environment: skip all roster-specific seeding.
-    -- The capability catalog + schema above are still in place; capabilities are
-    -- simply unassigned until this environment's own staff are assigned.
-    return;
-  end if;
-
-  -- NOTE (historical): this section originally seeded a broader set of
-  -- agency-wide capability assignments inferred from job titles (outreach to
-  -- client-relations staff, research/preparation to case managers, office
-  -- support broadly). A later correction (20261022000001) established that
-  -- capabilities must come from evidence or a settled decision, not a title, and
-  -- removed those inferred rows, keeping only Bob -> determination. To make this
-  -- migration SAFE TO REPLAY and portable, it now seeds ONLY that one settled
-  -- assignment, and only when both the producer and the capability exist. The
-  -- evidence-based assignments live in the forward correction migration, not
-  -- here, so a replay of this file never re-creates the title-inferred rows.
-  insert into public.producer_work_functions (producer_id, work_function_id, assignment_type, project_id, source)
-  select p_bob, wf_determine, 'primary', null, 'migration_seed'
-  where wf_determine is not null
-  on conflict do nothing;
-
-  -- The rest below is scoped to the real 1035 project. Guard on its existence so
-  -- a replay against an environment without that project is a clean no-op. Every
-  -- insert is additionally guarded on the producer existing, so a different
-  -- roster cannot cause a foreign-key failure.
-  select exists(select 1 from public.projects where id = proj_1035) into has_proj;
-  if has_proj then
-    -- 1035 participation: the people who work this project (My Projects). This
-    -- is participation, not ownership — ownership/escalation are separate.
-    -- Inserted per-producer, each guarded on that producer existing.
-    insert into public.project_participants (project_id, producer_id, note)
-    select proj_1035, p.id, v.note
-    from (values
-      (p_angie,  'Operations: servicing access, Step 3 preparation'),
-      (p_nikki,  'Operations: outreach and preparation'),
-      (p_gabe,   'Outreach'),
-      (p_dulce,  'Outreach'),
-      (p_ashley, 'Senior producer'),
-      (p_bob,    'Senior producer: candidacy determination')
-    ) as v(pid, note)
-    join public.producers p on p.id = v.pid
-    on conflict (project_id, producer_id) do nothing;
-
-    -- 1035 escalation order: an operational exception goes to Angie FIRST
-    -- (tier 1), then to Bob (tier 2). Andy is deliberately NOT an escalation
-    -- destination for routine operational exceptions. Each guarded on existence.
-    insert into public.project_escalation_contacts (project_id, producer_id, tier, note)
-    select proj_1035, p.id, v.tier, v.note
-    from (values
-      (p_angie, 1, 'Operational exceptions escalate here first'),
-      (p_bob,   2, 'Senior producer: reached only when the first tier cannot resolve it')
-    ) as v(pid, tier, note)
-    join public.producers p on p.id = v.pid
-    on conflict (project_id, tier) do nothing;
-  end if;
-end
-$$;
+-- [removed: employee/project business-data seed block — superseded by the
+--  single email-resolved settled-config block at the end of this migration]
 
 
 -- =============================================================================
@@ -4131,47 +3975,37 @@ alter table public.project_escalation_contacts enable row level security;
 alter table public.todays_focus                enable row level security;
 
 drop policy if exists work_functions_admin_select on public.work_functions;
-drop policy if exists "work_functions_admin_select" on public.work_functions;
 create policy work_functions_admin_select
   on public.work_functions for select to authenticated using (public.jwt_is_admin());
 drop policy if exists work_functions_all on public.work_functions;
-drop policy if exists "work_functions_all" on public.work_functions;
 create policy work_functions_all
   on public.work_functions for all to service_role using (true) with check (true);
 
 drop policy if exists producer_work_functions_admin_select on public.producer_work_functions;
-drop policy if exists "producer_work_functions_admin_select" on public.producer_work_functions;
 create policy producer_work_functions_admin_select
   on public.producer_work_functions for select to authenticated using (public.jwt_is_admin());
 drop policy if exists producer_work_functions_all on public.producer_work_functions;
-drop policy if exists "producer_work_functions_all" on public.producer_work_functions;
 create policy producer_work_functions_all
   on public.producer_work_functions for all to service_role using (true) with check (true);
 
 drop policy if exists project_participants_admin_select on public.project_participants;
-drop policy if exists "project_participants_admin_select" on public.project_participants;
 create policy project_participants_admin_select
   on public.project_participants for select to authenticated using (public.jwt_is_admin());
 drop policy if exists project_participants_all on public.project_participants;
-drop policy if exists "project_participants_all" on public.project_participants;
 create policy project_participants_all
   on public.project_participants for all to service_role using (true) with check (true);
 
 drop policy if exists project_escalation_contacts_admin_select on public.project_escalation_contacts;
-drop policy if exists "project_escalation_contacts_admin_select" on public.project_escalation_contacts;
 create policy project_escalation_contacts_admin_select
   on public.project_escalation_contacts for select to authenticated using (public.jwt_is_admin());
 drop policy if exists project_escalation_contacts_all on public.project_escalation_contacts;
-drop policy if exists "project_escalation_contacts_all" on public.project_escalation_contacts;
 create policy project_escalation_contacts_all
   on public.project_escalation_contacts for all to service_role using (true) with check (true);
 
 drop policy if exists todays_focus_admin_select on public.todays_focus;
-drop policy if exists "todays_focus_admin_select" on public.todays_focus;
 create policy todays_focus_admin_select
   on public.todays_focus for select to authenticated using (public.jwt_is_admin());
 drop policy if exists todays_focus_all on public.todays_focus;
-drop policy if exists "todays_focus_all" on public.todays_focus;
 create policy todays_focus_all
   on public.todays_focus for all to service_role using (true) with check (true);
 
@@ -4180,8 +4014,7 @@ create policy todays_focus_all
 -- the API immediately.
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261022000001_ipf_overlay_corrections.sql >>>
+-- >>> schema/catalog from 20261022000001_ipf_overlay_corrections.sql >>>
 -- =============================================================================
 -- IPF overlay corrections — management authority, project ownership, and
 -- removal of title-inferred capabilities
@@ -4291,59 +4124,8 @@ comment on column public.project_participants.role is
 -- read. If the column is somehow absent, this block is skipped rather than
 -- failing.)
 -- =============================================================================
-do $$
-declare
-  -- the exact title-inferred seeded pairs (producer id, canonical_key),
-  -- excluding the kept Bob -> determination row.
-  seeded constant text[][] := array[
-    -- Gabe (7a8ffc03)
-    ['7a8ffc03-a89a-4dfc-96d9-2cb552ca6036', 'outreach'],
-    ['7a8ffc03-a89a-4dfc-96d9-2cb552ca6036', 'office_support'],
-    -- Dulce (afc210a6)
-    ['afc210a6-9974-4459-95bf-87dee6274f30', 'outreach'],
-    ['afc210a6-9974-4459-95bf-87dee6274f30', 'office_support'],
-    -- Nikki (dcb3c1f9)
-    ['dcb3c1f9-a260-44ae-b02a-70fd000ea117', 'outreach'],
-    ['dcb3c1f9-a260-44ae-b02a-70fd000ea117', 'research'],
-    ['dcb3c1f9-a260-44ae-b02a-70fd000ea117', 'operations_prep'],
-    -- Angie (6fbce54f)
-    ['6fbce54f-5c02-4589-90b3-f4eb19248256', 'outreach'],
-    ['6fbce54f-5c02-4589-90b3-f4eb19248256', 'research'],
-    ['6fbce54f-5c02-4589-90b3-f4eb19248256', 'operations_prep'],
-    -- Ashley (067ca02d)
-    ['067ca02d-7618-4aea-84ad-9abaa5d166e0', 'operations_prep'],
-    ['067ca02d-7618-4aea-84ad-9abaa5d166e0', 'office_support'],
-    -- Tyler (280f5f81)
-    ['280f5f81-939c-4b29-b73c-97cf05f4411d', 'office_support']
-  ];
-  pair text[];
-  has_source boolean;
-begin
-  select exists (
-    select 1 from information_schema.columns
-    where table_schema = 'public'
-      and table_name = 'producer_work_functions'
-      and column_name = 'source'
-  ) into has_source;
-
-  if not has_source then
-    -- No provenance column: we cannot prove origin, so we must NOT delete
-    -- anything (deleting blind is exactly the destructive behavior being fixed).
-    return;
-  end if;
-
-  foreach pair slice 1 in array seeded loop
-    delete from public.producer_work_functions pwf
-    using public.work_functions wf
-    where pwf.work_function_id = wf.id
-      and pwf.project_id is null
-      and pwf.producer_id = pair[1]::uuid
-      and wf.canonical_key = pair[2]
-      -- PROVENANCE GATE: only ever remove a row this migration chain seeded.
-      and pwf.source = 'migration_seed';
-  end loop;
-end
-$$;
+-- [removed: employee/project business-data seed block — superseded by the
+--  single email-resolved settled-config block at the end of this migration]
 
 
 -- =============================================================================
@@ -4351,61 +4133,14 @@ $$;
 -- Guarded on the real 1035 project and each producer existing, so a replay in an
 -- environment without them is a clean no-op.
 -- =============================================================================
-do $$
-declare
-  p_bob     uuid := '55c0e564-35d1-4bcc-888d-8edaa4e2fdf7';
-  p_angie   uuid := '6fbce54f-5c02-4589-90b3-f4eb19248256';
-  p_ashley  uuid := '067ca02d-7618-4aea-84ad-9abaa5d166e0';
-  proj_1035 uuid := '60d8ca7d-56fa-44e2-9cae-29a542d4eb48';
-  has_proj  boolean;
-begin
-  -- Management authority: Bob is the operations manager (settled). Only set the
-  -- flag for a producer that actually exists.
-  update public.producers set is_management = true
-    where id = p_bob and exists (select 1 from public.producers where id = p_bob);
-
-  select exists(select 1 from public.projects where id = proj_1035) into has_proj;
-  if not has_proj then
-    return; -- no 1035 project in this environment: staffing seed is a no-op
-  end if;
-
-  -- Bob owns the 1035 project and is its operations manager. Ensure he is a
-  -- participant and carries the owner + operations_manager responsibility.
-  if exists (select 1 from public.producers where id = p_bob) then
-    insert into public.project_participants (project_id, producer_id, role, note)
-    values (proj_1035, p_bob, 'owner',
-            'Project owner and operations manager; makes the candidacy determination')
-    on conflict (project_id, producer_id) do update
-      set role = 'owner',
-          note = 'Project owner and operations manager; makes the candidacy determination';
-  end if;
-
-  -- Ashley is a SENIOR PRODUCER, not the operations manager. Correct the prior
-  -- mislabel; keep her as a participant with the accurate responsibility.
-  if exists (select 1 from public.producers where id = p_ashley) then
-    update public.project_participants
-      set role = 'senior_producer',
-          note = 'Senior producer'
-      where project_id = proj_1035 and producer_id = p_ashley;
-  end if;
-
-  -- Angie remains the FIRST operational escalation contact and an operations
-  -- participant. (Escalation itself is in project_escalation_contacts, seeded by
-  -- the prior migration as tier 1 = Angie, tier 2 = Bob; left unchanged.)
-  if exists (select 1 from public.producers where id = p_angie) then
-    update public.project_participants
-      set role = 'operations'
-      where project_id = proj_1035 and producer_id = p_angie and role is null;
-  end if;
-end
-$$;
+-- [removed: employee/project business-data seed block — superseded by the
+--  single email-resolved settled-config block at the end of this migration]
 
 
 -- Refresh PostgREST's schema cache so the new columns are visible via the API.
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261023000001_capabilities_evidence_and_management.sql >>>
+-- >>> schema/catalog from 20261023000001_capabilities_evidence_and_management.sql >>>
 -- =============================================================================
 -- IPF overlay — evidence-based capabilities and management authority
 -- Migration: 20261023000001_capabilities_evidence_and_management.sql
@@ -4449,40 +4184,8 @@ notify pgrst, 'reload schema';
 -- assignment types only (primary/support). on conflict do nothing keeps replays
 -- idempotent and preserves any assignment a human later changes.
 -- =============================================================================
-do $$
-declare
-  p_gabe  uuid := '7a8ffc03-a89a-4dfc-96d9-2cb552ca6036'; -- performs outreach + calls
-  p_dulce uuid := 'afc210a6-9974-4459-95bf-87dee6274f30'; -- performs outreach + calls
-  p_angie uuid := '6fbce54f-5c02-4589-90b3-f4eb19248256'; -- servicing outreach + operations
-  p_bob   uuid := '55c0e564-35d1-4bcc-888d-8edaa4e2fdf7'; -- 1035 determinations
-begin
-  -- (producer, capability canonical_key, assignment_type) backed by evidence.
-  -- These are legitimate assignments (source = 'manual'), NOT a demonstration
-  -- seed, so the corrective migration's provenance gate never removes them.
-  insert into public.producer_work_functions (producer_id, work_function_id, assignment_type, project_id, source)
-  select p.id, wf.id, v.assignment_type, null, 'manual'
-  from (values
-    -- Dulce and Gabe perform customer outreach and calls.
-    (p_gabe,  'outreach',        'primary'),
-    (p_dulce, 'outreach',        'primary'),
-    -- Angie handles servicing outreach and operations.
-    (p_angie, 'outreach',        'support'),
-    (p_angie, 'research',        'primary'),
-    (p_angie, 'operations_prep', 'primary'),
-    -- Bob performs 1035 determinations (reasserted; also seeded earlier).
-    (p_bob,   'determination',   'primary')
-  ) as v(pid, canonical_key, assignment_type)
-  join public.producers p       on p.id = v.pid
-  join public.work_functions wf on wf.canonical_key = v.canonical_key
-  on conflict do nothing;
-
-  -- Bob's determination capability is life-licensing-gated; his settled
-  -- responsibility requires the fact, so assert it (only if he exists). No other
-  -- licensing fact is asserted for anyone — unknown stays NULL.
-  update public.producers set is_life_licensed = true
-    where id = p_bob and is_life_licensed is distinct from true;
-end
-$$;
+-- [removed: employee/project business-data seed block — superseded by the
+--  single email-resolved settled-config block at the end of this migration]
 
 
 -- =============================================================================
@@ -4491,22 +4194,14 @@ $$;
 -- modify, and end Today's Focus. Grant to BOTH via their verified records; no
 -- other employee. Guarded on existence; idempotent.
 -- =============================================================================
-do $$
-declare
-  p_bob  uuid := '55c0e564-35d1-4bcc-888d-8edaa4e2fdf7'; -- operations manager
-  p_andy uuid := '576441c0-c4c9-4649-8e62-27ee61a0309c'; -- agency owner
-begin
-  update public.producers set is_management = true
-    where id in (p_bob, p_andy);
-end
-$$;
+-- [removed: employee/project business-data seed block — superseded by the
+--  single email-resolved settled-config block at the end of this migration]
 
 
 -- Refresh PostgREST's schema cache (no new columns, but keeps a replay uniform).
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261024000001_capability_source_provenance.sql >>>
+-- >>> schema/catalog from 20261024000001_capability_source_provenance.sql >>>
 -- =============================================================================
 -- IPF overlay — capability assignment provenance (replay-safety reconciliation)
 -- Migration: 20261024000001_capability_source_provenance.sql
@@ -4540,19 +4235,8 @@ alter table public.producer_work_functions
   add column if not exists source text not null default 'manual';
 
 -- Ensure the allowed-values constraint exists (name-stable, idempotent).
-do $$
-begin
-  if not exists (
-    select 1 from pg_constraint
-    where conname = 'producer_work_functions_source_check'
-      and conrelid = 'public.producer_work_functions'::regclass
-  ) then
-    alter table public.producer_work_functions
-      add constraint producer_work_functions_source_check
-      check (source in ('migration_seed', 'manual'));
-  end if;
-end
-$$;
+-- [removed: employee/project business-data seed block — superseded by the
+--  single email-resolved settled-config block at the end of this migration]
 
 comment on column public.producer_work_functions.source is
   'Provenance: ''migration_seed'' = created by a migration demonstration seed '
@@ -4561,9 +4245,7 @@ comment on column public.producer_work_functions.source is
 
 -- 2. Backfill to the fresh-replay end-state.
 -- First, everything is legitimate/manual by default (protects all rows).
-update public.producer_work_functions
-  set source = 'manual'
-  where source is distinct from 'manual';
+-- [removed: employee/project business-data write — see settled-config block]
 
 -- Then re-tag ONLY the one demonstration-seeded row that a fresh replay would
 -- mark 'migration_seed': Bob -> determination, agency-wide, created by the
@@ -4571,24 +4253,12 @@ update public.producer_work_functions
 -- the row the corrective migration deliberately KEEPS (it is excluded from the
 -- cleanup pair-list), so tagging it changes no behavior; it simply makes the
 -- development provenance identical to a fresh replay.
-do $$
-declare
-  p_bob uuid := '55c0e564-35d1-4bcc-888d-8edaa4e2fdf7';
-begin
-  update public.producer_work_functions pwf
-    set source = 'migration_seed'
-    from public.work_functions wf
-    where pwf.work_function_id = wf.id
-      and wf.canonical_key = 'determination'
-      and pwf.producer_id = p_bob
-      and pwf.project_id is null;
-end
-$$;
+-- [removed: employee/project business-data seed block — superseded by the
+--  single email-resolved settled-config block at the end of this migration]
 
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261025000001_1035_project_responsibilities.sql >>>
+-- >>> schema/catalog from 20261025000001_1035_project_responsibilities.sql >>>
 -- =============================================================================
 -- 1035 project responsibilities — corrected participant descriptions
 -- Migration: 20261025000001_1035_project_responsibilities.sql
@@ -4635,74 +4305,13 @@ notify pgrst, 'reload schema';
 -- Depends on 20261021000001_ipf_work_overlay (project_participants + role) and
 -- 20261022000001_ipf_overlay_corrections (role column, Bob/Ashley/Angie roles).
 -- =============================================================================
-do $$
-declare
-  p_bob     uuid := '55c0e564-35d1-4bcc-888d-8edaa4e2fdf7';
-  p_angie   uuid := '6fbce54f-5c02-4589-90b3-f4eb19248256';
-  p_nikki   uuid := 'dcb3c1f9-a260-44ae-b02a-70fd000ea117';
-  p_gabe    uuid := '7a8ffc03-a89a-4dfc-96d9-2cb552ca6036';
-  p_dulce   uuid := 'afc210a6-9974-4459-95bf-87dee6274f30';
-  p_ashley  uuid := '067ca02d-7618-4aea-84ad-9abaa5d166e0';
-  proj_1035 uuid := '60d8ca7d-56fa-44e2-9cae-29a542d4eb48';
-  has_proj  boolean;
-begin
-  -- Angie's life license is a settled qualification FACT (not a role). Set it
-  -- only if she exists; leave every other producer's licensing untouched (an
-  -- unestablished fact stays NULL = unknown).
-  update public.producers set is_life_licensed = true
-    where id = p_angie and is_life_licensed is distinct from true;
-
-  select exists(select 1 from public.projects where id = proj_1035) into has_proj;
-  if not has_proj then
-    return; -- no 1035 project here: responsibility corrections are a no-op
-  end if;
-
-  -- Bob: Project Owner and Operations Manager. Reassert the settled owner
-  -- responsibility (idempotent; already set by 20261022000001).
-  update public.project_participants
-    set role = 'owner',
-        note = 'Project owner and operations manager'
-    where project_id = proj_1035 and producer_id = p_bob;
-
-  -- Angie: Operations. The life-license fact is a separate annotation, NOT part
-  -- of the responsibility label, so the note stays plain Operations.
-  update public.project_participants
-    set role = 'operations',
-        note = 'Operations'
-    where project_id = proj_1035 and producer_id = p_angie;
-
-  -- Nikki: Underwriting Support. Licensing is unconfirmed, so no license fact is
-  -- asserted; the UI derives "(licensing unconfirmed)" from the NULL fact.
-  update public.project_participants
-    set role = 'underwriting_support',
-        note = 'Underwriting support'
-    where project_id = proj_1035 and producer_id = p_nikki;
-
-  -- Gabe: Operations (project responsibility only; outreach ROUTING is unchanged).
-  update public.project_participants
-    set role = 'operations',
-        note = 'Operations'
-    where project_id = proj_1035 and producer_id = p_gabe;
-
-  -- Dulce: Operations (project responsibility only; outreach ROUTING is unchanged).
-  update public.project_participants
-    set role = 'operations',
-        note = 'Operations'
-    where project_id = proj_1035 and producer_id = p_dulce;
-
-  -- Ashley: Senior Producer (idempotent; already set by 20261022000001).
-  update public.project_participants
-    set role = 'senior_producer',
-        note = 'Senior producer'
-    where project_id = proj_1035 and producer_id = p_ashley;
-end
-$$;
+-- [removed: employee/project business-data seed block — superseded by the
+--  single email-resolved settled-config block at the end of this migration]
 
 -- Refresh PostgREST's schema cache (no new columns; keeps a replay uniform).
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261026000001_project_1035_document_skips.sql >>>
+-- >>> schema/catalog from 20261026000001_project_1035_document_skips.sql >>>
 -- =============================================================================
 -- 1035 Exchange Review — Step 3 document SKIPS (durable "unavailable" marker).
 --
@@ -4763,8 +4372,6 @@ create unique index if not exists project_customer_document_skips_unique
 create index if not exists project_customer_document_skips_project_customer_idx
   on public.project_customer_document_skips (project_id, customer_id);
 
-drop trigger if exists project_customer_document_skips_set_updated_at on public.project_customer_document_skips;
-
 create trigger project_customer_document_skips_set_updated_at
   before update on public.project_customer_document_skips
   for each row execute function public.set_updated_at();
@@ -4783,12 +4390,10 @@ grant all on public.project_customer_document_skips to anon, authenticated, serv
 -- =============================================================================
 alter table public.project_customer_document_skips enable row level security;
 
-drop policy if exists "project_customer_document_skips_admin_select" on public.project_customer_document_skips;
 create policy project_customer_document_skips_admin_select
   on public.project_customer_document_skips for select to authenticated
   using (public.jwt_is_admin());
 
-drop policy if exists "project_customer_document_skips_all" on public.project_customer_document_skips;
 create policy project_customer_document_skips_all
   on public.project_customer_document_skips for all to service_role
   using (true) with check (true);
@@ -4797,8 +4402,7 @@ create policy project_customer_document_skips_all
 -- Refresh PostgREST's schema cache so the new table is visible via the API.
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261027000001_contact_review_work_function.sql >>>
+-- >>> schema/catalog from 20261027000001_contact_review_work_function.sql >>>
 -- =============================================================================
 -- Contact Review capability — catalog row + eligibility mirrored from Research
 -- Migration: 20261027000001_contact_review_work_function.sql
@@ -4852,26 +4456,13 @@ on conflict (lower(canonical_key)) do update
 --    distinct marker is not used because these ARE the research grants, re-
 --    expressed for the sibling capability. on conflict do nothing makes replay
 --    a no-op against both the agency-wide and the per-project unique indexes.
-insert into public.producer_work_functions (producer_id, work_function_id, assignment_type, project_id, source)
-select
-  pwf.producer_id,
-  cr.id,
-  pwf.assignment_type,
-  pwf.project_id,
-  pwf.source
-from public.producer_work_functions pwf
-join public.work_functions rs on rs.id = pwf.work_function_id and rs.canonical_key = 'research'
-cross join lateral (
-  select id from public.work_functions where canonical_key = 'contact_review'
-) cr
-on conflict do nothing;
+-- [removed: employee/project business-data write — see settled-config block]
 
 -- Refresh PostgREST's schema cache so the new catalog row is immediately
 -- resolvable by the API layer.
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261028000001_case_touches_customer_level.sql >>>
+-- >>> schema/catalog from 20261028000001_case_touches_customer_level.sql >>>
 -- =============================================================================
 -- Generalize case_touches into one shared communication history that can be
 -- recorded against a customer directly, not only through a case.
@@ -4925,8 +4516,7 @@ comment on column public.case_touches.customer_id is
   'often has no case row). Case-linked touches continue to reach the customer '
   'through case_id -> cases.customer_id; this column is the direct path.';
 
-
--- >>> from 20261029000001_case_touches_drop_servicing_outreach_type.sql >>>
+-- >>> schema/catalog from 20261029000001_case_touches_drop_servicing_outreach_type.sql >>>
 -- =============================================================================
 -- Correction: the 1035 servicing-agent authorization email is recorded as an
 -- ordinary 'email' touch, identified by its description, not by a dedicated
@@ -4945,9 +4535,8 @@ comment on column public.case_touches.customer_id is
 -- =============================================================================
 
 -- Defensive: fold any stray servicing_outreach touch into a plain email touch.
-update public.case_touches
-  set touch_type = 'email'
-  where touch_type = 'servicing_outreach';
+-- [removed: case_touches relabel UPDATE — the touch_type CHECK below is applied
+--  directly; production has no 'servicing_outreach' rows to relabel]
 
 alter table public.case_touches
   drop constraint if exists case_touches_touch_type_check;
@@ -4956,8 +4545,7 @@ alter table public.case_touches
   add constraint case_touches_touch_type_check
   check (touch_type in ('call', 'voicemail', 'text', 'email', 'missed_appointment'));
 
-
--- >>> from 20261030000001_servicing_onboarding_completion.sql >>>
+-- >>> schema/catalog from 20261030000001_servicing_onboarding_completion.sql >>>
 -- =============================================================================
 -- Servicing-Agent Onboarding — complete the capture/stewardship workflow
 -- Migration: 20261030000001_servicing_onboarding_completion.sql
@@ -5034,8 +4622,7 @@ comment on column public.stewardship_outreach.form_delivery_method is
 --    consistent and harmless if re-run).
 grant all on public.stewardship_outreach to anon, authenticated, service_role;
 
-
--- >>> from 20261030000002_case_touches_postal_type.sql >>>
+-- >>> schema/catalog from 20261030000002_case_touches_postal_type.sql >>>
 -- =============================================================================
 -- Add 'postal' to case_touches.touch_type
 -- Migration: 20261030000002_case_touches_postal_type.sql
@@ -5058,8 +4645,7 @@ alter table public.case_touches
   add constraint case_touches_touch_type_check
   check (touch_type in ('call', 'voicemail', 'text', 'email', 'missed_appointment', 'postal'));
 
-
--- >>> from 20261031000001_onboarding_corrections.sql >>>
+-- >>> schema/catalog from 20261031000001_onboarding_corrections.sql >>>
 -- =============================================================================
 -- Servicing-Agent Onboarding — correctness fixes (permanent verification +
 -- durable completion marker)
@@ -5128,8 +4714,7 @@ comment on column public.customer_prereviews.servicing_completed_at is
   'completed-onboarding summary, the Wanderer->Explorer promotion, and the '
   'Initial Analysis handoff.';
 
-
--- >>> from 20261101000001_onboarding_followups_refusal_handoff.sql >>>
+-- >>> schema/catalog from 20261101000001_onboarding_followups_refusal_handoff.sql >>>
 -- =============================================================================
 -- Servicing-Agent Onboarding — refusal stop, resilient handoff, and
 -- clear-verification-on-contact-change
@@ -5236,8 +4821,7 @@ create trigger customers_clear_contact_verification
   for each row
   execute function public.clear_contact_verification_on_change();
 
-
--- >>> from 20261102000001_project_workflows.sql >>>
+-- >>> schema/catalog from 20261102000001_project_workflows.sql >>>
 -- =============================================================================
 -- Reusable project workflows — the smallest workflow-as-data structure
 -- Migration: 20261102000001_project_workflows.sql
@@ -5329,8 +4913,6 @@ comment on column public.workflows.key is
 
 create unique index if not exists workflows_key_key
   on public.workflows (lower(key));
-
-drop trigger if exists workflows_set_updated_at on public.workflows;
 
 create trigger workflows_set_updated_at
   before update on public.workflows
@@ -5424,39 +5006,8 @@ on conflict (lower(key)) do nothing;
 -- only sets the dependency when it is still null. Creates nothing for any other
 -- project; other projects define their own workflow set as needed.
 -- =============================================================================
-do $$
-declare
-  v_project   uuid := '60d8ca7d-56fa-44e2-9cae-29a542d4eb48';  -- 1035 Reviews
-  v_onboard   uuid := 'c0f10000-0000-4000-8000-000000000001';  -- servicing_agent_onboarding
-  v_review    uuid := 'c0f10000-0000-4000-8000-000000000002';  -- review_preparation
-  v_onboard_pw uuid;
-begin
-  -- Only wire if the project actually exists on this environment.
-  if exists (select 1 from public.projects where id = v_project) then
-    -- Onboarding first (position 0), no upstream gate.
-    insert into public.project_workflows (project_id, workflow_id, position)
-    values (v_project, v_onboard, 0)
-    on conflict (project_id, workflow_id) do nothing;
-
-    -- Review preparation second (position 1).
-    insert into public.project_workflows (project_id, workflow_id, position)
-    values (v_project, v_review, 1)
-    on conflict (project_id, workflow_id) do nothing;
-
-    -- Resolve the onboarding project_workflows row and set it as the gate for
-    -- review preparation (only when the gate is not already set).
-    select id into v_onboard_pw
-      from public.project_workflows
-     where project_id = v_project and workflow_id = v_onboard;
-
-    update public.project_workflows
-       set gated_by_workflow_id = v_onboard_pw
-     where project_id = v_project
-       and workflow_id = v_review
-       and gated_by_workflow_id is null;
-  end if;
-end
-$$;
+-- [removed: employee/project business-data seed block — superseded by the
+--  single email-resolved settled-config block at the end of this migration]
 
 
 -- =============================================================================
@@ -5472,22 +5023,18 @@ grant all on public.project_workflows to anon, authenticated, service_role;
 alter table public.workflows         enable row level security;
 alter table public.project_workflows enable row level security;
 
-drop policy if exists "workflows_admin_select" on public.workflows;
 create policy workflows_admin_select
   on public.workflows for select to authenticated
   using (public.jwt_is_admin());
 
-drop policy if exists "workflows_all" on public.workflows;
 create policy workflows_all
   on public.workflows for all to service_role
   using (true) with check (true);
 
-drop policy if exists "project_workflows_admin_select" on public.project_workflows;
 create policy project_workflows_admin_select
   on public.project_workflows for select to authenticated
   using (public.jwt_is_admin());
 
-drop policy if exists "project_workflows_all" on public.project_workflows;
 create policy project_workflows_all
   on public.project_workflows for all to service_role
   using (true) with check (true);
@@ -5496,8 +5043,7 @@ create policy project_workflows_all
 -- Refresh PostgREST's schema cache so the new tables are visible immediately.
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261103000001_work_function_working_order.sql >>>
+-- >>> schema/catalog from 20261103000001_work_function_working_order.sql >>>
 -- =============================================================================
 -- My Work working-order correction — work_functions.sort_order
 -- Migration: 20261103000001_work_function_working_order.sql
@@ -5544,8 +5090,7 @@ update public.work_functions set sort_order = 60 where canonical_key = 'office_s
 -- Refresh PostgREST's schema cache so the reordering is reflected immediately.
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261103000002_case_touches_research_type.sql >>>
+-- >>> schema/catalog from 20261103000002_case_touches_research_type.sql >>>
 -- =============================================================================
 -- Add 'research' to case_touches.touch_type
 -- Migration: 20261103000002_case_touches_research_type.sql
@@ -5574,8 +5119,7 @@ alter table public.case_touches
   add constraint case_touches_touch_type_check
   check (touch_type in ('call', 'voicemail', 'text', 'email', 'missed_appointment', 'postal', 'research'));
 
-
--- >>> from 20261104000001_consolidate_contact_research.sql >>>
+-- >>> schema/catalog from 20261104000001_consolidate_contact_research.sql >>>
 -- =============================================================================
 -- Consolidate contact research into ONE activity
 -- Migration: 20261104000001_consolidate_contact_research.sql
@@ -5614,10 +5158,7 @@ alter table public.case_touches
 -- =============================================================================
 
 -- 1. Remove the mirrored contact_review eligibility rows.
-delete from public.producer_work_functions
-where work_function_id in (
-  select id from public.work_functions where canonical_key = 'contact_review'
-);
+-- [removed: employee/project business-data write — see settled-config block]
 
 -- 2. Remove the contact_review catalog row.
 delete from public.work_functions where canonical_key = 'contact_review';
@@ -5637,8 +5178,7 @@ where canonical_key = 'research';
 -- Refresh PostgREST's schema cache so the catalog change is visible immediately.
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261105000001_intro_email_recipient.sql >>>
+-- >>> schema/catalog from 20261105000001_intro_email_recipient.sql >>>
 -- =============================================================================
 -- Track the introductory-email recipient so a replaced address re-offers it
 -- Migration: 20261105000001_intro_email_recipient.sql
@@ -5681,8 +5221,7 @@ comment on column public.stewardship_outreach.intro_email_recipient is
 
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261106000001_work_reservations.sql >>>
+-- >>> schema/catalog from 20261106000001_work_reservations.sql >>>
 -- =============================================================================
 -- Automatic temporary work reservations — the shared coordination primitive
 -- Migration: 20261106000001_work_reservations.sql
@@ -5787,13 +5326,11 @@ create trigger work_reservations_set_updated_at
 alter table public.work_reservations enable row level security;
 
 drop policy if exists work_reservations_admin_select on public.work_reservations;
-drop policy if exists "work_reservations_admin_select" on public.work_reservations;
 create policy work_reservations_admin_select
   on public.work_reservations for select
   using (public.jwt_is_admin());
 
 drop policy if exists work_reservations_service_all on public.work_reservations;
-drop policy if exists "work_reservations_service_all" on public.work_reservations;
 create policy work_reservations_service_all
   on public.work_reservations for all
   to service_role
@@ -6051,8 +5588,7 @@ grant execute on function public.reserved_subject_ids(text, text, uuid) to servi
 
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261107000001_rename_project_type_permanent_policy_review.sql >>>
+-- >>> schema/catalog from 20261107000001_rename_project_type_permanent_policy_review.sql >>>
 -- =============================================================================
 -- Rename the "1035 Exchange" project type to "Permanent Policy Review"
 -- Migration: 20261107000001_rename_project_type_permanent_policy_review.sql
@@ -6099,8 +5635,7 @@ comment on table public.project_types is
 -- Refresh PostgREST''s schema cache (comment change) so the API stays in sync.
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261108000001_q4_1035_initiative_team.sql >>>
+-- >>> schema/catalog from 20261108000001_q4_1035_initiative_team.sql >>>
 -- =============================================================================
 -- Configure the "Q4 1035 initiative" project TEAM
 -- Migration: 20261108000001_q4_1035_initiative_team.sql
@@ -6131,74 +5666,10 @@ notify pgrst, 'reload schema';
 -- project_escalation_contacts) and the projects / producers tables.
 -- =============================================================================
 
-do $$
-declare
-  proj_q4  uuid;
-  p_dulce  uuid := 'afc210a6-9974-4459-95bf-87dee6274f30';
-  p_angie  uuid := '6fbce54f-5c02-4589-90b3-f4eb19248256';
-  p_bob    uuid := '55c0e564-35d1-4bcc-888d-8edaa4e2fdf7';
-begin
-  -- Resolve the project by name (case-insensitive). If it is not present on this
-  -- environment, do nothing.
-  select id into proj_q4
-  from public.projects
-  where lower(name) = lower('Q4 1035 initiative')
-  limit 1;
+-- [removed: employee/project business-data seed block — superseded by the
+--  single email-resolved settled-config block at the end of this migration]
 
-  if proj_q4 is null then
-    raise notice 'Q4 1035 initiative project not found; skipping team configuration.';
-    return;
-  end if;
-
-  -- ── Participants (responsibilities) ──────────────────────────────────────
-  -- Each insert is guarded on the producer existing, and upserts on the unique
-  -- (project_id, producer_id) pair so a replay updates rather than duplicates.
-
-  if exists (select 1 from public.producers where id = p_dulce) then
-    insert into public.project_participants (project_id, producer_id, role, note)
-    values (proj_q4, p_dulce, 'operations', 'Operations')
-    on conflict (project_id, producer_id)
-      do update set role = excluded.role, note = excluded.note;
-  end if;
-
-  if exists (select 1 from public.producers where id = p_angie) then
-    insert into public.project_participants (project_id, producer_id, role, note)
-    values (proj_q4, p_angie, 'operations_escalation', 'Operations escalation (first contact)')
-    on conflict (project_id, producer_id)
-      do update set role = excluded.role, note = excluded.note;
-  end if;
-
-  if exists (select 1 from public.producers where id = p_bob) then
-    insert into public.project_participants (project_id, producer_id, role, note)
-    values (proj_q4, p_bob, 'producer', 'Producer')
-    on conflict (project_id, producer_id)
-      do update set role = excluded.role, note = excluded.note;
-  end if;
-
-  -- Exactly these three: drop any other participant on THIS project only.
-  delete from public.project_participants
-  where project_id = proj_q4
-    and producer_id not in (p_dulce, p_angie, p_bob);
-
-  -- ── Escalation path (operations exceptions) ──────────────────────────────
-  -- Angie is the FIRST escalation contact (tier 1). Clear any other escalation
-  -- rows on this project first so the single tier-1 is exactly Angie, then
-  -- upsert on the unique (project_id, tier) pair.
-  if exists (select 1 from public.producers where id = p_angie) then
-    delete from public.project_escalation_contacts
-    where project_id = proj_q4
-      and not (producer_id = p_angie and tier = 1);
-
-    insert into public.project_escalation_contacts (project_id, producer_id, tier, note)
-    values (proj_q4, p_angie, 1, 'First operations escalation contact')
-    on conflict (project_id, tier)
-      do update set producer_id = excluded.producer_id, note = excluded.note;
-  end if;
-end
-$$;
-
-
--- >>> from 20261109000001_project_participants_multi_role.sql >>>
+-- >>> schema/catalog from 20261109000001_project_participants_multi_role.sql >>>
 -- =============================================================================
 -- Project participants: MULTIPLE responsibilities per person
 -- Migration: 20261109000001_project_participants_multi_role.sql
@@ -6248,19 +5719,11 @@ comment on column public.project_participants.roles is
 
 -- Backfill from the legacy single `role`, only where roles has not been set yet
 -- (so a replay after real multi-role data exists never clobbers it).
-update public.project_participants
-   set roles = case
-     when role is null                     then '{}'::text[]
-     when role = 'owner'                   then array['project_owner','operations_manager']
-     when role = 'operations_escalation'   then '{}'::text[]  -- derived from escalation path
-     else array[role]
-   end
- where roles = '{}'::text[];
+-- [removed: employee/project business-data write — see settled-config block]
 
 notify pgrst, 'reload schema';
 
-
--- >>> from 20261110000001_q4_1035_initiative_multi_role_team.sql >>>
+-- >>> schema/catalog from 20261110000001_q4_1035_initiative_multi_role_team.sql >>>
 -- =============================================================================
 -- Configure the "Q4 1035 initiative" TEAM under the multi-responsibility model
 -- Migration: 20261110000001_q4_1035_initiative_multi_role_team.sql
@@ -6291,86 +5754,155 @@ notify pgrst, 'reload schema';
 -- Depends on 20261109000001_project_participants_multi_role (roles[] column).
 -- =============================================================================
 
+-- [removed: employee/project business-data seed block — superseded by the
+--  single email-resolved settled-config block at the end of this migration]
+
+-- =============================================================================
+-- SETTLED EMPLOYEE QUALIFICATIONS & AGENCY-WIDE CAPABILITIES (business rules)
+--
+-- The only employee-record writes in this migration. Each person is resolved by
+-- VERIFIED email identity against the production roster (not a hardcoded id, not
+-- inferred from title). Licensing/management flags and agency-wide capability
+-- assignments reflect the settled configuration:
+--
+--   Andy Makal      (amakal@allstate.com)      management
+--   Angie Strem     (astrem@allstate.com)      life-licensed; operations_prep (primary),
+--                                              outreach (support), research (primary)
+--   Bob Pfromm      (b.pfromm@allstate.com)    life-licensed, management; determination (primary)
+--   Dulce Velazquez (dvelazquez2@allstate.com) outreach (primary)
+--
+-- All assignments are AGENCY-WIDE (project_id is null). No project-scoped team,
+-- participation, escalation, or population is seeded here; project teams are set
+-- in the app. If a named person is absent from this environment, that person is
+-- simply skipped (no row invented). source='manual'.
+-- =============================================================================
 do $$
 declare
-  proj_q4  uuid;
-  p_dulce  uuid := 'afc210a6-9974-4459-95bf-87dee6274f30';
-  p_angie  uuid := '6fbce54f-5c02-4589-90b3-f4eb19248256';
-  p_bob    uuid := '55c0e564-35d1-4bcc-888d-8edaa4e2fdf7';
+  p_andy  uuid;
+  p_angie uuid;
+  p_bob   uuid;
+  p_dulce uuid;
+  wf_outreach   uuid;
+  wf_research   uuid;
+  wf_ops_prep   uuid;
+  wf_determine  uuid;
 begin
-  select id into proj_q4
-  from public.projects
-  where lower(name) = lower('Q4 1035 initiative')
-  limit 1;
+  select id into p_andy  from public.producers where lower(email) = 'amakal@allstate.com';
+  select id into p_angie from public.producers where lower(email) = 'astrem@allstate.com';
+  select id into p_bob   from public.producers where lower(email) = 'b.pfromm@allstate.com';
+  select id into p_dulce from public.producers where lower(email) = 'dvelazquez2@allstate.com';
 
-  if proj_q4 is null then
-    raise notice 'Q4 1035 initiative project not found; skipping team configuration.';
-    return;
+  select id into wf_outreach  from public.work_functions where canonical_key = 'outreach';
+  select id into wf_research  from public.work_functions where canonical_key = 'research';
+  select id into wf_ops_prep  from public.work_functions where canonical_key = 'operations_prep';
+  select id into wf_determine from public.work_functions where canonical_key = 'determination';
+
+  -- Licensing / management qualification facts (only for the people they apply to).
+  if p_bob   is not null then update public.producers set is_life_licensed = true, is_management = true where id = p_bob;   end if;
+  if p_angie is not null then update public.producers set is_life_licensed = true                      where id = p_angie; end if;
+  if p_andy  is not null then update public.producers set is_management  = true                        where id = p_andy;  end if;
+  -- Dulce: no licensing/management fact asserted (not inferred from title).
+
+  -- Agency-wide capability assignments (project_id is null). determination
+  -- requires is_life_licensed, set above for Bob before this insert.
+  if p_bob is not null and wf_determine is not null then
+    insert into public.producer_work_functions (producer_id, work_function_id, assignment_type, project_id, source)
+    values (p_bob, wf_determine, 'primary', null, 'manual')
+    on conflict (producer_id, work_function_id) where project_id is null do nothing;
   end if;
 
-  -- ── Participants (responsibility SETS) ───────────────────────────────────
-  -- Upsert on the unique (project_id, producer_id) pair; set roles[] and clear
-  -- the legacy single role so the array is authoritative.
-
-  if exists (select 1 from public.producers where id = p_bob) then
-    insert into public.project_participants (project_id, producer_id, roles, role, note)
-    values (proj_q4, p_bob, array['project_owner','operations_manager','producer'], null,
-            'Project owner, operations manager, producer')
-    on conflict (project_id, producer_id)
-      do update set roles = excluded.roles, role = null, note = excluded.note;
+  if p_angie is not null then
+    if wf_ops_prep is not null then
+      insert into public.producer_work_functions (producer_id, work_function_id, assignment_type, project_id, source)
+      values (p_angie, wf_ops_prep, 'primary', null, 'manual')
+      on conflict (producer_id, work_function_id) where project_id is null do nothing;
+    end if;
+    if wf_outreach is not null then
+      insert into public.producer_work_functions (producer_id, work_function_id, assignment_type, project_id, source)
+      values (p_angie, wf_outreach, 'support', null, 'manual')
+      on conflict (producer_id, work_function_id) where project_id is null do nothing;
+    end if;
+    if wf_research is not null then
+      insert into public.producer_work_functions (producer_id, work_function_id, assignment_type, project_id, source)
+      values (p_angie, wf_research, 'primary', null, 'manual')
+      on conflict (producer_id, work_function_id) where project_id is null do nothing;
+    end if;
   end if;
 
-  if exists (select 1 from public.producers where id = p_dulce) then
-    insert into public.project_participants (project_id, producer_id, roles, role, note)
-    values (proj_q4, p_dulce, array['operations'], null, 'Operations')
-    on conflict (project_id, producer_id)
-      do update set roles = excluded.roles, role = null, note = excluded.note;
-  end if;
-
-  if exists (select 1 from public.producers where id = p_angie) then
-    insert into public.project_participants (project_id, producer_id, roles, role, note)
-    values (proj_q4, p_angie, array['operations'], null,
-            'Operations; first operations escalation contact')
-    on conflict (project_id, producer_id)
-      do update set roles = excluded.roles, role = null, note = excluded.note;
-  end if;
-
-  -- Exactly these three participants on THIS project.
-  delete from public.project_participants
-  where project_id = proj_q4
-    and producer_id not in (p_dulce, p_angie, p_bob);
-
-  -- ── Escalation path ──────────────────────────────────────────────────────
-  -- Angie is the ONLY escalation contact, at tier 1. Remove any other escalation
-  -- row on this project (e.g. the prior tier-2 Bob), then upsert Angie at tier 1.
-  if exists (select 1 from public.producers where id = p_angie) then
-    delete from public.project_escalation_contacts
-    where project_id = proj_q4
-      and not (producer_id = p_angie and tier = 1);
-
-    insert into public.project_escalation_contacts (project_id, producer_id, tier, note)
-    values (proj_q4, p_angie, 1, 'First operations escalation contact')
-    on conflict (project_id, tier)
-      do update set producer_id = excluded.producer_id, note = excluded.note;
+  if p_dulce is not null and wf_outreach is not null then
+    insert into public.producer_work_functions (producer_id, work_function_id, assignment_type, project_id, source)
+    values (p_dulce, wf_outreach, 'primary', null, 'manual')
+    on conflict (producer_id, work_function_id) where project_id is null do nothing;
   end if;
 end
 $$;
 
-
-
 -- =============================================================================
--- Migration-history reconciliation (non-destructive).
+-- Migration-history reconciliation (non-destructive, durable).
 --
--- Production's supabase_migrations.schema_migrations currently records only one
--- row (20261007182159). This upgrade records ITSELF as applied, and nothing
--- else: it does NOT rewrite, delete, or back-date the existing row, and it does
--- NOT fabricate entries for the historical dev migrations that were never run
--- against production. The ledger therefore honestly reflects "the remote
--- baseline, then this consolidated upgrade." If the Supabase CLI also inserts
--- this version when it applies the file, the guard below keeps that a no-op.
+-- This consolidated migration establishes the SAME end-state schema that the
+-- 41 historical feature migrations (20261008000001 .. 20261110000001) would
+-- have produced. Production was never able to run those individually (the
+-- historical chain is incompatible with production's actual schema — e.g. the
+-- 20261008215325 drift-reconcile collides with existing production objects).
+--
+-- To make this durable and prevent a future `supabase db push` from trying to
+-- REPLAY those incompatible historical files, we record them as applied in the
+-- history ledger here, alongside this migration. This is a supersession record,
+-- not a claim that each file executed: their net schema effect is in place via
+-- this migration. The existing remote baseline row (20261007182159) is
+-- preserved; nothing is deleted, rewritten, or back-dated.
+--
+-- Result: after this upgrade, `schema_migrations` contains the baseline, the 41
+-- superseded historical versions (so they are never replayed), and this
+-- migration. A future `db push` sees nothing left to apply.
 -- =============================================================================
 insert into supabase_migrations.schema_migrations (version, name)
 values ('20261111000001', 'prod_schema_upgrade_projects_workflow')
+on conflict (version) do nothing;
+
+insert into supabase_migrations.schema_migrations (version, name) values
+  ('20261008000001','service_policies_review_initiative_fields'),
+  ('20261008215325','reconcile_schema_drift_catchup__superseded_by_20261111000001'),
+  ('20261008230000','projects_foundation'),
+  ('20261009000001','project_types'),
+  ('20261010000001','project_population_engine'),
+  ('20261011000001','population_commit_and_status'),
+  ('20261012000001','population_age_precision'),
+  ('20261013000001','customer_age_conflict_unknown'),
+  ('20261014000001','customer_age_setbased_perf'),
+  ('20261014000002','population_source_view'),
+  ('20261014000003','population_age_after_base_filter'),
+  ('20261014000004','population_facets_lazy_age'),
+  ('20261015000001','owner_as_insured_backfill__excluded_business_data'),
+  ('20261016000001','stewardship_grants'),
+  ('20261017000001','project_1035_step3_prepare_evaluate'),
+  ('20261018000001','rightpath_documents_storage'),
+  ('20261019000001','policy_documents_policy_scoped'),
+  ('20261020000001','projects_lifecycle_archive'),
+  ('20261021000001','ipf_work_overlay'),
+  ('20261022000001','ipf_overlay_corrections'),
+  ('20261023000001','capabilities_evidence_and_management'),
+  ('20261024000001','capability_source_provenance'),
+  ('20261025000001','1035_project_responsibilities'),
+  ('20261026000001','project_1035_document_skips'),
+  ('20261027000001','contact_review_work_function'),
+  ('20261028000001','case_touches_customer_level'),
+  ('20261029000001','case_touches_drop_servicing_outreach_type'),
+  ('20261030000001','servicing_onboarding_completion'),
+  ('20261030000002','case_touches_postal_type'),
+  ('20261031000001','onboarding_corrections'),
+  ('20261101000001','onboarding_followups_refusal_handoff'),
+  ('20261102000001','project_workflows'),
+  ('20261103000001','work_function_working_order'),
+  ('20261103000002','case_touches_research_type'),
+  ('20261104000001','consolidate_contact_research'),
+  ('20261105000001','intro_email_recipient'),
+  ('20261106000001','work_reservations'),
+  ('20261107000001','rename_project_type_permanent_policy_review'),
+  ('20261108000001','q4_1035_initiative_team__excluded_business_data'),
+  ('20261109000001','project_participants_multi_role'),
+  ('20261110000001','q4_1035_initiative_multi_role_team__excluded_business_data')
 on conflict (version) do nothing;
 
 commit;
