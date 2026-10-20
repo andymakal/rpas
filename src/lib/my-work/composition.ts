@@ -1252,6 +1252,66 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     }
     addProjectActivity('operations_prep', prepCount)
     addProjectActivity('determination', determineCount)
+
+    // Servicing Agent Onboarding — the stewardship-stage population, surfaced
+    // from FACTS. A project member whose applicable servicing access is not yet
+    // confirmed is OPEN, actionable onboarding/outreach work by design (see
+    // src/lib/projects/workflows.ts): they are actionable WITHOUT anyone having
+    // first created a stewardship_outreach record. The shared-board pass above
+    // represents only members who ALREADY have an open outreach row; a freshly
+    // populated project (e.g. a duplicated 1035 project whose members have no
+    // records yet) would otherwise show NO outreach work at all. We surface the
+    // derived onboarding-open members here, routed to the project's onboarding
+    // outreach screen, creating no records.
+    //
+    // No double counting: a member who already has an open board row is counted
+    // once, by the board pass. We subtract those (boardCustomerIds) so this adds
+    // only the members the board has not already represented. Shared customer
+    // work is therefore never duplicated across the two sources.
+    const boardCustomerIdSet = new Set(boardCustomerIds)
+    const onboardingOpenCustomerIds = workflow
+      .filter((w) => w.stage === 'stewardship')
+      .map((w) => w.customer_id)
+      .filter((cid) => !boardCustomerIdSet.has(cid))
+    const onboardingOpenCount = onboardingOpenCustomerIds.length
+    if (onboardingOpenCount > 0) {
+      const outreach = acc.get('outreach')
+      if (outreach) {
+        const eligible = itemEligible('outreach', projectSet)
+        const status = activityCapabilityStatus('outreach', projectSet)
+        const canPickUp = eligible || status === 'assist'
+        const onboardingRoute = `${STEWARDSHIP_ROUTE}?project_id=${encodeURIComponent(projectId)}`
+        outreach.total += onboardingOpenCount
+        outreach.projectIds.add(projectId)
+        outreach.sources.push({
+          kind: 'project',
+          label: `${projectName} — Servicing Agent Onboarding`,
+          count: onboardingOpenCount,
+          route: onboardingRoute,
+          projectId,
+          ownedByMe: 0,
+          // Onboarding-stage work has no claim model yet (no durable row until an
+          // operator acts), so pickable items are all available; otherwise the
+          // customers are shown for awareness only.
+          availableToMe: canPickUp ? onboardingOpenCount : 0,
+          claimedByOthers: 0,
+          notEligible: canPickUp ? 0 : onboardingOpenCount,
+          dueToMe: 0,
+        })
+        const b = projectBucket(outreach, projectId)
+        b.totalCount += onboardingOpenCount
+        if (canPickUp) {
+          b.availableCount += onboardingOpenCount
+          outreach.availableToMe += onboardingOpenCount
+          if (eligible) {
+            outreach.eligible += onboardingOpenCount
+            if (itemFocusElevated('outreach', projectSet)) outreach.focusEligible += onboardingOpenCount
+          }
+        } else {
+          b.notEligibleCount += onboardingOpenCount
+        }
+      }
+    }
   }
 
   // 4a. Contact Research — the SINGLE consolidated contact-finding activity,
