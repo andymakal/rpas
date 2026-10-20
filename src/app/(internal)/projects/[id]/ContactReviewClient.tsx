@@ -260,6 +260,19 @@ export function ContactReviewClient({
     () => remaining.filter(r => r.status === 'needs_research' && methodMatches(r, methodFilter)),
     [remaining, methodFilter],
   )
+  // The active (reachable) list split by research state, exactly as the No
+  // Usable Contact exception is split. Previously-unsuccessful research is held
+  // apart here too so the Save & Next sequence can exclude it unless the worker
+  // opts in — applied CONSISTENTLY to every incomplete customer, whatever field
+  // they are missing, not only the no-usable-contact ones.
+  const activeOutstanding = useMemo(
+    () => activeRemaining.filter(r => !r.researched_unsuccessfully),
+    [activeRemaining],
+  )
+  const activeUnsuccessful = useMemo(
+    () => activeRemaining.filter(r => r.researched_unsuccessfully),
+    [activeRemaining],
+  )
   // The No Usable Contact Information section shows EVERY customer with no usable
   // email or phone, split by research state so outstanding research is distinct
   // from research already completed unsuccessfully (which is not re-recommended).
@@ -278,14 +291,18 @@ export function ContactReviewClient({
 
   // The ordered work queue the worker walks through with Save & Next / Nothing
   // Usable & Next. Unresearched customers come FIRST: the actively-recommended
-  // list, then the outstanding (never-researched) No Usable Contact exceptions.
-  // Previously-unsuccessful research is a SEPARATE pass — only included when the
-  // worker opts in via the research filter — so it is never repeatedly
-  // recommended as fresh work. Honors the current missing-method filter.
+  // reachable list, then the outstanding (never-researched) No Usable Contact
+  // exceptions. Previously-unsuccessful research is a SEPARATE pass — included
+  // only when the worker opts in via "Include previously unsuccessful research"
+  // — so it is never repeatedly recommended as fresh work. This gate applies
+  // CONSISTENTLY to every previously-unsuccessful customer regardless of which
+  // field they are missing (reachable missing-one AND no-usable-contact).
+  // Honors the current missing-method filter.
   const workQueue = useMemo(() => {
-    const unresearched = [...activeRemaining, ...exceptionOutstanding]
-    return includeUnsuccessful ? [...unresearched, ...exceptionUnsuccessful] : unresearched
-  }, [activeRemaining, exceptionOutstanding, exceptionUnsuccessful, includeUnsuccessful])
+    const unresearched = [...activeOutstanding, ...exceptionOutstanding]
+    const previouslyUnsuccessful = [...activeUnsuccessful, ...exceptionUnsuccessful]
+    return includeUnsuccessful ? [...unresearched, ...previouslyUnsuccessful] : unresearched
+  }, [activeOutstanding, exceptionOutstanding, activeUnsuccessful, exceptionUnsuccessful, includeUnsuccessful])
 
   // Direct working workflow: when there is no deep-link, clicking "Find Missing
   // Contact Information" lands straight on the FIRST customer requiring research,
@@ -535,15 +552,41 @@ export function ContactReviewClient({
                   : 'All caught up. Every customer has been handled.'}
         </QueueEmptyState>
       ) : (
-        <div className="space-y-3">
-          {activeRemaining.map(c => (
-            <CustomerQueueCard
-              key={c.customer_id}
-              name={fullName(c)}
-              detail={gapDetail(c)}
-              onOpen={() => openWithReservation(c.customer_id)}
-            />
-          ))}
+        <div className="space-y-5">
+          {/* Split by research state, the same way the No Usable Contact section
+              is split, so previously-unsuccessful research is visibly distinct
+              here too. Both groups stay in the overall count; only the
+              never-researched group is in the default Save & Next sequence
+              (previously-unsuccessful joins it when the worker opts in). */}
+          {activeOutstanding.length > 0 && (
+            <div className="space-y-3">
+              {activeUnsuccessful.length > 0 && (
+                <p className="text-base font-medium text-ink-secondary">Not yet researched</p>
+              )}
+              {activeOutstanding.map(c => (
+                <CustomerQueueCard
+                  key={c.customer_id}
+                  name={fullName(c)}
+                  detail={gapDetail(c)}
+                  onOpen={() => openWithReservation(c.customer_id)}
+                />
+              ))}
+            </div>
+          )}
+          {activeUnsuccessful.length > 0 && (
+            <div className="space-y-3">
+              <p className="text-base font-medium text-ink-secondary">Previously researched unsuccessfully</p>
+              {activeUnsuccessful.map(c => (
+                <CustomerQueueCard
+                  key={c.customer_id}
+                  name={fullName(c)}
+                  detail={gapDetail(c)}
+                  trailing={<OperationalTag tone="exception">Research unsuccessful</OperationalTag>}
+                  onOpen={() => openWithReservation(c.customer_id)}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -654,13 +697,16 @@ function ContactResearchFilters({
         Include previously unsuccessful research
       </label>
 
-      {/* Compact, dynamically-updated summary of the filtered population. */}
+      {/* Compact, dynamically-updated research-history breakdown of the filtered
+          population: the whole incomplete count, then the two history groups
+          (never researched vs previously researched unsuccessfully), read from
+          existing customer history. */}
       <p className="ml-auto text-base font-medium tabular-nums text-ink-supporting">
         {summary.total} total
         <span className="mx-1.5 text-surface-border-strong" aria-hidden>{'\u00B7'}</span>
-        {summary.toResearch} to research
+        {summary.toResearch} not yet researched
         <span className="mx-1.5 text-surface-border-strong" aria-hidden>{'\u00B7'}</span>
-        {summary.unsuccessful} researched unsuccessfully
+        {summary.unsuccessful} previously researched unsuccessfully
       </p>
     </div>
   )
