@@ -363,11 +363,7 @@ export const SERVICING_CALL_SCRIPTS = {
   opening: {
     label: 'Opening script',
     body: [
-      'Hi, this is {sender_name} with Allstate Financial Services.',
-      '',
-      'Is this {first_name}?',
-      '',
-      '[Wait for response.]',
+      'Hi, this is {sender_name} with Allstate Financial Services. Is this {first_name}?',
       '',
       'We\u2019re calling about your life insurance policy. When Allstate\u2019s life insurance business moved to Everlake, our office was no longer listed as the servicing agent on your policy.',
       '',
