@@ -25,13 +25,13 @@ export default async function MyProjectsPage() {
   const auth = await requireInternalAdmin()
   if (!auth.ok) redirect('/login')
 
-  let state: MyProjectsState
-  try {
-    state = await getMyProjects(user.id)
-  } catch (err) {
-    console.error('MY PROJECTS composition failed:', err)
-    state = { employeeName: null, noProfile: false, projects: [] }
-  }
+  // A composition failure here (e.g. the running database is missing the
+  // projects/workflow schema) must be VISIBLE, not silently rendered as an
+  // employee with zero projects. Let it propagate to the internal error
+  // boundary so a real database fault is never disguised as "no projects".
+  // Genuinely-empty participation is still represented inside MyProjectsState
+  // (projects: []), distinct from this error path.
+  const state: MyProjectsState = await getMyProjects(user.id)
 
   return <MyProjectsClient state={state} />
 }

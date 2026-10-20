@@ -25,10 +25,19 @@ export type ProjectRow = {
 export default async function ProjectsPage() {
   const supabase = createAdminClient()
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from('projects')
     .select('id, name, description, status, created_at, completed_at, archived_at, previous_status, project_types ( name )')
     .order('created_at', { ascending: false })
+
+  // A failed query is NOT the same as "no projects". Returning an empty list on
+  // error hides real failures (e.g. a stale PostgREST schema cache returning
+  // PGRST205 for the projects table) behind a reassuring "none yet" screen.
+  // Surface the failure instead so the list never silently reads as empty.
+  if (error) {
+    console.error('PROJECTS list query failed:', error)
+    return <ProjectsClient current={[]} completed={[]} archived={[]} loadError />
+  }
 
   // Flatten the project_types embed to a plain project_type name so the list
   // rows and detail links stay simple.

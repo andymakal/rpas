@@ -43,10 +43,15 @@ export function ProjectsClient({
   current,
   completed,
   archived,
+  loadError = false,
 }: {
   current:   ProjectRow[]
   completed: ProjectRow[]
   archived:  ProjectRow[]
+  // True when the project list could not be loaded (the server query errored).
+  // Distinct from "no projects exist": we must not render an empty list as if
+  // the records are simply absent.
+  loadError?: boolean
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -91,9 +96,23 @@ export function ProjectsClient({
         </WorkflowButton>
       </div>
 
+      {loadError && (
+        <div
+          role="alert"
+          className="rounded-xl border border-status-missing-border bg-status-missing-soft px-5 py-4 text-base font-medium text-status-missing-strong"
+        >
+          Projects could not be loaded right now. This is a loading problem, not
+          an empty list, so existing projects are not shown. Please retry
+          shortly; if it persists, report it rather than assuming there are no
+          projects.
+        </div>
+      )}
+
       {/* Current Projects */}
       <QueueSection label="Current Projects">
-        {currentList.length === 0 ? (
+        {loadError ? (
+          <EmptyRow>Project list unavailable (failed to load).</EmptyRow>
+        ) : currentList.length === 0 ? (
           <EmptyRow>
             No current projects yet. Use <span className="font-semibold text-ink-secondary">Start New</span> to begin one.
           </EmptyRow>

@@ -163,10 +163,16 @@ export default async function CustomerCardPage({
     .eq('id', id)
     .single()
 
-  if (error || !customer) notFound()
+  if (error) {
+    // A query error is NOT "customer not found". Surface it as a visible failure
+    // (e.g. a schema the running database is missing) instead of a misleading
+    // 404, so a real database problem is never mistaken for an absent record.
+    throw new Error(`Customer detail failed to load (customers): ${error.message}`)
+  }
+  if (!customer) notFound()
 
   // Fetch linked cases (referrals)
-  const { data: cases } = await supabase
+  const { data: cases, error: casesError } = await supabase
     .from('cases')
     .select(`
       id, internal_status, created_at, placed_at, face_amount, annual_premium, policy_number,
@@ -180,7 +186,7 @@ export default async function CustomerCardPage({
     .order('created_at', { ascending: false })
 
   // Fetch linked policies
-  const { data: policiesRaw } = await supabase
+  const { data: policiesRaw, error: policiesError } = await supabase
     .from('service_policies')
     .select(`
       id, policy_number, client_name, carrier, product_type,
@@ -193,6 +199,16 @@ export default async function CustomerCardPage({
     .eq('customer_id', id)
     .eq('is_test', false)
     .order('face_amount', { ascending: false, nullsFirst: false })
+
+  // A failed read of cases or policies must be visible, never silently rendered
+  // as "no cases" / "no policies". Those sections drive real servicing decisions,
+  // so an empty list has to mean genuinely empty, not "the query errored".
+  if (casesError) {
+    throw new Error(`Customer detail failed to load (cases): ${casesError.message}`)
+  }
+  if (policiesError) {
+    throw new Error(`Customer detail failed to load (policies): ${policiesError.message}`)
+  }
 
   // Placed cases that don't have a service_policies record yet —
   // shown in the Policies section as pending entries so the user knows to add the policy number.
@@ -236,11 +252,14 @@ export default async function CustomerCardPage({
 
   // Case status history is genuinely case-scoped — only fetch when there are cases.
   if (caseIds.length > 0) {
-    const { data: histData } = await supabase
+    const { data: histData, error: histError } = await supabase
       .from('case_status_history')
       .select('id, case_id, from_status, to_status, changed_at')
       .in('case_id', caseIds)
       .order('changed_at', { ascending: false })
+    if (histError) {
+      throw new Error(`Customer detail failed to load (case history): ${histError.message}`)
+    }
     caseHistory = (histData ?? []) as CaseStatusHistoryEntry[]
   }
 
@@ -254,21 +273,30 @@ export default async function CustomerCardPage({
     if (caseIds.length > 0) {
       orClauses.push(`case_id.in.(${caseIds.join(',')})`)
     }
-    const { data: touchData } = await supabase
+    const { data: touchData, error: touchError } = await supabase
       .from('case_touches')
       .select('id, case_id, touch_type, notes, touched_at, touched_by')
       .or(orClauses.join(','))
       .order('touched_at', { ascending: false })
+    // The contact/touch history is a compliance record. If the read errors
+    // (for example the running database is missing case_touches.customer_id),
+    // surface it rather than showing an empty, falsely-reassuring history.
+    if (touchError) {
+      throw new Error(`Customer detail failed to load (touch history): ${touchError.message}`)
+    }
     touchHistory = (touchData ?? []) as TouchHistoryEntry[]
   }
 
   // Fetch customer notes (running compliance log)
-  const { data: notesRaw } = await supabase
+  const { data: notesRaw, error: notesError } = await supabase
     .from('customer_notes')
     .select('id, section, author_name, body, created_at, case_id, service_request_id, policy_review_id')
     .eq('customer_id', id)
     .order('created_at', { ascending: false })
 
+  if (notesError) {
+    throw new Error(`Customer detail failed to load (notes): ${notesError.message}`)
+  }
   const notes: CustomerNote[] = (notesRaw ?? []) as CustomerNote[]
 
   // Fetch household members (others in the same customer_group)
@@ -307,6 +335,18 @@ export default async function CustomerCardPage({
       .eq('is_active', true)
       .order('first_name'),
   ])
+
+  // These three drive servicing, review, and assignment UI. A failed read must
+  // be visible, not silently shown as "no service requests / no reviews".
+  if (srResult.error) {
+    throw new Error(`Customer detail failed to load (service requests): ${srResult.error.message}`)
+  }
+  if (reviewResult.error) {
+    throw new Error(`Customer detail failed to load (policy reviews): ${reviewResult.error.message}`)
+  }
+  if (producerResult.error) {
+    throw new Error(`Customer detail failed to load (producers): ${producerResult.error.message}`)
+  }
 
   serviceRequests = (srResult.data ?? []).map((sr: Record<string, unknown>) => {
     const spRaw = sr.service_policies
