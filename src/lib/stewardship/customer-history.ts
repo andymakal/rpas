@@ -74,8 +74,15 @@ export interface HistoryCommunication {
   channel: OutreachChannel
   outcome: ChannelOutcome
   reached: boolean
-  /** The touch note with internal machine markers stripped, for display. */
+  /** The genuine employee-typed note, with internal machine markers and the
+   * system boilerplate stripped. Null when the worker typed nothing. */
   detail: string | null
+  /** The system-generated description of what the recorded action was (e.g.
+   * "Introductory email sent with servicing-agent authorization form."),
+   * derived automatically from the stored note. Null when the note carries no
+   * recognizable system sentence. Shown below the summary/attribution line so
+   * the history explains what actually happened without the worker typing it. */
+  systemDescription: string | null
 }
 
 /** One readable history event: the several communications of a single
@@ -85,6 +92,12 @@ export interface HistoryEvent {
   at: string
   /** The one-line "what happened" summary for the whole interaction. */
   summary: string
+  /** The system-generated description of the completed action, shown under the
+   * summary/attribution line so the entry explains what actually happened
+   * (e.g. "Introductory email sent with servicing-agent authorization form.").
+   * Generated automatically from the recorded touch; null when the recorded
+   * information does not support a description. */
+  description?: string | null
   /** Who recorded it (the employee name on the touches), when known. */
   by: string | null
   /** True when any communication in the interaction reached the customer. */
@@ -222,6 +235,127 @@ export function cleanHistoryNote(note: string | null): string | null {
   return cleaned.length > 0 ? cleaned : null
 }
 
+// ---------------------------------------------------------------------------
+// System description — the companion to cleanHistoryNote. Where cleanHistoryNote
+// keeps ONLY the operator's own words, this recovers the system-generated
+// sentence the workflow wrote, normalized into one readable description of what
+// the recorded action actually was. It is derived automatically from the stored
+// note; the worker never types it. Shown under the summary/attribution line so
+// the entry explains what happened (e.g. an introductory email that carried the
+// authorization form), while any genuine employee note is still preserved
+// separately by cleanHistoryNote. Display only; it never changes the stored
+// note and never invents facts the note does not support.
+// ---------------------------------------------------------------------------
+
+/** Remove the internal machine markers and the "Servicing-agent onboarding
+ * <channel>" prefix, returning the remaining prose (both the system sentence
+ * and any employee note). The description extractor works from this. */
+function stripMarkersAndPrefix(note: string): string {
+  return note
+    .replace(/\[research-(?:email|phone|address)-not-found\]/gi, '')
+    .replace(/\[channel-unusable(?::[^\]]*)?\]/gi, '')
+    .replace(/\[no-contact\]/gi, '')
+    .replace(/\[reached\]/gi, '')
+    .replace(/^Servicing-agent onboarding\s+(?:call|voicemail|text|email|postal)\s*[:.]?\s*/i, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
+/** The stored system sentences mapped to clean, operator-facing descriptions.
+ * The left side matches exactly the fixed sentences the stewardship routes
+ * write (see /api/stewardship/[id]); the right side is the readable description
+ * shown in Customer History. Keeping the mapping here, as data, means the
+ * description phrasing evolves centrally rather than being re-derived per
+ * screen. Anything not matched falls back to the stored sentence itself (with
+ * markers/prefix already stripped), so a new system sentence still shows
+ * meaningfully until it is given a tuned description here. */
+const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = [
+  {
+    // The introductory 1035 email: the authorization form rides with it, so the
+    // description names the form rather than echoing the terse "Email" summary.
+    match: /^1035 servicing-agent authorization email sent to the customer(\s+at\s+\S+)?\.?$/i,
+    describe: 'Introductory email sent with servicing-agent authorization form.',
+  },
+  {
+    match: /^1035 servicing-agent authorization letter mailed to the customer by postal mail\.?$/i,
+    describe: 'Introductory letter mailed with servicing-agent authorization form.',
+  },
+  {
+    match: /^Servicing-agent authorization form sent to the customer by email\.?$/i,
+    describe: 'Servicing-agent authorization form sent by email.',
+  },
+  {
+    match: /^Servicing-agent authorization form sent to the customer by postal mail\.?$/i,
+    describe: 'Servicing-agent authorization form sent by postal mail.',
+  },
+  {
+    match: /^Reached the customer\.?$/i,
+    describe: 'Reached the customer.',
+  },
+  {
+    match: /^Left a voicemail\.?(\s*Follow-up auto-scheduled\.?)?$/i,
+    describe: 'Left a voicemail.',
+  },
+  {
+    match: /^Bad number\.?(\s*Moved to Research Needed\.?)?$/i,
+    describe: 'Bad number recorded.',
+  },
+  {
+    match: /^Customer declined\.?(\s*Outreach stopped until deliberately reopened\.?)?$/i,
+    describe: 'Customer declined; outreach stopped until deliberately reopened.',
+  },
+  {
+    match: /^Customer asked for a callback(\s+on\s+(\S+))?\.?$/i,
+    // Preserve the date when the stored sentence carries one.
+    describe: 'Customer asked for a callback.',
+  },
+]
+
+/**
+ * Build the system-generated description for one stored touch note. Returns the
+ * readable description of what the recorded action was, or null when the note
+ * carries no recognizable system sentence (so the display shows no empty line).
+ *
+ * The note is structured as: [system sentence] [optional employee note]
+ * [machine markers]. This recovers the system sentence only; cleanHistoryNote
+ * recovers the employee note. The two are complementary and never overlap, so a
+ * worker's own words are preserved while the system still explains the action.
+ */
+export function describeHistoryNote(note: string | null): string | null {
+  if (!note) return null
+  const stripped = stripMarkersAndPrefix(note)
+  if (!stripped) return null
+
+  // Match a known system sentence at the START of the stripped prose. The
+  // mapped description is used; a trailing employee note (if any) is NOT folded
+  // in here — it is shown separately via cleanHistoryNote.
+  for (const { match, describe } of SYSTEM_DESCRIPTIONS) {
+    const m = stripped.match(match)
+    if (m) {
+      // Callback keeps its date when present (capture group on the callback rule).
+      if (/asked for a callback/i.test(describe) && m[2]) {
+        const when = formatCallbackDate(m[2])
+        return when ? `Customer asked for a callback on ${when}.` : describe
+      }
+      return describe
+    }
+  }
+
+  // Research sentences carry their meaning in the concise summary already, so
+  // they produce no separate description line.
+  if (/^Contact research completed:/i.test(stripped)) return null
+
+  // An unmapped system sentence: show the stored sentence itself (first
+  // sentence only, so a trailing employee note is not swept in), so new
+  // workflow actions still read meaningfully until tuned above.
+  const employeeNote = cleanHistoryNote(note)
+  if (employeeNote && stripped.endsWith(employeeNote)) {
+    const systemPart = stripped.slice(0, stripped.length - employeeNote.length).trim()
+    return systemPart.length > 0 ? systemPart : null
+  }
+  return stripped.length > 0 ? stripped : null
+}
+
 /** The channels this module treats as customer-history communications. Mirrors
  * the outreach channels; other touch types are ignored so the history stays
  * about customer contact. */
@@ -300,6 +434,8 @@ function buildResearchEvents(rows: HistoryTouchRow[]): HistoryEvent[] {
         outcome: 'no_contact' as ChannelOutcome,
         reached: false,
         detail: cleanHistoryNote(r.notes),
+        // The concise summary already carries the meaning; no description line.
+        systemDescription: null,
       })),
     })
   }
@@ -410,6 +546,7 @@ export function buildCustomerHistory(
         outcome: c.outcome ?? 'touch',
         reached: c.reached === true,
         detail: cleanHistoryNote(row?.notes ?? null),
+        systemDescription: describeHistoryNote(row?.notes ?? null),
       }
     })
     // Attribution: the employee name on any communication in the interaction.
@@ -417,9 +554,17 @@ export function buildCustomerHistory(
       a.communications
         .map((c) => (byAt.get(c.at) ?? []).find((r) => r.touch_type === c.channel)?.touched_by)
         .find((n) => !!n) ?? null
+    // The system description shown under the summary. For a single-communication
+    // interaction it is that communication's description; when several channels
+    // group into one attempt the terse summary already lists them, so a single
+    // description line would misrepresent the mix — show it only when the
+    // attempt is one communication.
+    const description =
+      communications.length === 1 ? communications[0].systemDescription : null
     return {
       at: a.at,
       summary: summarizeInteraction(communications, overrides),
+      description,
       by,
       reached: a.reached,
       kind: 'contact' as const,
@@ -476,6 +621,10 @@ export type WorkflowActivity =
 export interface NextHistoryEntryPreview {
   /** The one-line description of the entry that completing the work will log. */
   summary: string
+  /** The system-generated description line that the recorded entry will show
+   * under its summary/attribution, so the preview matches exactly what
+   * Customer History will display once the work is completed. */
+  description?: string
   /** A short clarifying note about how/when it is recorded. */
   note?: string
 }
@@ -498,7 +647,10 @@ export function describeNextHistoryEntry(
   // the entry that will be recorded, in the same vocabulary the history uses.
   switch (activity) {
     case 'introductory-email':
-      return { summary: 'Email' }
+      return {
+        summary: 'Email',
+        description: 'Introductory email sent with servicing-agent authorization form.',
+      }
     case 'contact-research':
       return { summary: 'Contact Research' }
     case 'form-sent':
@@ -649,6 +801,9 @@ export function describeIntroEmailSelection(
   const extraNote = options?.note?.trim() || undefined
   return {
     summary: options?.formIncluded ? 'Email \u00b7 Form Sent' : 'Email',
+    // Matches describeHistoryNote's description for the recorded intro-email
+    // touch, so the preview reads identically to the logged history entry.
+    description: 'Introductory email sent with servicing-agent authorization form.',
     note: extraNote,
   }
 }

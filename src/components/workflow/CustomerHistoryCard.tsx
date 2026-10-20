@@ -60,10 +60,18 @@ export function NextHistoryEntry({
         <h3 className="text-[22px] font-semibold leading-tight text-ink">Next history entry</h3>
       </div>
 
-      {/* Only the concise entry being built — no explanatory text. Blank until
-          there is something to record. */}
+      {/* The concise entry being built, plus the system-generated description
+          line it will record — kept consistent with what Customer History will
+          actually display. Blank until there is something to record. */}
       {preview?.summary ? (
-        <p className="mt-2 text-base font-medium text-ink">{preview.summary}</p>
+        <>
+          <p className="mt-2 text-base font-medium text-ink">{preview.summary}</p>
+          {preview.description && (
+            <p className="mt-1 text-sm leading-relaxed text-ink-secondary">
+              {preview.description}
+            </p>
+          )}
+        </>
       ) : (
         <p className="mt-2 text-base italic text-ink-muted">Nothing to record yet.</p>
       )}
@@ -84,7 +92,7 @@ function HistoryEventRow({
 }) {
   const extraDetails = event.communications
     .map((c) => c.detail)
-    .filter((d): d is string => !!d && d !== event.summary)
+    .filter((d): d is string => !!d && d !== event.summary && d !== event.description)
 
   const isResearch = event.kind === 'research'
   const isEnrollment = event.kind === 'enrollment'
@@ -122,6 +130,13 @@ function HistoryEventRow({
             {event.by ? `${event.by} \u00b7 ` : ''}
             {formatHistoryTimestamp(event.at, actorTimeZone)}
           </p>
+          {/* The system-generated description of what the recorded action was,
+              shown under the summary/attribution line so the entry explains
+              what actually happened. Generated automatically from the recorded
+              touch; blank when the recorded information does not support one. */}
+          {event.description && (
+            <p className="mt-1 text-sm leading-relaxed text-ink-secondary">{event.description}</p>
+          )}
           {/* An enrollment names the project it added the customer to. */}
           {isEnrollment && event.projectName && (
             <p className="mt-1 text-sm leading-relaxed text-ink-secondary">{event.projectName}</p>
