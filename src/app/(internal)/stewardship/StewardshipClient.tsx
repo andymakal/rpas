@@ -1254,6 +1254,16 @@ export function StewardshipTask({
       })
       const json = await res.json()
       if (!res.ok) { setNote(json.error ?? 'Action failed.'); return }
+      // A send must never be reported as complete (or advance the fast flow)
+      // unless the server confirms the required history was recorded. The
+      // email-sent path returns an explicit `recorded` flag; when it is present
+      // and false, the send did not persist its history, so we surface the
+      // server's message and stop here rather than claim success. Actions that
+      // do not carry this flag are unaffected (recorded is undefined).
+      if (json.recorded === false) {
+        setNote(json.error ?? 'The send could not be recorded. Please try again.')
+        return
+      }
       if (json.completed_outreach) {
         // Every request policy is confirmed: the outreach row is gone and the
         // customer has advanced out of outreach. When a completion handler is
