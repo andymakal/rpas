@@ -298,11 +298,39 @@ export function ContactReviewClient({
   // CONSISTENTLY to every previously-unsuccessful customer regardless of which
   // field they are missing (reachable missing-one AND no-usable-contact).
   // Honors the current missing-method filter.
-  const workQueue = useMemo(() => {
-    const unresearched = [...activeOutstanding, ...exceptionOutstanding]
-    const previouslyUnsuccessful = [...activeUnsuccessful, ...exceptionUnsuccessful]
-    return includeUnsuccessful ? [...unresearched, ...previouslyUnsuccessful] : unresearched
-  }, [activeOutstanding, exceptionOutstanding, activeUnsuccessful, exceptionUnsuccessful, includeUnsuccessful])
+  // The two passes, independent of the checkbox: never-researched work first,
+  // then previously-unsuccessful research. Each honors the missing-method filter.
+  const unresearchedQueue = useMemo(
+    () => [...activeOutstanding, ...exceptionOutstanding],
+    [activeOutstanding, exceptionOutstanding],
+  )
+  const previouslyUnsuccessfulQueue = useMemo(
+    () => [...activeUnsuccessful, ...exceptionUnsuccessful],
+    [activeUnsuccessful, exceptionUnsuccessful],
+  )
+  const workQueue = useMemo(
+    () => includeUnsuccessful
+      ? [...unresearchedQueue, ...previouslyUnsuccessfulQueue]
+      : unresearchedQueue,
+    [unresearchedQueue, previouslyUnsuccessfulQueue, includeUnsuccessful],
+  )
+
+  // Auto-advance to the previously-unsuccessful pass once no unresearched work
+  // remains. When the never-researched queue is exhausted but previously-
+  // unsuccessful research is still on file, select "Include previously
+  // unsuccessful research" automatically so the worker continues straight into
+  // that pass — the checkbox turns itself on, the previously-researched
+  // customers enter the work queue, and Save & Next flows directly into the
+  // first of them. The worker can still uncheck it to stop. Only flips ON
+  // automatically (never off), so a deliberate uncheck is not immediately undone
+  // while unresearched work is genuinely gone. Waits until after the first load.
+  useEffect(() => {
+    if (loading) return
+    if (includeUnsuccessful) return
+    if (unresearchedQueue.length === 0 && previouslyUnsuccessfulQueue.length > 0) {
+      setIncludeUnsuccessful(true)
+    }
+  }, [loading, includeUnsuccessful, unresearchedQueue.length, previouslyUnsuccessfulQueue.length])
 
   // Direct working workflow: when there is no deep-link, clicking "Find Missing
   // Contact Information" lands straight on the FIRST customer requiring research,
@@ -312,6 +340,15 @@ export function ContactReviewClient({
   useEffect(() => {
     if (loading || initialCustomerId) return
     if (directOpenedRef.current) return
+    // Defer the one-shot open while the auto-opt-in is still pending: the
+    // unresearched queue is empty but previously-unsuccessful research exists and
+    // the box has not flipped on yet. The auto-opt-in effect will select the
+    // checkbox, repopulate workQueue, and this effect re-runs to land on the
+    // first previously-researched customer rather than falsely showing a done
+    // state.
+    const autoOptInPending =
+      !includeUnsuccessful && workQueue.length === 0 && previouslyUnsuccessfulQueue.length > 0
+    if (autoOptInPending) return
     directOpenedRef.current = true
     // Reserve and land on the first AVAILABLE customer (one a teammate is not
     // already working). reserveNext atomically skips reserved customers and
@@ -322,7 +359,7 @@ export function ContactReviewClient({
       if (reserved) setOpenId(reserved)
       else setShowingList(true)
     })
-  }, [loading, initialCustomerId, workQueue, reserveNext])
+  }, [loading, initialCustomerId, workQueue, previouslyUnsuccessfulQueue.length, includeUnsuccessful, reserveNext])
 
   const openCustomer = useMemo(
     () =>
@@ -352,12 +389,16 @@ export function ContactReviewClient({
     })
     // This customer is handled: release its reservation so a teammate is never
     // blocked by a finished item, then reserve and advance to the next AVAILABLE
-    // customer in the work queue — unresearched first, honoring the active
-    // missing-method filter, and only walking into previously-unsuccessful
-    // research when the worker has opted into that pass. `handled` updates on the
-    // next render, so exclude this id explicitly here.
+    // customer. Save & Next continues DIRECTLY across both passes: never-
+    // researched first, then previously-unsuccessful research, honoring the
+    // active missing-method filter. Advancing uses the full sequence (not the
+    // checkbox-gated queue) so the worker flows straight into the previously-
+    // researched pass once unresearched work is exhausted; the auto-opt-in
+    // effect flips the checkbox on in lockstep so the list/filter stay
+    // consistent. `handled` updates on the next render, so exclude this id here.
     void release()
-    const candidates = workQueue
+    const fullSequence = [...unresearchedQueue, ...previouslyUnsuccessfulQueue]
+    const candidates = fullSequence
       .filter(r => r.customer_id !== customerId && !handled.has(r.customer_id))
       .map(r => r.customer_id)
     void reserveNext(candidates).then(reserved => {
@@ -370,7 +411,7 @@ export function ContactReviewClient({
         setShowingList(true)
       }
     })
-  }, [workQueue, handled, release, reserveNext])
+  }, [unresearchedQueue, previouslyUnsuccessfulQueue, handled, release, reserveNext])
 
   // The compact, dynamically-updated filter summary, computed over the rows that
   // match the active missing-method filter so it tracks the checkboxes. Computed
