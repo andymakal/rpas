@@ -41,8 +41,10 @@
  * design tokens, per the Right Path light-theme workflow visual rules.
  */
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
+import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
 import {
   Sparkles, ArrowRight, Phone, Mail, Users, CheckCircle2, Lock,
   ListChecks, ChevronRight, SlidersHorizontal,
@@ -154,6 +156,39 @@ export function MyWorkClient({
       : ALL
   const [projectFilter, setProjectFilter] = useState<string>(seededProject)
   const [activityFilter, setActivityFilter] = useState<string>(ALL)
+
+  // Live updates. When another employee completes or claims shared work, the
+  // rows My Work reads change; this subscribes to those tables and refreshes the
+  // current route's server render so the counts, the fixed workflow ordering,
+  // and the GoRules (ZEN) priority bands all come back correct — recomputed on
+  // the server, never on the client. router.refresh() keeps this component
+  // mounted, so the Project/Activity filters and every open panel below survive
+  // the update. Subscribed only for an employee with a work profile; a
+  // no-profile view reads nothing and needs no subscription.
+  const router = useRouter()
+  useRealtimeRefresh({
+    channelName: 'my-work',
+    enabled: !state.noProfile,
+    tables: [
+      // The shared board: claim/release, queue transitions, refused, submitted —
+      // the primary "work completed / picked up" signal.
+      { table: 'stewardship_outreach' },
+      // A customer advancing (decision set) suppresses their outreach row.
+      { table: 'customer_prereviews' },
+      // Project membership, which scopes the Project-filtered counts.
+      { table: 'project_customers' },
+    ],
+    onChange: () => router.refresh(),
+  })
+
+  // After a live refresh, a previously-selected project can drain to zero work
+  // and drop out of the option list. Fall back to All so the filter never points
+  // at an option that no longer exists (mirrors the deep-link seed guard).
+  useEffect(() => {
+    if (projectFilter !== ALL && !projectOptions.some((o) => o.id === projectFilter)) {
+      setProjectFilter(ALL)
+    }
+  }, [projectOptions, projectFilter])
 
   // The filtered state the columns render. Commitments are exempt from the
   // filters upstream, so a promised callback stays visible regardless.
