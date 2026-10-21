@@ -204,9 +204,9 @@ export function deriveMyWorkDirection(state: MyWorkState): MyWorkDirection {
   // by itself make the briefing non-quiet below.
   const hasServicingAccessStandingStep = (a: ActivityGroup): boolean =>
     a.workFunction === 'outreach' && outreachServicingAccess(a) != null
-  const planActivities = state.activities.filter(
-    (a) => isActionable(a) || hasUnresolvedOnly(a) || hasServicingAccessStandingStep(a),
-  )
+  const planActivities = state.activities
+    .filter((a) => isActionable(a) || hasUnresolvedOnly(a) || hasServicingAccessStandingStep(a))
+    .sort(byFixedWorkflowOrder)
 
   if (planActivities.length === 0) {
     return {
@@ -220,12 +220,16 @@ export function deriveMyWorkDirection(state: MyWorkState): MyWorkDirection {
     }
   }
 
-  // The recommended WORKING PLAN: an ordered sequence of concrete steps, built
-  // from the activities ZEN already ranked (and the catalog working-order
-  // tiebreak the composition applied), with Outreach expanded into its real
-  // sub-populations. This replaces the old co-equal "any of these" options with
-  // a single practical plan. It adds no priority of its own — the order is the
-  // ZEN+catalog order, and every step's count/route is read from resolved work.
+  // The recommended WORKING PLAN: an ordered sequence of concrete steps built
+  // from the actionable activities, with Outreach expanded into its real
+  // sub-populations. Available Work ALWAYS follows the fixed workflow order
+  // (find missing contact information, send introductory emails, make the calls
+  // that are due, call other reachable customers, process servicing access,
+  // advance operations preparation), enforced by sorting planActivities with
+  // byFixedWorkflowOrder above. ZEN priority still classifies each activity's
+  // band (which drives the yellow highlight and the Priorities column), but it
+  // no longer reorders these steps. Every step's count/route is read from
+  // resolved work.
   const workingPlan = buildWorkingPlan(planActivities)
 
   // Split the actionable activities by how they are routed to the employee.
@@ -424,15 +428,43 @@ function outreachServicingAccess(
 }
 
 /**
- * Build the ordered working plan from the actionable activities (already in ZEN
- * rank + catalog working order). Each activity becomes one step, except Outreach
- * which expands into its real sub-populations in working order: introductory
- * emails first (efficient initial outreach), then calls — due calls distinguished
- * from other callable customers. Operations Preparation is its own step, work
- * that is ready to advance independently of ongoing outreach.
+ * The fixed workflow order Available Work always follows, by work function. The
+ * six operator-facing steps run research -> outreach (introductory emails, then
+ * due calls, then other reachable customers, then servicing access) ->
+ * operations preparation; the Outreach sub-steps are sequenced inside
+ * buildWorkingPlan. Any work function not listed here keeps a stable position
+ * after the known steps, so a new activity is never dropped. ZEN still computes
+ * each activity's priority band (driving the yellow highlight and the Priorities
+ * column); this order deliberately does NOT depend on that band.
+ */
+const FIXED_WORKFLOW_ORDER: ActivityGroup['workFunction'][] = [
+  'research',
+  'outreach',
+  'operations_prep',
+]
+
+/** Comparator that places activities in the fixed workflow order above.
+ * Unlisted work functions sort after all listed ones, preserving their relative
+ * order (a stable sort keeps the incoming ZEN-rank order among them). */
+function byFixedWorkflowOrder(x: ActivityGroup, y: ActivityGroup): number {
+  const rank = (wf: ActivityGroup['workFunction']): number => {
+    const i = FIXED_WORKFLOW_ORDER.indexOf(wf)
+    return i === -1 ? FIXED_WORKFLOW_ORDER.length : i
+  }
+  return rank(x.workFunction) - rank(y.workFunction)
+}
+
+/**
+ * Build the ordered working plan from the actionable activities (already placed
+ * in the fixed workflow order by byFixedWorkflowOrder). Each activity becomes
+ * one step, except Outreach which expands into its real sub-populations in
+ * working order: introductory emails first (efficient initial outreach), then
+ * calls, with due calls distinguished from other callable customers. Operations
+ * Preparation is its own step, work that is ready to advance independently of
+ * ongoing outreach.
  *
- * This introduces NO priority: the activity order is the ZEN+catalog order the
- * composition produced, and the Outreach sub-steps are a fixed, descriptive
+ * This introduces NO priority: the activity order is the fixed workflow order
+ * applied before this call, and the Outreach sub-steps are a fixed, descriptive
  * working sequence over the SAME outreach work (not a re-ranking). Counts and
  * routes are read from the resolved activity/sources.
  */

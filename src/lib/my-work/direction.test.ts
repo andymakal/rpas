@@ -110,11 +110,11 @@ test('plan: a single ordered working plan, not co-equal options (no "any of thes
     ]),
   )
   assert.equal(d.quiet, false)
-  // The result is a flat, ordered list of steps — there is no tied/options shape.
+  // The result is a flat, ordered list of steps; there is no tied/options shape.
   assert.ok(Array.isArray(d.workingPlan))
   assert.equal(d.workingPlan.length, 2)
-  // Order follows the input (ZEN rank + catalog order the composition applied):
-  // research before operations preparation. The derivation does NOT re-rank.
+  // Order follows the fixed workflow order: research before operations
+  // preparation. The derivation does NOT re-rank by priority.
   assert.deepEqual(d.workingPlan.map((s) => s.key), ['research', 'operations_prep'])
   // Each step has WHAT (title), WHY (reason), and a direct action + route.
   for (const step of d.workingPlan) {
@@ -125,18 +125,26 @@ test('plan: a single ordered working plan, not co-equal options (no "any of thes
   }
 })
 
-test('plan: preserves the activity order it is given (no re-ranking)', () => {
+test('plan: follows the fixed workflow order regardless of ZEN priority band', () => {
+  // Outreach is in the high-priority focus band (rank 2) and research in the
+  // lower owned band (rank 4). Priority must NOT reorder the plan: Available
+  // Work always runs research -> outreach -> operations preparation. The focus
+  // band still drives the yellow highlight (emphasis), it just no longer moves
+  // the step ahead of research.
   const d = deriveMyWorkDirection(
     state([
-      activity({ workFunction: 'focus_wf' as ActivityGroup['workFunction'], band: 'focus', rank: 2, label: 'Focused work', availableCount: 3, reason: 'focus reason' }),
+      activity({ workFunction: 'outreach', band: 'focus', rank: 2, label: 'Outreach', availableCount: 3, reason: 'focus reason' }),
       activity({ workFunction: 'research', band: 'owned', rank: 4, label: 'Contact Research', ownedCount: 1 }),
     ]),
   )
-  // The rank-2 focus activity leads; research follows. No promotion of the
-  // lower-ranked activity.
-  assert.equal(d.workingPlan[0].title, 'Focused work')
-  // A focus/commitment step carries emphasis so the UI can lightly highlight it.
-  assert.equal(d.workingPlan[0].emphasis, true)
+  // Research leads because the workflow order puts contact research first, even
+  // though outreach outranks it by priority.
+  assert.equal(d.workingPlan[0].key, 'research')
+  // The outreach step still carries emphasis from its focus band (the yellow
+  // highlight), proving ZEN priority still classifies the band.
+  const outreachStep = d.workingPlan.find((s) => s.key === 'outreach')
+  assert.ok(outreachStep)
+  assert.equal(outreachStep!.emphasis, true)
 })
 
 test('plan: outreach expands into intro emails -> due calls -> other calls, in order', () => {
