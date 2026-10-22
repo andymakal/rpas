@@ -28,10 +28,36 @@ import {
   groupIntoAttempts,
   parseOutcomeFromNote,
   noteIndicatesReached,
+  noteIndicatesInbound,
   type Communication,
   type OutreachChannel,
   type ChannelOutcome,
 } from './outreach-attempts'
+
+/** The direction of a recorded communication, for presentations that title an
+ * event by who initiated it. Derived from the stored note (the inbound marker
+ * and the route's prefix wording); orthogonal to channel and outcome.
+ *   - 'incoming'  a genuine customer-initiated response (email/call/text in).
+ *   - 'automated' an inbound auto-reply (out-of-office, delivery receipt) — NOT
+ *                 a genuine response and never engagement.
+ *   - 'outgoing'  our reach-out to the customer (the default).
+ * Only the new Relationship Timeline presentation reads this; the existing
+ * Customer History card ignores it, so adding it changes no existing screen. */
+export type HistoryDirection = 'incoming' | 'outgoing' | 'automated'
+
+/** Whether a stored touch note records an AUTOMATED inbound reply. The touch
+ * route prefixes such a note "Automated <channel> reply received"; it still
+ * carries the inbound marker, so this narrows an inbound communication to the
+ * automated case. */
+function noteIndicatesAutomated(note: string | null): boolean {
+  return !!note && /^Automated\s+\w+\s+reply received/i.test(note.trim())
+}
+
+/** Resolve the direction of one stored touch note from its markers/prefix. */
+function directionOfNote(note: string | null): HistoryDirection {
+  if (!noteIndicatesInbound(note)) return 'outgoing'
+  return noteIndicatesAutomated(note) ? 'automated' : 'incoming'
+}
 
 // ---------------------------------------------------------------------------
 // Raw input — one case_touches row, exactly as stored. The route selects these
@@ -74,6 +100,9 @@ export interface HistoryCommunication {
   channel: OutreachChannel
   outcome: ChannelOutcome
   reached: boolean
+  /** Who initiated this communication, derived from the stored note. Defaults
+   * to 'outgoing'. Read only by the Relationship Timeline presentation. */
+  direction?: HistoryDirection
   /** The genuine employee-typed note, with internal machine markers and the
    * system boilerplate stripped. Null when the worker typed nothing. */
   detail: string | null
@@ -109,6 +138,14 @@ export interface HistoryEvent {
    * completed follow-up or a recorded refusal. Defaults to 'contact' when
    * absent. */
   kind?: 'contact' | 'research' | 'enrollment' | 'milestone'
+  /** The direction of the interaction, for presentations that title an event by
+   * who initiated it (the Relationship Timeline). An interaction is 'incoming'
+   * when any of its communications is a genuine customer-initiated response,
+   * 'automated' when its only inbound communication is an auto-reply, and
+   * 'outgoing' otherwise. Only a 'contact' event carries a meaningful direction;
+   * research, enrollment, and milestone events leave it 'outgoing'. The existing
+   * Customer History card ignores this field. */
+  direction?: HistoryDirection
   /** For an enrollment event, the project the customer was added to, shown as
    * the detail line under the summary. Unused for other kinds. */
   projectName?: string
@@ -593,6 +630,7 @@ export function buildCustomerHistory(
         channel: c.channel,
         outcome: c.outcome ?? 'touch',
         reached: c.reached === true,
+        direction: directionOfNote(row?.notes ?? null),
         detail: cleanHistoryNote(row?.notes ?? null),
         systemDescription: describeHistoryNote(row?.notes ?? null),
       }
@@ -609,6 +647,15 @@ export function buildCustomerHistory(
     // attempt is one communication.
     const description =
       communications.length === 1 ? communications[0].systemDescription : null
+    // The interaction's direction: a genuine incoming response if any
+    // communication is incoming; else automated if the only inbound one is an
+    // auto-reply; else outgoing. Lets the Relationship Timeline title the event
+    // by who initiated it without changing the grouped summary.
+    const direction: HistoryDirection = communications.some((c) => c.direction === 'incoming')
+      ? 'incoming'
+      : communications.some((c) => c.direction === 'automated')
+        ? 'automated'
+        : 'outgoing'
     return {
       at: a.at,
       summary: summarizeInteraction(communications, overrides),
@@ -616,6 +663,7 @@ export function buildCustomerHistory(
       by,
       reached: a.reached,
       kind: 'contact' as const,
+      direction,
       communications,
     }
   })

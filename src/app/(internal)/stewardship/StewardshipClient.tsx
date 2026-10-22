@@ -25,7 +25,7 @@ import {
   ExternalActionConfirm, SpokenScriptCard,
   CustomerContactCard, type CustomerContact, GatewayLookup,
   PolicySummaryList, type PolicySummary,
-  CustomerHistoryCard, NextHistoryEntry,
+  CustomerHistoryCard, NextHistoryEntry, RelationshipTimeline,
 } from '@/components/workflow'
 import {
   carrierEmailSubject, carrierEmailMessage, uniqueCarriers, resolveCarrierRecipient,
@@ -1462,6 +1462,14 @@ function StewardshipHistoryColumn({
         : activity === 'servicing-access'
           ? describeServicingAccessStep(detail)
           : describeNextHistoryEntry(activity, { customerName: detail.customer.first_name })
+  // Customer Interaction opts into the improved Relationship Timeline
+  // presentation (bold teal headings, incoming/outgoing titles, expandable
+  // content) over the SAME customer history. It records each entry directly, so
+  // it has no Next History Entry preview; the timeline is the live record. Every
+  // other working screen keeps the existing Customer History card unchanged.
+  if (forceCustomerInteraction) {
+    return <RelationshipTimeline events={detail.customer_history ?? []} />
+  }
   return (
     <>
       {/* The card owns its single heading; blank until there is something to
