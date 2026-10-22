@@ -2753,7 +2753,7 @@ export function ReferralEditClient({
             ) : (
               <>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
-                  <QuoteRow label="DOB"     value={cDob    ? fmt(cDob) : '—'} />
+                  <QuoteRow label="DOB"     value={cDob    ? fmt(dobToIso(cDob)) : '—'} />
                   <QuoteRow label="Gender"  value={cGender  ? cGender.charAt(0).toUpperCase()  + cGender.slice(1)  : '—'} />
                   <QuoteRow label="Marital" value={cMarital ? cMarital.charAt(0).toUpperCase() + cMarital.slice(1) : '—'} />
                   <QuoteRow label="Tobacco" value={cTobacco ? (TOBACCO_LABELS[cTobacco] ?? cTobacco) : '—'} />
