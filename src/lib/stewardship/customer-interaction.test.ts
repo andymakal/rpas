@@ -19,6 +19,7 @@ import {
   isCustomerInteraction, isEngaged, isServicingAccess, engagedAtOf, ENGAGED_AT_KEY,
   isIntroductoryEmail, callPopulationOf, applyAction, type OutreachState,
 } from './queues'
+import { buildCustomerHistory, type HistoryTouchRow } from './customer-history'
 
 /** A minimal pre-authorization state for transition tests. */
 function baseState(over: Partial<OutreachState> = {}): OutreachState {
@@ -228,6 +229,64 @@ test('refuse stops outreach channel-agnostically (no call required)', () => {
     }),
     false,
   )
+})
+
+test('follow-up and refusal are recorded as workflow MILESTONES, never telephone calls', () => {
+  const rows: HistoryTouchRow[] = [
+    {
+      id: 'w1',
+      touch_type: 'workflow',
+      notes: 'Customer interaction follow-up: Follow-up with the customer scheduled for 2026-11-05.',
+      touched_at: '2026-10-22T10:00:00.000Z',
+      touched_by: 'Pat Example',
+    },
+    {
+      id: 'w2',
+      touch_type: 'workflow',
+      notes: 'Customer interaction follow-up completed; no further follow-up scheduled yet.',
+      touched_at: '2026-10-22T11:00:00.000Z',
+      touched_by: 'Pat Example',
+    },
+    {
+      id: 'w3',
+      touch_type: 'workflow',
+      notes: 'Customer declined. Outreach stopped until deliberately reopened.',
+      touched_at: '2026-10-22T12:00:00.000Z',
+      touched_by: 'Pat Example',
+    },
+    // A genuine email communication, to confirm the two kinds stay separate.
+    {
+      id: 'e1',
+      touch_type: 'email',
+      notes: 'Customer email response received: I need more info. [inbound]',
+      touched_at: '2026-10-22T09:00:00.000Z',
+      touched_by: 'Pat Example',
+    },
+  ]
+  const events = buildCustomerHistory(rows, 'America/New_York')
+
+  // The three workflow milestones are present, each as kind 'milestone', not a
+  // contact/call event, and never reading as reached/called.
+  const milestones = events.filter((e) => e.kind === 'milestone')
+  assert.equal(milestones.length, 3)
+  for (const m of milestones) {
+    assert.equal(m.reached, false)
+    assert.equal(m.communications.length, 0) // no fabricated communication
+  }
+  const summaries = milestones.map((m) => m.summary).sort()
+  assert.deepEqual(summaries, ['Customer refusal', 'Follow-up completed', 'Follow-up scheduled'])
+
+  // The real email is still its own contact event — the milestones did not
+  // absorb it and it is not mislabeled.
+  const contact = events.filter((e) => e.kind === 'contact')
+  assert.equal(contact.length, 1)
+  assert.equal(contact[0].communications[0].channel, 'email')
+
+  // No workflow milestone is ever rendered as a call channel.
+  const anyCallFromWorkflow = events.some(
+    (e) => e.kind !== 'contact' && e.communications.some((c) => c.channel === 'call'),
+  )
+  assert.equal(anyCallFromWorkflow, false)
 })
 
 test('recording receipt from waiting-for-form (no receipt) hands off to Servicing Access', () => {

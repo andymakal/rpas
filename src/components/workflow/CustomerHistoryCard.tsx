@@ -23,7 +23,7 @@
  */
 
 import { useState } from 'react'
-import { History, ChevronDown, ChevronUp, CheckCircle2, PhoneCall, Search, FolderPlus } from 'lucide-react'
+import { History, ChevronDown, ChevronUp, CheckCircle2, PhoneCall, Search, FolderPlus, CalendarClock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { HistoryEvent } from '@/lib/stewardship/customer-history'
 import { formatHistoryTimestamp } from '@/lib/stewardship/customer-history'
@@ -96,6 +96,10 @@ function HistoryEventRow({
 
   const isResearch = event.kind === 'research'
   const isEnrollment = event.kind === 'enrollment'
+  // A Customer Interaction workflow milestone (follow-up scheduled/completed,
+  // refusal): an administrative outreach event, NOT a telephone call, so it
+  // gets its own neutral affordance and never the phone icon.
+  const isMilestone = event.kind === 'milestone'
 
   return (
     <li className="py-3 first:pt-0 last:pb-0">
@@ -104,15 +108,14 @@ function HistoryEventRow({
           className={cn(
             'mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full',
             // Enrollment is a project membership event (its own affordance);
-            // research is internal work; a reached contact reads as confirmed;
-            // every other contact is a neutral touch.
-            isEnrollment
+            // research and workflow milestones are internal/administrative; a
+            // reached contact reads as confirmed; every other contact is a
+            // neutral touch.
+            isEnrollment || isResearch || isMilestone
               ? 'bg-surface-muted text-ink-supporting'
-              : isResearch
-                ? 'bg-surface-muted text-ink-supporting'
-                : event.reached
-                  ? 'bg-status-confirmed-fill text-status-confirmed-foreground'
-                  : 'bg-surface-muted text-ink-supporting',
+              : event.reached
+                ? 'bg-status-confirmed-fill text-status-confirmed-foreground'
+                : 'bg-surface-muted text-ink-supporting',
           )}
           aria-hidden
         >
@@ -120,6 +123,8 @@ function HistoryEventRow({
             <FolderPlus className="size-3" />
           ) : isResearch ? (
             <Search className="size-3" />
+          ) : isMilestone ? (
+            <CalendarClock className="size-3" />
           ) : (
             <PhoneCall className="size-3" />
           )}

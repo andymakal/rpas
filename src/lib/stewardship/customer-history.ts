@@ -104,9 +104,11 @@ export interface HistoryEvent {
   reached: boolean
   /** What kind of event this is, so the card can render the right affordance:
    * a customer communication ('contact'), an internal research record
-   * ('research'), or a project enrollment ('enrollment'). Defaults to 'contact'
-   * when absent. */
-  kind?: 'contact' | 'research' | 'enrollment'
+   * ('research'), a project enrollment ('enrollment'), or a Customer
+   * Interaction workflow milestone ('milestone') such as a scheduled or
+   * completed follow-up or a recorded refusal. Defaults to 'contact' when
+   * absent. */
+  kind?: 'contact' | 'research' | 'enrollment' | 'milestone'
   /** For an enrollment event, the project the customer was added to, shown as
    * the detail line under the summary. Unused for other kinds. */
   projectName?: string
@@ -372,6 +374,15 @@ const HISTORY_CHANNELS: ReadonlySet<string> = new Set([
  * so it is shown as its own distinct, concise history event. */
 const RESEARCH_TOUCH_TYPE = 'research'
 
+/** The touch_type Customer Interaction WORKFLOW MILESTONES are stored under: a
+ * follow-up scheduled, a follow-up completed, or a recorded refusal. These are
+ * administrative outreach events, NOT telephone calls or any customer
+ * communication, so they are recorded under their own type and shown as their
+ * own distinct history event — the same pattern research uses. They must never
+ * be stored as 'call' (which would fabricate a phone call that did not happen).
+ * The note text is the human-readable milestone description. */
+const WORKFLOW_TOUCH_TYPE = 'workflow'
+
 /** Which contact method an unsuccessful-research touch note refers to, from its
  * stable marker. null when the note carries no recognizable research marker. */
 function researchMethodOfNote(note: string | null): 'email' | 'phone' | 'address' | null {
@@ -440,6 +451,43 @@ function buildResearchEvents(rows: HistoryTouchRow[]): HistoryEvent[] {
     })
   }
   return events
+}
+
+/**
+ * Build the Customer Interaction WORKFLOW MILESTONE events: a scheduled
+ * follow-up, a completed follow-up, or a recorded refusal. These are
+ * administrative outreach events, not customer communications, so — exactly like
+ * research — they are their own distinct, concise events rather than folded into
+ * a contact attempt, and they are NEVER rendered as a telephone call. The stored
+ * note is already human-readable, so it is shown directly (markers/prefix
+ * stripped) as the event detail; the summary is a short label by milestone type.
+ */
+function buildWorkflowEvents(rows: HistoryTouchRow[]): HistoryEvent[] {
+  const workflowRows = rows.filter((r) => r.touch_type === WORKFLOW_TOUCH_TYPE)
+  if (workflowRows.length === 0) return []
+
+  return workflowRows.map((r) => {
+    const note = r.notes ?? ''
+    // A short, honest summary by milestone type, derived from the stored note.
+    // The note itself (self-describing prose written by the route) is shown as
+    // the detail line, so no communication is fabricated.
+    const summary =
+      /follow-up completed/i.test(note) ? 'Follow-up completed'
+      : /follow-up/i.test(note) ? 'Follow-up scheduled'
+      : /declined|refus/i.test(note) ? 'Customer refusal'
+      : 'Workflow update'
+    return {
+      at: r.touched_at,
+      summary,
+      // Show the stored milestone note as the description line (it is already
+      // operator-facing prose); strip any machine markers/prefix for cleanliness.
+      description: stripMarkersAndPrefix(note) || null,
+      by: r.touched_by,
+      reached: false,
+      kind: 'milestone' as const,
+      communications: [],
+    }
+  })
 }
 
 /**
@@ -578,6 +626,11 @@ export function buildCustomerHistory(
   // never folded into a call interaction.
   const researchEvents = buildResearchEvents(rows)
 
+  // Customer Interaction workflow milestones (follow-up scheduled/completed,
+  // refusal) are their own concise events, interleaved like research — recorded
+  // in the one history store but never shown as a telephone call.
+  const workflowEvents = buildWorkflowEvents(rows)
+
   // Project enrollments are their own events, interleaved chronologically with
   // the communication and research events. They come from the deduped
   // membership records, not case_touches, so they add to the one history
@@ -585,7 +638,7 @@ export function buildCustomerHistory(
   const enrollmentEvents = buildEnrollmentEvents(enrollmentRows)
 
   // Newest first for the card (the grouping returns oldest-first).
-  return [...events, ...researchEvents, ...enrollmentEvents].sort(
+  return [...events, ...researchEvents, ...workflowEvents, ...enrollmentEvents].sort(
     (x, y) => new Date(y.at).getTime() - new Date(x.at).getTime(),
   )
 }

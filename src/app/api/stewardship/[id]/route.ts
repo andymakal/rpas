@@ -968,7 +968,10 @@ export async function PATCH(
       .insert({
         customer_id: customerId,
         case_id:     null,
-        touch_type:  'call',
+        // A scheduled follow-up is a WORKFLOW MILESTONE, not a telephone call.
+        // Recorded under the 'workflow' type so Customer History shows it as a
+        // milestone rather than fabricating a phone call that did not happen.
+        touch_type:  'workflow',
         notes:       `Customer interaction follow-up: ${what}`,
         touched_at:  new Date().toISOString(),
         touched_by:  touchedBy,
@@ -988,7 +991,8 @@ export async function PATCH(
       .insert({
         customer_id: customerId,
         case_id:     null,
-        touch_type:  'call',
+        // A completed follow-up is a WORKFLOW MILESTONE, not a telephone call.
+        touch_type:  'workflow',
         notes:       'Customer interaction follow-up completed; no further follow-up scheduled yet.',
         touched_at:  new Date().toISOString(),
         touched_by:  touchedBy,
@@ -1008,7 +1012,10 @@ export async function PATCH(
       .insert({
         customer_id: customerId,
         case_id:     null,
-        touch_type:  'call',
+        // A recorded refusal is a WORKFLOW MILESTONE, not a telephone call: the
+        // refusal may have come by email or text. Recorded under 'workflow' so
+        // Customer History does not misrepresent it as a phone call.
+        touch_type:  'workflow',
         notes:       'Customer declined. Outreach stopped until deliberately reopened.',
         touched_at:  new Date().toISOString(),
         touched_by:  touchedBy,
