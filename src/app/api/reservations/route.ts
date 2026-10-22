@@ -49,7 +49,7 @@ import {
  * on top of it — the smallest reliable shared solution.
  */
 
-const ACTIVITY_KEYS: ReservationActivityKey[] = ['introductory_emails', 'contact_research', 'available_to_call', 'servicing_access']
+const ACTIVITY_KEYS: ReservationActivityKey[] = ['introductory_emails', 'contact_research', 'available_to_call', 'servicing_access', 'customer_interaction']
 const SUBJECT_TYPES: ReservationSubjectType[] = ['stewardship_outreach', 'customer']
 
 function isActivityKey(v: unknown): v is ReservationActivityKey {

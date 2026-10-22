@@ -339,8 +339,17 @@ export function isIntroductoryEmail(input: {
   /** The address the prior introduction was sent to (stewardship_outreach
    * .intro_email_recipient). */
   introEmailRecipient?: string | null
+  /** Whether the customer has genuinely engaged (isEngaged). An engaged customer
+   * has left routine calling for Customer Interaction, so they are never offered
+   * an introductory email. Optional for back-compat; omitting it (or false)
+   * preserves the original behavior. */
+  engaged?: boolean
 }): boolean {
   if (input.effectiveQueue !== 'ready-to-email') return false
+  // An engaged customer belongs to Customer Interaction, not the introductory-
+  // email population — recording an inbound response moves them out of routine
+  // first-touch outreach even though no email has been SENT yet.
+  if (input.engaged) return false
   // The classic case: a first-touch opener with no workflow activity yet.
   const untouchedOpener =
     input.emailSentAt == null &&
@@ -412,8 +421,18 @@ export function callPopulationOf(input: {
   hasUsablePhone: boolean
   /** Whether a promised callback is due today (actor calendar; caller decides). */
   callbackDue: boolean
+  /** Whether the customer has genuinely engaged (isEngaged). An engaged customer
+   * has left routine calling for Customer Interaction, where their conversation
+   * (including any promised callback) is worked, so they are not surfaced in the
+   * generic call populations. Optional for back-compat; omitting it (or false)
+   * preserves the original behavior. */
+  engaged?: boolean
 }): CallPopulation | null {
   if (!input.hasUsablePhone) return null
+  // An engaged customer belongs to Customer Interaction, not routine calling.
+  // Their active conversation — including a promised callback — is worked there,
+  // so they are never surfaced in Calls Due / Available to Call.
+  if (input.engaged) return null
   const callable = input.effectiveQueue === 'ready-to-call' || input.effectiveQueue === 'ready-to-email'
   if (!callable) return null
   // A scheduled call has come due when, in the call flow, EITHER a promised
@@ -734,18 +753,65 @@ export function engagedAtOf(actionContext: unknown): string | null {
  * An automated reply and an explicit refusal never set engagedAt, so neither
  * moves a customer into interaction.
  *
- * Pre-authorization means the signed form is NOT yet in hand: the item has not
- * reached the servicing-access stage (effective queue is not waiting-for-form or
- * waiting-for-carrier, and no form receipt is recorded) and the customer has not
- * refused. Once the signed authorization arrives the customer leaves this
- * population for the existing Servicing Access workflow; a refusal removes them
- * from outreach entirely (reversible via reopen).
+ * Pre-authorization means the signed form is NOT yet in hand. The boundary into
+ * Servicing Access is RECEIPT of the signed authorization (form_received_at),
+ * NOT merely having SENT the form. So a customer who was sent the form and sits
+ * in waiting-for-form WITHOUT a recorded receipt is still in an active
+ * conversation (Customer Interaction); only once the signed form comes back does
+ * the customer leave for the existing Servicing Access workflow. A refusal
+ * removes them from outreach entirely (reversible via reopen).
  *
  * This is the ONE shared definition both My Work (counting the population) and
  * the board route (opening it) use, so the counted set and the opened set are
  * always identical — the same contract callPopulationOf and isIntroductoryEmail
  * give their populations.
  */
+
+/**
+ * Whether the customer has GENUINELY ENGAGED — responded or been reached — while
+ * still working toward the signed authorization. Engagement is a recorded
+ * reached call, a promised callback (an active, scheduled conversation), or an
+ * `engagedAt` marker stamped on action_context when a genuine inbound response
+ * came in. A voicemail, bad number, or no-response is NOT engagement, and an
+ * automated reply never stamps engagedAt, so neither establishes it.
+ *
+ * This is the single engagement test shared by Customer Interaction (to INCLUDE
+ * engaged customers) and the intro-email / call populations (to EXCLUDE them, so
+ * an engaged customer leaves routine calling for the conversation step).
+ */
+export function isEngaged(input: {
+  lastCallOutcome: CallOutcome | null
+  callbackDate: string | null
+  engagedAt?: string | null
+}): boolean {
+  return (
+    input.lastCallOutcome === 'reached' ||
+    input.lastCallOutcome === 'callback' ||
+    input.callbackDate != null ||
+    (input.engagedAt != null && input.engagedAt.trim().length > 0)
+  )
+}
+
+/**
+ * Whether an open item is in the SERVICING ACCESS population: the signed
+ * authorization is IN HAND. The sole boundary is RECEIPT — form_received_at is
+ * recorded (set by form-received / form-returned) — which also covers
+ * waiting-for-carrier (it can only be reached after receipt). Being in
+ * waiting-for-form WITHOUT a recorded receipt means the form was only SENT and
+ * is still awaiting the customer's signature, which is NOT servicing access.
+ *
+ * The one shared definition both My Work and the board route use for servicing
+ * access, so sending a form never moves a customer into servicing access — only
+ * receiving the signed one does.
+ */
+export function isServicingAccess(input: {
+  formReceivedAt: string | null
+  refusedAt: string | null
+}): boolean {
+  if (input.refusedAt != null) return false
+  return input.formReceivedAt != null
+}
+
 export function isCustomerInteraction(input: {
   /** Effective queue after follow-up/email re-derivation. */
   effectiveQueue: OutreachQueue
@@ -758,19 +824,18 @@ export function isCustomerInteraction(input: {
   /** The engagement marker from action_context (engagedAtOf), when present. */
   engagedAt?: string | null
 }): boolean {
-  // Refused or past the funnel into servicing access: not an active interaction.
+  // Refused: not an active conversation.
   if (input.refusedAt != null) return false
-  if (input.formReceivedAt != null) return false
-  if (input.effectiveQueue === 'waiting-for-form' || input.effectiveQueue === 'waiting-for-carrier') return false
-  // Genuinely engaged: reached on a call, a promised callback, or a recorded
-  // inbound response (engagedAt). A voicemail/bad-number/no-response is NOT
-  // engagement; neither is an automated reply (which never stamps engagedAt).
-  const engaged =
-    input.lastCallOutcome === 'reached' ||
-    input.lastCallOutcome === 'callback' ||
-    input.callbackDate != null ||
-    (input.engagedAt != null && input.engagedAt.trim().length > 0)
-  return engaged
+  // Past the receipt boundary into Servicing Access: the signed form is in hand.
+  // (Sending the form — waiting-for-form WITHOUT a receipt — does NOT count, so
+  // such a customer stays in Customer Interaction.)
+  if (isServicingAccess({ formReceivedAt: input.formReceivedAt, refusedAt: input.refusedAt })) return false
+  // Otherwise an active conversation when the customer has genuinely engaged.
+  return isEngaged({
+    lastCallOutcome: input.lastCallOutcome,
+    callbackDate: input.callbackDate,
+    engagedAt: input.engagedAt,
+  })
 }
 
 /**

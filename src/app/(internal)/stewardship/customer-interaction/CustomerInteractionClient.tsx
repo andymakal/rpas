@@ -35,7 +35,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Loader2, MessageSquare, CheckCircle2, ArrowLeft, RefreshCw, Search, Inbox } from 'lucide-react'
+import { Loader2, MessageSquare, CheckCircle2, ArrowLeft, RefreshCw, Search, Inbox, Mail, CornerUpRight } from 'lucide-react'
 import {
   MentorCapButton, MentorCapPanel, useMentorDisclosure,
 } from '@/lib/mentoring/MentorUi'
@@ -63,15 +63,6 @@ type SearchResult = {
 function fullName(c: PopulationCustomer | SearchResult): string {
   return `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim() || 'this customer'
 }
-
-/** The channels a customer can respond on. Postal is excluded: an incoming
- * response that establishes an active conversation comes by phone, text, or
- * email. */
-const INBOUND_CHANNELS: { value: 'email' | 'call' | 'text'; label: string }[] = [
-  { value: 'email', label: 'Email' },
-  { value: 'call', label: 'Phone call' },
-  { value: 'text', label: 'Text' },
-]
 
 export function CustomerInteractionClient({
   projectId = null,
@@ -238,26 +229,10 @@ export function CustomerInteractionClient({
     )
   }
 
-  if (error) {
-    return (
-      <div className="space-y-4 rounded-2xl border border-tag-blocked-border bg-tag-blocked-fill p-6 text-tag-blocked-text">
-        <p>{error}</p>
-        <button
-          type="button"
-          onClick={() => {
-            setError(null); setHandled(new Set()); directOpenedRef.current = false
-            setLoading(true); void load()
-          }}
-          className="inline-flex items-center gap-2 rounded-xl border border-surface-border-strong bg-surface-card px-4 py-2 text-base font-medium text-ink-secondary transition-colors hover:bg-surface-muted"
-        >
-          <RefreshCw className="size-4" aria-hidden /> Try again
-        </button>
-      </div>
-    )
-  }
-
-  // The customer-search box, always available above the task so an employee can
-  // jump straight to a customer when a response arrives.
+  // The customer-search box, always available so an employee can jump straight
+  // to a customer when a response arrives — INCLUDING when a reservation or load
+  // failed. The search opens a specific customer directly (its own reserve path),
+  // so a population reservation failure must never make it inaccessible.
   const searchBox = (
     <div className="space-y-2 rounded-2xl border border-surface-border bg-surface-card p-4">
       <label htmlFor="ci-search" className="flex items-center gap-2 text-sm font-semibold text-ink">
@@ -302,29 +277,76 @@ export function CustomerInteractionClient({
     </div>
   )
 
+  // ── Error state ─────────────────────────────────────────────────────────────
+  // A load or reservation failure is surfaced with a retry, but the customer
+  // search stays ABOVE it so an employee can always open a specific customer who
+  // just responded — a reservation failure never blocks the search.
+  if (error) {
+    return (
+      <div className="space-y-4">
+        {searchBox}
+        <div className="space-y-4 rounded-2xl border border-tag-blocked-border bg-tag-blocked-fill p-6 text-tag-blocked-text">
+          <p>{error}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setError(null); setHandled(new Set()); directOpenedRef.current = false
+              setLoading(true); void load()
+            }}
+            className="inline-flex items-center gap-2 rounded-xl border border-surface-border-strong bg-surface-card px-4 py-2 text-base font-medium text-ink-secondary transition-colors hover:bg-surface-muted"
+          >
+            <RefreshCw className="size-4" aria-hidden /> Try again
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   // ── Single-customer task ───────────────────────────────────────────────────
   if (openId) {
     const hasNext = remaining.some(it => it.id !== openId)
     return (
       <div className="space-y-4">
         {searchBox}
-        <RecordIncomingResponse itemId={openId} onRecorded={() => { void load() }} />
-        <StewardshipTask
-          key={openId}
-          itemId={openId}
-          // The guided conversation flow: callable or not, this is the active
-          // conversation surface (record responses, replies, notes, callbacks).
-          forceCall
-          hideBackHeader
-          hasNextInActivity={hasNext}
-          // A recorded step that removes the customer from the interaction
-          // population (signed form sent/returned, or a refusal) advances the
-          // sequence to the next engaged customer.
-          onAdvanceToNext={advanceToNext}
-          // A non-advancing terminal path just refreshes the population; it must
-          // never advance or leave the screen on its own.
-          onBack={() => { void load() }}
-        />
+        {/* Email conversation — record an incoming email and an outgoing email
+            reply WITHOUT the guided telephone-calling workflow. This is the
+            primary interaction surface for an email conversation. */}
+        <EmailConversation itemId={openId} onRecorded={() => { void load() }} />
+        {/* The guided phone/conversation workbench stays available (collapsed by
+            default) for employees who DO work the conversation by phone, but it
+            is no longer the only way to record an interaction. */}
+        <details className="rounded-2xl border border-surface-border bg-surface-card">
+          <summary className="cursor-pointer px-4 py-3 text-base font-medium text-ink-secondary">
+            Work this conversation by phone instead
+          </summary>
+          <div className="border-t border-surface-divider p-2">
+            <StewardshipTask
+              key={openId}
+              itemId={openId}
+              // The guided call flow, for an employee working the conversation by
+              // phone. Optional now — email is handled above without it.
+              forceCall
+              hideBackHeader
+              hasNextInActivity={hasNext}
+              // A recorded step that removes the customer from the interaction
+              // population (signed form received, or a refusal) advances the
+              // sequence to the next engaged customer.
+              onAdvanceToNext={advanceToNext}
+              // A non-advancing terminal path just refreshes the population; it
+              // must never advance or leave the screen on its own.
+              onBack={() => { void load() }}
+            />
+          </div>
+        </details>
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={advanceToNext}
+            className="inline-flex items-center gap-2 rounded-xl border border-surface-border-strong bg-surface-card px-4 py-2 text-base font-medium text-ink-secondary transition-colors hover:bg-surface-muted"
+          >
+            {hasNext ? 'Next conversation' : 'Done for now'}
+          </button>
+        </div>
       </div>
     )
   }
@@ -395,104 +417,111 @@ export function CustomerInteractionClient({
 }
 
 /**
- * Record an INCOMING response from the customer. Logs the received communication
- * in Customer History (via the shared touch route) and, for a genuine response,
- * marks the customer engaged so they move into Customer Interaction. An automated
- * reply (out-of-office, delivery receipt) is recorded for history but never
- * establishes engagement. This records history only; it never claims the
- * customer or changes the queue.
+ * Email conversation — record an INCOMING email from the customer and an OUTGOING
+ * email reply to them, WITHOUT the guided telephone-calling workflow. Both are
+ * logged in Customer History via the shared touch route (direction-aware). A
+ * genuine incoming email marks the customer engaged (moving them into Customer
+ * Interaction); an automated reply is recorded but never establishes engagement;
+ * an outgoing reply is plain history. This records history only — it never claims
+ * the customer, changes the queue, or sends a real email.
  */
-function RecordIncomingResponse({
+function EmailConversation({
   itemId,
   onRecorded,
 }: {
   itemId: string
   onRecorded: () => void
 }) {
-  const [open, setOpen] = useState(false)
-  const [channel, setChannel] = useState<'email' | 'call' | 'text'>('email')
+  const [direction, setDirection] = useState<'incoming' | 'outgoing'>('incoming')
   const [notes, setNotes] = useState('')
   const [automated, setAutomated] = useState(false)
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState<string | null>(null)
+  const [done, setDone] = useState<string | null>(null)
 
   const submit = useCallback(async () => {
     setBusy(true)
     setMsg(null)
+    setDone(null)
     try {
       const res = await fetch(`/api/stewardship/${itemId}/touch`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          touch_type: channel,
+          touch_type: 'email',
           notes: notes.trim() || undefined,
-          direction: 'incoming',
-          automated,
+          direction,
+          // Only an incoming email can be an automated (non-engaging) reply.
+          automated: direction === 'incoming' ? automated : false,
         }),
       })
       const json = await res.json().catch(() => null)
-      if (!res.ok) { setMsg(json?.error ?? 'Could not record the response.'); return }
+      if (!res.ok) { setMsg(json?.error ?? 'Could not record the email.'); return }
       setNotes('')
       setAutomated(false)
-      setOpen(false)
+      setDone(
+        direction === 'incoming'
+          ? (json?.data?.engaged ? 'Incoming email recorded. Customer marked engaged.' : 'Incoming email recorded.')
+          : 'Outgoing email reply recorded.',
+      )
       onRecorded()
     } catch {
-      setMsg('Network error recording the response.')
+      setMsg('Network error recording the email.')
     } finally {
       setBusy(false)
     }
-  }, [itemId, channel, notes, automated, onRecorded])
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-2 rounded-xl border border-surface-border-strong bg-surface-card px-4 py-2 text-base font-medium text-ink-secondary transition-colors hover:bg-surface-muted"
-      >
-        <Inbox className="size-4" aria-hidden /> Record an incoming response
-      </button>
-    )
-  }
+  }, [itemId, direction, notes, automated, onRecorded])
 
   return (
     <div className="space-y-3 rounded-2xl border border-surface-border bg-surface-card p-4">
       <p className="flex items-center gap-2 text-sm font-semibold text-ink">
-        <Inbox className="size-4 text-ink-supporting" aria-hidden /> Record an incoming response
+        <Mail className="size-4 text-ink-supporting" aria-hidden /> Email conversation
       </p>
+      {/* Direction: an incoming email from the customer, or an outgoing reply. */}
       <div className="flex flex-wrap gap-2">
-        {INBOUND_CHANNELS.map(c => (
-          <button
-            key={c.value}
-            type="button"
-            onClick={() => setChannel(c.value)}
-            className={`rounded-lg border px-3 py-1.5 text-base transition-colors ${
-              channel === c.value
-                ? 'border-brand-ring bg-brand-wash text-ink'
-                : 'border-surface-border-strong text-ink-secondary hover:bg-surface-muted'
-            }`}
-          >
-            {c.label}
-          </button>
-        ))}
+        <button
+          type="button"
+          onClick={() => setDirection('incoming')}
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-base transition-colors ${
+            direction === 'incoming'
+              ? 'border-brand-ring bg-brand-wash text-ink'
+              : 'border-surface-border-strong text-ink-secondary hover:bg-surface-muted'
+          }`}
+        >
+          <Inbox className="size-4" aria-hidden /> Incoming email
+        </button>
+        <button
+          type="button"
+          onClick={() => setDirection('outgoing')}
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-base transition-colors ${
+            direction === 'outgoing'
+              ? 'border-brand-ring bg-brand-wash text-ink'
+              : 'border-surface-border-strong text-ink-secondary hover:bg-surface-muted'
+          }`}
+        >
+          <CornerUpRight className="size-4" aria-hidden /> Outgoing reply
+        </button>
       </div>
       <textarea
         value={notes}
         onChange={e => setNotes(e.target.value)}
-        placeholder="What did the customer say?"
+        placeholder={direction === 'incoming' ? 'What did the customer say?' : 'What did you reply?'}
         rows={2}
         className="w-full rounded-lg border border-surface-border-strong px-3 py-2 text-base text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-wash"
       />
-      <label className="flex items-center gap-2 text-sm text-ink-secondary">
-        <input
-          type="checkbox"
-          checked={automated}
-          onChange={e => setAutomated(e.target.checked)}
-          className="size-4 rounded border-surface-border-strong"
-        />
-        This is an automated reply (out-of-office, delivery receipt) — not a genuine response
-      </label>
+      {direction === 'incoming' && (
+        <label className="flex items-center gap-2 text-sm text-ink-secondary">
+          <input
+            type="checkbox"
+            checked={automated}
+            onChange={e => setAutomated(e.target.checked)}
+            className="size-4 rounded border-surface-border-strong"
+          />
+          This is an automated reply (out-of-office, delivery receipt) — not a genuine response
+        </label>
+      )}
       {msg && <p className="text-sm text-rose-700">{msg}</p>}
+      {done && <p className="text-sm text-status-confirmed-strong">{done}</p>}
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
@@ -500,15 +529,8 @@ function RecordIncomingResponse({
           onClick={() => void submit()}
           className="inline-flex items-center gap-2 rounded-xl bg-brand px-4 py-2 text-base font-semibold text-white transition-colors hover:bg-brand-hover disabled:opacity-50"
         >
-          {busy && <Loader2 className="size-4 animate-spin" aria-hidden />} Record response
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => { setOpen(false); setMsg(null) }}
-          className="inline-flex items-center gap-2 rounded-xl border border-surface-border-strong px-4 py-2 text-base font-medium text-ink-secondary transition-colors hover:bg-surface-muted disabled:opacity-50"
-        >
-          Cancel
+          {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
+          {direction === 'incoming' ? 'Record incoming email' : 'Record outgoing reply'}
         </button>
       </div>
     </div>

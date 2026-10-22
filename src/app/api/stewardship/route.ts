@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { resolveCapabilityProfile, loadWorkFunctions } from '@/lib/capabilities/resolve'
 import { canActOnItem, claimedByOther } from '@/lib/capabilities/work-functions'
-import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, isCustomerInteraction, engagedAtOf, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
+import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, isCustomerInteraction, isEngaged, isServicingAccess, engagedAtOf, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
 import { readResearchedUnsuccessfullyBatch, stillNeedsResearchRecommendation } from '@/lib/stewardship/research-record'
 import { getProjectWorkflows, projectContainsWorkflow, onboardingCompleteForPolicies } from '@/lib/projects/workflows'
 import { deriveOnboardingPopulation } from '@/lib/stewardship/derived-onboarding'
@@ -301,11 +301,20 @@ export async function GET(request: NextRequest) {
     // Due status reads from DURABLE row state (call_reason + a due callback),
     // so it survives refreshes and the waiting-to-response -> Ready to Call
     // promotion (which persisted call_reason = 'no-response').
+    // An engaged customer has left routine calling for Customer Interaction, so
+    // they are excluded from the call and introductory-email populations (the
+    // SAME engagement test My Work uses, keeping counted and opened sets equal).
+    const engaged = isEngaged({
+      lastCallOutcome: r.last_call_outcome as CallOutcome | null,
+      callbackDate: r.callback_date,
+      engagedAt: engagedAtOf(r.action_context),
+    })
     const population = callPopulationOf({
       effectiveQueue,
       callReason: r.call_reason as CallReason | null,
       hasUsablePhone: !!r.customer_prereviews.customers?.phone?.trim(),
       callbackDue: isCallbackDue(r.callback_date, actorTimeZone),
+      engaged,
     })
     // First-touch introductory-email membership, via the SAME shared predicate
     // My Work counts with, so the opened introductory-email population equals the
@@ -317,6 +326,7 @@ export async function GET(request: NextRequest) {
       callbackDate: r.callback_date,
       currentEmail: r.customer_prereviews.customers?.email ?? null,
       introEmailRecipient: r.intro_email_recipient,
+      engaged,
     })
     return {
       id: r.id,
@@ -341,15 +351,16 @@ export async function GET(request: NextRequest) {
       // carried so the board can open that population exactly as counted.
       is_intro_email: introEmail,
       // Whether this item is in the SERVICING-ACCESS population: the signed
-      // authorization is in hand (form returned), so the work is to save the
-      // form, prepare the carrier email, submit, follow up, and confirm. Its
-      // effective queue is waiting-for-form or waiting-for-carrier, OR the form
-      // has already been recorded received. Carried so the servicing-access
-      // direct screen opens exactly the customers My Work counted.
-      servicing_access:
-        effectiveQueue === 'waiting-for-form' ||
-        effectiveQueue === 'waiting-for-carrier' ||
-        r.form_received_at != null,
+      // authorization is IN HAND. The sole boundary is RECEIPT
+      // (form_received_at), which also covers waiting-for-carrier (reachable only
+      // after receipt). SENDING the form (waiting-for-form without a receipt) is
+      // NOT servicing access — that customer stays in Customer Interaction.
+      // Carried so the servicing-access direct screen opens exactly the
+      // customers My Work counted.
+      servicing_access: isServicingAccess({
+        formReceivedAt: r.form_received_at,
+        refusedAt: r.refused_at,
+      }),
       // Whether this item is in the CUSTOMER INTERACTION population: the customer
       // has genuinely engaged (reached, a promised callback, or a recorded
       // inbound response via action_context.engagedAt) but the signed

@@ -24,7 +24,7 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, isCustomerInteraction, engagedAtOf, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
+import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, isCustomerInteraction, isEngaged, isServicingAccess, engagedAtOf, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
 import { createTimeContext } from '@/lib/time'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
@@ -762,6 +762,13 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         callbackDate: r.callback_date,
         currentEmail: r.customer_prereviews.customers?.email ?? null,
         introEmailRecipient: r.intro_email_recipient,
+        // An engaged customer has left routine calling for Customer Interaction,
+        // so they are never offered an introductory email.
+        engaged: isEngaged({
+          lastCallOutcome: r.last_call_outcome as CallOutcome | null,
+          callbackDate: r.callback_date,
+          engagedAt: engagedAtOf(r.action_context),
+        }),
       }) &&
       (cls.bucket === 'available' || cls.bucket === 'owned')
     if (isIntroEmail) {
@@ -963,6 +970,12 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
           callReason: effCallReason,
           hasUsablePhone: !!r.customer_prereviews.customers?.phone?.trim(),
           callbackDue: isCallbackDue(r.callback_date, timeCtx),
+          // An engaged customer has left routine calling for Customer Interaction.
+          engaged: isEngaged({
+            lastCallOutcome: r.last_call_outcome as CallOutcome | null,
+            callbackDate: r.callback_date,
+            engagedAt: engagedAtOf(r.action_context),
+          }),
         })
         if (!population) continue
         // Eligibility + claim: only count items this employee can actually pick
@@ -1186,11 +1199,15 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       let servicingAccess = 0
       const servicingAccessByProject = new Map<string, number>()
       for (const r of openRows) {
-        const eq = effectiveQueue(r)
-        const inServicingAccess =
-          eq === 'waiting-for-form' ||
-          eq === 'waiting-for-carrier' ||
-          r.form_received_at != null
+        // Servicing Access is the signed authorization IN HAND — RECEIPT, not
+        // merely having SENT the form. A waiting-for-form item without a recorded
+        // receipt is still an active conversation (Customer Interaction), so the
+        // sole boundary is form_received_at (which also covers waiting-for-carrier,
+        // reachable only after receipt).
+        const inServicingAccess = isServicingAccess({
+          formReceivedAt: r.form_received_at,
+          refusedAt: r.refused_at,
+        })
         if (!inServicingAccess) continue
         const itemProjects = projectsByCustomer.get(r.customer_prereviews.customer_id) ?? new Set<string>()
         if (!canActOnItem(profile, 'outreach', requiredQualByActivity.get('outreach') ?? null, itemProjects)) continue
