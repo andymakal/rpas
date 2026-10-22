@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { resolveCapabilityProfile, loadWorkFunctions } from '@/lib/capabilities/resolve'
 import { canActOnItem, claimedByOther } from '@/lib/capabilities/work-functions'
-import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
+import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, isCustomerInteraction, engagedAtOf, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
 import { readResearchedUnsuccessfullyBatch, stillNeedsResearchRecommendation } from '@/lib/stewardship/research-record'
 import { getProjectWorkflows, projectContainsWorkflow, onboardingCompleteForPolicies } from '@/lib/projects/workflows'
 import { deriveOnboardingPopulation } from '@/lib/stewardship/derived-onboarding'
@@ -17,7 +17,7 @@ import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
  * subset of Ready to Email. Each opens EXACTLY the customers My Work counted,
  * gated by the same capability + claim rules.
  */
-type PopulationFilter = 'calls-due' | 'available-to-call' | 'introductory-emails' | 'servicing-access'
+type PopulationFilter = 'calls-due' | 'available-to-call' | 'introductory-emails' | 'servicing-access' | 'customer-interaction'
 
 /**
  * GET /api/stewardship
@@ -56,7 +56,8 @@ export async function GET(request: NextRequest) {
     populationParam === 'calls-due' ||
     populationParam === 'available-to-call' ||
     populationParam === 'introductory-emails' ||
-    populationParam === 'servicing-access'
+    populationParam === 'servicing-access' ||
+    populationParam === 'customer-interaction'
       ? populationParam
       : null
 
@@ -139,7 +140,7 @@ export async function GET(request: NextRequest) {
     .select(`
       id, prereview_id, queue, call_reason, research_reason, last_call_outcome,
       callback_date, email_sent_at, intro_email_recipient, follow_up_due, form_received_at, submitted_at, carrier_correction,
-      refused_at, updated_at, claimed_by_producer_id,
+      refused_at, action_context, updated_at, claimed_by_producer_id,
       customer_prereviews!inner (
         id, customer_id, source_agency_id, decision,
         customers!inner ( id, first_name, last_name, email, phone )
@@ -184,6 +185,7 @@ export async function GET(request: NextRequest) {
     submitted_at: string | null
     carrier_correction: string | null
     refused_at: string | null
+    action_context: unknown
     claimed_by_producer_id: string | null
     customer_prereviews: {
       id: string
@@ -348,6 +350,20 @@ export async function GET(request: NextRequest) {
         effectiveQueue === 'waiting-for-form' ||
         effectiveQueue === 'waiting-for-carrier' ||
         r.form_received_at != null,
+      // Whether this item is in the CUSTOMER INTERACTION population: the customer
+      // has genuinely engaged (reached, a promised callback, or a recorded
+      // inbound response via action_context.engagedAt) but the signed
+      // authorization has not come back yet. Uses the SAME shared predicate My
+      // Work counts with, so the opened interaction population equals the counted
+      // one. A refused or servicing-access item is excluded by the predicate.
+      customer_interaction: isCustomerInteraction({
+        effectiveQueue,
+        lastCallOutcome: r.last_call_outcome as CallOutcome | null,
+        callbackDate: r.callback_date,
+        formReceivedAt: r.form_received_at,
+        refusedAt: r.refused_at,
+        engagedAt: engagedAtOf(r.action_context),
+      }),
       // Research outcome: set below for research-needed items whose every
       // still-missing method has been researched unsuccessfully. Default false.
       research_unsuccessful: false as boolean,
@@ -414,6 +430,10 @@ export async function GET(request: NextRequest) {
         // A derived onboarding item has no recorded outreach yet, so no
         // authorization has returned — never in the servicing-access set.
         servicing_access: false,
+        // A derived onboarding item has no recorded engagement either (no
+        // reached call, callback, or inbound response), so it is never in the
+        // customer-interaction set until a real outreach row records contact.
+        customer_interaction: false,
         research_unsuccessful: false as boolean,
         prereview_id: null as unknown as string,
         customer: { id: d.customerId, first_name: d.firstName ?? '', last_name: d.lastName ?? '', email: d.email, phone: d.phone },
@@ -499,6 +519,7 @@ export async function GET(request: NextRequest) {
   const inPopulation = (it: (typeof items)[number], pop: PopulationFilter): boolean =>
     pop === 'introductory-emails' ? it.is_intro_email === true
       : pop === 'servicing-access' ? it.servicing_access === true
+      : pop === 'customer-interaction' ? it.customer_interaction === true
       : it.call_population === pop
 
   // The caller's actionable items for a requested population: in that population,
@@ -545,12 +566,14 @@ export async function GET(request: NextRequest) {
         'available-to-call': items.filter(it => isActionableToMe(it, 'available-to-call')).length,
         'introductory-emails': items.filter(it => isActionableToMe(it, 'introductory-emails')).length,
         'servicing-access': items.filter(it => isActionableToMe(it, 'servicing-access')).length,
+        'customer-interaction': items.filter(it => isActionableToMe(it, 'customer-interaction')).length,
       }
     : {
         'calls-due': items.filter(it => it.call_population === 'calls-due').length,
         'available-to-call': items.filter(it => it.call_population === 'available-to-call').length,
         'introductory-emails': items.filter(it => it.is_intro_email === true).length,
         'servicing-access': items.filter(it => it.servicing_access === true).length,
+        'customer-interaction': items.filter(it => it.customer_interaction === true).length,
       }
 
   return Response.json({

@@ -701,6 +701,79 @@ export function waitingFollowUpDays(queue: OutreachQueue): number {
 }
 
 /**
+ * The key, inside the stewardship_outreach.action_context jsonb, that records the
+ * moment a customer genuinely ENGAGED — responded by email, phone, or text, or
+ * was reached on a call — while still in the pre-authorization funnel. It is the
+ * lightweight engagement signal the Customer Interaction step reads; it is NOT a
+ * claim and NOT a queue change, so it never routes work to one person or creates
+ * a task. It is re-homed on action_context exactly as the IPF blueprint intends
+ * (a soft fact on the item, not an assignment). An automated reply and an
+ * explicit refusal never set it, so neither establishes engagement.
+ */
+export const ENGAGED_AT_KEY = 'engagedAt' as const
+
+/** Read the engagement timestamp from an action_context value, or null. The
+ * value is an ISO instant stamped when the customer first genuinely engaged. */
+export function engagedAtOf(actionContext: unknown): string | null {
+  if (actionContext && typeof actionContext === 'object' && !Array.isArray(actionContext)) {
+    const v = (actionContext as Record<string, unknown>)[ENGAGED_AT_KEY]
+    if (typeof v === 'string' && v.trim().length > 0) return v
+  }
+  return null
+}
+
+/**
+ * Whether an open outreach item is in the CUSTOMER INTERACTION population: a
+ * customer who is genuinely in an active conversation but has NOT yet returned
+ * the signed authorization. This is the step between routine calling/outreach
+ * and Servicing Access.
+ *
+ * Genuinely engaged means the customer responded or was reached — a recorded
+ * reached call, a promised callback (an active, scheduled conversation), or an
+ * `engagedAt` marker recorded on action_context when an inbound response came in.
+ * An automated reply and an explicit refusal never set engagedAt, so neither
+ * moves a customer into interaction.
+ *
+ * Pre-authorization means the signed form is NOT yet in hand: the item has not
+ * reached the servicing-access stage (effective queue is not waiting-for-form or
+ * waiting-for-carrier, and no form receipt is recorded) and the customer has not
+ * refused. Once the signed authorization arrives the customer leaves this
+ * population for the existing Servicing Access workflow; a refusal removes them
+ * from outreach entirely (reversible via reopen).
+ *
+ * This is the ONE shared definition both My Work (counting the population) and
+ * the board route (opening it) use, so the counted set and the opened set are
+ * always identical — the same contract callPopulationOf and isIntroductoryEmail
+ * give their populations.
+ */
+export function isCustomerInteraction(input: {
+  /** Effective queue after follow-up/email re-derivation. */
+  effectiveQueue: OutreachQueue
+  lastCallOutcome: CallOutcome | null
+  callbackDate: string | null
+  /** stewardship_outreach.form_received_at — non-null once a signed form is in hand. */
+  formReceivedAt: string | null
+  /** stewardship_outreach.refused_at — non-null once the customer declined. */
+  refusedAt: string | null
+  /** The engagement marker from action_context (engagedAtOf), when present. */
+  engagedAt?: string | null
+}): boolean {
+  // Refused or past the funnel into servicing access: not an active interaction.
+  if (input.refusedAt != null) return false
+  if (input.formReceivedAt != null) return false
+  if (input.effectiveQueue === 'waiting-for-form' || input.effectiveQueue === 'waiting-for-carrier') return false
+  // Genuinely engaged: reached on a call, a promised callback, or a recorded
+  // inbound response (engagedAt). A voicemail/bad-number/no-response is NOT
+  // engagement; neither is an automated reply (which never stamps engagedAt).
+  const engaged =
+    input.lastCallOutcome === 'reached' ||
+    input.lastCallOutcome === 'callback' ||
+    input.callbackDate != null ||
+    (input.engagedAt != null && input.engagedAt.trim().length > 0)
+  return engaged
+}
+
+/**
  * Pure transition function. Given the current state and an action, return the
  * patch to persist. Invalid actions for the current queue return an error so
  * the API can reject them rather than silently corrupting state.

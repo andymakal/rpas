@@ -177,6 +177,11 @@ export function MyWorkClient({
       { table: 'customer_prereviews' },
       // Project membership, which scopes the Project-filtered counts.
       { table: 'project_customers' },
+      // A recorded interaction (incoming response, reply, note, follow-up) lands
+      // in case_touches; a genuine incoming response also moves a customer into
+      // Customer Interaction, so this keeps the step's count live as
+      // conversations are worked.
+      { table: 'case_touches' },
     ],
     onChange: () => router.refresh(),
   })

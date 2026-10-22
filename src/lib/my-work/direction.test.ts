@@ -172,6 +172,57 @@ test('plan: outreach expands into intro emails -> due calls -> other calls, in o
   assert.equal(d.workingPlan[0].emphasis, false)
 })
 
+test('plan: Customer Interaction sits between calling and Servicing Access, always present', () => {
+  // The composition emits Customer Interaction and Servicing Access as
+  // always-present informational standing sources for an outreach-eligible
+  // employee. Both must render as steps even at count 0, and Customer
+  // Interaction must come immediately BEFORE Process servicing access.
+  const outreach = activity({
+    workFunction: 'outreach',
+    band: 'shared',
+    rank: 5,
+    label: 'Outreach',
+    availableCount: 7,
+    sources: [
+      infoSource('Shared Stewardship board — Introductory emails', 3, '/stewardship?queue=ready-to-email'),
+      infoSource('Shared Stewardship board — Available to Call', 4, '/stewardship?population=available-to-call'),
+      // Always-present standing sources (count 0), order in sources should not
+      // matter — the plan's push order fixes the step order.
+      infoSource('Shared Stewardship board — Customer interaction', 0, '/stewardship/customer-interaction'),
+      infoSource('Shared Stewardship board — Servicing access', 0, '/stewardship/servicing-access'),
+    ],
+  })
+  const d = deriveMyWorkDirection(state([outreach]))
+  assert.deepEqual(
+    d.workingPlan.map((s) => s.key),
+    ['outreach:intro', 'outreach:calls-other', 'outreach:customer-interaction', 'outreach:servicing-access'],
+  )
+  const ci = d.workingPlan.find((s) => s.key === 'outreach:customer-interaction')
+  assert.ok(ci)
+  assert.equal(ci!.count, 0) // shown even when empty
+  assert.equal(ci!.route, '/stewardship/customer-interaction')
+})
+
+test('plan: Customer Interaction count comes from its standing source', () => {
+  const outreach = activity({
+    workFunction: 'outreach',
+    band: 'shared',
+    rank: 5,
+    label: 'Outreach',
+    availableCount: 5,
+    sources: [
+      infoSource('Shared Stewardship board — Customer interaction', 5, '/stewardship/customer-interaction'),
+    ],
+  })
+  const d = deriveMyWorkDirection(state([outreach]))
+  const ci = d.workingPlan.find((s) => s.key === 'outreach:customer-interaction')
+  assert.ok(ci)
+  assert.equal(ci!.count, 5)
+  // With a recognized always-present sub-population present, the generic
+  // "Continue outreach" fallback must NOT be added.
+  assert.equal(d.workingPlan.some((s) => s.key === 'outreach'), false)
+})
+
 test('plan: outreach sub-population sums recorded + derived sources and routes to the direct screen', () => {
   // The exact production defect: a single RECORDED board source (count 1, direct
   // working route) is emitted BEFORE the DERIVED record-less onboarding source
