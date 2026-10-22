@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import {
   ClipboardList, ChevronDown, ChevronUp,
-  Check, AlertTriangle, Plus, Trash2, ShieldCheck,
+  Check, AlertTriangle, Plus, Trash2, ShieldCheck, Printer,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -418,11 +418,11 @@ export function FactFinderSection({
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
       {/* Header */}
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-5 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide hover:text-slate-200 transition-colors"
-      >
-        <span className="flex items-center gap-1.5">
+      <div className="flex items-center px-5 py-3">
+        <button
+          onClick={() => setOpen(o => !o)}
+          className="flex-1 flex items-center gap-1.5 text-xs font-medium text-slate-400 uppercase tracking-wide hover:text-slate-200 transition-colors text-left"
+        >
           <ClipboardList className="w-3.5 h-3.5" />
           Fact Finder
           {anyData && (
@@ -439,9 +439,26 @@ export function FactFinderSection({
               {condCount} condition{condCount !== 1 ? 's' : ''}
             </span>
           )}
-        </span>
-        {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-      </button>
+        </button>
+        <div className="flex items-center gap-3">
+          <a
+            href={`/customers/${customerId}/fact-finder/print`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-xs normal-case font-normal text-slate-500 hover:text-slate-300 transition-colors"
+            title="Print Fact Finder form"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            Print Form
+          </a>
+          <button
+            onClick={() => setOpen(o => !o)}
+            className="text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+      </div>
 
       {open && (
         <div className="border-t border-slate-800">
