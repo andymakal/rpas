@@ -228,6 +228,16 @@ export type OutreachAction =
   // carrier confirmation) and schedule the next one. Stays in the same waiting
   // queue; rolls follow_up_due forward by that queue's interval. No attempt cap.
   | { type: 'record-follow-up' }
+  // Record a FOLLOW-UP COMMITMENT in an active conversation (Customer
+  // Interaction) WITHOUT a phone call: the employee promised to follow up with
+  // the customer on a date. Sets the promised date (callback_date) and marks the
+  // item callback-due so the follow-up surfaces when due, exactly like a
+  // promised callback — but it is recorded directly from the conversation, not
+  // as the outcome of a placed call. Only valid in the pre-authorization funnel
+  // (an active conversation); it never moves the customer backward or changes
+  // the authorization/carrier stage. The route also stamps engagement, so the
+  // conversation persists through later unsuccessful attempts.
+  | { type: 'set-follow-up'; follow_up_date: string }
 
 export interface OutreachState {
   queue: OutreachQueue
@@ -1157,6 +1167,32 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
       return {
         patch: {
           follow_up_due: addDays(new Date().toISOString(), waitingFollowUpDays(state.queue)),
+        },
+      }
+    }
+
+    case 'set-follow-up': {
+      // A follow-up commitment recorded directly from an active conversation,
+      // without placing a call. Only meaningful in the pre-authorization funnel
+      // (the conversation stage); in an authorization/carrier stage the chase is
+      // record-follow-up, so this is rejected there rather than moving backward.
+      if (!inPreAuthFunnel(state.queue)) {
+        return { patch: {}, error: `Cannot set a conversation follow-up from ${state.queue}` }
+      }
+      if (!action.follow_up_date) {
+        return { patch: {}, error: 'A follow-up date is required.' }
+      }
+      // Record the promised date and mark it callback-due, exactly like a
+      // promised callback, so it surfaces as a due follow-up when the date
+      // arrives. Keep the item callable (ready-to-call) so the due follow-up is
+      // actionable; engagement (stamped by the route) keeps it in Customer
+      // Interaction rather than routine calling.
+      return {
+        patch: {
+          queue: 'ready-to-call',
+          call_reason: 'callback-due',
+          callback_date: action.follow_up_date,
+          research_reason: null,
         },
       }
     }

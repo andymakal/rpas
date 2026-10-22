@@ -30,6 +30,8 @@ import {
   applyAction,
   deriveEmailRouting,
   normalizeRecipientEmail,
+  engagedAtOf,
+  ENGAGED_AT_KEY,
   type OutreachAction,
   type OutreachState,
   type OutreachQueue,
@@ -54,12 +56,13 @@ type OutreachRow = {
   carrier_correction: string | null
   form_delivery_method: 'email' | 'postal' | null
   refused_at: string | null
+  action_context: unknown
 }
 
 const OUTREACH_COLUMNS =
   'id, prereview_id, queue, call_reason, research_reason, last_call_outcome, ' +
   'callback_date, email_sent_at, intro_email_recipient, follow_up_due, form_received_at, submitted_at, carrier_correction, ' +
-  'form_delivery_method, refused_at'
+  'form_delivery_method, refused_at, action_context'
 
 /**
  * Resolve the signed-in employee's display name for a touch log, mirroring the
@@ -1361,6 +1364,37 @@ export async function PATCH(
     if (updErr) {
       console.error('stewardship patch error:', updErr)
       return Response.json({ error: updErr.message }, { status: 500 })
+    }
+  }
+
+  // Durable ENGAGEMENT: when this action is a GENUINE engagement — the customer
+  // was reached on a call or promised a callback — stamp engagedAt on
+  // action_context (idempotent; the first-engagement instant is never
+  // overwritten). This is what preserves the customer in Customer Interaction
+  // through a LATER unsuccessful attempt: a subsequent voicemail changes
+  // last_call_outcome to 'voicemail', but the durable engagedAt marker keeps
+  // isEngaged true, so the customer never falls back into routine calling or
+  // disappears from the conversation. A bad-number, voicemail, or no-response
+  // is NOT engagement and never stamps it; a refusal stops outreach separately.
+  const engagingCall =
+    (action.type === 'call-outcome' && (action.outcome === 'reached' || action.outcome === 'callback')) ||
+    (action.type === 'record-attempt' && (action.call === 'reached' || action.call === 'callback')) ||
+    // A follow-up commitment recorded directly from a conversation is a genuine
+    // engagement (the employee is in an active dialogue with the customer).
+    action.type === 'set-follow-up'
+  if (engagingCall && engagedAtOf(row.action_context) == null) {
+    const base =
+      row.action_context && typeof row.action_context === 'object' && !Array.isArray(row.action_context)
+        ? (row.action_context as Record<string, unknown>)
+        : {}
+    const { error: engErr } = await supabase
+      .from('stewardship_outreach')
+      .update({ action_context: { ...base, [ENGAGED_AT_KEY]: new Date().toISOString() } })
+      .eq('id', id)
+    if (engErr) {
+      // Non-fatal: the workflow transition already persisted. Engagement is a
+      // soft marker; log and continue.
+      console.error('stewardship engagement marker (reached/callback) update error:', engErr)
     }
   }
 

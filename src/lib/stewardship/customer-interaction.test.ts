@@ -17,8 +17,29 @@ import assert from 'node:assert/strict'
 
 import {
   isCustomerInteraction, isEngaged, isServicingAccess, engagedAtOf, ENGAGED_AT_KEY,
-  isIntroductoryEmail, callPopulationOf,
+  isIntroductoryEmail, callPopulationOf, applyAction, type OutreachState,
 } from './queues'
+
+/** A minimal pre-authorization state for transition tests. */
+function baseState(over: Partial<OutreachState> = {}): OutreachState {
+  return {
+    queue: 'ready-to-call',
+    call_reason: null,
+    research_reason: null,
+    last_call_outcome: null,
+    callback_date: null,
+    email_sent_at: null,
+    intro_email_recipient: null,
+    follow_up_due: null,
+    form_received_at: null,
+    submitted_at: null,
+    carrier_correction: null,
+    form_delivery_method: null,
+    refused_at: null,
+    has_usable_phone: true,
+    ...over,
+  }
+}
 
 const base = {
   effectiveQueue: 'ready-to-call' as const,
@@ -131,4 +152,54 @@ test('an engaged customer is excluded from the call populations', () => {
   assert.equal(callPopulationOf(callable), 'calls-due')
   // Engaged: worked in Customer Interaction, not surfaced in routine calling.
   assert.equal(callPopulationOf({ ...callable, engaged: true }), null)
+})
+
+test('set-follow-up records a promised date without a call, only in the funnel', () => {
+  // In the conversation funnel: sets the promised date + callback-due, keeping
+  // the item callable so the due follow-up is actionable.
+  const r = applyAction(baseState({ queue: 'waiting-for-response' }), {
+    type: 'set-follow-up', follow_up_date: '2026-11-05',
+  })
+  assert.equal(r.error, undefined)
+  assert.equal(r.patch.queue, 'ready-to-call')
+  assert.equal(r.patch.call_reason, 'callback-due')
+  assert.equal(r.patch.callback_date, '2026-11-05')
+  // Rejected past the funnel (servicing/carrier) — there the chase is record-follow-up.
+  const bad = applyAction(baseState({ queue: 'waiting-for-carrier' }), {
+    type: 'set-follow-up', follow_up_date: '2026-11-05',
+  })
+  assert.ok(bad.error)
+})
+
+test('engagement persists through a later unsuccessful attempt (requirement 3)', () => {
+  // A customer engaged via a reached call, then a later voicemail. The voicemail
+  // changes last_call_outcome to 'voicemail' and routes to waiting-for-response
+  // (still pre-auth). Because the route stamps a durable engagedAt on the reached
+  // call, isCustomerInteraction stays TRUE on the later read — the customer does
+  // NOT fall back into routine calling and the conversation does not disappear.
+  const afterVoicemail = {
+    effectiveQueue: 'waiting-for-response' as const,
+    lastCallOutcome: 'voicemail' as const, // the later, unsuccessful attempt
+    callbackDate: null,
+    formReceivedAt: null,
+    refusedAt: null,
+    engagedAt: '2026-10-22T10:00:00.000Z', // durable, from the earlier reached call
+  }
+  assert.equal(isCustomerInteraction(afterVoicemail), true)
+  // And such an engaged customer is NOT surfaced back in the call populations.
+  assert.equal(
+    callPopulationOf({
+      effectiveQueue: 'ready-to-call',
+      callReason: 'no-response',
+      hasUsablePhone: true,
+      callbackDue: false,
+      engaged: isEngaged({ lastCallOutcome: 'voicemail', callbackDate: null, engagedAt: '2026-10-22T10:00:00.000Z' }),
+    }),
+    null,
+  )
+  // Without the durable marker, a voicemail alone is NOT engagement (the bug we fixed).
+  assert.equal(
+    isCustomerInteraction({ ...afterVoicemail, engagedAt: null }),
+    false,
+  )
 })

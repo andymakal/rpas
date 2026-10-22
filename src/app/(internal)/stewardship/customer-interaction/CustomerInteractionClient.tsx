@@ -35,7 +35,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Loader2, MessageSquare, CheckCircle2, ArrowLeft, RefreshCw, Search, Inbox, Mail, CornerUpRight } from 'lucide-react'
+import { Loader2, MessageSquare, CheckCircle2, ArrowLeft, RefreshCw, Search } from 'lucide-react'
 import {
   MentorCapButton, MentorCapPanel, useMentorDisclosure,
 } from '@/lib/mentoring/MentorUi'
@@ -308,45 +308,26 @@ export function CustomerInteractionClient({
     return (
       <div className="space-y-4">
         {searchBox}
-        {/* Email conversation — record an incoming email and an outgoing email
-            reply WITHOUT the guided telephone-calling workflow. This is the
-            primary interaction surface for an email conversation. */}
-        <EmailConversation itemId={openId} onRecorded={() => { void load() }} />
-        {/* The guided phone/conversation workbench stays available (collapsed by
-            default) for employees who DO work the conversation by phone, but it
-            is no longer the only way to record an interaction. */}
-        <details className="rounded-2xl border border-surface-border bg-surface-card">
-          <summary className="cursor-pointer px-4 py-3 text-base font-medium text-ink-secondary">
-            Work this conversation by phone instead
-          </summary>
-          <div className="border-t border-surface-divider p-2">
-            <StewardshipTask
-              key={openId}
-              itemId={openId}
-              // The guided call flow, for an employee working the conversation by
-              // phone. Optional now — email is handled above without it.
-              forceCall
-              hideBackHeader
-              hasNextInActivity={hasNext}
-              // A recorded step that removes the customer from the interaction
-              // population (signed form received, or a refusal) advances the
-              // sequence to the next engaged customer.
-              onAdvanceToNext={advanceToNext}
-              // A non-advancing terminal path just refreshes the population; it
-              // must never advance or leave the screen on its own.
-              onBack={() => { void load() }}
-            />
-          </div>
-        </details>
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={advanceToNext}
-            className="inline-flex items-center gap-2 rounded-xl border border-surface-border-strong bg-surface-card px-4 py-2 text-base font-medium text-ink-secondary transition-colors hover:bg-surface-muted"
-          >
-            {hasNext ? 'Next conversation' : 'Done for now'}
-          </button>
-        </div>
+        {/* The established three-column working layout: the dedicated Customer
+            Interaction action column (record incoming/outgoing email, phone, or
+            text, and set a follow-up — no telephone flow required) on the left,
+            the customer contact card + policies in the center, and the
+            communication history on the right. Contact context and history stay
+            visible throughout, without opening any workbench. */}
+        <StewardshipTask
+          key={openId}
+          itemId={openId}
+          forceCustomerInteraction
+          hideBackHeader
+          hasNextInActivity={hasNext}
+          // A recorded step that removes the customer from the interaction
+          // population (signed form received, or a refusal) advances the
+          // sequence to the next engaged customer.
+          onAdvanceToNext={advanceToNext}
+          // A non-advancing terminal path just refreshes the population; it
+          // must never advance or leave the screen on its own.
+          onBack={() => { void load() }}
+        />
       </div>
     )
   }
@@ -416,123 +397,6 @@ export function CustomerInteractionClient({
   )
 }
 
-/**
- * Email conversation — record an INCOMING email from the customer and an OUTGOING
- * email reply to them, WITHOUT the guided telephone-calling workflow. Both are
- * logged in Customer History via the shared touch route (direction-aware). A
- * genuine incoming email marks the customer engaged (moving them into Customer
- * Interaction); an automated reply is recorded but never establishes engagement;
- * an outgoing reply is plain history. This records history only — it never claims
- * the customer, changes the queue, or sends a real email.
- */
-function EmailConversation({
-  itemId,
-  onRecorded,
-}: {
-  itemId: string
-  onRecorded: () => void
-}) {
-  const [direction, setDirection] = useState<'incoming' | 'outgoing'>('incoming')
-  const [notes, setNotes] = useState('')
-  const [automated, setAutomated] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
-  const [done, setDone] = useState<string | null>(null)
-
-  const submit = useCallback(async () => {
-    setBusy(true)
-    setMsg(null)
-    setDone(null)
-    try {
-      const res = await fetch(`/api/stewardship/${itemId}/touch`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          touch_type: 'email',
-          notes: notes.trim() || undefined,
-          direction,
-          // Only an incoming email can be an automated (non-engaging) reply.
-          automated: direction === 'incoming' ? automated : false,
-        }),
-      })
-      const json = await res.json().catch(() => null)
-      if (!res.ok) { setMsg(json?.error ?? 'Could not record the email.'); return }
-      setNotes('')
-      setAutomated(false)
-      setDone(
-        direction === 'incoming'
-          ? (json?.data?.engaged ? 'Incoming email recorded. Customer marked engaged.' : 'Incoming email recorded.')
-          : 'Outgoing email reply recorded.',
-      )
-      onRecorded()
-    } catch {
-      setMsg('Network error recording the email.')
-    } finally {
-      setBusy(false)
-    }
-  }, [itemId, direction, notes, automated, onRecorded])
-
-  return (
-    <div className="space-y-3 rounded-2xl border border-surface-border bg-surface-card p-4">
-      <p className="flex items-center gap-2 text-sm font-semibold text-ink">
-        <Mail className="size-4 text-ink-supporting" aria-hidden /> Email conversation
-      </p>
-      {/* Direction: an incoming email from the customer, or an outgoing reply. */}
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setDirection('incoming')}
-          className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-base transition-colors ${
-            direction === 'incoming'
-              ? 'border-brand-ring bg-brand-wash text-ink'
-              : 'border-surface-border-strong text-ink-secondary hover:bg-surface-muted'
-          }`}
-        >
-          <Inbox className="size-4" aria-hidden /> Incoming email
-        </button>
-        <button
-          type="button"
-          onClick={() => setDirection('outgoing')}
-          className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-base transition-colors ${
-            direction === 'outgoing'
-              ? 'border-brand-ring bg-brand-wash text-ink'
-              : 'border-surface-border-strong text-ink-secondary hover:bg-surface-muted'
-          }`}
-        >
-          <CornerUpRight className="size-4" aria-hidden /> Outgoing reply
-        </button>
-      </div>
-      <textarea
-        value={notes}
-        onChange={e => setNotes(e.target.value)}
-        placeholder={direction === 'incoming' ? 'What did the customer say?' : 'What did you reply?'}
-        rows={2}
-        className="w-full rounded-lg border border-surface-border-strong px-3 py-2 text-base text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-wash"
-      />
-      {direction === 'incoming' && (
-        <label className="flex items-center gap-2 text-sm text-ink-secondary">
-          <input
-            type="checkbox"
-            checked={automated}
-            onChange={e => setAutomated(e.target.checked)}
-            className="size-4 rounded border-surface-border-strong"
-          />
-          This is an automated reply (out-of-office, delivery receipt) — not a genuine response
-        </label>
-      )}
-      {msg && <p className="text-sm text-rose-700">{msg}</p>}
-      {done && <p className="text-sm text-status-confirmed-strong">{done}</p>}
-      <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void submit()}
-          className="inline-flex items-center gap-2 rounded-xl bg-brand px-4 py-2 text-base font-semibold text-white transition-colors hover:bg-brand-hover disabled:opacity-50"
-        >
-          {busy && <Loader2 className="size-4 animate-spin" aria-hidden />}
-          {direction === 'incoming' ? 'Record incoming email' : 'Record outgoing reply'}
-        </button>
-      </div>
-    </div>
-  )
-}
+// (The former inline EmailConversation panel is removed: the three-column
+// StewardshipTask (forceCustomerInteraction) now owns conversation recording
+// with the established working layout and the shared customer context/history.)
