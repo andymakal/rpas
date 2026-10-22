@@ -154,9 +154,7 @@ test('an engaged customer is excluded from the call populations', () => {
   assert.equal(callPopulationOf({ ...callable, engaged: true }), null)
 })
 
-test('set-follow-up records a promised date without a call, only in the funnel', () => {
-  // In the conversation funnel: sets the promised date + callback-due, keeping
-  // the item callable so the due follow-up is actionable.
+test('set-follow-up in the pre-authorization funnel sets a promised callback date', () => {
   const r = applyAction(baseState({ queue: 'waiting-for-response' }), {
     type: 'set-follow-up', follow_up_date: '2026-11-05',
   })
@@ -164,11 +162,86 @@ test('set-follow-up records a promised date without a call, only in the funnel',
   assert.equal(r.patch.queue, 'ready-to-call')
   assert.equal(r.patch.call_reason, 'callback-due')
   assert.equal(r.patch.callback_date, '2026-11-05')
-  // Rejected past the funnel (servicing/carrier) — there the chase is record-follow-up.
-  const bad = applyAction(baseState({ queue: 'waiting-for-carrier' }), {
+})
+
+test('set-follow-up works for a customer AWAITING a signed authorization (waiting-for-form, no receipt)', () => {
+  // The reported bug: a customer whose authorization was SENT but not returned
+  // sits in waiting-for-form with no receipt and must still accept a follow-up.
+  const r = applyAction(baseState({ queue: 'waiting-for-form', form_received_at: null }), {
     type: 'set-follow-up', follow_up_date: '2026-11-05',
   })
-  assert.ok(bad.error)
+  assert.equal(r.error, undefined)
+  // Stays in waiting-for-form (no backward move); the signature chase is set to
+  // the chosen date.
+  assert.equal(r.patch.queue, undefined)
+  assert.equal(r.patch.follow_up_due, '2026-11-05T00:00:00.000Z')
+})
+
+test('set-follow-up is rejected only once the form is in hand or at the carrier stage', () => {
+  // Form already received -> Servicing Access owns it now.
+  const received = applyAction(
+    baseState({ queue: 'waiting-for-form', form_received_at: '2026-10-22T00:00:00.000Z' }),
+    { type: 'set-follow-up', follow_up_date: '2026-11-05' },
+  )
+  assert.ok(received.error)
+  // Carrier stage uses its own record-follow-up chase.
+  const carrier = applyAction(baseState({ queue: 'waiting-for-carrier' }), {
+    type: 'set-follow-up', follow_up_date: '2026-11-05',
+  })
+  assert.ok(carrier.error)
+})
+
+test('complete-follow-up clears the due marker so it is no longer overdue', () => {
+  // Pre-authorization: clears the promised callback + callback-due reason.
+  const preAuth = applyAction(
+    baseState({ queue: 'ready-to-call', call_reason: 'callback-due', callback_date: '2026-10-20' }),
+    { type: 'complete-follow-up' },
+  )
+  assert.equal(preAuth.error, undefined)
+  assert.equal(preAuth.patch.callback_date, null)
+  assert.equal(preAuth.patch.call_reason, null)
+  // Awaiting signature: clears follow_up_due, keeping the stage.
+  const awaiting = applyAction(
+    baseState({ queue: 'waiting-for-form', form_received_at: null, follow_up_due: '2026-10-20T00:00:00.000Z' }),
+    { type: 'complete-follow-up' },
+  )
+  assert.equal(awaiting.error, undefined)
+  assert.equal(awaiting.patch.follow_up_due, null)
+  assert.equal(awaiting.patch.queue, undefined) // stage unchanged
+})
+
+test('refuse stops outreach channel-agnostically (no call required)', () => {
+  const r = applyAction(baseState({ queue: 'ready-to-email' }), { type: 'refuse' })
+  assert.equal(r.error, undefined)
+  assert.ok(r.patch.refused_at)
+  assert.equal(r.patch.callback_date, null)
+  assert.equal(r.patch.follow_up_due, null)
+  // And a refused customer is no longer a Customer Interaction member.
+  assert.equal(
+    isCustomerInteraction({
+      effectiveQueue: 'ready-to-email',
+      lastCallOutcome: 'not-interested',
+      callbackDate: null,
+      formReceivedAt: null,
+      refusedAt: (r.patch.refused_at as string) ?? '2026-10-22T00:00:00.000Z',
+      engagedAt: '2026-10-22T10:00:00.000Z',
+    }),
+    false,
+  )
+})
+
+test('recording receipt from waiting-for-form (no receipt) hands off to Servicing Access', () => {
+  const r = applyAction(baseState({ queue: 'waiting-for-form', form_received_at: null }), {
+    type: 'form-received',
+  })
+  assert.equal(r.error, undefined)
+  assert.ok(r.patch.form_received_at)
+  // Now isServicingAccess is true (form in hand), so the customer leaves
+  // Customer Interaction for the existing Servicing Access workflow.
+  assert.equal(
+    isServicingAccess({ formReceivedAt: r.patch.form_received_at as string, refusedAt: null }),
+    true,
+  )
 })
 
 test('engagement persists through a later unsuccessful attempt (requirement 3)', () => {

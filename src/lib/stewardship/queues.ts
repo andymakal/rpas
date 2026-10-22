@@ -233,11 +233,24 @@ export type OutreachAction =
   // the customer on a date. Sets the promised date (callback_date) and marks the
   // item callback-due so the follow-up surfaces when due, exactly like a
   // promised callback — but it is recorded directly from the conversation, not
-  // as the outcome of a placed call. Only valid in the pre-authorization funnel
-  // (an active conversation); it never moves the customer backward or changes
-  // the authorization/carrier stage. The route also stamps engagement, so the
-  // conversation persists through later unsuccessful attempts.
+  // as the outcome of a placed call. Valid across every Customer Interaction
+  // stage: the pre-authorization funnel sets a promised callback date;
+  // waiting-for-form (signed authorization sent, not yet returned) sets the
+  // signature-chase date, keeping the stage. Never valid in the carrier stage or
+  // once the form is in hand. The route also stamps engagement and logs the
+  // commitment to Customer History, so the conversation persists through later
+  // unsuccessful attempts.
   | { type: 'set-follow-up'; follow_up_date: string }
+  // Mark the CURRENT follow-up commitment DONE without scheduling another, so it
+  // stops appearing overdue. The next due follow-up only reappears when one is
+  // deliberately scheduled. The route logs the completion to Customer History.
+  | { type: 'complete-follow-up' }
+  // Record an EXPLICIT customer refusal to stop outreach, channel-agnostic (the
+  // customer declined by email, phone, or text). Sets refused_at, exactly like a
+  // 'not-interested' call outcome, but WITHOUT requiring a placed call, so a
+  // refusal received by email/text can be recorded directly from Customer
+  // Interaction. Reversible via reopen; never an automatic terminal state.
+  | { type: 'refuse' }
 
 export interface OutreachState {
   queue: OutreachQueue
@@ -1137,6 +1150,23 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
       return { patch: { form_delivery_method: action.method } }
     }
 
+    case 'refuse': {
+      // An explicit, channel-agnostic customer refusal: stop outreach now. Same
+      // effect as a 'not-interested' call outcome (sets refused_at, clears the
+      // pending follow-up and call reason) but without a placed call, so a
+      // refusal received by email or text is recorded directly. Reversible via
+      // reopen; never an automatic terminal state. Idempotent if already refused.
+      return {
+        patch: {
+          last_call_outcome: 'not-interested',
+          refused_at: state.refused_at ?? new Date().toISOString(),
+          follow_up_due: null,
+          callback_date: null,
+          call_reason: null,
+        },
+      }
+    }
+
     case 'reopen': {
       // Deliberate reversal of an explicit refusal. Clear refused_at so the item
       // becomes actionable again. Only meaningful when currently refused.
@@ -1173,20 +1203,36 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
 
     case 'set-follow-up': {
       // A follow-up commitment recorded directly from an active conversation,
-      // without placing a call. Only meaningful in the pre-authorization funnel
-      // (the conversation stage); in an authorization/carrier stage the chase is
-      // record-follow-up, so this is rejected there rather than moving backward.
-      if (!inPreAuthFunnel(state.queue)) {
-        return { patch: {}, error: `Cannot set a conversation follow-up from ${state.queue}` }
-      }
+      // without placing a call. Valid across EVERY Customer Interaction stage —
+      // the pre-authorization funnel AND waiting-for-form while the signed
+      // authorization has been sent but not yet returned (form_received_at
+      // null). Only the carrier stage (waiting-for-carrier) uses its own
+      // record-follow-up chase, and a form already IN HAND has moved on to
+      // Servicing Access, so a follow-up there is rejected rather than moving
+      // the customer backward.
       if (!action.follow_up_date) {
         return { patch: {}, error: 'A follow-up date is required.' }
       }
-      // Record the promised date and mark it callback-due, exactly like a
-      // promised callback, so it surfaces as a due follow-up when the date
-      // arrives. Keep the item callable (ready-to-call) so the due follow-up is
-      // actionable; engagement (stamped by the route) keeps it in Customer
-      // Interaction rather than routine calling.
+      if (state.queue === 'waiting-for-form' && state.form_received_at == null) {
+        // Awaiting the signed authorization: this is a signature chase on the
+        // employee's chosen date. Keep the customer in waiting-for-form (no
+        // backward move) and set the next follow-up to the chosen date.
+        return {
+          patch: {
+            follow_up_due: dateOnlyToIso(action.follow_up_date),
+          },
+        }
+      }
+      if (!inPreAuthFunnel(state.queue)) {
+        // waiting-for-carrier, or a form already received (now in Servicing
+        // Access): a conversation follow-up does not apply here.
+        return { patch: {}, error: `Cannot set a conversation follow-up from ${state.queue}` }
+      }
+      // Pre-authorization conversation: record the promised date and mark it
+      // callback-due, exactly like a promised callback, so it surfaces as a due
+      // follow-up when the date arrives. Keep the item callable (ready-to-call)
+      // so the due follow-up is actionable; engagement (stamped by the route)
+      // keeps it in Customer Interaction rather than routine calling.
       return {
         patch: {
           queue: 'ready-to-call',
@@ -1195,6 +1241,29 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
           research_reason: null,
         },
       }
+    }
+
+    case 'complete-follow-up': {
+      // Mark the CURRENT follow-up commitment DONE without scheduling another,
+      // so it no longer appears overdue. The next follow-up only reappears when
+      // one is deliberately scheduled (set-follow-up). Valid across every
+      // Customer Interaction stage; a refusal/decision is handled elsewhere.
+      //
+      // Pre-authorization: clear the promised callback (callback_date +
+      // callback-due reason) so the due marker clears; the customer stays in the
+      // conversation (engagement is durable) but is no longer flagged due.
+      // Awaiting-signature (waiting-for-form, no receipt): clear follow_up_due so
+      // the signature chase is no longer overdue, keeping the stage unchanged.
+      if (state.queue === 'waiting-for-form' && state.form_received_at == null) {
+        return { patch: { follow_up_due: null } }
+      }
+      if (!inPreAuthFunnel(state.queue)) {
+        return { patch: {}, error: `Cannot complete a conversation follow-up from ${state.queue}` }
+      }
+      const patch: OutreachPatch = { callback_date: null, follow_up_due: null }
+      // Clear the callback-due reason only (leave other call reasons intact).
+      if (state.call_reason === 'callback-due') patch.call_reason = null
+      return { patch }
     }
   }
 }

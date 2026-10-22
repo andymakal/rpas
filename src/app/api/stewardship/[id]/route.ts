@@ -952,6 +952,72 @@ export async function PATCH(
     }
   }
 
+  // set-follow-up: a follow-up commitment recorded directly from an active
+  // Customer Interaction conversation (no call placed). Log the commitment to
+  // Customer History so the promised follow-up is visible in the record. The
+  // stage (awaiting signature vs pre-authorization) is reflected in the note so
+  // the history reads correctly either way. Best-effort; never blocks.
+  if (action.type === 'set-follow-up') {
+    const touchedBy = await resolveEmployeeName(supabase)
+    const awaitingSignature = state.queue === 'waiting-for-form' && state.form_received_at == null
+    const what = awaitingSignature
+      ? `Follow-up scheduled on the outstanding signed authorization for ${action.follow_up_date}.`
+      : `Follow-up with the customer scheduled for ${action.follow_up_date}.`
+    const { error: touchErr } = await supabase
+      .from('case_touches')
+      .insert({
+        customer_id: customerId,
+        case_id:     null,
+        touch_type:  'call',
+        notes:       `Customer interaction follow-up: ${what}`,
+        touched_at:  new Date().toISOString(),
+        touched_by:  touchedBy,
+      })
+    if (touchErr) {
+      console.error('stewardship set-follow-up touch log error:', touchErr)
+    }
+  }
+
+  // complete-follow-up: the promised follow-up was carried out and no further
+  // one is scheduled yet, so it stops appearing overdue. Log the completion to
+  // Customer History. Best-effort; never blocks.
+  if (action.type === 'complete-follow-up') {
+    const touchedBy = await resolveEmployeeName(supabase)
+    const { error: touchErr } = await supabase
+      .from('case_touches')
+      .insert({
+        customer_id: customerId,
+        case_id:     null,
+        touch_type:  'call',
+        notes:       'Customer interaction follow-up completed; no further follow-up scheduled yet.',
+        touched_at:  new Date().toISOString(),
+        touched_by:  touchedBy,
+      })
+    if (touchErr) {
+      console.error('stewardship complete-follow-up touch log error:', touchErr)
+    }
+  }
+
+  // refuse: an explicit, channel-agnostic customer refusal. Log it to Customer
+  // History so the record shows outreach was stopped at the customer's request.
+  // Best-effort; never blocks.
+  if (action.type === 'refuse') {
+    const touchedBy = await resolveEmployeeName(supabase)
+    const { error: touchErr } = await supabase
+      .from('case_touches')
+      .insert({
+        customer_id: customerId,
+        case_id:     null,
+        touch_type:  'call',
+        notes:       'Customer declined. Outreach stopped until deliberately reopened.',
+        touched_at:  new Date().toISOString(),
+        touched_by:  touchedBy,
+      })
+    if (touchErr) {
+      console.error('stewardship refuse touch log error:', touchErr)
+    }
+  }
+
   // reopen: a refused item was deliberately reopened for further outreach.
   if (action.type === 'reopen') {
     const touchedBy = await resolveEmployeeName(supabase)

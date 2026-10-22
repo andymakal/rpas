@@ -2880,11 +2880,23 @@ function CustomerInteractionAction({
   const [recBusy, setRecBusy] = useState(false)
   const [localNote, setLocalNote] = useState<string | null>(null)
 
+  // Awaiting the signed authorization: the form was SENT but not yet returned
+  // (waiting-for-form with no recorded receipt). Such a customer is still in
+  // Customer Interaction, and their follow-up is the signature chase carried on
+  // follow_up_due.
+  const awaitingSignature = detail.queue === 'waiting-for-form' && !detail.form_received_at
+
   // A due follow-up surfaces prominently so it is visible and actionable within
-  // Customer Interaction. Due = a promised callback/follow-up date on/before
-  // today (actor calendar), OR a lapsed follow_up_due chase window.
+  // Customer Interaction. Pre-authorization: a promised callback date on/before
+  // today. Awaiting signature: a follow_up_due that has lapsed. Either way the
+  // date shown is the promised/next-chase date.
   const callbackDue = isCallbackDue(detail.callback_date, null)
-  const followUpDueDate = detail.callback_date ?? null
+  const signatureFollowUpDue =
+    awaitingSignature && !!detail.follow_up_due && new Date(detail.follow_up_due).getTime() <= Date.now()
+  const followUpDue = callbackDue || signatureFollowUpDue
+  const followUpDueDate = awaitingSignature
+    ? (detail.follow_up_due ? detail.follow_up_due.slice(0, 10) : null)
+    : (detail.callback_date ?? null)
 
   const recordCommunication = useCallback(async () => {
     setRecBusy(true)
@@ -2929,17 +2941,30 @@ function CustomerInteractionAction({
     <ActionPanel heading={`Work ${name}\u2019s conversation`}>
       {noteBox}
 
-      {/* A due follow-up, surfaced as actionable within Customer Interaction. */}
-      {callbackDue && followUpDueDate && (
-        <div className="flex items-start gap-2 rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-amber-900">
-          <Clock className="mt-0.5 size-5 shrink-0" aria-hidden />
-          <div>
-            <p className="text-base font-semibold">Follow-up due</p>
-            <p className="text-sm">
-              You promised to follow up with {name} on {followUpDueDate}. Reach out and record the
-              interaction below, then set the next follow-up if the conversation continues.
-            </p>
+      {/* A due follow-up, surfaced as actionable within Customer Interaction.
+          "Mark follow-up done" completes it so it no longer shows overdue; the
+          next due follow-up only reappears when one is scheduled below. */}
+      {followUpDue && followUpDueDate && (
+        <div className="space-y-3 rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-amber-900">
+          <div className="flex items-start gap-2">
+            <Clock className="mt-0.5 size-5 shrink-0" aria-hidden />
+            <div>
+              <p className="text-base font-semibold">Follow-up due</p>
+              <p className="text-sm">
+                {awaitingSignature
+                  ? `A follow-up on ${name}\u2019s outstanding signed authorization was due ${followUpDueDate}. Reach out and record the interaction below, mark it done, and schedule the next follow-up if the form is still pending.`
+                  : `You promised to follow up with ${name} on ${followUpDueDate}. Reach out and record the interaction below, mark it done, and set the next follow-up if the conversation continues.`}
+              </p>
+            </div>
           </div>
+          <WorkflowButton
+            icon={Check}
+            selected={false}
+            disabled={busy || recBusy}
+            onClick={() => act({ type: 'complete-follow-up' }, 'Follow-up completed. It will not show overdue unless you schedule another.')}
+          >
+            Mark follow-up done
+          </WorkflowButton>
         </div>
       )}
 
@@ -3024,6 +3049,60 @@ function CustomerInteractionAction({
         </div>
       </div>
 
+      {/* Direct outcomes that move the customer OUT of Customer Interaction,
+          both reusing existing transitions and the existing handoff/history. */}
+      <div className="space-y-3 rounded-xl border border-surface-border bg-surface-card p-4">
+        <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">Resolve the conversation</p>
+
+        {/* Record receipt of the signed authorization → Servicing Access. Uses
+            form-received when the form was already sent (waiting-for-form), else
+            form-returned (the form came back from any conversation stage). Both
+            record receipt in history and move the customer into the existing
+            Servicing Access workflow. */}
+        <div className="space-y-1.5">
+          <p className="text-sm text-ink-secondary">
+            The signed authorization came back? Record receipt to move {name} into Servicing Access.
+          </p>
+          <WorkflowButton
+            icon={FileText}
+            selected={false}
+            disabled={busy || recBusy}
+            onClick={() =>
+              act(
+                { type: awaitingSignature ? 'form-received' : 'form-returned' },
+                'Signed authorization recorded. Moving to Servicing Access.',
+                { advanceToNext: true },
+              )
+            }
+          >
+            Record signed authorization received
+          </WorkflowButton>
+        </div>
+
+        {/* Record an explicit customer refusal → stop outreach (reversible). The
+            refuse transition is channel-agnostic, so a refusal by email or text
+            is recorded without a placed call. */}
+        <div className="space-y-1.5 border-t border-surface-divider pt-3">
+          <p className="text-sm text-ink-secondary">
+            {name} declined? Stop outreach. This is reversible if they re-engage later.
+          </p>
+          <WorkflowButton
+            icon={Hand}
+            selected={false}
+            disabled={busy || recBusy}
+            onClick={() =>
+              act(
+                { type: 'refuse' },
+                'Customer refusal recorded. Outreach stopped.',
+                { advanceToNext: true },
+              )
+            }
+          >
+            Record customer refusal
+          </WorkflowButton>
+        </div>
+      </div>
+
       {/* Move on when the conversation is handled for now. The customer stays in
           Customer Interaction until the signed authorization arrives or they
           refuse; this only advances the working sequence. */}
@@ -3034,8 +3113,8 @@ function CustomerInteractionAction({
       )}
 
       <NextNote>
-        When the signed authorization comes back, record it on the customer and they move into
-        Servicing Access automatically. A refusal stops outreach.
+        Record incoming responses and replies, set follow-ups, and when the signed authorization
+        comes back record it to hand off to Servicing Access. A refusal stops outreach.
       </NextNote>
     </ActionPanel>
   )
