@@ -8,7 +8,7 @@ import {
   Mail, AlertCircle, PhoneCall, PhoneOff,
   MessageCircle, ChevronDown, ChevronUp, DollarSign, Pencil, Check, X, MapPin,
   CalendarClock, CalendarX, History, Flame, Wrench, Send,
-  ChevronLeft, ChevronRight, Users, UserPlus, Trash2, GitMerge, ClipboardList,
+  ChevronLeft, ChevronRight, Users, UserPlus, Trash2, GitMerge, ClipboardList, Printer,
 } from 'lucide-react'
 import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember, SuspectedDuplicate, NameDuplicate, NotInterestedReason, ReferralNote, OpenReview, CustomerPolicy } from './page'
 import { HouseholdCard } from '@/components/HouseholdCard'
@@ -2467,6 +2467,30 @@ export function ReferralEditClient({
                 <Send className="w-4 h-4" />
                 {submitting ? 'Submitting…' : 'Application Submitted'}
               </button>
+            </div>
+          )}
+
+          {/* ── App Sheet — app_submitted ───────────────────────────────────
+               Once the application is submitted, surface the pre-filled
+               fact-finder print page for Ashley to use as a data-entry guide. */}
+          {referral.internal_status === 'app_submitted' && referral.customer_id && (
+            <div className="rounded-xl border border-emerald-800/40 bg-emerald-950/30 p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <Printer className="w-4 h-4 text-emerald-400" />
+                <h2 className="text-sm font-semibold text-emerald-300">Application Sheet Ready</h2>
+              </div>
+              <p className="text-xs text-slate-400">
+                The application has been submitted. Open the pre-filled fact-finder sheet for data entry into the carrier system.
+              </p>
+              <a
+                href={`/customers/${referral.customer_id}/fact-finder/print`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white bg-emerald-700 hover:bg-emerald-600 transition-colors"
+              >
+                <Printer className="w-4 h-4" />
+                Generate App Sheet
+              </a>
             </div>
           )}
 
