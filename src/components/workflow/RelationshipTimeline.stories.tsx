@@ -12,9 +12,10 @@ import type { HistoryEvent } from '@/lib/stewardship/customer-history'
  * are unchanged.
  *
  * Each event shows a bold teal heading that names the ACTUAL event (Email
- * Received, Email Sent, Customer Reached, Voicemail Left, Follow-up Scheduled,
- * …), the employee name and timestamp underneath, and the actual message or
- * meaningful detail when present. Internal markers and channel/prefix
+ * Received, Email Sent, Automated Email Reply, Customer Reached, Voicemail Left,
+ * Follow-up Scheduled, …), the employee name and timestamp underneath, and the
+ * actual message or meaningful detail when present. An automated inbound reply
+ * is titled "Automated … Reply", never shown as a genuine "Received". Internal markers and channel/prefix
  * boilerplate are removed by the normalization, so a stored
  * "Customer email response received: I need more info. [inbound]" shows as the
  * heading "Email Received" over the message "I need more info." A legacy record
@@ -70,6 +71,21 @@ const events: HistoryEvent[] = [
     timelineHeading: 'Text Received',
     communications: [
       { id: 'c3', channel: 'text', outcome: 'touch', reached: false, direction: 'incoming', detail: 'Got it, thanks!', systemDescription: null },
+    ],
+  },
+  // Automated incoming email (out-of-office): a distinct, non-genuine event —
+  // titled "Automated Email Reply", never "Email Received", and it never marks
+  // the customer engaged.
+  {
+    at: daysAgo(1, 11, 30),
+    summary: 'Email',
+    by: 'Dulce Alvarez',
+    reached: false,
+    kind: 'contact',
+    direction: 'automated',
+    timelineHeading: 'Automated Email Reply',
+    communications: [
+      { id: 'c3a', channel: 'email', outcome: 'touch', reached: false, direction: 'automated', detail: 'Out of office until Monday.', systemDescription: null },
     ],
   },
   // Reached on a call, with the operator's own note.

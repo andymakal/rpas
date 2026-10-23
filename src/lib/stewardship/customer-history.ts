@@ -111,10 +111,18 @@ const CHANNEL_NOUN: Partial<Record<OutreachChannel, string>> = {
  *   voicemail               -> Voicemail Left
  *   call unusable           -> Bad Number
  *   call no-answer/outgoing  -> No Answer
+ *   email automated          -> Automated Email Reply
  *   email outgoing           -> Email Sent      | incoming -> Email Received
  *   email unusable           -> Email Undeliverable
+ *   text  automated          -> Automated Text Reply
  *   text  outgoing           -> Text Sent        | incoming -> Text Received
  *   postal outgoing          -> Postal Mail Sent | incoming -> Postal Mail Received
+ *
+ * An AUTOMATED inbound reply (out-of-office, delivery receipt) is a distinct,
+ * non-genuine event. It is titled "Automated … Reply" and is NEVER shown as a
+ * genuine "Received" communication. This is presentation only; it does not
+ * touch the engagement rule — an automated reply still never marks the customer
+ * engaged (that is decided when the touch is recorded, not here).
  */
 function contactHeading(comms: HistoryCommunication[]): string | null {
   if (comms.length === 0) return null
@@ -135,23 +143,29 @@ function contactHeading(comms: HistoryCommunication[]): string | null {
   const lead = reachedCall ?? voicemail ?? knownDirected
   if (!lead) return null
 
-  const inbound = lead.direction === 'incoming' || lead.direction === 'automated'
+  // Three-way direction, so an automated reply is never conflated with a
+  // genuine incoming communication.
+  const automated = lead.direction === 'automated'
+  const incoming = lead.direction === 'incoming'
 
   switch (lead.channel) {
     case 'call':
       if (lead.reached) return 'Customer Reached'
-      if (inbound) return 'Incoming Call'
+      if (automated) return 'Automated Call Reply'
+      if (incoming) return 'Incoming Call'
       if (lead.outcome === 'unusable') return 'Bad Number'
       return 'No Answer'
     case 'voicemail':
       return 'Voicemail Left'
     case 'email':
+      if (automated) return 'Automated Email Reply'
       if (lead.outcome === 'unusable') return 'Email Undeliverable'
-      return inbound ? 'Email Received' : 'Email Sent'
+      return incoming ? 'Email Received' : 'Email Sent'
     case 'text':
-      return inbound ? 'Text Received' : 'Text Sent'
+      if (automated) return 'Automated Text Reply'
+      return incoming ? 'Text Received' : 'Text Sent'
     case 'postal':
-      return inbound ? `${CHANNEL_NOUN.postal} Received` : `${CHANNEL_NOUN.postal} Sent`
+      return incoming ? `${CHANNEL_NOUN.postal} Received` : `${CHANNEL_NOUN.postal} Sent`
     default:
       return null
   }
