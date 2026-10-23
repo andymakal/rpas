@@ -13,18 +13,22 @@
  * Review) must keep their current behavior. This presentation is adopted only
  * where a screen opts in, so nothing else changes.
  *
- * The presentation, per the workflow visual standard:
- *   - Bold teal event headings (the brand accent, not near-black).
- *   - Clear incoming/outgoing communication titles for a conversation event
- *     ("Incoming email", "Outgoing reply", "Automated reply"), so the worker
- *     reads direction at a glance.
- *   - Employee name and timestamp directly underneath the heading.
- *   - Communication content underneath that, when present.
- *   - Longer messages collapse to a few lines with an inline Show more / Show
- *     less, so one long note never dominates the column.
- *   - No redundant customer name or "Customer history" label repeated per row:
- *     the card already belongs to one customer, so the event leads with what
- *     happened, not who it is about.
+ * The presentation, per the workflow visual standard, is deliberately simple:
+ *   1. A bold teal heading that names the ACTUAL event — "Email Received",
+ *      "Email Sent", "Text Received", "Text Sent", "Incoming Call", "Customer
+ *      Reached", "No Answer", "Voicemail Left", "Email Undeliverable",
+ *      "Follow-up Scheduled", "Follow-up Completed". The heading is derived in
+ *      the shared history normalization (`event.timelineHeading`), never a
+ *      generic "incoming/outgoing" label; it falls back to the grouped summary
+ *      for a legacy record whose direction is unknown, so no direction is
+ *      invented.
+ *   2. Employee name · date and time directly underneath.
+ *   3. The actual message or meaningful detail, when present — with internal
+ *      markers (e.g. [inbound]) and redundant channel/prefix boilerplate already
+ *      removed by the normalization. Longer messages collapse behind Show more.
+ *
+ * No repeated customer name, no "Customer history" label per row, and no
+ * redundant channel line: the heading already names the event.
  *
  * It reuses `formatHistoryTimestamp` and the `HistoryEvent` shape verbatim, so
  * the one history model remains the single source of truth.
@@ -55,22 +59,17 @@ const PREVIEW_COUNT = 5
 const MESSAGE_CLAMP = 160
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Event heading — the bold teal title, titled by direction for a conversation.
+// Event heading — the bold teal, event-specific title.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The bold teal heading text for one event. A conversation event is titled by
- * who initiated it (incoming / outgoing / automated); research, enrollment, and
- * milestone events keep the grouped summary the model already produced. */
+/** The bold teal heading text for one event: the precise, event-specific
+ * heading from the normalization (`timelineHeading`), falling back to the
+ * grouped summary for a legacy record whose direction/event is unknown. */
 function headingFor(event: HistoryEvent): string {
-  if (event.kind === 'contact') {
-    if (event.direction === 'incoming') return 'Incoming response'
-    if (event.direction === 'automated') return 'Automated reply'
-    if (event.direction === 'outgoing') return 'Outgoing reply'
-  }
-  return event.summary
+  return event.timelineHeading ?? event.summary
 }
 
-/** The small affordance icon for one event, chosen by kind and direction. */
+/** The small affordance icon for one event, chosen to match its heading. */
 function IconFor({ event }: { event: HistoryEvent }) {
   if (event.kind === 'enrollment') return <FolderPlus className="size-3.5" aria-hidden />
   if (event.kind === 'research') return <Search className="size-3.5" aria-hidden />
@@ -126,19 +125,27 @@ function TimelineEvent({
   actorTimeZone: string | null
 }) {
   const heading = headingFor(event)
-  // The channel/summary line for a conversation event, so the direction title
-  // does not hide WHICH channel (e.g. "Incoming response" over "Email · Text").
-  // Research/enrollment/milestone events already carry meaning in the heading,
-  // so no second line is shown there.
-  const subheading = event.kind === 'contact' ? event.summary : null
 
-  // The message content, when present. For a conversation, the operator's own
-  // notes on the underlying communications; the system description otherwise.
+  // The actual message content, when present: the operator's own notes on the
+  // underlying communications (markers/prefix already stripped by the
+  // normalization). A system description is shown only when it adds meaning
+  // beyond the heading. No redundant channel line — the heading names the event.
   const notes = event.communications
     .map((c) => c.detail)
-    .filter((d): d is string => !!d && d !== event.summary && d !== event.description)
+    .filter((d): d is string => !!d && d !== event.summary && d !== event.description && d !== heading)
+  // A system description is shown only when it ADDS meaning beyond the heading.
+  // The terse outcome restatements ("Reached the customer.", "Left a
+  // voicemail.", "Bad number recorded.") simply echo a heading like "Customer
+  // Reached" / "Voicemail Left", so they are suppressed; a richer description
+  // (e.g. the introductory email that carried the authorization form) is kept.
+  const REDUNDANT_SYSTEM = /^(Reached the customer\.?|Left a voicemail\.?|Bad number recorded\.?)$/i
   const systemLine =
-    event.description && event.description !== event.summary ? event.description : null
+    event.description &&
+    event.description !== event.summary &&
+    event.description !== heading &&
+    !REDUNDANT_SYSTEM.test(event.description.trim())
+      ? event.description
+      : null
   const projectLine = event.kind === 'enrollment' ? event.projectName ?? null : null
 
   return (
@@ -164,11 +171,6 @@ function TimelineEvent({
         {event.by ? `${event.by} \u00b7 ` : ''}
         {formatHistoryTimestamp(event.at, actorTimeZone)}
       </p>
-
-      {/* The channel/summary line for a conversation (what channel it was). */}
-      {subheading && (
-        <p className="mt-1 text-sm font-medium text-ink-secondary">{subheading}</p>
-      )}
 
       {/* System description of the recorded action, when it adds meaning. */}
       {systemLine && <Message text={systemLine} />}

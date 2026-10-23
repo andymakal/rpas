@@ -59,6 +59,120 @@ function directionOfNote(note: string | null): HistoryDirection {
   return noteIndicatesAutomated(note) ? 'automated' : 'incoming'
 }
 
+/**
+ * Whether a touch note's DIRECTION is actually KNOWN from how it was recorded,
+ * as opposed to merely defaulting to outgoing. Direction is known when:
+ *   - it carries the inbound marker (a recorded incoming/automated reply), or
+ *   - it carries the outgoing "Servicing-agent onboarding <channel>" prefix the
+ *     touch/transition routes write, or
+ *   - it carries a recognized outcome/system marker or phrase that only an
+ *     outgoing workflow action writes (reached, voicemail, bad number, etc.).
+ * A bare legacy row with none of these has UNKNOWN direction, so the timeline
+ * must not invent one — it falls back to the grouped summary heading.
+ */
+function directionIsKnown(note: string | null): boolean {
+  if (!note) return false
+  if (noteIndicatesInbound(note)) return true
+  if (/^Servicing-agent onboarding\s+(?:call|voicemail|text|email|postal)\b/i.test(note.trim())) return true
+  // An outgoing workflow outcome leaves one of these stable signatures.
+  if (noteIndicatesReached(note)) return true
+  if (/\[no-contact\]|\[channel-unusable/i.test(note)) return true
+  for (const re of SYSTEM_OUTCOME_PHRASES) {
+    if (re.test(stripMarkersAndPrefix(note))) return true
+  }
+  return false
+}
+
+// ---------------------------------------------------------------------------
+// Timeline event headings — the precise, event-specific titles the Relationship
+// Timeline shows. Each names the ACTUAL recorded event (channel + direction +
+// outcome, or milestone type), never a generic "incoming/outgoing" label.
+// Additive: computed here and read only by the Relationship Timeline.
+// ---------------------------------------------------------------------------
+
+/** Title-case channel noun for a communication heading. */
+const CHANNEL_NOUN: Partial<Record<OutreachChannel, string>> = {
+  email: 'Email',
+  text: 'Text',
+  postal: 'Postal Mail',
+}
+
+/**
+ * The precise heading for one grouped CONTACT interaction, derived from its
+ * communications. Returns null when direction is unknown for every
+ * communication (a legacy record), so the timeline falls back to the grouped
+ * summary rather than inventing a direction.
+ *
+ * The lead communication is the one that defines the event: a reached/voicemail
+ * call outcome leads; otherwise the first communication whose direction is
+ * known. Headings map to the agreed vocabulary:
+ *   call reached            -> Customer Reached
+ *   call incoming           -> Incoming Call
+ *   voicemail               -> Voicemail Left
+ *   call unusable           -> Bad Number
+ *   call no-answer/outgoing  -> No Answer
+ *   email outgoing           -> Email Sent      | incoming -> Email Received
+ *   email unusable           -> Email Undeliverable
+ *   text  outgoing           -> Text Sent        | incoming -> Text Received
+ *   postal outgoing          -> Postal Mail Sent | incoming -> Postal Mail Received
+ */
+function contactHeading(comms: HistoryCommunication[]): string | null {
+  if (comms.length === 0) return null
+
+  // Prefer a call that reached, then a voicemail (a voicemail channel means one
+  // was left regardless of the [no-contact] marker, which only says the call
+  // did not reach), then any communication whose direction is known. This names
+  // the meaningful event in a grouped interaction without inventing anything.
+  // "Customer Reached" and "Voicemail Left" carry no direction, so they are
+  // safe even for a legacy row; the direction-bearing headings below are only
+  // reached via `knownDirected`, so a legacy row of unknown direction never
+  // produces an invented "Received"/"Sent"/"Incoming" heading.
+  const reachedCall = comms.find((c) => c.channel === 'call' && c.reached)
+  const voicemail = comms.find((c) => c.channel === 'voicemail')
+  const knownDirected = comms.find(
+    (c) => c.direction === 'incoming' || c.direction === 'automated' || directionKnownFor(c),
+  )
+  const lead = reachedCall ?? voicemail ?? knownDirected
+  if (!lead) return null
+
+  const inbound = lead.direction === 'incoming' || lead.direction === 'automated'
+
+  switch (lead.channel) {
+    case 'call':
+      if (lead.reached) return 'Customer Reached'
+      if (inbound) return 'Incoming Call'
+      if (lead.outcome === 'unusable') return 'Bad Number'
+      return 'No Answer'
+    case 'voicemail':
+      return 'Voicemail Left'
+    case 'email':
+      if (lead.outcome === 'unusable') return 'Email Undeliverable'
+      return inbound ? 'Email Received' : 'Email Sent'
+    case 'text':
+      return inbound ? 'Text Received' : 'Text Sent'
+    case 'postal':
+      return inbound ? `${CHANNEL_NOUN.postal} Received` : `${CHANNEL_NOUN.postal} Sent`
+    default:
+      return null
+  }
+}
+
+/** Per-communication direction-known flag, carried from the note at build time
+ * so contactHeading can prefer a communication whose direction is settled. */
+const DIRECTION_KNOWN = new WeakMap<HistoryCommunication, boolean>()
+function directionKnownFor(c: HistoryCommunication): boolean {
+  return DIRECTION_KNOWN.get(c) === true
+}
+
+/** The precise heading for a workflow MILESTONE event (follow-up scheduled /
+ * completed / refusal), from the already-derived summary. */
+function milestoneHeading(summary: string): string {
+  if (/completed/i.test(summary)) return 'Follow-up Completed'
+  if (/follow-up/i.test(summary)) return 'Follow-up Scheduled'
+  if (/refus/i.test(summary)) return 'Customer Declined'
+  return summary
+}
+
 // ---------------------------------------------------------------------------
 // Raw input — one case_touches row, exactly as stored. The route selects these
 // columns and hands them over; this module never reads the database itself.
@@ -146,6 +260,16 @@ export interface HistoryEvent {
    * research, enrollment, and milestone events leave it 'outgoing'. The existing
    * Customer History card ignores this field. */
   direction?: HistoryDirection
+  /** The precise, event-specific heading for the Relationship Timeline (e.g.
+   * "Email Received", "Customer Reached", "Voicemail Left", "Follow-up
+   * Scheduled"). It names the ACTUAL event from the recorded channel, direction,
+   * outcome, and milestone type — never a generic "incoming/outgoing" label.
+   * Additive: only the Relationship Timeline reads it; the existing Customer
+   * History card ignores it and keeps its grouped `summary`. Null when no
+   * confident heading can be derived (e.g. a legacy record of unknown
+   * direction), so the timeline falls back to the grouped summary rather than
+   * inventing direction. */
+  timelineHeading?: string | null
   /** For an enrollment event, the project the customer was added to, shown as
    * the detail line under the summary. Unused for other kinds. */
   projectName?: string
@@ -255,14 +379,21 @@ const SYSTEM_OUTCOME_PHRASES: readonly RegExp[] = [
 export function cleanHistoryNote(note: string | null): string | null {
   if (!note) return null
   let cleaned = note
-    // Every stored machine marker, including the address research marker.
+    // Every stored machine marker, including the address research marker and the
+    // inbound-direction marker (an internal flag that must never be displayed).
     .replace(/\[research-(?:email|phone|address)-not-found\]/gi, '')
     .replace(/\[channel-unusable(?::[^\]]*)?\]/gi, '')
     .replace(/\[no-contact\]/gi, '')
     .replace(/\[reached\]/gi, '')
-    // The "Servicing-agent onboarding <channel>" boilerplate prefix, with or
-    // without the trailing ": " (employee note) or "." (no note).
+    .replace(/\[inbound\]/gi, '')
+    // The outgoing "Servicing-agent onboarding <channel>" boilerplate prefix,
+    // and the inbound "Customer <channel> response received" / "Automated
+    // <channel> reply received" prefixes the touch route prepends — with or
+    // without the trailing ": " (employee note) or "." (no note). Stripping
+    // these leaves only the operator's own words as the displayed message.
     .replace(/^Servicing-agent onboarding\s+(?:call|voicemail|text|email|postal)\s*[:.]?\s*/i, '')
+    .replace(/^Customer\s+(?:call|voicemail|text|email|postal)\s+response received\s*[:.]?\s*/i, '')
+    .replace(/^Automated\s+(?:call|voicemail|text|email|postal)\s+reply received\s*[:.]?\s*/i, '')
     .trim()
   // Remove a leading system outcome phrase; a genuine employee note (if any)
   // follows it and is kept.
@@ -295,7 +426,10 @@ function stripMarkersAndPrefix(note: string): string {
     .replace(/\[channel-unusable(?::[^\]]*)?\]/gi, '')
     .replace(/\[no-contact\]/gi, '')
     .replace(/\[reached\]/gi, '')
+    .replace(/\[inbound\]/gi, '')
     .replace(/^Servicing-agent onboarding\s+(?:call|voicemail|text|email|postal)\s*[:.]?\s*/i, '')
+    .replace(/^Customer\s+(?:call|voicemail|text|email|postal)\s+response received\s*[:.]?\s*/i, '')
+    .replace(/^Automated\s+(?:call|voicemail|text|email|postal)\s+reply received\s*[:.]?\s*/i, '')
     .replace(/\s{2,}/g, ' ')
     .trim()
 }
@@ -522,6 +656,7 @@ function buildWorkflowEvents(rows: HistoryTouchRow[]): HistoryEvent[] {
       by: r.touched_by,
       reached: false,
       kind: 'milestone' as const,
+      timelineHeading: milestoneHeading(summary),
       communications: [],
     }
   })
@@ -625,15 +760,21 @@ export function buildCustomerHistory(
         candidates.find((r) => !used.has(r) && r.touch_type === c.channel) ??
         candidates.find((r) => !used.has(r))
       if (row) used.add(row)
-      return {
+      const note = row?.notes ?? null
+      const comm: HistoryCommunication = {
         id: row?.id ?? `${c.at}-${c.channel}`,
         channel: c.channel,
         outcome: c.outcome ?? 'touch',
         reached: c.reached === true,
-        direction: directionOfNote(row?.notes ?? null),
-        detail: cleanHistoryNote(row?.notes ?? null),
-        systemDescription: describeHistoryNote(row?.notes ?? null),
+        direction: directionOfNote(note),
+        detail: cleanHistoryNote(note),
+        systemDescription: describeHistoryNote(note),
       }
+      // Record whether this communication's direction is actually known (vs a
+      // legacy row defaulting to outgoing), so the heading builder can prefer a
+      // settled communication and fall back cleanly when none is known.
+      DIRECTION_KNOWN.set(comm, directionIsKnown(note))
+      return comm
     })
     // Attribution: the employee name on any communication in the interaction.
     const by =
@@ -664,6 +805,9 @@ export function buildCustomerHistory(
       reached: a.reached,
       kind: 'contact' as const,
       direction,
+      // The precise, event-specific timeline heading (null for a legacy record
+      // of unknown direction, so the timeline falls back to the summary).
+      timelineHeading: contactHeading(communications),
       communications,
     }
   })

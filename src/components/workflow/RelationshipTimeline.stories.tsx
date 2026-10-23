@@ -9,9 +9,17 @@ import type { HistoryEvent } from '@/lib/stewardship/customer-history'
  * The improved, opt-in presentation over the same customer history model
  * (case_touches, grouped into interactions) the Customer History card renders.
  * Adopted by Customer Interaction; the existing card and its other consumers
- * are unchanged. Bold teal headings, incoming/outgoing titles, employee name
- * and timestamp underneath, expandable message content, and no repeated
- * customer name.
+ * are unchanged.
+ *
+ * Each event shows a bold teal heading that names the ACTUAL event (Email
+ * Received, Email Sent, Customer Reached, Voicemail Left, Follow-up Scheduled,
+ * …), the employee name and timestamp underneath, and the actual message or
+ * meaningful detail when present. Internal markers and channel/prefix
+ * boilerplate are removed by the normalization, so a stored
+ * "Customer email response received: I need more info. [inbound]" shows as the
+ * heading "Email Received" over the message "I need more info." A legacy record
+ * of unknown direction falls back to its grouped summary rather than inventing
+ * a direction.
  */
 
 function daysAgo(n: number, hour = 10, minute = 15): string {
@@ -22,103 +30,123 @@ function daysAgo(n: number, hour = 10, minute = 15): string {
 }
 
 const LONG_NOTE =
-  'Customer called back after the voicemail. She asked a lot about how the 1035 exchange affects the surrender charge on her existing annuity, and wanted to understand whether her current death benefit carries over. She is interested but wants to talk it over with her husband this weekend and will let us know Monday. Asked us to email the authorization form again because she could not find the first one.'
+  'Customer called back after the voicemail. She asked a lot about how the 1035 exchange affects the surrender charge on her existing annuity, and wanted to understand whether her current death benefit carries over. She is interested but wants to talk it over with her husband this weekend and will let us know Monday.'
 
 const events: HistoryEvent[] = [
+  // John's existing incoming email: "Email Received" over "I need more info."
   {
     at: daysAgo(0, 14, 5),
     summary: 'Email',
+    by: 'Bob Pfromm',
+    reached: false,
+    kind: 'contact',
+    direction: 'incoming',
+    timelineHeading: 'Email Received',
+    communications: [
+      { id: 'c1', channel: 'email', outcome: 'touch', reached: false, direction: 'incoming', detail: 'I need more info.', systemDescription: null },
+    ],
+  },
+  // Outgoing email reply.
+  {
+    at: daysAgo(0, 15, 20),
+    summary: 'Email',
+    by: 'Bob Pfromm',
+    reached: false,
+    kind: 'contact',
+    direction: 'outgoing',
+    timelineHeading: 'Email Sent',
+    communications: [
+      { id: 'c2', channel: 'email', outcome: 'touch', reached: false, direction: 'outgoing', detail: 'Sent over the details you asked for and the authorization form.', systemDescription: null },
+    ],
+  },
+  // Incoming text.
+  {
+    at: daysAgo(1, 9, 2),
+    summary: 'Text',
     by: 'Dulce Alvarez',
     reached: false,
     kind: 'contact',
     direction: 'incoming',
+    timelineHeading: 'Text Received',
     communications: [
-      {
-        id: 'c1',
-        channel: 'email',
-        outcome: 'touch',
-        reached: false,
-        direction: 'incoming',
-        detail: LONG_NOTE,
-        systemDescription: null,
-      },
+      { id: 'c3', channel: 'text', outcome: 'touch', reached: false, direction: 'incoming', detail: 'Got it, thanks!', systemDescription: null },
     ],
   },
+  // Reached on a call, with the operator's own note.
   {
-    at: daysAgo(0, 15, 20),
-    summary: 'Email',
+    at: daysAgo(2, 11, 0),
+    summary: 'Reached',
+    description: 'Reached the customer.',
+    by: 'Dulce Alvarez',
+    reached: true,
+    kind: 'contact',
+    direction: 'outgoing',
+    timelineHeading: 'Customer Reached',
+    communications: [
+      { id: 'c4', channel: 'call', outcome: 'touch', reached: true, direction: 'outgoing', detail: LONG_NOTE, systemDescription: 'Reached the customer.' },
+    ],
+  },
+  // Voicemail left.
+  {
+    at: daysAgo(4, 10, 10),
+    summary: 'No Answer \u00b7 Voicemail',
     by: 'Dulce Alvarez',
     reached: false,
     kind: 'contact',
     direction: 'outgoing',
+    timelineHeading: 'Voicemail Left',
     communications: [
-      {
-        id: 'c2',
-        channel: 'email',
-        outcome: 'touch',
-        reached: false,
-        direction: 'outgoing',
-        detail: 'Re-sent the authorization form and answered her surrender-charge question.',
-        systemDescription: null,
-      },
+      { id: 'c5', channel: 'call', outcome: 'no_contact', reached: false, direction: 'outgoing', detail: null, systemDescription: null },
+      { id: 'c6', channel: 'voicemail', outcome: 'touch', reached: false, direction: 'outgoing', detail: null, systemDescription: null },
     ],
   },
+  // Undeliverable email.
   {
-    at: daysAgo(1, 9, 2),
-    summary: 'Email',
+    at: daysAgo(6, 13, 0),
+    summary: 'Email unusable',
     by: 'Dulce Alvarez',
     reached: false,
     kind: 'contact',
-    direction: 'automated',
+    direction: 'outgoing',
+    timelineHeading: 'Email Undeliverable',
     communications: [
-      {
-        id: 'c3',
-        channel: 'email',
-        outcome: 'touch',
-        reached: false,
-        direction: 'automated',
-        detail: null,
-        systemDescription: null,
-      },
+      { id: 'c7', channel: 'email', outcome: 'unusable', reached: false, direction: 'outgoing', detail: null, systemDescription: null },
     ],
   },
+  // Follow-up scheduled milestone.
   {
-    at: daysAgo(2, 11, 0),
+    at: daysAgo(7, 9, 30),
     summary: 'Follow-up scheduled',
     description: 'Promised to follow up on 03/14 about the signed authorization.',
     by: 'Dulce Alvarez',
     reached: false,
     kind: 'milestone',
+    timelineHeading: 'Follow-up Scheduled',
     communications: [],
   },
+  // Follow-up completed milestone.
   {
-    at: daysAgo(5, 10, 10),
-    summary: 'Reached',
-    description: 'Reached the customer.',
-    by: 'Andy Makal',
-    reached: true,
-    kind: 'contact',
-    direction: 'outgoing',
-    communications: [
-      {
-        id: 'c4',
-        channel: 'call',
-        outcome: 'touch',
-        reached: true,
-        direction: 'outgoing',
-        detail: 'Introduced the servicing move; she was receptive.',
-        systemDescription: 'Reached the customer.',
-      },
-    ],
+    at: daysAgo(8, 16, 0),
+    summary: 'Follow-up completed',
+    description: 'Followed up on the outstanding signed authorization.',
+    by: 'Dulce Alvarez',
+    reached: false,
+    kind: 'milestone',
+    timelineHeading: 'Follow-up Completed',
+    communications: [],
   },
+  // Legacy record of unknown direction: falls back to its grouped summary.
   {
-    at: daysAgo(9, 13, 30),
-    summary: 'Added to Project',
+    at: daysAgo(40, 10, 0),
+    summary: 'Email',
     by: 'Andy Makal',
     reached: false,
-    kind: 'enrollment',
-    projectName: 'Q1 1035 Servicing Outreach',
-    communications: [],
+    kind: 'contact',
+    direction: 'outgoing',
+    timelineHeading: null,
+    communications: [
+      { id: 'c8', channel: 'email', outcome: 'touch', reached: false, detail: null, systemDescription: null },
+    ],
   },
 ]
 
@@ -138,9 +166,10 @@ export default meta
 
 type Story = StoryObj<typeof RelationshipTimeline>
 
-/** A live conversation: an incoming response with a long (expandable) message,
- * an outgoing reply, an automated reply, a milestone, a reached call, and an
- * enrollment. The five most recent show, with Show all for the rest. */
+/** A full conversation showing each event-specific heading: Email Received /
+ * Sent, Text Received, Customer Reached, Voicemail Left, Email Undeliverable,
+ * Follow-up Scheduled / Completed, and a legacy record that falls back to its
+ * summary. The five most recent show, with Show all for the rest. */
 export const ActiveConversation: Story = {
   args: { events },
 }
