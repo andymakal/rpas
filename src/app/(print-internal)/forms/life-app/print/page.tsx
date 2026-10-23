@@ -129,6 +129,10 @@ export default function BlankFactFinderPrintPage() {
               <LabelBlank label="Citizenship" w="160px" />
               <LabelBlank label="SSN" w="120px" />
             </div>
+            <div className="row">
+              <LabelBlank label="Driver's License #" w="160px" />
+              <LabelBlank label="DL State" w="70px" />
+            </div>
           </div>
 
           {/* Contact */}
