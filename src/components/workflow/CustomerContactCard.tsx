@@ -65,6 +65,13 @@ import {
   normalizeEmailInput, normalizePhoneInput, formatPhoneAsTyped,
   type ContactFieldResult,
 } from '@/lib/contact-input'
+import {
+  type EmailAvailability,
+  type EmailAvailabilityDisplay,
+  EMAIL_AVAILABILITY_LABEL,
+  EMAIL_AVAILABILITY_HELP,
+  resolveEmailAvailabilityDisplay,
+} from '@/lib/email-availability'
 
 // ── Data shape ───────────────────────────────────────────────────────────────
 
@@ -86,6 +93,10 @@ export interface CustomerContact {
   email_verified_at: string | null
   phone_verified_at: string | null
   address_verified_at: string | null
+  /** Durable email-availability fact (customers.email_availability). NULL means
+   * unknown ("Missing"). Governs how the Email section reads and whether email
+   * research is worthwhile. See `@/lib/email-availability`. */
+  email_availability: EmailAvailability | null
 }
 
 type ContactFieldKey = 'email' | 'phone' | 'address'
@@ -522,6 +533,7 @@ export type ContactPersistPayload =
   | { field: 'phone'; phone: string | null }
   | { field: 'address'; street: string | null; city: string | null; state: string | null; zip: string | null }
   | { field: ContactFieldKey; verified: boolean }
+  | { field: 'email_availability'; availability: Exclude<EmailAvailability, 'available'> }
 
 type Tone = 'confirmed' | 'known' | 'missing'
 
@@ -629,7 +641,7 @@ export function CustomerContactCard({
     }
   }, [persist, applyUpdate])
 
-  const saveField = useCallback(async (payload: ContactPersistPayload) => {
+  const saveField = useCallback(async (payload: Exclude<ContactPersistPayload, { field: 'email_availability' }>) => {
     const field = payload.field
     setBusyField(field); setError(null)
     try {
@@ -642,6 +654,26 @@ export function CustomerContactCard({
       setBusyField(null)
     }
   }, [persist, applyUpdate])
+
+  // Record a "no usable email" reason (No Email Address / Email Refused /
+  // Undeliverable) as a durable customer fact. The editor stays open so the
+  // operator sees the status update in place; the authoritative returned row
+  // reflects any address the server cleared (Undeliverable removes the address
+  // from active use and preserves it in Customer History).
+  const setEmailAvailability = useCallback(
+    async (status: Exclude<EmailAvailability, 'available'>) => {
+      setBusyField('email'); setError(null)
+      try {
+        const updated = await persist({ field: 'email_availability', availability: status })
+        applyUpdate(updated)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Could not update email availability')
+      } finally {
+        setBusyField(null)
+      }
+    },
+    [persist, applyUpdate],
+  )
 
   const emailPresent = !!record.email?.trim()
   const phonePresent = !!record.phone?.trim()
@@ -687,6 +719,8 @@ export function CustomerContactCard({
           present={emailPresent}
           verifiedAt={record.email_verified_at}
           value={record.email}
+          availability={record.email_availability}
+          onSetAvailability={(status) => setEmailAvailability(status)}
           editing={editing === 'email'}
           busy={busyField === 'email'}
           appearance={ap}
@@ -1049,12 +1083,49 @@ const inputCls = (invalid: boolean) =>
 
 // ── Email ──────────────────────────────────────────────────────────────────
 
+/** The selectable "no usable email" reasons the operator can record directly in
+ * the Email section. 'available' is never selected here — it is set by the
+ * system when a usable address is saved — so the choices are exactly the three
+ * reasons plus entering an address. */
+const EMAIL_REASON_CHOICES: readonly Exclude<EmailAvailability, 'available'>[] = [
+  'no_address', 'refused', 'undeliverable',
+]
+
+/**
+ * The read-only value line for the Email section. A usable address shows
+ * normally; otherwise it shows the recorded reason ("No Email Address", "Email
+ * Refused", "Undeliverable") or plain "Missing" when the reason is unknown — so
+ * the card explains WHY there is no email, not merely that it is absent.
+ */
+function EmailValue({
+  value, display, appearance,
+}: {
+  value: string | null
+  display: EmailAvailabilityDisplay
+  appearance: ResolvedAppearance
+}) {
+  if (display === 'on_file') {
+    return <ValueText value={value} present appearance={appearance} />
+  }
+  const label = display === 'missing' ? 'Missing' : EMAIL_AVAILABILITY_LABEL[display]
+  return (
+    <p
+      className={cn('text-lg font-medium text-status-missing-strong', weightClass(appearance.valueWeight))}
+      style={fontStyle(appearance, appearance.valueFontPx)}
+    >
+      {label}
+    </p>
+  )
+}
+
 function EmailRow({
-  present, verifiedAt, value, editing, busy, appearance, first, onEdit, onCancel, onSave, onVerify,
+  present, verifiedAt, value, availability, editing, busy, appearance, first,
+  onEdit, onCancel, onSave, onSetAvailability, onVerify,
 }: {
   present: boolean
   verifiedAt: string | null
   value: string | null
+  availability: EmailAvailability | null
   editing: boolean
   busy: boolean
   appearance: ResolvedAppearance
@@ -1062,9 +1133,11 @@ function EmailRow({
   onEdit: () => void
   onCancel: () => void
   onSave: (email: string | null) => void
+  onSetAvailability: (status: Exclude<EmailAvailability, 'available'>) => void
   onVerify: (v: boolean) => void
 }) {
   const tone = toneFor(present, verifiedAt)
+  const display = resolveEmailAvailabilityDisplay(availability, value)
   const [draft, setDraft] = useState(value ?? '')
   const [result, setResult] = useState<ContactFieldResult | null>(null)
 
@@ -1072,10 +1145,19 @@ function EmailRow({
   const open = useCallback(() => { setDraft(value ?? ''); setResult(null); onEdit() }, [value, onEdit])
 
   if (!editing) {
+    // A terminal reason reads as the field status when there is no usable
+    // address, so the section explains WHY email is absent. Verification stays
+    // bound to an actual address (SectionShell disables Verified when !present).
+    const helpText = display === 'on_file' ? null : EMAIL_AVAILABILITY_HELP[display]
     return (
       <SectionShell contactIcon={Mail} label="Email" tone={tone} present={present} verifiedAt={verifiedAt}
         busy={busy} appearance={appearance} first={first} onEdit={open} onVerify={onVerify}>
-        <ValueText value={value} present={present} appearance={appearance} />
+        <EmailValue value={value} display={display} appearance={appearance} />
+        {helpText && (
+          <p className="mt-0.5 text-sm text-ink-muted" style={fontStyle(appearance, appearance.supportingFontPx)}>
+            {helpText}
+          </p>
+        )}
       </SectionShell>
     )
   }
@@ -1107,6 +1189,42 @@ function EmailRow({
         <p className="mt-1.5 text-base text-status-missing-strong">{result.reason}</p>
       )}
       <div className="mt-2.5"><EditActions busy={busy} onCancel={onCancel} appearance={appearance} /></div>
+
+      {/* Email availability — recorded directly in the card. Entering an address
+          above and saving sets the status to "on file" and clears any prior
+          No Email Address / Undeliverable; an Email Refused stays until it is
+          explicitly reversed by recording a usable address. Each button records
+          the reason as a durable customer fact (and, for Undeliverable, moves
+          the current address into Customer History). */}
+      <fieldset className="mt-3 border-t border-surface-border-strong pt-3">
+        <legend className="text-sm font-semibold text-ink-secondary">No usable email? Record why</legend>
+        <div className="mt-1.5 flex flex-wrap gap-2">
+          {EMAIL_REASON_CHOICES.map((choice) => {
+            const active = availability === choice
+            return (
+              <button
+                key={choice}
+                type="button"
+                disabled={busy || active}
+                aria-pressed={active}
+                onClick={() => onSetAvailability(choice)}
+                className={cn(
+                  'inline-flex items-center rounded-lg border px-2.5 py-1 text-sm font-medium disabled:opacity-60',
+                  active
+                    ? 'border-status-missing-border bg-status-missing-soft text-status-missing-strong'
+                    : 'border-surface-border-strong bg-surface-card text-ink-secondary hover:bg-surface-muted',
+                )}
+              >
+                {EMAIL_AVAILABILITY_LABEL[choice]}
+              </button>
+            )
+          })}
+        </div>
+        <p className="mt-1.5 text-sm text-ink-muted">
+          No Email Address and Email Refused stop unnecessary email research. Undeliverable removes the
+          current address from use (keeping it in history) and allows research for a replacement.
+        </p>
+      </fieldset>
     </form>
   )
 }

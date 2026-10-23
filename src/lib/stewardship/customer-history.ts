@@ -400,6 +400,7 @@ export function cleanHistoryNote(note: string | null): string | null {
     .replace(/\[no-contact\]/gi, '')
     .replace(/\[reached\]/gi, '')
     .replace(/\[inbound\]/gi, '')
+    .replace(/\[email-availability:[^\]]*\]/gi, '')
     // The outgoing "Servicing-agent onboarding <channel>" boilerplate prefix,
     // and the inbound "Customer <channel> response received" / "Automated
     // <channel> reply received" prefixes the touch route prepends — with or
@@ -441,6 +442,7 @@ function stripMarkersAndPrefix(note: string): string {
     .replace(/\[no-contact\]/gi, '')
     .replace(/\[reached\]/gi, '')
     .replace(/\[inbound\]/gi, '')
+    .replace(/\[email-availability:[^\]]*\]/gi, '')
     .replace(/^Servicing-agent onboarding\s+(?:call|voicemail|text|email|postal)\s*[:.]?\s*/i, '')
     .replace(/^Customer\s+(?:call|voicemail|text|email|postal)\s+response received\s*[:.]?\s*/i, '')
     .replace(/^Automated\s+(?:call|voicemail|text|email|postal)\s+reply received\s*[:.]?\s*/i, '')
@@ -659,6 +661,7 @@ function buildWorkflowEvents(rows: HistoryTouchRow[]): HistoryEvent[] {
     const summary =
       /follow-up completed/i.test(note) ? 'Follow-up completed'
       : /follow-up/i.test(note) ? 'Follow-up scheduled'
+      : /\[email-availability:/i.test(note) || /^Email (availability|marked)/i.test(note) ? 'Email availability updated'
       : /declined|refus/i.test(note) ? 'Customer refusal'
       : 'Workflow update'
     return {

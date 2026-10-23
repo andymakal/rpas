@@ -30,6 +30,7 @@ import {
 import {
   carrierEmailSubject, carrierEmailMessage, uniqueCarriers, resolveCarrierRecipient,
 } from '@/lib/stewardship/carrier-email'
+import { type EmailAvailability } from '@/lib/email-availability'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import {
   QUEUE_META, OUTREACH_QUEUES,
@@ -218,6 +219,7 @@ type Detail = BoardItem & {
     city: string | null
     state: string | null
     zip: string | null
+    email_availability: EmailAvailability | null
   }
   source_agency_id: string | null
   holdings: Holding[]
@@ -1646,6 +1648,7 @@ function StewardshipCustomerContact({
     email_verified_at: detail.email_verified_at,
     phone_verified_at: detail.phone_verified_at,
     address_verified_at: detail.address_verified_at,
+    email_availability: c.email_availability,
   }
   return (
     <CustomerContactCard
@@ -1665,6 +1668,7 @@ function StewardshipCustomerContact({
           city: u.city,
           state: u.state,
           zip: u.zip,
+          email_availability: u.email_availability,
         },
       } : prev)}
     />

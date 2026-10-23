@@ -46,6 +46,7 @@ import {
   describeContactResearchSelection,
   type HistoryEvent,
 } from '@/lib/stewardship/customer-history'
+import { type EmailAvailability } from '@/lib/email-availability'
 import {
   MentorGuidance, useMentorDisclosure, MentorCapButton, MentorCapPanel,
 } from '@/lib/mentoring/MentorUi'
@@ -68,6 +69,7 @@ type ContactReviewCustomer = {
   email_verified_at: string | null
   phone_verified_at: string | null
   address_verified_at: string | null
+  email_availability: EmailAvailability | null
   policy_number: string | null
   /** Reachability. 'needs_research' = reachable (missing one method), routine
    * active list. 'no_usable_contact' = no usable email or phone at all, always
@@ -470,7 +472,8 @@ export function ContactReviewClient({
                 city: updated.city, state: updated.state, zip: updated.zip,
                 email_verified_at: updated.email_verified_at,
                 phone_verified_at: updated.phone_verified_at,
-                address_verified_at: updated.address_verified_at }
+                address_verified_at: updated.address_verified_at,
+                email_availability: updated.email_availability }
             : r))
           setReopened(prev => prev && prev.customer_id === updated.id
             ? { ...prev,
@@ -481,7 +484,8 @@ export function ContactReviewClient({
                 city: updated.city, state: updated.state, zip: updated.zip,
                 email_verified_at: updated.email_verified_at,
                 phone_verified_at: updated.phone_verified_at,
-                address_verified_at: updated.address_verified_at }
+                address_verified_at: updated.address_verified_at,
+                email_availability: updated.email_availability }
             : prev)
         }}
         onSaved={() => {
@@ -763,6 +767,7 @@ function toCardCustomer(c: ContactReviewCustomer): CustomerContact {
     email_verified_at: c.email_verified_at,
     phone_verified_at: c.phone_verified_at,
     address_verified_at: c.address_verified_at,
+    email_availability: c.email_availability,
   }
 }
 

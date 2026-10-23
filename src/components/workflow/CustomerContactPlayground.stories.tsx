@@ -82,6 +82,7 @@ const baseRecord: Omit<
   city: 'Philadelphia',
   state: 'PA',
   zip: '19102',
+  email_availability: 'available',
 }
 
 type ContactState = 'verified' | 'onfile' | 'missing' | 'mixed'
@@ -98,6 +99,7 @@ function recordForState(state: ContactState): CustomerContact {
       ...baseRecord,
       email: null, phone: null, street: null, city: null, state: null, zip: null,
       email_verified_at: null, phone_verified_at: null, address_verified_at: null,
+      email_availability: null,
     }
   }
   if (state === 'mixed') {
@@ -421,9 +423,21 @@ function makeInteractivePersist(
         : payload.field === 'phone' ? 'phone_verified_at'
         : 'address_verified_at'
       next = { ...record, [colKey]: payload.verified ? now : null }
+    } else if (payload.field === 'email_availability') {
+      // Undeliverable retires the current address (kept in history in the app);
+      // the other reasons only record the status. Mirrors the app route.
+      next = payload.availability === 'undeliverable'
+        ? { ...record, email_availability: 'undeliverable', email: null, email_verified_at: null }
+        : { ...record, email_availability: payload.availability }
     } else if (payload.field === 'email') {
       const changed = (payload.email ?? null) !== (record.email ?? null)
-      next = { ...record, email: payload.email, email_verified_at: changed ? null : record.email_verified_at }
+      // A usable replacement clears No Email Address / Undeliverable -> available;
+      // Email Refused persists until explicitly reversed.
+      const clearable = record.email_availability === 'no_address' || record.email_availability === 'undeliverable'
+      const email_availability = payload.email && (clearable || record.email_availability == null)
+        ? 'available'
+        : record.email_availability
+      next = { ...record, email: payload.email, email_verified_at: changed ? null : record.email_verified_at, email_availability }
     } else if (payload.field === 'phone') {
       const changed = (payload.phone ?? null) !== (record.phone ?? null)
       next = { ...record, phone: payload.phone, phone_verified_at: changed ? null : record.phone_verified_at }
