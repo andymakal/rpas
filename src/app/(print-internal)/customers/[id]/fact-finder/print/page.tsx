@@ -124,6 +124,24 @@ export default async function FactFinderPrintPage({ params }: { params: Promise<
     benefit_amount: typeof o.benefit_amount === 'string' ? o.benefit_amount : '',
     annual_premium: typeof o.annual_premium === 'string' ? o.annual_premium : '',
   }))
+  const investments = arr(ff, 'investment_accounts', o => ({
+    institution:         typeof o.institution         === 'string' ? o.institution         : '',
+    account_type:        typeof o.account_type        === 'string' ? o.account_type        : '',
+    approximate_value:   typeof o.approximate_value   === 'string' ? o.approximate_value   : '',
+    ownership:           typeof o.ownership           === 'string' ? o.ownership           : 'individual',
+    related_person_name: typeof o.related_person_name === 'string' ? o.related_person_name : '',
+  }))
+
+  const acctTypeLabel: Record<string, string> = {
+    brokerage: 'Brokerage', mutual_fund: 'Mutual Fund',
+    ira_traditional: 'IRA (Traditional)', ira_roth: 'IRA (Roth)',
+    '401k': '401(k)', '403b': '403(b)', annuity: 'Annuity',
+    utma_ugma: 'UTMA / UGMA', '529': '529 Plan', other: 'Other',
+  }
+  const ownershipLabel: Record<string, string> = {
+    individual: 'Individual', joint_spouse: 'Joint – Spouse',
+    joint_other: 'Joint – Other', custodian: 'UTMA / Custodial',
+  }
 
   const maritalMap: Record<string, string> = {
     single: 'Single', married: 'Married', divorced: 'Divorced',
@@ -679,6 +697,33 @@ export default async function FactFinderPrintPage({ params }: { params: Promise<
                       <td style={{ padding: '5px 4px' }}>{p.insured || ' '}</td>
                       <td style={{ padding: '5px 4px' }}>{p.benefit_amount || ' '}</td>
                       <td style={{ padding: '5px 4px' }}>{p.annual_premium || ' '}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </>
+          )}
+          {investments.length > 0 && (
+            <>
+              <div style={{ fontSize: 10, fontWeight: 700, marginTop: 8, marginBottom: 4, color: '#333' }}>Investment &amp; Brokerage Accounts</div>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Institution</th>
+                    <th>Account Type</th>
+                    <th>Approx. Value</th>
+                    <th>Ownership</th>
+                    <th>Joint / Custodian</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {investments.map((inv, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid #e5e5e5' }}>
+                      <td style={{ padding: '5px 4px' }}>{inv.institution || ' '}</td>
+                      <td style={{ padding: '5px 4px' }}>{(acctTypeLabel[inv.account_type] ?? inv.account_type) || ' '}</td>
+                      <td style={{ padding: '5px 4px' }}>{inv.approximate_value || ' '}</td>
+                      <td style={{ padding: '5px 4px' }}>{(ownershipLabel[inv.ownership] ?? inv.ownership) || ' '}</td>
+                      <td style={{ padding: '5px 4px' }}>{inv.related_person_name || ' '}</td>
                     </tr>
                   ))}
                 </tbody>

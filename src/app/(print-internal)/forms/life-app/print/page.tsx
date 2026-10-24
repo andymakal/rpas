@@ -303,6 +303,19 @@ export default function BlankFactFinderPrintPage() {
             </table>
           </div>
 
+          {/* Investment & Brokerage Accounts */}
+          <div className="section">
+            <div className="section-title">Investment &amp; Brokerage Accounts</div>
+            <table>
+              <thead>
+                <tr><th>Institution</th><th>Account Type</th><th>Approx. Value</th><th>Ownership</th><th>Joint Owner / Custodian</th></tr>
+              </thead>
+              <tbody>
+                {blankRows(3, ['Institution', 'Account Type', 'Approx. Value', 'Ownership', 'Joint Owner / Custodian'])}
+              </tbody>
+            </table>
+          </div>
+
           {/* Primary Beneficiaries */}
           <div className="section">
             <div className="section-title">Primary Beneficiaries</div>
