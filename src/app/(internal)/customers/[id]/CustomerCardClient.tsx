@@ -135,6 +135,18 @@ function fmtStatus(s: string | null): string {
   return STATUS_LABELS[s] ?? s.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 }
 
+const COVERAGE_STATUS_LABELS: Record<string, string> = {
+  nfs:       'NFS',
+  lapsed:    'Lapsed',
+  cancelled: 'Cancelled',
+  expired:   'Expired',
+}
+
+function fmtCoverageStatus(s: string): string {
+  const key = s.toLowerCase()
+  return COVERAGE_STATUS_LABELS[key] ?? (s.charAt(0).toUpperCase() + s.slice(1).toLowerCase())
+}
+
 function statusDotColor(s: string): string {
   if (s === 'placed')                        return 'bg-green-500 border-green-700'
   if (s === 'not_interested' || s === 'lost') return 'bg-red-500 border-red-700'
@@ -1588,8 +1600,8 @@ export function CustomerCardClient({
                       </td>
                       <td className="px-4 py-3">
                         {TERMINAL_COVERAGE.has((p.coverage_status ?? '').toLowerCase()) ? (
-                          <span className="text-xs px-1.5 py-0.5 rounded bg-red-900/30 text-red-400 border border-red-800/50 font-medium capitalize">
-                            {(p.coverage_status ?? '').charAt(0).toUpperCase() + (p.coverage_status ?? '').slice(1).toLowerCase()}
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-red-900/30 text-red-400 border border-red-800/50 font-medium">
+                            {fmtCoverageStatus(p.coverage_status ?? '')}
                           </span>
                         ) : p.flag_count > 0 ? (
                           <span className="inline-flex items-center gap-1 text-xs text-amber-400">
