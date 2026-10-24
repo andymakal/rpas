@@ -8,7 +8,7 @@ import { getAttemptHistory } from '@/lib/stewardship/attempt-history'
 import { buildCustomerHistory, type HistoryTouchRow } from '@/lib/stewardship/customer-history'
 import { resolveNextCallDate } from '@/lib/stewardship/call-cadence'
 import { resolveContactOptions } from '@/lib/stewardship/contact-options'
-import { type EmailAvailability, emailResearchSuppressed } from '@/lib/email-availability'
+import { type EmailAvailability } from '@/lib/email-availability'
 import { OUTCOME_MARKERS, REACHED_MARKER, buildUnusableMarker } from '@/lib/stewardship/outreach-attempts'
 import {
   buildResearchTouchRows,
@@ -276,16 +276,7 @@ export async function GET(
   // while leaving the research action available for a deliberate retry. A method
   // with a value on file is never "settled by research" (presence makes it
   // moot), so a newly-found value re-opens it on its own.
-  const recordedUnsuccessfully = await readResearchedUnsuccessfully(supabase, customerId)
-  // A durable "No Email Address" or "Email Refused" fact settles the email
-  // method exactly as recorded unsuccessful research does: there is no usable
-  // address to find, so email research is not worth recommending. "Undeliverable"
-  // does NOT settle it (seek a replacement). Folded in so the board's
-  // settled/recommended judgment honors the customer's current email status.
-  const researchedUnsuccessfully = {
-    ...recordedUnsuccessfully,
-    email: recordedUnsuccessfully.email || emailResearchSuppressed(cust.email_availability),
-  }
+  const researchedUnsuccessfully = await readResearchedUnsuccessfully(supabase, customerId)
   // The board's Research Needed exception is about a reachable email/phone path
   // for outreach only. Mailing address is an independent contact method owned by
   // the Contact Research surface, so it is held present here (hasAddress: true)

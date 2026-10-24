@@ -31,7 +31,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { QUEUE_META, OUTREACH_QUEUES, deriveFollowUpRouting, deriveEmailRouting, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
 import { readResearchedUnsuccessfullyBatch, stillNeedsResearchRecommendation } from '@/lib/stewardship/research-record'
-import { type EmailAvailability, emailResearchSuppressed } from '@/lib/email-availability'
 import { createTimeContext } from '@/lib/time'
 import { decideDailyDirection } from './engine'
 import { isCallbackDue } from './business-calendar'
@@ -61,7 +60,6 @@ type BoardRow = {
     customers: {
       id: string; first_name: string; last_name: string
       email: string | null; phone: string | null
-      email_availability: EmailAvailability | null
     }
   }
 }
@@ -100,7 +98,7 @@ export async function getDailyDirection(
       id, queue, call_reason, research_reason, last_call_outcome, email_sent_at, intro_email_recipient, callback_date, follow_up_due, refused_at,
       customer_prereviews!inner (
         decision,
-        customers!inner ( id, first_name, last_name, email, phone, email_availability )
+        customers!inner ( id, first_name, last_name, email, phone )
       )
     `)
     .order('updated_at', { ascending: true })
@@ -167,15 +165,7 @@ export async function getDailyDirection(
   )
   const stillRecommendsResearch = (r: BoardRow): boolean => {
     const c = r.customer_prereviews.customers
-    const recorded = researchedByCustomer.get(c.id) ?? { email: false, phone: false, address: false }
-    // A durable "No Email Address" or "Email Refused" fact settles the email
-    // method the same way recorded unsuccessful research does, so the Assistant
-    // stops recommending email research where it cannot help. "Undeliverable"
-    // does not settle it (a replacement should be sought).
-    const researched = {
-      ...recorded,
-      email: recorded.email || emailResearchSuppressed(c.email_availability),
-    }
+    const researched = researchedByCustomer.get(c.id) ?? { email: false, phone: false, address: false }
     // The board's research-needed exception is purely about a reachable contact
     // path (email or phone) for outreach; a mailing address is an independent
     // contact method handled only by the Contact Research surface and never

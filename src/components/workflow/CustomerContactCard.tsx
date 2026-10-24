@@ -1085,17 +1085,17 @@ const inputCls = (invalid: boolean) =>
 
 /** The selectable "no usable email" reasons the operator can record directly in
  * the Email section. 'available' is never selected here — it is set by the
- * system when a usable address is saved — so the choices are exactly the three
+ * system when a usable address is saved — so the choices are exactly the two
  * reasons plus entering an address. */
 const EMAIL_REASON_CHOICES: readonly Exclude<EmailAvailability, 'available'>[] = [
-  'no_address', 'refused', 'undeliverable',
+  'no_address', 'undeliverable',
 ]
 
 /**
  * The read-only value line for the Email section. A usable address shows
- * normally; otherwise it shows the recorded reason ("No Email Address", "Email
- * Refused", "Undeliverable") or plain "Missing" when the reason is unknown — so
- * the card explains WHY there is no email, not merely that it is absent.
+ * normally; otherwise it shows the recorded reason ("No Usable Email",
+ * "Undeliverable") or plain "Missing" when the reason is unknown — so the card
+ * explains WHY there is no email, not merely that it is absent.
  */
 function EmailValue({
   value, display, appearance,
@@ -1190,12 +1190,11 @@ function EmailRow({
       )}
       <div className="mt-2.5"><EditActions busy={busy} onCancel={onCancel} appearance={appearance} /></div>
 
-      {/* Email availability — recorded directly in the card. Entering an address
-          above and saving sets the status to "on file" and clears any prior
-          No Email Address / Undeliverable; an Email Refused stays until it is
-          explicitly reversed by recording a usable address. Each button records
-          the reason as a durable customer fact (and, for Undeliverable, moves
-          the current address into Customer History). */}
+      {/* Email availability — an informational customer fact recorded directly in
+          the card. Entering an address above and saving returns the status to
+          "on file" and clears any prior No Usable Email / Undeliverable. Each
+          button records the reason (and, for Undeliverable, moves the current
+          address into Customer History). It changes no research or workflow. */}
       <fieldset className="mt-3 border-t border-surface-border-strong pt-3">
         <legend className="text-sm font-semibold text-ink-secondary">No usable email? Record why</legend>
         <div className="mt-1.5 flex flex-wrap gap-2">
@@ -1221,8 +1220,9 @@ function EmailRow({
           })}
         </div>
         <p className="mt-1.5 text-sm text-ink-muted">
-          No Email Address and Email Refused stop unnecessary email research. Undeliverable removes the
-          current address from use (keeping it in history) and allows research for a replacement.
+          No Usable Email records that the customer has no email or will not provide one. Undeliverable
+          removes the current address from use while keeping it in Customer History. Entering an email
+          returns this to Email on file.
         </p>
       </fieldset>
     </form>

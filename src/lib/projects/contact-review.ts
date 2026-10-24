@@ -6,7 +6,7 @@ import {
 import { readUnusableChannelsByCustomer } from '@/lib/stewardship/attempt-history'
 import type { OutreachChannel } from '@/lib/stewardship/outreach-attempts'
 import { activeProjectsWithWorkflow, isPermanentPolicyReviewTypeName } from '@/lib/projects/workflows'
-import { type EmailAvailability, emailResearchSuppressed } from '@/lib/email-availability'
+import { type EmailAvailability } from '@/lib/email-availability'
 
 /**
  * Effective contact usability folds the recorded-UNUSABLE fact into mere
@@ -111,9 +111,8 @@ export interface ContactReviewCustomer {
   phone_verified_at: string | null
   address_verified_at: string | null
   /** Durable email-availability fact (customers.email_availability). Carried so
-   * the shared CustomerContactCard shows the current state and so email research
-   * honors it: 'no_address' / 'refused' settle the email method (research is not
-   * worthwhile); 'undeliverable' leaves it outstanding (seek a replacement). */
+   * the shared CustomerContactCard can show the current state. Informational
+   * only: it does not affect research recommendation or any workflow routing. */
   email_availability: EmailAvailability | null
   /** Any one policy number already on file for this customer, shown so the
    * worker can search Gateway by last name + policy number. null when the
@@ -309,19 +308,7 @@ export async function buildContactReview(
     const hasEmail = emailUsable(c.email, u)
     const hasPhone = phoneUsable(c.phone, u)
     const hasAddress = addressUsable(c)
-    const recordedResearch = researchedByCustomer.get(c.id) ?? { email: false, phone: false, address: false }
-    // A durable "No Email Address" or "Email Refused" fact settles the email
-    // method exactly as an unsuccessful-research record does: there is no usable
-    // address to find, so email research is not worthwhile and the method stops
-    // being recommended. "Undeliverable" does NOT settle it — a replacement
-    // should be sought — so it is left to the ordinary recorded-research state.
-    // Folded in alongside the recorded research so the existing recommendation
-    // logic needs no special-casing. (This gates the RECOMMENDATION only; it
-    // never removes the customer from the list or closes any work.)
-    const researched = {
-      ...recordedResearch,
-      email: recordedResearch.email || emailResearchSuppressed(c.email_availability),
-    }
+    const researched = researchedByCustomer.get(c.id) ?? { email: false, phone: false, address: false }
     const stillRecommend = stillNeedsResearchRecommendation({ hasEmail, hasPhone, hasAddress }, researched)
 
     // Reachability keys the two surfaces (NOT the research state, which only
@@ -451,15 +438,8 @@ export async function loadContactReviewCustomer(
   // No Usable Contact Information exception consistently. This path bypasses the
   // active-list suppression (that is its purpose), but the status itself is the
   // honest current classification.
-  const recordedResearch = (await readResearchedUnsuccessfullyBatch(supabase, [row.id])).get(row.id)
+  const researched = (await readResearchedUnsuccessfullyBatch(supabase, [row.id])).get(row.id)
     ?? { email: false, phone: false, address: false }
-  // Fold the durable email-availability fact in the same way the routine list
-  // does: 'no_address' / 'refused' settle the email method; 'undeliverable'
-  // does not. Keeps a reopened customer's classification identical to the list.
-  const researched = {
-    ...recordedResearch,
-    email: recordedResearch.email || emailResearchSuppressed(row.email_availability),
-  }
   const stillRecommend = stillNeedsResearchRecommendation({ hasEmail, hasPhone, hasAddress }, researched)
   const noUsableContact = !hasEmail && !hasPhone
 
@@ -528,11 +508,7 @@ export async function researchAgainProjectId(
   // list. The durable email-availability fact settles the email method the same
   // way recorded research does ('no_address' / 'refused'; not 'undeliverable').
   const recordedResearch = await readResearchedUnsuccessfullyBatch(supabase, [customerId])
-  const rec = recordedResearch.get(customerId) ?? { email: false, phone: false, address: false }
-  const research = {
-    ...rec,
-    email: rec.email || emailResearchSuppressed(cRow.email_availability),
-  }
+  const research = recordedResearch.get(customerId) ?? { email: false, phone: false, address: false }
   if (stillNeedsResearchRecommendation({ hasEmail, hasPhone, hasAddress }, research)) return null
 
   return activeContactResearchProjectForCustomer(supabase, customerId)

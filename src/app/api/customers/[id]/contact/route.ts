@@ -42,20 +42,19 @@ type AdminClient = ReturnType<typeof createAdminClient>
  *   confirm, so the request is rejected 400 and nothing is written.
  *
  * SET EMAIL AVAILABILITY — Body:
- *   { field: 'email_availability', availability: 'no_address' | 'refused' | 'undeliverable' }
- *   Records a "no usable email" reason as a durable customer fact
- *   (customers.email_availability) and writes ONE Customer History entry
+ *   { field: 'email_availability', availability: 'no_address' | 'undeliverable' }
+ *   Records a "no usable email" reason as an informational durable customer
+ *   fact (customers.email_availability) and writes ONE Customer History entry
  *   (case_touches 'workflow') with the acting employee and timestamp. It is
  *   save-only-changed, so repeating the same status writes nothing and never
  *   creates a duplicate entry. 'undeliverable' additionally removes the failed
  *   address from active use (email -> null) while preserving it in the history
- *   note. 'available' is never set here — saving a usable email sets it. This
- *   never closes a case, stops servicing, or removes the customer from a project.
+ *   note. 'available' is never set here — saving a usable email sets it. It is
+ *   informational: it suppresses no research, routes no queue, and never closes
+ *   a case, stops servicing, or removes the customer from a project.
  *
- * Saving a usable email also transitions availability to 'available' and clears
- * a prior No Email Address / Undeliverable designation (a found address makes
- * them moot); an Email Refused is reversed only by explicit action, so it
- * persists until then.
+ * Saving a usable email returns the card to the normal state: availability goes
+ * to 'available' and any prior No Usable Email / Undeliverable reason is cleared.
  *
  * Verification, editing, and availability are independent operations; the same
  * card drives them, but a single request does exactly one.
@@ -131,9 +130,7 @@ function emailAvailabilityNote(status: EmailAvailability, priorEmail: string | n
   const marker = emailAvailabilityMarker(status)
   switch (status) {
     case 'no_address':
-      return `Email availability set to ${EMAIL_AVAILABILITY_LABEL.no_address}: the customer has no email address. ${marker}`
-    case 'refused':
-      return `Email availability set to ${EMAIL_AVAILABILITY_LABEL.refused}: the customer refuses to provide or use email. ${marker}`
+      return `Email availability set to ${EMAIL_AVAILABILITY_LABEL.no_address}: no usable email address on file. ${marker}`
     case 'undeliverable':
       return priorEmail
         ? `Email marked ${EMAIL_AVAILABILITY_LABEL.undeliverable}: ${priorEmail} permanently failed and was removed from active use. ${marker}`
@@ -240,21 +237,24 @@ export async function PATCH(
   }
 
   // ── SET EMAIL AVAILABILITY ────────────────────────────────────────────────
-  // Record a "no usable email" reason as a durable customer fact. Body:
-  //   { field: 'email_availability', availability: 'no_address' | 'refused' | 'undeliverable' }
+  // Record a "no usable email" reason as an informational durable customer fact.
+  // Body:
+  //   { field: 'email_availability', availability: 'no_address' | 'undeliverable' }
   // 'available' is never set here — it is set by the system when a usable
   // address is saved (the email SAVE path below). The change is save-only-
   // changed: when the stored status already matches, nothing is written and no
   // history entry is created, so there is never a duplicate entry. For
   // 'undeliverable' the current address is REMOVED from active use (email ->
   // null, verification cleared) but PRESERVED in Customer History by naming it
-  // in the recorded note. This never closes a case, stops servicing, or removes
-  // the customer from a project.
+  // in the recorded note. This is informational only: it never suppresses
+  // research, routes a queue, closes a case, stops servicing, or removes the
+  // customer from a project. An employee can change it or enter an email at any
+  // time.
   if (field === 'email_availability') {
     const status = body.availability
     if (!isEmailAvailability(status) || status === 'available') {
       return Response.json(
-        { error: 'availability must be one of: no_address, refused, undeliverable.' },
+        { error: 'availability must be one of: no_address, undeliverable.' },
         { status: 400 },
       )
     }
@@ -355,10 +355,10 @@ export async function PATCH(
       patch.email_verified_at = null
       changed = true
     }
-    // A usable replacement address clears a prior No Email Address / Undeliverable
-    // and sets the status to on file; Email Refused is left to be reversed
-    // explicitly. Applied whenever a usable value is now on file and the stored
-    // status is one of those cleared-by-a-found-address states.
+    // Entering a usable email returns the card to the normal email-on-file
+    // state: it sets the status to 'available' and clears a prior No Usable
+    // Email / Undeliverable reason. Applied whenever a usable value is now on
+    // file and the stored status is a reason state (or unset).
     const hasUsable = !!r.value
     const clearable = before.email_availability === 'no_address' || before.email_availability === 'undeliverable'
     if (hasUsable && (clearable || before.email_availability == null)) {
