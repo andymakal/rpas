@@ -130,7 +130,9 @@ function emailAvailabilityNote(status: EmailAvailability, priorEmail: string | n
   const marker = emailAvailabilityMarker(status)
   switch (status) {
     case 'no_address':
-      return `Email availability set to ${EMAIL_AVAILABILITY_LABEL.no_address}: no usable email address on file. ${marker}`
+      return priorEmail
+        ? `Email availability set to ${EMAIL_AVAILABILITY_LABEL.no_address}: ${priorEmail} was removed from active use. ${marker}`
+        : `Email availability set to ${EMAIL_AVAILABILITY_LABEL.no_address}: no usable email address on file. ${marker}`
     case 'undeliverable':
       return priorEmail
         ? `Email marked ${EMAIL_AVAILABILITY_LABEL.undeliverable}: ${priorEmail} permanently failed and was removed from active use. ${marker}`
@@ -259,23 +261,25 @@ export async function PATCH(
       )
     }
 
-    // Save-only-changed: a repeat of the same status is a no-op (no duplicate
-    // history). Undeliverable is treated as changed only when there is still an
-    // address to retire OR the status itself is changing, so re-marking an
-    // already-undeliverable customer with no address on file does nothing.
+    // Both "no usable email" reasons clear any active email so the card then
+    // reads the reason, not a lingering address. Save-only-changed: a repeat of
+    // the same status with no address left to clear is a no-op (no duplicate
+    // history), but when an address still lingers the clear happens even if the
+    // status itself is unchanged.
     const priorEmail = before.email?.trim() ? before.email : null
     const statusChanged = (before.email_availability ?? null) !== status
-    const retiringAddress = status === 'undeliverable' && !!priorEmail
+    const retiringAddress = !!priorEmail
     if (!statusChanged && !retiringAddress) {
       return Response.json({ data: before })
     }
 
-    const patch: Partial<CustomerContactRow> = { email_availability: status }
-    if (status === 'undeliverable') {
-      // The failed address leaves active use; its value is preserved in the
-      // history note recorded below. Verification cannot outlive the address.
-      patch.email = null
-      patch.email_verified_at = null
+    // The address leaves active use; its value is preserved in the history note
+    // recorded below (the Undeliverable note names it). Verification cannot
+    // outlive the address.
+    const patch: Partial<CustomerContactRow> = {
+      email_availability: status,
+      email: null,
+      email_verified_at: null,
     }
 
     const { data: updated, error: updErr } = await supabase
