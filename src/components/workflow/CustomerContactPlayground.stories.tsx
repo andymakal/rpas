@@ -424,15 +424,12 @@ function makeInteractivePersist(
         : 'address_verified_at'
       next = { ...record, [colKey]: payload.verified ? now : null }
     } else if (payload.field === 'email_availability') {
-      // Undeliverable retires the current address (kept in history in the app);
-      // the other reasons only record the status. Mirrors the app route.
-      next = payload.availability === 'undeliverable'
-        ? { ...record, email_availability: 'undeliverable', email: null, email_verified_at: null }
-        : { ...record, email_availability: payload.availability }
+      // Either reason clears the active email and its verification (the removed
+      // address is kept in history in the app). Mirrors the app route.
+      next = { ...record, email_availability: payload.availability, email: null, email_verified_at: null }
     } else if (payload.field === 'email') {
       const changed = (payload.email ?? null) !== (record.email ?? null)
-      // A usable replacement clears No Email Address / Undeliverable -> available;
-      // Email Refused persists until explicitly reversed.
+      // A usable replacement clears No Usable Email / Undeliverable -> available.
       const clearable = record.email_availability === 'no_address' || record.email_availability === 'undeliverable'
       const email_availability = payload.email && (clearable || record.email_availability == null)
         ? 'available'

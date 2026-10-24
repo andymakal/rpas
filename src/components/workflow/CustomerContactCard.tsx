@@ -655,17 +655,18 @@ export function CustomerContactCard({
     }
   }, [persist, applyUpdate])
 
-  // Record a "no usable email" reason (No Email Address / Email Refused /
-  // Undeliverable) as a durable customer fact. The editor stays open so the
-  // operator sees the status update in place; the authoritative returned row
-  // reflects any address the server cleared (Undeliverable removes the address
-  // from active use and preserves it in Customer History).
+  // Commit a selected "no usable email" reason (No Usable Email / Undeliverable)
+  // as a durable customer fact. This is the Save action of the email editor's
+  // single Save/Cancel operation: the server clears the active email and its
+  // verification, and the editor closes — exactly like saveField, so a stale
+  // email draft can never follow and overwrite the just-saved status.
   const setEmailAvailability = useCallback(
     async (status: Exclude<EmailAvailability, 'available'>) => {
       setBusyField('email'); setError(null)
       try {
         const updated = await persist({ field: 'email_availability', availability: status })
         applyUpdate(updated)
+        setEditing(null)
       } catch (e) {
         setError(e instanceof Error ? e.message : 'Could not update email availability')
       } finally {
@@ -1140,9 +1141,20 @@ function EmailRow({
   const display = resolveEmailAvailabilityDisplay(availability, value)
   const [draft, setDraft] = useState(value ?? '')
   const [result, setResult] = useState<ContactFieldResult | null>(null)
+  // A reason selected in THIS editing session but not yet committed. The editor
+  // is one Save/Cancel operation: picking No Usable Email / Undeliverable only
+  // PREPARES the selection (it is not persisted on click); Save commits either
+  // the pending reason or the typed email, and Cancel discards both. This is
+  // what prevents a lingering email draft from overwriting a newly selected
+  // status.
+  const [pendingReason, setPendingReason] =
+    useState<Exclude<EmailAvailability, 'available'> | null>(null)
 
-  // Reset the draft whenever the editor opens, so Cancel-then-Edit starts clean.
-  const open = useCallback(() => { setDraft(value ?? ''); setResult(null); onEdit() }, [value, onEdit])
+  // Reset the draft and any pending selection whenever the editor opens, so
+  // Cancel-then-Edit starts clean.
+  const open = useCallback(() => {
+    setDraft(value ?? ''); setResult(null); setPendingReason(null); onEdit()
+  }, [value, onEdit])
 
   if (!editing) {
     // A terminal reason reads as the field status when there is no usable
@@ -1162,11 +1174,32 @@ function EmailRow({
     )
   }
 
+  // Save commits exactly one outcome: a pending "no usable email" reason when
+  // one is selected, otherwise the typed email. The two are mutually exclusive,
+  // so a stale email draft can never ride along with — and overwrite — a chosen
+  // status. An email is validated only when it is the thing being saved.
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
+    if (pendingReason) {
+      onSetAvailability(pendingReason)
+      return
+    }
     const r = normalizeEmailInput(draft)
     if (r.status === 'invalid') { setResult(r); return }
     onSave(r.value) // valid canonical value, or null when empty (a valid clear)
+  }
+
+  // Selecting a reason only PREPARES it. It clears the email draft so the editor
+  // reflects that saving will remove the address, and clears any stale
+  // validation. Re-clicking the selected reason toggles it back off, returning
+  // to editing the email.
+  const selectReason = (choice: Exclude<EmailAvailability, 'available'>) => {
+    setResult(null)
+    setPendingReason((prev) => {
+      const next = prev === choice ? null : choice
+      setDraft(next ? '' : (value ?? ''))
+      return next
+    })
   }
 
   return (
@@ -1179,37 +1212,39 @@ function EmailRow({
         type="email"
         autoFocus
         value={draft}
+        disabled={busy || !!pendingReason}
         onChange={(e) => { setDraft(e.target.value); if (result) setResult(null) }}
-        onBlur={() => setResult(normalizeEmailInput(draft))}
-        placeholder="name@example.com"
+        onBlur={() => { if (!pendingReason) setResult(normalizeEmailInput(draft)) }}
+        placeholder={pendingReason ? EMAIL_AVAILABILITY_LABEL[pendingReason] : 'name@example.com'}
         aria-invalid={result?.status === 'invalid' || undefined}
-        className={cn('mt-1.5', inputCls(result?.status === 'invalid'))}
+        className={cn('mt-1.5', inputCls(result?.status === 'invalid'), pendingReason && 'opacity-50')}
       />
       {result?.status === 'invalid' && result.reason && (
         <p className="mt-1.5 text-base text-status-missing-strong">{result.reason}</p>
       )}
       <div className="mt-2.5"><EditActions busy={busy} onCancel={onCancel} appearance={appearance} /></div>
 
-      {/* Email availability — an informational customer fact recorded directly in
-          the card. Entering an address above and saving returns the status to
-          "on file" and clears any prior No Usable Email / Undeliverable. Each
-          button records the reason (and, for Undeliverable, moves the current
-          address into Customer History). It changes no research or workflow. */}
+      {/* Email availability — an informational customer fact chosen here as part
+          of the SAME Save/Cancel operation. Picking a reason only prepares the
+          selection (shown highlighted, with a note that Save clears the current
+          address); Save commits it and clears the active email + verification,
+          Cancel discards it. Entering and saving an email returns to Email on
+          file. It changes no research or workflow. */}
       <fieldset className="mt-3 border-t border-surface-border-strong pt-3">
         <legend className="text-sm font-semibold text-ink-secondary">No usable email? Record why</legend>
         <div className="mt-1.5 flex flex-wrap gap-2">
           {EMAIL_REASON_CHOICES.map((choice) => {
-            const active = availability === choice
+            const selected = pendingReason === choice
             return (
               <button
                 key={choice}
                 type="button"
-                disabled={busy || active}
-                aria-pressed={active}
-                onClick={() => onSetAvailability(choice)}
+                disabled={busy}
+                aria-pressed={selected}
+                onClick={() => selectReason(choice)}
                 className={cn(
                   'inline-flex items-center rounded-lg border px-2.5 py-1 text-sm font-medium disabled:opacity-60',
-                  active
+                  selected
                     ? 'border-status-missing-border bg-status-missing-soft text-status-missing-strong'
                     : 'border-surface-border-strong bg-surface-card text-ink-secondary hover:bg-surface-muted',
                 )}
@@ -1220,9 +1255,9 @@ function EmailRow({
           })}
         </div>
         <p className="mt-1.5 text-sm text-ink-muted">
-          No Usable Email records that the customer has no email or will not provide one. Undeliverable
-          removes the current address from use while keeping it in Customer History. Entering an email
-          returns this to Email on file.
+          {pendingReason
+            ? `Save will set ${EMAIL_AVAILABILITY_LABEL[pendingReason]} and remove the current email address (kept in Customer History). Cancel to keep the current email.`
+            : 'No Usable Email records that the customer has no email or will not provide one. Undeliverable removes the current address from use while keeping it in Customer History. Entering an email returns this to Email on file.'}
         </p>
       </fieldset>
     </form>
