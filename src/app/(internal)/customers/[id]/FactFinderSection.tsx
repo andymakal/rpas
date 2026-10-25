@@ -11,6 +11,7 @@ import {
 type OtherPolicy = {
   company: string; policy_number: string; face_amount: string
   issue_date: string; type: string; sold: boolean
+  premium_amount: string; billing_mode: string; pay_period: string
 }
 
 type Bene = {
@@ -203,7 +204,7 @@ function initArr<T>(raw: Record<string, unknown> | null, key: string, map: (o: R
   return (r[key] as unknown[]).map(x => map((x ?? {}) as Record<string, unknown>))
 }
 
-const EMPTY_POLICY: OtherPolicy = { company: '', policy_number: '', face_amount: '', issue_date: '', type: 'personal', sold: false }
+const EMPTY_POLICY: OtherPolicy = { company: '', policy_number: '', face_amount: '', issue_date: '', type: 'personal', sold: false, premium_amount: '', billing_mode: 'Annual', pay_period: '' }
 const EMPTY_BENE: Bene = { name: '', dob: '', relationship: '', percentage: '', ssn: '', phone: '', email: '' }
 const EMPTY_DEPENDENT: Dependent = { name: '', dob: '', relationship: 'child', marital_status: '' }
 const EMPTY_LTC: LTCPolicy = { policy_name: '', insured: '', benefit_amount: '', annual_premium: '' }
@@ -212,12 +213,15 @@ const EMPTY_INVESTMENT: InvestmentAccount = { institution: '', account_type: 'br
 
 function mapPolicy(o: Record<string, unknown>): OtherPolicy {
   return {
-    company:       typeof o.company       === 'string' ? o.company       : '',
-    policy_number: typeof o.policy_number === 'string' ? o.policy_number : '',
-    face_amount:   typeof o.face_amount   === 'string' ? o.face_amount   : '',
-    issue_date:    typeof o.issue_date    === 'string' ? o.issue_date    : '',
-    type:          typeof o.type          === 'string' ? o.type          : 'personal',
-    sold:          typeof o.sold          === 'boolean' ? o.sold         : false,
+    company:        typeof o.company        === 'string' ? o.company        : '',
+    policy_number:  typeof o.policy_number  === 'string' ? o.policy_number  : '',
+    face_amount:    typeof o.face_amount    === 'string' ? o.face_amount    : '',
+    issue_date:     typeof o.issue_date     === 'string' ? o.issue_date     : '',
+    type:           typeof o.type           === 'string' ? o.type           : 'personal',
+    sold:           typeof o.sold           === 'boolean' ? o.sold          : false,
+    premium_amount: typeof o.premium_amount === 'string' ? o.premium_amount : '',
+    billing_mode:   typeof o.billing_mode   === 'string' ? o.billing_mode   : 'Annual',
+    pay_period:     typeof o.pay_period     === 'string' ? o.pay_period     : '',
   }
 }
 
@@ -1037,6 +1041,20 @@ export function FactFinderSection({
                           className="rounded border-slate-600 bg-slate-800 text-blue-500 focus:ring-blue-500/30" />
                         <span className="text-xs text-slate-400">Policy sold / surrendered</span>
                       </label>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div><label className="block text-xs text-slate-500 mb-1">Premium (billed)</label><input value={p.premium_amount} onChange={e => setPolicy(i, 'premium_amount', e.target.value)} type="number" min="0" step="1" placeholder="e.g. 148" className={inpSm} /></div>
+                    <div><label className="block text-xs text-slate-500 mb-1">Billing mode</label>
+                      <select value={p.billing_mode} onChange={e => setPolicy(i, 'billing_mode', e.target.value)} className={inpSm}>
+                        {['Annual','Semi-Annual','Quarterly','Monthly','EFT Monthly','Single'].map(m => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </div>
+                    <div><label className="block text-xs text-slate-500 mb-1">Pay period</label>
+                      <select value={p.pay_period} onChange={e => setPolicy(i, 'pay_period', e.target.value)} className={inpSm}>
+                        <option value="">—</option>
+                        {['Full Pay','10-Pay','20-Pay','Single Premium'].map(v => <option key={v} value={v}>{v}</option>)}
+                      </select>
                     </div>
                   </div>
                 </div>

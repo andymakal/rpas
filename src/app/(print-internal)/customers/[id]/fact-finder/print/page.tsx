@@ -104,12 +104,15 @@ export default async function FactFinderPrintPage({ params }: { params: Promise<
     marital_status: typeof o.marital_status === 'string' ? o.marital_status : '',
   }))
   const policies = arr(ff, 'other_policies', o => ({
-    company:       typeof o.company       === 'string' ? o.company       : '',
-    policy_number: typeof o.policy_number === 'string' ? o.policy_number : '',
-    face_amount:   typeof o.face_amount   === 'string' ? o.face_amount   : '',
-    issue_date:    typeof o.issue_date    === 'string' ? o.issue_date    : '',
-    type:          typeof o.type          === 'string' ? o.type          : '',
-    sold:          typeof o.sold          === 'boolean' ? o.sold         : false,
+    company:        typeof o.company        === 'string' ? o.company        : '',
+    policy_number:  typeof o.policy_number  === 'string' ? o.policy_number  : '',
+    face_amount:    typeof o.face_amount    === 'string' ? o.face_amount    : '',
+    issue_date:     typeof o.issue_date     === 'string' ? o.issue_date     : '',
+    type:           typeof o.type           === 'string' ? o.type           : '',
+    sold:           typeof o.sold           === 'boolean' ? o.sold          : false,
+    premium_amount: typeof o.premium_amount === 'string' ? o.premium_amount : '',
+    billing_mode:   typeof o.billing_mode   === 'string' ? o.billing_mode   : '',
+    pay_period:     typeof o.pay_period     === 'string' ? o.pay_period     : '',
   }))
   const ltcPolicies = arr(ff, 'ltc_policies', o => ({
     policy_name:    typeof o.policy_name    === 'string' ? o.policy_name    : '',
@@ -645,7 +648,7 @@ export default async function FactFinderPrintPage({ params }: { params: Promise<
           <div style={{ fontSize: 10, fontWeight: 700, marginBottom: 4, color: '#333' }}>Life Insurance Policies</div>
           <table>
             <thead>
-              <tr><th>Company</th><th>Policy #</th><th>Face Amount</th><th>Issue Date</th><th>Type</th><th>Sold?</th></tr>
+              <tr><th>Company</th><th>Policy #</th><th>Face Amount</th><th>Premium (Billed)</th><th>Mode</th><th>Pay Period</th><th>Issue Date</th><th>Sold?</th></tr>
             </thead>
             <tbody>
               {policies.length > 0 ? policies.map((p, i) => (
@@ -653,14 +656,16 @@ export default async function FactFinderPrintPage({ params }: { params: Promise<
                   <td style={{ padding: '5px 4px' }}><span className={`field-line${p.company ? ' filled' : ''}`}>{p.company || ' '}</span></td>
                   <td style={{ padding: '5px 4px' }}><span className={`field-line${p.policy_number ? ' filled' : ''}`}>{p.policy_number || ' '}</span></td>
                   <td style={{ padding: '5px 4px' }}><span className={`field-line${p.face_amount ? ' filled' : ''}`}>{p.face_amount || ' '}</span></td>
+                  <td style={{ padding: '5px 4px' }}><span className={`field-line${p.premium_amount ? ' filled' : ''}`}>{p.premium_amount || ' '}</span></td>
+                  <td style={{ padding: '5px 4px' }}><span className={`field-line${p.billing_mode ? ' filled' : ''}`}>{p.billing_mode || ' '}</span></td>
+                  <td style={{ padding: '5px 4px' }}><span className={`field-line${p.pay_period ? ' filled' : ''}`}>{p.pay_period || ' '}</span></td>
                   <td style={{ padding: '5px 4px' }}><span className={`field-line${p.issue_date ? ' filled' : ''}`}>{p.issue_date || ' '}</span></td>
-                  <td style={{ padding: '5px 4px' }}><span className={`field-line${p.type ? ' filled' : ''}`}>{p.type || ' '}</span></td>
                   <td style={{ padding: '5px 4px' }}><YN val={p.sold} /></td>
                 </tr>
               )) : (
                 <>{[1,2,3].map(i => (
                   <tr key={i} style={{ borderBottom: '1px solid #e5e5e5' }}>
-                    {[1,2,3,4,5,6].map(j => <td key={j} style={{ padding: '7px 4px' }}><span style={{ borderBottom: '1px solid #aaa', display: 'block' }}>&nbsp;</span></td>)}
+                    {[1,2,3,4,5,6,7,8].map(j => <td key={j} style={{ padding: '7px 4px' }}><span style={{ borderBottom: '1px solid #aaa', display: 'block' }}>&nbsp;</span></td>)}
                   </tr>
                 ))}</>
               )}
