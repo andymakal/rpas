@@ -578,6 +578,7 @@ export function CustomerCardClient({
 
   const [addingPolicy,      setAddingPolicy]      = useState(false)
   const [newCarrier,        setNewCarrier]        = useState('')
+  const [newRateClass,      setNewRateClass]      = useState('')
   const [newPolicyNum,      setNewPolicyNum]      = useState('')
   const [newProductType,    setNewProductType]    = useState('')
   const [newFaceAmount,     setNewFaceAmount]     = useState('')
@@ -596,6 +597,7 @@ export function CustomerCardClient({
   const [editPolPremium,    setEditPolPremium]    = useState('')
   const [editPolPremiumMode,setEditPolPremiumMode]= useState('Annual')
   const [editPolPayPeriod,  setEditPolPayPeriod]  = useState('')
+  const [editPolRateClass,  setEditPolRateClass]  = useState('')
   const [editPolStatus,     setEditPolStatus]     = useState('')
   const [editPolBene,       setEditPolBene]       = useState('')
   const [editPolSaving,     setEditPolSaving]     = useState(false)
@@ -774,6 +776,7 @@ export function CustomerCardClient({
         annual_premium:      null,
         premium_mode:        null,
         pay_period:          null,
+        rate_class:          null,
         coverage_status:     'active',
         sa_status:           'unknown',
         sa_form_sent_at:     null,
@@ -829,6 +832,7 @@ export function CustomerCardClient({
           annual_premium: newPremium      ? parseFloat(newPremium)      : null,
           premium_mode:   newPremiumMode  || null,
           pay_period:     newPayPeriod    || null,
+          rate_class:     newRateClass    || null,
           issue_date:     newIssueDate    || null,
         }),
       })
@@ -846,6 +850,7 @@ export function CustomerCardClient({
         annual_premium:      p.annual_premium,
         premium_mode:        p.premium_mode ?? null,
         pay_period:          p.pay_period ?? null,
+        rate_class:          p.rate_class ?? null,
         coverage_status:     p.coverage_status,
         sa_status:           p.sa_status,
         sa_form_sent_at:     null,
@@ -857,7 +862,7 @@ export function CustomerCardClient({
       // Reset form
       setNewCarrier(''); setNewPolicyNum(''); setNewProductType('')
       setNewFaceAmount(''); setNewPremium(''); setNewPremiumMode('Annual')
-      setNewPayPeriod(''); setNewIssueDate('')
+      setNewPayPeriod(''); setNewRateClass(''); setNewIssueDate('')
       setAddingPolicy(false)
     } catch { setAddPolicyErr('Network error') }
     finally   { setAddPolicySaving(false) }
@@ -872,6 +877,7 @@ export function CustomerCardClient({
     setEditPolPremium(p.annual_premium != null ? String(p.annual_premium) : '')
     setEditPolPremiumMode(p.premium_mode ?? 'Annual')
     setEditPolPayPeriod(p.pay_period ?? '')
+    setEditPolRateClass(p.rate_class ?? '')
     setEditPolStatus(p.coverage_status ?? 'active')
     setEditPolBene(p.primary_beneficiary ?? '')
     setEditPolErr(null)
@@ -895,6 +901,7 @@ export function CustomerCardClient({
           annual_premium:      editPolPremium      ? parseFloat(editPolPremium) : null,
           premium_mode:        editPolPremiumMode  || null,
           pay_period:          editPolPayPeriod    || null,
+          rate_class:          editPolRateClass    || null,
           coverage_status:     editPolStatus       || 'active',
           primary_beneficiary: editPolBene.trim()  || null,
         }),
@@ -1541,6 +1548,10 @@ export function CustomerCardClient({
                   </select>
                 </div>
                 <div>
+                  <label className="block text-xs text-slate-500 mb-1">Rate class</label>
+                  <input value={newRateClass} onChange={e => setNewRateClass(e.target.value)} placeholder="e.g. Preferred Plus" className={inputCls} />
+                </div>
+                <div>
                   <label className="block text-xs text-slate-500 mb-1">Issue date</label>
                   <input value={newIssueDate} onChange={e => setNewIssueDate(e.target.value)} type="date" className={inputCls} />
                 </div>
@@ -1795,7 +1806,7 @@ export function CustomerCardClient({
                                 </select>
                               </div>
                             </div>
-                            <div className="grid grid-cols-2 gap-3">
+                            <div className="grid grid-cols-3 gap-3">
                               <div>
                                 <label className="block text-xs text-slate-500 mb-1">Billing mode</label>
                                 <select value={editPolPremiumMode} onChange={e => setEditPolPremiumMode(e.target.value)} className={inputCls}>
@@ -1808,6 +1819,10 @@ export function CustomerCardClient({
                                   <option value="">—</option>
                                   {PAY_PERIODS.map(p => <option key={p} value={p}>{p}</option>)}
                                 </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs text-slate-500 mb-1">Rate class</label>
+                                <input value={editPolRateClass} onChange={e => setEditPolRateClass(e.target.value)} placeholder="e.g. Preferred Plus" className={inputCls} />
                               </div>
                             </div>
                             <div>

@@ -95,6 +95,7 @@ export type LinkedPolicy = {
   annual_premium:      number | null
   premium_mode:        string | null
   pay_period:          string | null
+  rate_class:          string | null
   coverage_status:     string
   sa_status:           string
   sa_form_sent_at:     string | null
@@ -240,6 +241,7 @@ export default async function CustomerCardPage({
     annual_premium:      p.annual_premium,
     premium_mode:        (p as unknown as Record<string, unknown>).premium_mode as string | null ?? null,
     pay_period:          (p as unknown as Record<string, unknown>).pay_period as string | null ?? null,
+    rate_class:          (p as unknown as Record<string, unknown>).rate_class as string | null ?? null,
     coverage_status:     p.coverage_status,
     sa_status:           p.sa_status,
     sa_form_sent_at:     p.sa_form_sent_at,
