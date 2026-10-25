@@ -6,42 +6,32 @@
  *
  * This is a PROTOTYPE. It lives under `prototype/` and is wired only into
  * Storybook stories. It does not touch production routes, the customer record
- * screen, the API, the database schema, or any real customer data. It reuses
- * the real shared `CustomerContactCard` for the contact section rather than
- * building a competing contact surface, and it composes the existing light
- * workflow tokens and primitives for everything around it.
+ * screen, the API, the database schema, or any real customer data.
  *
- * What it shows (per the simplified-overview brief):
- *   - A prominent customer name (no initials avatar).
- *   - The existing customer STATUS (Active / Prospect / Former Customer /
- *     Quiet Filed) as the primary badge, derived from the same flags the
- *     record screen uses.
- *   - The existing customer CLASSIFICATION as a smaller, secondary badge.
- *   - Email, phone, and mailing address, via the real CustomerContactCard
- *     (so contact editing and the Verified behavior are preserved exactly).
- *   - NO redundant case / policy / service-request counts.
+ * It does NOT fork the contact card. It renders the REAL shared
+ * `CustomerContactCard` in its two presentation modes:
+ *   - Overview (collapsed): compact, read-only email / phone / address with a
+ *     single Edit button.
+ *   - Edit (expanded): the same card's existing per-field editing +
+ *     verification controls.
+ * The card's new `collapsible` / `defaultExpanded` / `showName` / `showMentoring`
+ * props drive this; they default to the card's existing behavior, so no live
+ * screen (including Contact Research) changes.
  *
- * Expanded view adds, as secondary customer details only:
- *   - Date of birth (always masked MM/xx/YYYY — the day is never shown),
- *     gender, and marital status.
- *   - Tobacco, health notes, preferred language, and the Drive folder are
- *     deliberately kept OUT of this contact section.
+ * The prototype owns the single customer-name heading, the existing status
+ * (Active / Prospect / Former Customer / Quiet Filed), the actual Right Path
+ * classification (Wanderer / Explorer / Pathfinder / Voyageur / Trailblazer),
+ * and the calculated age. Mentoring is suppressed on this instance. The address
+ * is normalized for DISPLAY with Right Path's own `normalizeStreet` /
+ * `normalizeCity` / `normalizeState`, so the card shows (and copies) normal
+ * capitalization while the stored address is left untouched.
  *
- * Address presentation reuses Right Path's existing address normalization
- * (`normalizeStreet` / `normalizeCity` / `normalizeState` from `@/lib/fmt`) for
- * DISPLAY only: the record passed to the card is normalized to normal
- * capitalization while legitimate abbreviations (NE, PO, state code) are
- * preserved. Because the card renders (and copies) exactly that normalized
- * value, copied text matches what is shown. The stored customer address is
- * never modified — normalization happens on the in-memory display record.
- *
- * An optional prominent alert can be shown above the contact information,
- * similar to eAgent's alert box. It is display-only: no persistence, no new
- * database field.
+ * An optional prominent alert can sit above the contact information, similar to
+ * eAgent's alert box. It is display-only: no persistence, no new field.
  */
 
-import { useMemo, useState } from 'react'
-import { ChevronDown, ChevronUp, TriangleAlert } from 'lucide-react'
+import { useMemo } from 'react'
+import { Compass, TriangleAlert } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { normalizeStreet, normalizeCity, normalizeState } from '@/lib/fmt'
@@ -55,34 +45,28 @@ import {
 
 /**
  * The customer fields this overview reads. A superset of `CustomerContact`
- * (which the contact card owns) plus the secondary identity details the
- * expanded view surfaces and the flags/classification the header shows. Every
- * field already exists on the Right Path customers row; the prototype adds no
- * new field.
+ * (which the contact card owns) plus the identity details the header shows.
+ * Every field already exists on the Right Path customers row; the prototype
+ * adds no new field.
  */
 export interface OverviewCustomer extends CustomerContact {
-  /** Stored as a date; ALWAYS displayed masked MM/xx/YYYY (day never shown). */
+  /** Stored as a date; used only to compute age. The day is never displayed. */
   date_of_birth: string | null
-  gender: string | null
-  marital_status: string | null
 
   /** Status flags — the same three the record screen derives status from. */
   is_prospect: boolean
   is_former_client: boolean
   is_deceased: boolean
 
-  /** Customer classification (the existing segment label, e.g. "A — Priority").
-   * Shown as the smaller secondary badge. Null reads as "Unclassified". */
-  classification: string | null
+  /** Right Path classification (customers.segment). One of the five values
+   * below; null reads as "Unassigned". */
+  segment: string | null
 }
 
 // ── Status (the existing four) ───────────────────────────────────────────────
 
 type CustomerStatus = 'active' | 'prospect' | 'former_client' | 'quiet_filed'
 
-/** Derive the single status from the stored flags, matching the record screen's
- * precedence (deceased → former → prospect → active). "Quiet Filed" is the
- * agency's label for the deceased/filed state. */
 function deriveStatus(c: {
   is_deceased: boolean
   is_former_client: boolean
@@ -94,14 +78,7 @@ function deriveStatus(c: {
   return 'active'
 }
 
-/** The status label + light-token treatment. The brief's four statuses, toned
- * with the light status/tag tokens (never the dark record-screen classes):
- * Active = confirmed/emerald, Prospect = info/teal brand, Former = neutral
- * surface, Quiet Filed = missing/rose. */
-const STATUS_META: Record<
-  CustomerStatus,
-  { label: string; className: string }
-> = {
+const STATUS_META: Record<CustomerStatus, { label: string; className: string }> = {
   active: {
     label: 'Active',
     className:
@@ -122,6 +99,21 @@ const STATUS_META: Record<
   },
 }
 
+// ── Classification (the actual Right Path segments) ──────────────────────────
+
+const SEGMENT_LABEL: Record<string, string> = {
+  wanderer: 'Wanderer',
+  explorer: 'Explorer',
+  pathfinder: 'Pathfinder',
+  voyageur: 'Voyageur',
+  trailblazer: 'Trailblazer',
+}
+
+function classificationLabel(segment: string | null): string {
+  if (!segment) return 'Unassigned'
+  return SEGMENT_LABEL[segment] ?? 'Unassigned'
+}
+
 // ── Display helpers ──────────────────────────────────────────────────────────
 
 function fullName(c: Pick<OverviewCustomer, 'first_name' | 'last_name'>): string {
@@ -129,37 +121,35 @@ function fullName(c: Pick<OverviewCustomer, 'first_name' | 'last_name'>): string
 }
 
 /**
- * Mask a stored DOB to MM/xx/YYYY — the day is never shown. Mirrors the record
- * screen's `maskDob` so the prototype shows DOB identically. UTC-safe from the
- * ISO slice so the month/year never shift across time zones.
+ * Calculated age from a reliable date of birth. Returns null when the DOB is
+ * missing or not a plausible full date, so the header shows age only when it is
+ * trustworthy. The day is used only for the calculation; it is never displayed.
  */
-function maskDob(iso: string | null): string {
-  if (!iso) return '—'
+function calcAge(iso: string | null): number | null {
+  if (!iso) return null
   const datePart = iso.slice(0, 10)
-  const [y, m] = datePart.split('-')
-  if (!y || !m) return '—'
-  return `${m}/xx/${y}`
-}
-
-/** Title-case a single stored word (gender / marital status) for display,
- * leaving an already-mixed value alone enough to read naturally. */
-function titleCaseWord(raw: string | null): string {
-  if (!raw?.trim()) return '—'
-  return raw
-    .trim()
-    .toLowerCase()
-    .replace(/\b\w/g, (c) => c.toUpperCase())
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(datePart)) return null
+  const [y, m, d] = datePart.split('-').map(Number)
+  const dob = new Date(Date.UTC(y, m - 1, d))
+  if (Number.isNaN(dob.getTime())) return null
+  const now = new Date()
+  let age = now.getUTCFullYear() - y
+  const beforeBirthday =
+    now.getUTCMonth() + 1 < m ||
+    (now.getUTCMonth() + 1 === m && now.getUTCDate() < d)
+  if (beforeBirthday) age -= 1
+  if (age < 0 || age > 120) return null
+  return age
 }
 
 /**
  * Return a copy of the record whose address fields are normalized to normal
- * capitalization for DISPLAY, reusing Right Path's existing normalizers. This
- * does not mutate the input and never writes anything back: it only shapes what
- * the contact card shows (and therefore what it copies). Legitimate
+ * capitalization for DISPLAY, reusing Right Path's existing normalizers. It
+ * does not mutate the input and never writes anything back. Legitimate
  * abbreviations (NE/PO and the two-letter state) are preserved by the
  * normalizers themselves.
  */
-function withNormalizedAddressForDisplay(c: OverviewCustomer): OverviewCustomer {
+function withNormalizedAddressForDisplay(c: OverviewCustomer): CustomerContact {
   return {
     ...c,
     street: normalizeStreet(c.street),
@@ -169,41 +159,13 @@ function withNormalizedAddressForDisplay(c: OverviewCustomer): OverviewCustomer 
   }
 }
 
-// ── Secondary identity details (expanded view) ───────────────────────────────
-
-function SecondaryDetails({ customer }: { customer: OverviewCustomer }) {
-  const items: { label: string; value: string }[] = [
-    { label: 'Date of birth', value: maskDob(customer.date_of_birth) },
-    { label: 'Gender', value: titleCaseWord(customer.gender) },
-    { label: 'Marital status', value: titleCaseWord(customer.marital_status) },
-  ]
-  return (
-    <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-3">
-      {items.map((it) => (
-        <div key={it.label} className="min-w-0">
-          <dt className="text-sm uppercase tracking-wide text-ink-supporting">{it.label}</dt>
-          <dd className="mt-0.5 text-base text-ink">{it.value}</dd>
-        </div>
-      ))}
-    </dl>
-  )
-}
-
 // ── Optional alert box (display-only, eAgent-style) ───────────────────────────
 
 export interface OverviewAlert {
-  /** The prominent message. Required when an alert is shown. */
   message: string
-  /** Optional smaller supporting line beneath the message. */
   detail?: string
 }
 
-/**
- * A prominent customer alert, shown above the contact information when supplied.
- * Styled after eAgent's alert box: a solid high-contrast amber band so it reads
- * at a glance. Display-only — the prototype never persists it and it maps to no
- * database field.
- */
 function AlertBox({ alert }: { alert: OverviewAlert }) {
   return (
     <div
@@ -233,8 +195,9 @@ export interface CustomerOverviewPrototypeProps {
   onContactChange?: (updated: CustomerContact) => void
   /** Optional prominent alert shown above the contact information. */
   alert?: OverviewAlert
-  /** Whether the expanded (secondary details) view starts open. */
-  defaultExpanded?: boolean
+  /** Start in Edit (expanded) rather than Overview (collapsed). Customer
+   * Overview starts collapsed; Contact Research would start expanded. */
+  startExpanded?: boolean
   className?: string
 }
 
@@ -243,15 +206,14 @@ export function CustomerOverviewPrototype({
   onPersist,
   onContactChange,
   alert,
-  defaultExpanded = false,
+  startExpanded = false,
   className,
 }: CustomerOverviewPrototypeProps) {
-  const [expanded, setExpanded] = useState(defaultExpanded)
-
   const status = deriveStatus(customer)
   const statusMeta = STATUS_META[status]
   const name = fullName(customer)
-  const classification = customer.classification?.trim() || 'Unclassified'
+  const classification = classificationLabel(customer.segment)
+  const age = calcAge(customer.date_of_birth)
 
   // Normalize the address for display only — the stored record is untouched.
   const displayRecord = useMemo(
@@ -266,23 +228,26 @@ export function CustomerOverviewPrototype({
         className,
       )}
     >
-      {/* Header: prominent name, primary status, secondary classification. */}
-      <header className="space-y-2">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <h2 className="text-[32px] font-bold leading-tight tracking-tight text-ink">
-            {name}
-          </h2>
-          <span
-            className={cn(
-              'inline-flex items-center rounded-full border px-3 py-0.5 text-sm font-semibold',
-              statusMeta.className,
-            )}
-          >
-            {statusMeta.label}
-          </span>
-        </div>
-        {/* Classification: deliberately smaller + quieter than the status. */}
-        <span className="inline-flex items-center rounded-md border border-surface-border bg-surface-muted px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-ink-supporting">
+      {/* The single customer-name heading, with status, classification, and the
+          calculated age beside it. The contact card below renders with
+          showName=false so the name appears exactly once. */}
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        <h2 className="text-[28px] font-bold leading-tight tracking-tight text-ink">
+          {name}
+        </h2>
+        {age != null && (
+          <span className="text-base font-medium text-ink-supporting">Age {age}</span>
+        )}
+        <span
+          className={cn(
+            'inline-flex items-center rounded-full border px-3 py-0.5 text-sm font-semibold',
+            statusMeta.className,
+          )}
+        >
+          {statusMeta.label}
+        </span>
+        <span className="inline-flex items-center gap-1 rounded-full border border-surface-border-strong bg-surface-muted px-2.5 py-0.5 text-xs font-medium text-ink-supporting">
+          <Compass className="size-3.5" aria-hidden />
           {classification}
         </span>
       </header>
@@ -290,36 +255,18 @@ export function CustomerOverviewPrototype({
       {/* Optional prominent alert, above the contact information. */}
       {alert && <AlertBox alert={alert} />}
 
-      {/* Contact information — the REAL shared card, address normalized for
-          display. Editing and the Verified behavior come straight from the
-          production component. */}
+      {/* Contact information — the REAL shared card, in its two-mode
+          presentation. Name and mentoring are suppressed here (the header owns
+          the single name); the address is normalized for display. */}
       <CustomerContactCard
         customer={displayRecord}
         onPersist={onPersist}
         onChange={onContactChange}
+        showName={false}
+        showMentoring={false}
+        collapsible
+        defaultExpanded={startExpanded}
       />
-
-      {/* Secondary customer details, expandable. */}
-      <div className="rounded-2xl border border-surface-border bg-surface-card">
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          aria-expanded={expanded}
-          className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left"
-        >
-          <span className="text-base font-semibold text-ink">Customer details</span>
-          {expanded ? (
-            <ChevronUp className="size-5 text-ink-supporting" aria-hidden />
-          ) : (
-            <ChevronDown className="size-5 text-ink-supporting" aria-hidden />
-          )}
-        </button>
-        {expanded && (
-          <div className="border-t border-surface-border px-4 py-3">
-            <SecondaryDetails customer={customer} />
-          </div>
-        )}
-      </div>
     </section>
   )
 }

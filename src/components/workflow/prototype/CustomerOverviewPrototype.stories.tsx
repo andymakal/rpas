@@ -18,9 +18,11 @@ import {
  * Workflow Design System — Prototypes → Customer Overview.
  *
  * A Storybook-only prototype of a SIMPLIFIED Right Path Customer Overview. It
- * reuses the real shared `CustomerContactCard` for the contact section (so
- * contact editing and the Verified behavior are the production behavior, not a
- * copy) and composes the existing light workflow tokens around it.
+ * reuses the real shared `CustomerContactCard` in its two presentation modes:
+ * a compact read-only Overview with one Edit button, and the existing per-field
+ * editing + verification controls. The same card drives both; the prototype
+ * only suppresses the card's own name/mentoring and owns the single name,
+ * status, classification, and calculated age.
  *
  * Nothing here touches production routes, the customer record screen, the API,
  * the database, or any real customer data. The card runs on an in-memory
@@ -52,14 +54,12 @@ const baseCustomer: OverviewCustomer = {
   email_availability: 'available',
 
   date_of_birth: '1979-06-14',
-  gender: 'female',
-  marital_status: 'married',
 
   is_prospect: false,
   is_former_client: false,
   is_deceased: false,
 
-  classification: 'A — Priority household',
+  segment: 'explorer',
 }
 
 // ── In-memory persistence (mirrors the server rules; no network, no data) ─────
@@ -156,17 +156,17 @@ function applyPayload(
 /**
  * A live host: keeps the contact record in local state so the embedded card
  * stays fully interactive (edit a field, tick Verified) with no side effects.
- * The non-contact overview fields (status flags, classification, DOB, gender,
- * marital status) come straight from the sample and do not change here.
+ * The non-contact overview fields (status flags, classification, DOB) come
+ * straight from the sample and do not change here.
  */
 function LiveOverview({
   initial,
   alert,
-  defaultExpanded,
+  startExpanded,
 }: {
   initial: OverviewCustomer
   alert?: OverviewAlert
-  defaultExpanded?: boolean
+  startExpanded?: boolean
 }) {
   const [contact, setContact] = useState<CustomerContact>(initial)
   const onPersist = useMemo(() => makeInteractivePersist(setContact), [])
@@ -194,7 +194,7 @@ function LiveOverview({
       onPersist={onPersist}
       onContactChange={setContact}
       alert={alert}
-      defaultExpanded={defaultExpanded}
+      startExpanded={startExpanded}
     />
   )
 }
@@ -227,28 +227,35 @@ const meta = {
 export default meta
 type Story = StoryObj<typeof CustomerOverviewPrototype>
 
-/** Default view: prominent name, Active status, secondary classification, and
- * the contact card. Address shows in normal capitalization though it is stored
- * all-caps. The "Customer details" section starts collapsed. */
-export const Default: Story = {
+/**
+ * Overview mode (the Customer Overview default): one name, status, Right Path
+ * classification, calculated age, and a compact read-only email / phone /
+ * address with a single Edit button. The address shows in normal capitalization
+ * though it is stored all-caps. Click Edit to expand the same card into its
+ * editing + verification controls, then Done to return.
+ */
+export const Overview: Story = {
   render: () => <LiveOverview initial={baseCustomer} />,
 }
 
-/** Expanded view: the secondary customer details (masked DOB, gender, marital
- * status) are open. Tobacco, health notes, preferred language, and the Drive
- * folder are intentionally not here. */
-export const Expanded: Story = {
-  render: () => <LiveOverview initial={baseCustomer} defaultExpanded />,
+/**
+ * Edit mode (how Contact Research would start): the same card opened to its
+ * existing per-field editing + verification controls. Click Done to collapse
+ * back to the Overview. This is the identical card, started expanded.
+ */
+export const Edit: Story = {
+  render: () => <LiveOverview initial={baseCustomer} startExpanded />,
 }
 
-/** Prospect status, to show the alternate primary badge. */
+/** Prospect status with an unassigned classification, to show the alternate
+ * badges. */
 export const Prospect: Story = {
   render: () => (
     <LiveOverview
       initial={{
         ...baseCustomer,
         is_prospect: true,
-        classification: 'Unassigned lead',
+        segment: null,
       }}
     />
   ),
@@ -262,7 +269,7 @@ export const WithAlert: Story = {
     <LiveOverview
       initial={baseCustomer}
       alert={{
-        message: 'Do not call before 10:00 AM — customer request.',
+        message: 'Do not call before 10:00 AM (customer request).',
         detail: 'Noted on the last review. Mornings go to voicemail.',
       }}
     />

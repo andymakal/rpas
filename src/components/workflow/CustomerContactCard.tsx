@@ -587,6 +587,11 @@ export function CustomerContactCard({
   onPersist,
   className,
   appearance,
+  showName = true,
+  showMentoring = true,
+  collapsible = false,
+  defaultExpanded = true,
+  onExpandedChange,
 }: {
   customer: CustomerContact
   /** Called with the authoritative updated record after any successful write,
@@ -600,6 +605,24 @@ export function CustomerContactCard({
    * Design Playground to tune the REAL card. Never affects behavior, data, or
    * `onPersist` payloads. */
   appearance?: ContactCardAppearance
+  /** Render the customer name as the card heading. Default true (the existing
+   * behavior). Set false so a host can own a single name heading elsewhere. */
+  showName?: boolean
+  /** Render the inline mentoring control beside the name. Default true (the
+   * existing behavior). Set false to suppress mentoring for this instance only;
+   * every other call site is unaffected. */
+  showMentoring?: boolean
+  /** Opt into the two-mode Overview/Edit presentation. Default false, so every
+   * existing call site (including Contact Research) keeps rendering the single
+   * always-expanded card with per-field controls exactly as before. When true,
+   * the card shows a compact READ-ONLY overview with a single Edit button that
+   * expands to the existing per-field editing + verification controls. */
+  collapsible?: boolean
+  /** When `collapsible`, whether the card starts expanded (Edit) or collapsed
+   * (Overview). Default true. Ignored when not collapsible. */
+  defaultExpanded?: boolean
+  /** Notified when the collapsible card switches between Overview and Edit. */
+  onExpandedChange?: (expanded: boolean) => void
 }) {
   const ap = useMemo(() => resolveAppearance(appearance), [appearance])
   // The card holds the current record locally so the display updates the instant
@@ -608,6 +631,15 @@ export function CustomerContactCard({
   const [editing, setEditing] = useState<ContactFieldKey | null>(null)
   const [busyField, setBusyField] = useState<ContactFieldKey | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Overview (collapsed) vs Edit (expanded). Only meaningful when `collapsible`;
+  // a non-collapsible card is always "expanded", preserving today's behavior.
+  const [expanded, setExpanded] = useState(defaultExpanded)
+  const isExpanded = !collapsible || expanded
+  const setExpandedState = useCallback((next: boolean) => {
+    setEditing(null); setError(null)
+    setExpanded(next)
+    onExpandedChange?.(next)
+  }, [onExpandedChange])
 
   const persist = useCallback(
     async (payload: ContactPersistPayload): Promise<CustomerContact> => {
@@ -701,8 +733,16 @@ export function CustomerContactCard({
       {/* The customer's name IS the card heading, with the inline graduation-cap
           mentoring control beside it. The approved default renders the name at
           150% (33px), bold, in the teal brand token; the Playground can override
-          any of those. */}
-      <ContactMentoring appearance={ap} name={fullName(record)} />
+          any of those. `showName` / `showMentoring` let a host suppress either
+          for one instance; both default to true so every existing call site is
+          unchanged. */}
+      {showName && (
+        <ContactMentoring
+          appearance={ap}
+          name={fullName(record)}
+          showMentoring={showMentoring}
+        />
+      )}
 
       {error && (
         <p className="mt-3 rounded-lg border border-status-missing-border bg-status-missing-soft px-3 py-2 text-base text-status-missing-strong">
@@ -710,59 +750,114 @@ export function CustomerContactCard({
         </p>
       )}
 
-      {/* Three compact sections in one card. The dividers use the stronger
-          surface border token so they read clearly against the white card. */}
-      <div
-        className={cn('mt-3', ap.isDefault && 'divide-y divide-surface-border-strong')}
-        style={ap.isDefault ? undefined : {
-          borderColor: ap.dividerColor ?? 'var(--surface-border-strong)',
-        }}
-      >
-        <EmailRow
-          present={emailPresent}
-          verifiedAt={record.email_verified_at}
-          value={record.email}
-          availability={record.email_availability}
-          onSetAvailability={(status) => setEmailAvailability(status)}
-          editing={editing === 'email'}
-          busy={busyField === 'email'}
-          appearance={ap}
-          first
-          onEdit={() => { setError(null); setEditing('email') }}
-          onCancel={() => setEditing(null)}
-          onSave={(email) => saveField({ field: 'email', email })}
-          onVerify={(v) => toggleVerify('email', v)}
-        />
+      {isExpanded ? (
+        <>
+          {/* Edit mode — the existing per-field editing + verification controls,
+              byte-identical to today when not collapsible. */}
+          <div
+            className={cn('mt-3', ap.isDefault && 'divide-y divide-surface-border-strong')}
+            style={ap.isDefault ? undefined : {
+              borderColor: ap.dividerColor ?? 'var(--surface-border-strong)',
+            }}
+          >
+            <EmailRow
+              present={emailPresent}
+              verifiedAt={record.email_verified_at}
+              value={record.email}
+              availability={record.email_availability}
+              onSetAvailability={(status) => setEmailAvailability(status)}
+              editing={editing === 'email'}
+              busy={busyField === 'email'}
+              appearance={ap}
+              first
+              onEdit={() => { setError(null); setEditing('email') }}
+              onCancel={() => setEditing(null)}
+              onSave={(email) => saveField({ field: 'email', email })}
+              onVerify={(v) => toggleVerify('email', v)}
+            />
 
-        <PhoneRow
-          present={phonePresent}
-          verifiedAt={record.phone_verified_at}
-          value={record.phone}
-          editing={editing === 'phone'}
-          busy={busyField === 'phone'}
-          appearance={ap}
-          onEdit={() => { setError(null); setEditing('phone') }}
-          onCancel={() => setEditing(null)}
-          onSave={(phone) => saveField({ field: 'phone', phone })}
-          onVerify={(v) => toggleVerify('phone', v)}
-        />
+            <PhoneRow
+              present={phonePresent}
+              verifiedAt={record.phone_verified_at}
+              value={record.phone}
+              editing={editing === 'phone'}
+              busy={busyField === 'phone'}
+              appearance={ap}
+              onEdit={() => { setError(null); setEditing('phone') }}
+              onCancel={() => setEditing(null)}
+              onSave={(phone) => saveField({ field: 'phone', phone })}
+              onVerify={(v) => toggleVerify('phone', v)}
+            />
 
-        <AddressRow
-          present={addrPresent}
-          verifiedAt={record.address_verified_at}
-          record={record}
-          editing={editing === 'address'}
-          busy={busyField === 'address'}
-          appearance={ap}
-          last
-          onEdit={() => { setError(null); setEditing('address') }}
-          onCancel={() => setEditing(null)}
-          onSave={(a) => saveField({ field: 'address', ...a })}
-          onVerify={(v) => toggleVerify('address', v)}
-        />
-      </div>
+            <AddressRow
+              present={addrPresent}
+              verifiedAt={record.address_verified_at}
+              record={record}
+              editing={editing === 'address'}
+              busy={busyField === 'address'}
+              appearance={ap}
+              last
+              onEdit={() => { setError(null); setEditing('address') }}
+              onCancel={() => setEditing(null)}
+              onSave={(a) => saveField({ field: 'address', ...a })}
+              onVerify={(v) => toggleVerify('address', v)}
+            />
+          </div>
 
-      {ap.showStatusKey && <ContactStatusKey appearance={ap} />}
+          {ap.showStatusKey && <ContactStatusKey appearance={ap} />}
+
+          {/* The single control that returns to the compact Overview. Only the
+              collapsible card shows it; the always-expanded card never does. */}
+          {collapsible && (
+            <div className="mt-3 flex justify-end border-t border-surface-border-strong pt-3">
+              <ModeToggleButton
+                label="Done"
+                icon={Check}
+                onClick={() => setExpandedState(false)}
+              />
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          {/* Overview mode — a compact, read-only summary of the same three
+              fields, reusing the status tones and value rendering. One Edit
+              button expands to the controls above. */}
+          <div className="mt-3 divide-y divide-surface-border-strong">
+            <OverviewRow
+              contactIcon={Mail}
+              label="Email"
+              tone={toneFor(emailPresent, record.email_verified_at)}
+              value={overviewEmailText(record)}
+              present={emailPresent}
+              first
+            />
+            <OverviewRow
+              contactIcon={Phone}
+              label="Phone"
+              tone={toneFor(phonePresent, record.phone_verified_at)}
+              value={record.phone}
+              present={phonePresent}
+            />
+            <OverviewRow
+              contactIcon={MapPin}
+              label="Mailing Address"
+              tone={toneFor(addrPresent, record.address_verified_at)}
+              value={addrPresent ? addressLines(record).join('\n') : null}
+              present={addrPresent}
+              last
+            />
+          </div>
+
+          <div className="mt-3 flex justify-end border-t border-surface-border-strong pt-3">
+            <ModeToggleButton
+              label="Edit"
+              icon={Pencil}
+              onClick={() => setExpandedState(true)}
+            />
+          </div>
+        </>
+      )}
     </section>
   )
 }
@@ -780,7 +875,15 @@ export function CustomerContactCard({
  * coaching body, which the Playground exposes for experimentation; when the
  * appearance is the untouched neutral baseline the body renders verbatim.
  */
-function ContactMentoring({ appearance, name }: { appearance: ResolvedAppearance; name: string }) {
+function ContactMentoring({
+  appearance, name, showMentoring = true,
+}: {
+  appearance: ResolvedAppearance
+  name: string
+  /** Render the mentoring cap/panel. Default true (the existing behavior). When
+   * false, only the name heading renders and no mentoring appears. */
+  showMentoring?: boolean
+}) {
   const body =
     'Changes here update customer information throughout Right Path. Check Verified only when the ' +
     'customer has confirmed the information is correct, including when they confirm it in an email ' +
@@ -807,14 +910,91 @@ function ContactMentoring({ appearance, name }: { appearance: ResolvedAppearance
         >
           {name}
         </h3>
-        {!open && <MentorCapButton onOpen={() => setOpen(true)} label="Show mentoring about these fields" />}
+        {showMentoring && !open && (
+          <MentorCapButton onOpen={() => setOpen(true)} label="Show mentoring about these fields" />
+        )}
       </div>
-      {open && (
+      {showMentoring && open && (
         <MentorCapPanel className="mt-2" onClose={() => setOpen(false)}>
           <span style={bodyStyle}>{body}</span>
         </MentorCapPanel>
       )}
     </>
+  )
+}
+
+/**
+ * The read-only value for the Email line of the Overview. A usable address
+ * shows as-is; otherwise it shows the recorded reason ("No Usable Email",
+ * "Undeliverable") or "Missing" — the same wording the editable Email section
+ * uses, so Overview and Edit never disagree.
+ */
+function overviewEmailText(record: CustomerContact): string | null {
+  const display = resolveEmailAvailabilityDisplay(record.email_availability, record.email)
+  if (display === 'on_file') return record.email
+  if (display === 'missing') return null
+  return EMAIL_AVAILABILITY_LABEL[display]
+}
+
+/**
+ * One compact, read-only row in the Overview: the field's status icon + contact
+ * icon + label, with the value beneath. No Edit button and no Verified checkbox
+ * — the single Edit button on the card reveals those. The status ICON carries
+ * the same verified/on-file/missing meaning as the editable view (and the same
+ * accessible label), so the Overview still communicates verification at a
+ * glance without the interactive control.
+ */
+function OverviewRow({
+  contactIcon: ContactIcon, label, tone, value, present, first, last,
+}: {
+  contactIcon: typeof Mail
+  label: string
+  tone: Tone
+  value: string | null
+  present: boolean
+  first?: boolean
+  last?: boolean
+}) {
+  const status = STATUS_META[tone]
+  const StatusIcon = status.icon
+  return (
+    <div className={cn('py-2.5', first && 'pt-0', last && 'pb-0')}>
+      <p className="flex items-center gap-2 text-base font-semibold text-black">
+        <StatusIcon className={cn('size-5 shrink-0', status.color)} aria-label={status.label} role="img" />
+        <ContactIcon className={cn('size-5 shrink-0', status.color)} aria-hidden />
+        {label}
+      </p>
+      {present ? (
+        <p className="mt-0.5 whitespace-pre-line break-words text-lg text-ink">{value}</p>
+      ) : (
+        <p className="mt-0.5 text-lg font-medium text-status-missing-strong">
+          {value ?? 'Missing'}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The single control that switches the collapsible card between Overview and
+ * Edit. It reuses the same neutral button chrome as the per-field Edit button
+ * so the two modes feel like one card, not two components.
+ */
+function ModeToggleButton({
+  label, icon: Icon, onClick,
+}: {
+  label: string
+  icon: typeof Pencil
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-3 py-1.5 text-base font-medium text-ink-secondary hover:bg-surface-muted"
+    >
+      <Icon className="size-4" aria-hidden /> {label}
+    </button>
   )
 }
 
