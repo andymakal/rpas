@@ -1206,16 +1206,6 @@ function EmailRow({
     })
   }
 
-  // The help shown while a selection is pending. Missing resets the fact to
-  // unknown; the reasons record why there is no usable email. All three clear
-  // the current address (kept in Customer History) on Save.
-  const pendingHelp = (reason: SelectableEmailAvailability): string => {
-    const verb = reason === 'missing'
-      ? `reset email availability to ${EMAIL_AVAILABILITY_LABEL.missing} (unknown)`
-      : `set ${EMAIL_AVAILABILITY_LABEL[reason]}`
-    return `Save will ${verb} and remove the current email address (kept in Customer History). Cancel to keep the current email.`
-  }
-
   return (
     <form onSubmit={submit} className="py-3 first:pt-0 last:pb-0">
       <label htmlFor="cc-email" className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
@@ -1239,11 +1229,10 @@ function EmailRow({
       <div className="mt-2.5"><EditActions busy={busy} onCancel={onCancel} appearance={appearance} /></div>
 
       {/* Email availability — an informational customer fact chosen here as part
-          of the SAME Save/Cancel operation. Picking a reason only prepares the
-          selection (shown highlighted, with a note that Save clears the current
-          address); Save commits it and clears the active email + verification,
-          Cancel discards it. Entering and saving an email returns to Email on
-          file. It changes no research or workflow. */}
+          of the SAME Save/Cancel operation. Picking a selection only prepares it
+          (shown highlighted); Save commits it and clears the active email +
+          verification, Cancel discards it. Entering and saving an email returns
+          to Email on file. It changes no research or workflow. */}
       <fieldset className="mt-3 border-t border-surface-border-strong pt-3">
         <legend className="text-sm font-semibold text-ink-secondary">Set email availability</legend>
         <div className="mt-1.5 flex flex-wrap gap-2">
@@ -1268,11 +1257,6 @@ function EmailRow({
             )
           })}
         </div>
-        <p className="mt-1.5 text-sm text-ink-muted">
-          {pendingReason
-            ? pendingHelp(pendingReason)
-            : 'Missing resets the status to unknown. No Usable Email records that the customer has no email or will not provide one. Undeliverable removes a failed address from use while keeping it in Customer History. Entering an email returns this to Email on file.'}
-        </p>
       </fieldset>
     </form>
   )
