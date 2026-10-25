@@ -622,7 +622,7 @@ export function CustomerCardClient({
   const [householdErr,        setHouseholdErr]        = useState<string | null>(null)
 
   // Documents (Google Drive)
-  type DriveFile = { id: string; name: string; mimeType: string; modifiedTime: string | null; size: string | null; webViewLink: string | null }
+  type DriveFile = { id: string; name: string; mimeType: string; modifiedTime: string | null; size: string | null }
   const [docsExpanded,  setDocsExpanded]  = useState(false)
   const [driveFiles,    setDriveFiles]    = useState<DriveFile[] | null>(null)
   const [driveLoading,  setDriveLoading]  = useState(false)
@@ -2244,22 +2244,19 @@ export function CustomerCardClient({
                         ? `${(parseInt(f.size) / 1_000_000).toFixed(1)} MB`
                         : `${Math.round(parseInt(f.size) / 1024)} KB`)
                         : null
+                      const proxyUrl = `/api/customers/${customer.id}/drive-files/${f.id}`
                       return (
                         <div key={f.id} className="flex items-center gap-3 py-2.5">
                           <IconCmp className="w-4 h-4 text-slate-500 shrink-0" />
                           <div className="flex-1 min-w-0">
-                            {f.webViewLink ? (
-                              <a
-                                href={f.webViewLink}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-sm text-blue-400 hover:text-blue-300 truncate block"
-                              >
-                                {f.name}
-                              </a>
-                            ) : (
-                              <span className="text-sm text-slate-300 truncate block">{f.name}</span>
-                            )}
+                            <a
+                              href={proxyUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-sm text-blue-400 hover:text-blue-300 truncate block"
+                            >
+                              {f.name}
+                            </a>
                             <span className="text-xs text-slate-500">
                               {[modified, size].filter(Boolean).join(' · ')}
                             </span>

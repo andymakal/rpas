@@ -48,7 +48,7 @@ export async function GET(
 
     const res = await drive.files.list({
       q:        `'${folderId}' in parents and trashed = false`,
-      fields:   'files(id, name, mimeType, modifiedTime, size, webViewLink)',
+      fields:   'files(id, name, mimeType, modifiedTime, size)',
       orderBy:  'modifiedTime desc',
       pageSize: 100,
     })
