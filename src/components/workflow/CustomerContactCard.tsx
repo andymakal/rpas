@@ -68,8 +68,10 @@ import {
 import {
   type EmailAvailability,
   type EmailAvailabilityDisplay,
+  type SelectableEmailAvailability,
   EMAIL_AVAILABILITY_LABEL,
   EMAIL_AVAILABILITY_HELP,
+  SELECTABLE_EMAIL_AVAILABILITY_VALUES,
   resolveEmailAvailabilityDisplay,
 } from '@/lib/email-availability'
 
@@ -533,7 +535,7 @@ export type ContactPersistPayload =
   | { field: 'phone'; phone: string | null }
   | { field: 'address'; street: string | null; city: string | null; state: string | null; zip: string | null }
   | { field: ContactFieldKey; verified: boolean }
-  | { field: 'email_availability'; availability: Exclude<EmailAvailability, 'available'> }
+  | { field: 'email_availability'; availability: SelectableEmailAvailability }
 
 type Tone = 'confirmed' | 'known' | 'missing'
 
@@ -661,7 +663,7 @@ export function CustomerContactCard({
   // verification, and the editor closes — exactly like saveField, so a stale
   // email draft can never follow and overwrite the just-saved status.
   const setEmailAvailability = useCallback(
-    async (status: Exclude<EmailAvailability, 'available'>) => {
+    async (status: SelectableEmailAvailability) => {
       setBusyField('email'); setError(null)
       try {
         const updated = await persist({ field: 'email_availability', availability: status })
@@ -1084,13 +1086,12 @@ const inputCls = (invalid: boolean) =>
 
 // ── Email ──────────────────────────────────────────────────────────────────
 
-/** The selectable "no usable email" reasons the operator can record directly in
- * the Email section. 'available' is never selected here — it is set by the
- * system when a usable address is saved — so the choices are exactly the two
- * reasons plus entering an address. */
-const EMAIL_REASON_CHOICES: readonly Exclude<EmailAvailability, 'available'>[] = [
-  'no_address', 'undeliverable',
-]
+/** The email-availability states the operator can select directly in the Email
+ * section: Missing (reset to unknown), No Usable Email, and Undeliverable.
+ * 'available' is never selected here — it is set by the system when a usable
+ * address is saved. */
+const EMAIL_REASON_CHOICES: readonly SelectableEmailAvailability[] =
+  SELECTABLE_EMAIL_AVAILABILITY_VALUES
 
 /**
  * The read-only value line for the Email section. A usable address shows
@@ -1134,21 +1135,21 @@ function EmailRow({
   onEdit: () => void
   onCancel: () => void
   onSave: (email: string | null) => void
-  onSetAvailability: (status: Exclude<EmailAvailability, 'available'>) => void
+  onSetAvailability: (status: SelectableEmailAvailability) => void
   onVerify: (v: boolean) => void
 }) {
   const tone = toneFor(present, verifiedAt)
   const display = resolveEmailAvailabilityDisplay(availability, value)
   const [draft, setDraft] = useState(value ?? '')
   const [result, setResult] = useState<ContactFieldResult | null>(null)
-  // A reason selected in THIS editing session but not yet committed. The editor
-  // is one Save/Cancel operation: picking No Usable Email / Undeliverable only
-  // PREPARES the selection (it is not persisted on click); Save commits either
-  // the pending reason or the typed email, and Cancel discards both. This is
-  // what prevents a lingering email draft from overwriting a newly selected
-  // status.
+  // A state selected in THIS editing session but not yet committed. The editor
+  // is one Save/Cancel operation: picking Missing / No Usable Email /
+  // Undeliverable only PREPARES the selection (it is not persisted on click);
+  // Save commits either the pending selection or the typed email, and Cancel
+  // discards both. This is what prevents a lingering email draft from
+  // overwriting a newly selected status.
   const [pendingReason, setPendingReason] =
-    useState<Exclude<EmailAvailability, 'available'> | null>(null)
+    useState<SelectableEmailAvailability | null>(null)
 
   // Reset the draft and any pending selection whenever the editor opens, so
   // Cancel-then-Edit starts clean.
@@ -1193,13 +1194,23 @@ function EmailRow({
   // reflects that saving will remove the address, and clears any stale
   // validation. Re-clicking the selected reason toggles it back off, returning
   // to editing the email.
-  const selectReason = (choice: Exclude<EmailAvailability, 'available'>) => {
+  const selectReason = (choice: SelectableEmailAvailability) => {
     setResult(null)
     setPendingReason((prev) => {
       const next = prev === choice ? null : choice
       setDraft(next ? '' : (value ?? ''))
       return next
     })
+  }
+
+  // The help shown while a selection is pending. Missing resets the fact to
+  // unknown; the reasons record why there is no usable email. All three clear
+  // the current address (kept in Customer History) on Save.
+  const pendingHelp = (reason: SelectableEmailAvailability): string => {
+    const verb = reason === 'missing'
+      ? `reset email availability to ${EMAIL_AVAILABILITY_LABEL.missing} (unknown)`
+      : `set ${EMAIL_AVAILABILITY_LABEL[reason]}`
+    return `Save will ${verb} and remove the current email address (kept in Customer History). Cancel to keep the current email.`
   }
 
   return (
@@ -1231,7 +1242,7 @@ function EmailRow({
           Cancel discards it. Entering and saving an email returns to Email on
           file. It changes no research or workflow. */}
       <fieldset className="mt-3 border-t border-surface-border-strong pt-3">
-        <legend className="text-sm font-semibold text-ink-secondary">No usable email? Record why</legend>
+        <legend className="text-sm font-semibold text-ink-secondary">Set email availability</legend>
         <div className="mt-1.5 flex flex-wrap gap-2">
           {EMAIL_REASON_CHOICES.map((choice) => {
             const selected = pendingReason === choice
@@ -1256,8 +1267,8 @@ function EmailRow({
         </div>
         <p className="mt-1.5 text-sm text-ink-muted">
           {pendingReason
-            ? `Save will set ${EMAIL_AVAILABILITY_LABEL[pendingReason]} and remove the current email address (kept in Customer History). Cancel to keep the current email.`
-            : 'No Usable Email records that the customer has no email or will not provide one. Undeliverable removes the current address from use while keeping it in Customer History. Entering an email returns this to Email on file.'}
+            ? pendingHelp(pendingReason)
+            : 'Missing resets the status to unknown. No Usable Email records that the customer has no email or will not provide one. Undeliverable removes a failed address from use while keeping it in Customer History. Entering an email returns this to Email on file.'}
         </p>
       </fieldset>
     </form>

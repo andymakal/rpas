@@ -46,6 +46,27 @@ export function isEmailAvailability(v: unknown): v is EmailAvailability {
 }
 
 /**
+ * What an operator can choose in the email editor's "record why" control. These
+ * are the two "no usable email" reasons plus 'missing', which RESETS the fact to
+ * unknown (the stored column back to NULL). 'missing' is not a stored value —
+ * it is the request intent to clear the column — so it is kept separate from
+ * EmailAvailability. 'available' is never chosen here; it is set by the system
+ * when a usable address is saved.
+ */
+export type SelectableEmailAvailability = 'missing' | 'no_address' | 'undeliverable'
+
+export const SELECTABLE_EMAIL_AVAILABILITY_VALUES: readonly SelectableEmailAvailability[] = [
+  'missing',
+  'no_address',
+  'undeliverable',
+] as const
+
+export function isSelectableEmailAvailability(v: unknown): v is SelectableEmailAvailability {
+  return typeof v === 'string'
+    && (SELECTABLE_EMAIL_AVAILABILITY_VALUES as readonly string[]).includes(v)
+}
+
+/**
  * The effective, display-facing state the UI reads. Combines the stored
  * availability with whether a usable address is actually on file, so the card
  * never shows a contradictory combination (e.g. a stored 'available' with no

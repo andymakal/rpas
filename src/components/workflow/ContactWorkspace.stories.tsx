@@ -509,9 +509,16 @@ function makeInteractivePersist(record: CustomerContact, setRecord: (c: Customer
         : 'address_verified_at'
       next = { ...record, [colKey]: payload.verified ? now : null }
     } else if (payload.field === 'email_availability') {
-      // Either reason clears the active email and its verification (the removed
-      // address is kept in history in the app). Mirrors the app route.
-      next = { ...record, email_availability: payload.availability, email: null, email_verified_at: null }
+      // Every selection clears the active email and its verification (the
+      // removed address is kept in history in the app). 'missing' resets the
+      // stored fact to unknown (null); the reasons store their value. Mirrors
+      // the app route.
+      next = {
+        ...record,
+        email_availability: payload.availability === 'missing' ? null : payload.availability,
+        email: null,
+        email_verified_at: null,
+      }
     } else if (payload.field === 'email') {
       const changed = (payload.email ?? null) !== (record.email ?? null)
       // A usable replacement clears No Usable Email / Undeliverable -> available.

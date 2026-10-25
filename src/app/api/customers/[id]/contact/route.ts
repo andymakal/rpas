@@ -5,8 +5,9 @@ import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { normalizeEmailInput, normalizePhoneInput } from '@/lib/contact-input'
 import {
   type EmailAvailability,
+  type SelectableEmailAvailability,
   EMAIL_AVAILABILITY_LABEL,
-  isEmailAvailability,
+  isSelectableEmailAvailability,
 } from '@/lib/email-availability'
 
 type AdminClient = ReturnType<typeof createAdminClient>
@@ -92,8 +93,9 @@ const SELECT =
 /** The stable machine marker that identifies a case_touches 'workflow' note as
  * an email-availability change, carrying the new status. Bracketed so the
  * Customer History display (cleanHistoryNote / stripMarkersAndPrefix) hides it
- * while keeping the human-readable sentence. */
-function emailAvailabilityMarker(status: EmailAvailability): string {
+ * while keeping the human-readable sentence. Covers the selectable reasons plus
+ * 'missing' (a reset to unknown) and the system-set 'available'. */
+function emailAvailabilityMarker(status: SelectableEmailAvailability | 'available'): string {
   return `[email-availability:${status}]`
 }
 
@@ -126,9 +128,16 @@ async function resolveEmployeeName(admin: AdminClient): Promise<string | null> {
  * failed address is named in the sentence so it is preserved in history even
  * though it is removed from active use.
  */
-function emailAvailabilityNote(status: EmailAvailability, priorEmail: string | null): string {
+function emailAvailabilityNote(
+  status: SelectableEmailAvailability | 'available',
+  priorEmail: string | null,
+): string {
   const marker = emailAvailabilityMarker(status)
   switch (status) {
+    case 'missing':
+      return priorEmail
+        ? `Email availability reset to ${EMAIL_AVAILABILITY_LABEL.missing} (unknown): ${priorEmail} was removed from active use. ${marker}`
+        : `Email availability reset to ${EMAIL_AVAILABILITY_LABEL.missing} (unknown). ${marker}`
     case 'no_address':
       return priorEmail
         ? `Email availability set to ${EMAIL_AVAILABILITY_LABEL.no_address}: ${priorEmail} was removed from active use. ${marker}`
@@ -155,7 +164,7 @@ function emailAvailabilityNote(status: EmailAvailability, priorEmail: string | n
 async function recordEmailAvailabilityHistory(
   admin: AdminClient,
   customerId: string,
-  status: EmailAvailability,
+  status: SelectableEmailAvailability | 'available',
   priorEmail: string | null,
 ): Promise<void> {
   const touchedBy = await resolveEmployeeName(admin)
@@ -239,9 +248,11 @@ export async function PATCH(
   }
 
   // ── SET EMAIL AVAILABILITY ────────────────────────────────────────────────
-  // Record a "no usable email" reason as an informational durable customer fact.
-  // Body:
-  //   { field: 'email_availability', availability: 'no_address' | 'undeliverable' }
+  // Record the email-availability fact as an informational durable customer
+  // fact. Body:
+  //   { field: 'email_availability', availability: 'missing' | 'no_address' | 'undeliverable' }
+  // 'missing' resets the fact to unknown (the stored column back to NULL); the
+  // two reasons store their value.
   // 'available' is never set here — it is set by the system when a usable
   // address is saved (the email SAVE path below). The change is save-only-
   // changed: when the stored status already matches, nothing is written and no
@@ -254,30 +265,33 @@ export async function PATCH(
   // time.
   if (field === 'email_availability') {
     const status = body.availability
-    if (!isEmailAvailability(status) || status === 'available') {
+    if (!isSelectableEmailAvailability(status)) {
       return Response.json(
-        { error: 'availability must be one of: no_address, undeliverable.' },
+        { error: 'availability must be one of: missing, no_address, undeliverable.' },
         { status: 400 },
       )
     }
 
-    // Both "no usable email" reasons clear any active email so the card then
-    // reads the reason, not a lingering address. Save-only-changed: a repeat of
-    // the same status with no address left to clear is a no-op (no duplicate
-    // history), but when an address still lingers the clear happens even if the
-    // status itself is unchanged.
+    // The value written to the durable column. 'missing' RESETS the fact to
+    // unknown (NULL); the two reasons store their own value. Either way the
+    // active email and its verification are cleared, so the card reads the
+    // chosen state, not a lingering address.
+    const storedValue: EmailAvailability | null = status === 'missing' ? null : status
+
+    // Save-only-changed: a repeat of the same stored state with no address left
+    // to clear is a no-op (no duplicate history); when an address still lingers
+    // the clear happens even if the stored value is unchanged.
     const priorEmail = before.email?.trim() ? before.email : null
-    const statusChanged = (before.email_availability ?? null) !== status
+    const statusChanged = (before.email_availability ?? null) !== storedValue
     const retiringAddress = !!priorEmail
     if (!statusChanged && !retiringAddress) {
       return Response.json({ data: before })
     }
 
     // The address leaves active use; its value is preserved in the history note
-    // recorded below (the Undeliverable note names it). Verification cannot
-    // outlive the address.
+    // recorded below. Verification cannot outlive the address.
     const patch: Partial<CustomerContactRow> = {
-      email_availability: status,
+      email_availability: storedValue,
       email: null,
       email_verified_at: null,
     }
