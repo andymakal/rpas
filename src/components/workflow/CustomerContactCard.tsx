@@ -1158,10 +1158,13 @@ function EmailRow({
   }, [value, onEdit])
 
   if (!editing) {
-    // A terminal reason reads as the field status when there is no usable
-    // address, so the section explains WHY email is absent. Verification stays
-    // bound to an actual address (SectionShell disables Verified when !present).
-    const helpText = display === 'on_file' ? null : EMAIL_AVAILABILITY_HELP[display]
+    // A recorded reason (No Usable Email / Undeliverable) explains WHY email is
+    // absent. 'on_file' needs no help, and 'missing' shows only "Missing" with
+    // no explanatory line. Verification stays bound to an actual address
+    // (SectionShell disables Verified when !present).
+    const helpText = display === 'on_file' || display === 'missing'
+      ? null
+      : EMAIL_AVAILABILITY_HELP[display]
     return (
       <SectionShell contactIcon={Mail} label="Email" tone={tone} present={present} verifiedAt={verifiedAt}
         busy={busy} appearance={appearance} first={first} onEdit={open} onVerify={onVerify}>
