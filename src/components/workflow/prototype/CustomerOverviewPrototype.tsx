@@ -9,29 +9,31 @@
  * screen, the API, the database schema, or any real customer data.
  *
  * It does NOT fork the contact card. It renders the REAL shared
- * `CustomerContactCard` in its two presentation modes:
- *   - Overview (collapsed): compact, read-only email / phone / address with a
- *     single Edit button.
+ * `CustomerContactCard` in its two presentation modes and places the customer
+ * identity INSIDE that card via the card's `header` slot:
+ *   - The header row carries one customer name, calculated age, a SELECTABLE
+ *     status (Active / Prospect / Former Customer / Quiet Filed) and a
+ *     SELECTABLE Right Path classification (Wanderer / Explorer / Pathfinder /
+ *     Voyageur / Trailblazer), with the single Edit button at its right end.
+ *   - Overview (collapsed): compact, read-only email / phone / address.
  *   - Edit (expanded): the same card's existing per-field editing +
  *     verification controls.
- * The card's new `collapsible` / `defaultExpanded` / `showName` / `showMentoring`
- * props drive this; they default to the card's existing behavior, so no live
- * screen (including Contact Research) changes.
+ * The card's `header` / `collapsible` / `defaultExpanded` / `showName` /
+ * `showMentoring` props drive this; they default to the card's existing
+ * behavior, so no live screen (including Contact Research) changes.
  *
- * The prototype owns the single customer-name heading, the existing status
- * (Active / Prospect / Former Customer / Quiet Filed), the actual Right Path
- * classification (Wanderer / Explorer / Pathfinder / Voyageur / Trailblazer),
- * and the calculated age. Mentoring is suppressed on this instance. The address
- * is normalized for DISPLAY with Right Path's own `normalizeStreet` /
- * `normalizeCity` / `normalizeState`, so the card shows (and copies) normal
- * capitalization while the stored address is left untouched.
+ * Status and classification are interactive and in-memory only: picking a value
+ * updates the displayed badge. The address is normalized for DISPLAY with Right
+ * Path's own `normalizeStreet` / `normalizeCity` / `normalizeState`, so the card
+ * shows (and copies) normal capitalization while the stored address is left
+ * untouched. Mentoring is suppressed and the name appears exactly once.
  *
  * An optional prominent alert can sit above the contact information, similar to
  * eAgent's alert box. It is display-only: no persistence, no new field.
  */
 
-import { useMemo } from 'react'
-import { Compass, TriangleAlert } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Check, ChevronDown, Compass, TriangleAlert } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { normalizeStreet, normalizeCity, normalizeState } from '@/lib/fmt'
@@ -65,7 +67,7 @@ export interface OverviewCustomer extends CustomerContact {
 
 // ── Status (the existing four) ───────────────────────────────────────────────
 
-type CustomerStatus = 'active' | 'prospect' | 'former_client' | 'quiet_filed'
+export type CustomerStatus = 'active' | 'prospect' | 'former_client' | 'quiet_filed'
 
 function deriveStatus(c: {
   is_deceased: boolean
@@ -78,40 +80,44 @@ function deriveStatus(c: {
   return 'active'
 }
 
-const STATUS_META: Record<CustomerStatus, { label: string; className: string }> = {
-  active: {
+const STATUS_OPTIONS: { value: CustomerStatus; label: string; className: string }[] = [
+  {
+    value: 'active',
     label: 'Active',
     className:
       'bg-status-confirmed-fill text-status-confirmed-strong border-status-confirmed-border',
   },
-  prospect: {
+  {
+    value: 'prospect',
     label: 'Prospect',
     className: 'bg-brand-subtle text-brand-subtle-foreground border-brand-ring',
   },
-  former_client: {
+  {
+    value: 'former_client',
     label: 'Former Customer',
     className: 'bg-surface-muted text-ink-supporting border-surface-border-strong',
   },
-  quiet_filed: {
+  {
+    value: 'quiet_filed',
     label: 'Quiet Filed',
     className:
       'bg-status-missing-fill text-status-missing-strong border-status-missing-border',
   },
-}
+]
 
 // ── Classification (the actual Right Path segments) ──────────────────────────
 
-const SEGMENT_LABEL: Record<string, string> = {
-  wanderer: 'Wanderer',
-  explorer: 'Explorer',
-  pathfinder: 'Pathfinder',
-  voyageur: 'Voyageur',
-  trailblazer: 'Trailblazer',
-}
+const SEGMENT_OPTIONS: { value: string; label: string }[] = [
+  { value: 'wanderer', label: 'Wanderer' },
+  { value: 'explorer', label: 'Explorer' },
+  { value: 'pathfinder', label: 'Pathfinder' },
+  { value: 'voyageur', label: 'Voyageur' },
+  { value: 'trailblazer', label: 'Trailblazer' },
+]
 
 function classificationLabel(segment: string | null): string {
   if (!segment) return 'Unassigned'
-  return SEGMENT_LABEL[segment] ?? 'Unassigned'
+  return SEGMENT_OPTIONS.find((o) => o.value === segment)?.label ?? 'Unassigned'
 }
 
 // ── Display helpers ──────────────────────────────────────────────────────────
@@ -149,7 +155,7 @@ function calcAge(iso: string | null): number | null {
  * abbreviations (NE/PO and the two-letter state) are preserved by the
  * normalizers themselves.
  */
-function withNormalizedAddressForDisplay(c: OverviewCustomer): CustomerContact {
+function withNormalizedAddressForDisplay(c: CustomerContact): CustomerContact {
   return {
     ...c,
     street: normalizeStreet(c.street),
@@ -157,6 +163,86 @@ function withNormalizedAddressForDisplay(c: OverviewCustomer): CustomerContact {
     city: normalizeCity(c.city),
     state: normalizeState(c.state),
   }
+}
+
+// ── A small in-memory selectable badge (status / classification) ─────────────
+
+/**
+ * A badge that opens a compact menu of choices on click and reports the picked
+ * value. Interactive and in-memory only — the prototype holds the selection in
+ * React state; nothing is persisted. Used for both the status and the
+ * classification so the two selections behave identically.
+ */
+function SelectableBadge<T extends string>({
+  value,
+  label,
+  options,
+  onChange,
+  className,
+  leadingIcon,
+  ariaLabel,
+}: {
+  value: T
+  label: string
+  options: { value: T; label: string; className?: string }[]
+  onChange: (v: T) => void
+  className?: string
+  leadingIcon?: React.ReactNode
+  ariaLabel: string
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <span className="relative inline-block">
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={ariaLabel}
+        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          'inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-semibold',
+          className,
+        )}
+      >
+        {leadingIcon}
+        {label}
+        <ChevronDown className="size-3" aria-hidden />
+      </button>
+      {open && (
+        <>
+          {/* Click-away backdrop so the menu closes without a selection. */}
+          <span
+            className="fixed inset-0 z-10"
+            aria-hidden
+            onClick={() => setOpen(false)}
+          />
+          <ul
+            role="listbox"
+            className="absolute left-0 z-20 mt-1 min-w-[11rem] overflow-hidden rounded-lg border border-surface-border-strong bg-surface-card py-1 shadow-md"
+          >
+            {options.map((o) => {
+              const selected = o.value === value
+              return (
+                <li key={o.value} role="option" aria-selected={selected}>
+                  <button
+                    type="button"
+                    onClick={() => { onChange(o.value); setOpen(false) }}
+                    className={cn(
+                      'flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm text-ink hover:bg-surface-muted',
+                      selected && 'font-semibold',
+                    )}
+                  >
+                    {o.label}
+                    {selected && <Check className="size-4 text-brand-icon" aria-hidden />}
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        </>
+      )}
+    </span>
+  )
 }
 
 // ── Optional alert box (display-only, eAgent-style) ───────────────────────────
@@ -209,16 +295,50 @@ export function CustomerOverviewPrototype({
   startExpanded = false,
   className,
 }: CustomerOverviewPrototypeProps) {
-  const status = deriveStatus(customer)
-  const statusMeta = STATUS_META[status]
   const name = fullName(customer)
-  const classification = classificationLabel(customer.segment)
   const age = calcAge(customer.date_of_birth)
+
+  // Status + classification are interactive, in-memory selections. They start
+  // from the sample's flags/segment and update the displayed badge on pick.
+  const [status, setStatus] = useState<CustomerStatus>(() => deriveStatus(customer))
+  const [segment, setSegment] = useState<string | null>(customer.segment)
+  const statusMeta =
+    STATUS_OPTIONS.find((o) => o.value === status) ?? STATUS_OPTIONS[0]
 
   // Normalize the address for display only — the stored record is untouched.
   const displayRecord = useMemo(
     () => withNormalizedAddressForDisplay(customer),
     [customer],
+  )
+
+  // The identity block that renders INSIDE the card header, across its top. The
+  // card places the single Edit button at the right end of this row.
+  const headerContent = (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+      <h2 className="text-[26px] font-bold leading-tight tracking-tight text-ink">
+        {name}
+      </h2>
+      {age != null && (
+        <span className="text-base font-medium text-ink-supporting">Age {age}</span>
+      )}
+      <SelectableBadge
+        value={status}
+        label={statusMeta.label}
+        options={STATUS_OPTIONS}
+        onChange={setStatus}
+        className={statusMeta.className}
+        ariaLabel="Customer status"
+      />
+      <SelectableBadge
+        value={segment ?? ''}
+        label={classificationLabel(segment)}
+        options={SEGMENT_OPTIONS}
+        onChange={(v) => setSegment(v)}
+        className="border-surface-border-strong bg-surface-muted text-ink-supporting"
+        leadingIcon={<Compass className="size-3.5" aria-hidden />}
+        ariaLabel="Customer classification"
+      />
+    </div>
   )
 
   return (
@@ -228,40 +348,19 @@ export function CustomerOverviewPrototype({
         className,
       )}
     >
-      {/* The single customer-name heading, with status, classification, and the
-          calculated age beside it. The contact card below renders with
-          showName=false so the name appears exactly once. */}
-      <header className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        <h2 className="text-[28px] font-bold leading-tight tracking-tight text-ink">
-          {name}
-        </h2>
-        {age != null && (
-          <span className="text-base font-medium text-ink-supporting">Age {age}</span>
-        )}
-        <span
-          className={cn(
-            'inline-flex items-center rounded-full border px-3 py-0.5 text-sm font-semibold',
-            statusMeta.className,
-          )}
-        >
-          {statusMeta.label}
-        </span>
-        <span className="inline-flex items-center gap-1 rounded-full border border-surface-border-strong bg-surface-muted px-2.5 py-0.5 text-xs font-medium text-ink-supporting">
-          <Compass className="size-3.5" aria-hidden />
-          {classification}
-        </span>
-      </header>
-
       {/* Optional prominent alert, above the contact information. */}
       {alert && <AlertBox alert={alert} />}
 
       {/* Contact information — the REAL shared card, in its two-mode
-          presentation. Name and mentoring are suppressed here (the header owns
-          the single name); the address is normalized for display. */}
+          presentation, with the identity block inside its header and the single
+          Edit button at the header's right end. Name and mentoring are
+          suppressed (the header owns the single name); the address is
+          normalized for display. */}
       <CustomerContactCard
         customer={displayRecord}
         onPersist={onPersist}
         onChange={onContactChange}
+        header={headerContent}
         showName={false}
         showMentoring={false}
         collapsible

@@ -54,7 +54,7 @@
  *     production look exactly — see `resolveAppearance`/`isDefault`.
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import {
   Mail, Phone, MapPin, Pencil, Check, X, Loader2,
   ShieldQuestion, CheckCircle2, AlertTriangle,
@@ -587,6 +587,7 @@ export function CustomerContactCard({
   onPersist,
   className,
   appearance,
+  header,
   showName = true,
   showMentoring = true,
   collapsible = false,
@@ -605,6 +606,11 @@ export function CustomerContactCard({
    * Design Playground to tune the REAL card. Never affects behavior, data, or
    * `onPersist` payloads. */
   appearance?: ContactCardAppearance
+  /** Optional content rendered across the TOP of the card, with the single
+   * Overview/Edit toggle at its right end (when `collapsible`). A host uses this
+   * to place the customer identity (name, age, status, classification) inside
+   * the card header. Omit it and the card has no header slot, exactly as today. */
+  header?: ReactNode
   /** Render the customer name as the card heading. Default true (the existing
    * behavior). Set false so a host can own a single name heading elsewhere. */
   showName?: boolean
@@ -730,6 +736,23 @@ export function CustomerContactCard({
         background: ap.cardBackground ?? 'var(--surface-card)',
       }}
     >
+      {/* Optional header slot across the top of the card: the host's identity
+          content on the left, the single Overview/Edit toggle at the right end.
+          Rendered only when a host supplies `header`; otherwise the card has no
+          header row, exactly as before. */}
+      {header != null && (
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">{header}</div>
+          {collapsible && (
+            <ModeToggleButton
+              label={isExpanded ? 'Done' : 'Edit'}
+              icon={isExpanded ? Check : Pencil}
+              onClick={() => setExpandedState(!isExpanded)}
+            />
+          )}
+        </div>
+      )}
+
       {/* The customer's name IS the card heading, with the inline graduation-cap
           mentoring control beside it. The approved default renders the name at
           150% (33px), bold, in the teal brand token; the Playground can override
@@ -806,9 +829,10 @@ export function CustomerContactCard({
 
           {ap.showStatusKey && <ContactStatusKey appearance={ap} />}
 
-          {/* The single control that returns to the compact Overview. Only the
-              collapsible card shows it; the always-expanded card never does. */}
-          {collapsible && (
+          {/* The control that returns to the compact Overview. When a header is
+              present the toggle lives in the header, so the bottom control is
+              only a fallback for a collapsible card with no header slot. */}
+          {collapsible && header == null && (
             <div className="mt-3 flex justify-end border-t border-surface-border-strong pt-3">
               <ModeToggleButton
                 label="Done"
@@ -849,13 +873,17 @@ export function CustomerContactCard({
             />
           </div>
 
-          <div className="mt-3 flex justify-end border-t border-surface-border-strong pt-3">
-            <ModeToggleButton
-              label="Edit"
-              icon={Pencil}
-              onClick={() => setExpandedState(true)}
-            />
-          </div>
+          {/* Fallback Edit control for a collapsible card with no header slot.
+              When a header is present the single Edit button lives in it. */}
+          {header == null && (
+            <div className="mt-3 flex justify-end border-t border-surface-border-strong pt-3">
+              <ModeToggleButton
+                label="Edit"
+                icon={Pencil}
+                onClick={() => setExpandedState(true)}
+              />
+            </div>
+          )}
         </>
       )}
     </section>
