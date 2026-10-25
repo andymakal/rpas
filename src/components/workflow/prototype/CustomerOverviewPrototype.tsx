@@ -33,7 +33,7 @@
  */
 
 import { useMemo, useState } from 'react'
-import { Check, ChevronDown, Compass } from 'lucide-react'
+import { Check, ChevronDown } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { normalizeStreet, normalizeCity, normalizeState } from '@/lib/fmt'
@@ -109,12 +109,18 @@ const STATUS_OPTIONS: { value: CustomerStatus; label: string; className: string 
 
 // ── Classification (the actual Right Path segments) ──────────────────────────
 
-const SEGMENT_OPTIONS: { value: string; label: string }[] = [
-  { value: 'wanderer', label: 'Wanderer' },
-  { value: 'explorer', label: 'Explorer' },
-  { value: 'pathfinder', label: 'Pathfinder' },
-  { value: 'voyageur', label: 'Voyageur' },
-  { value: 'trailblazer', label: 'Trailblazer' },
+/**
+ * The five Right Path classifications with their tier number, name, and the
+ * existing Right Path description (the same wording the customer record screen
+ * uses). `label` is the badge text ("Tier 1 — Wanderer"); `description` is shown
+ * in the dropdown so employees understand what each classification means.
+ */
+const SEGMENT_OPTIONS: { value: string; label: string; description: string }[] = [
+  { value: 'wanderer', label: 'Tier 1 — Wanderer', description: 'Legacy policy — service only' },
+  { value: 'explorer', label: 'Tier 2 — Explorer', description: 'Life insurance client' },
+  { value: 'pathfinder', label: 'Tier 3 — Pathfinder', description: 'Financial client — under $100K' },
+  { value: 'voyageur', label: 'Tier 4 — Voyageur', description: 'Financial client — $100K – $500K' },
+  { value: 'trailblazer', label: 'Tier 5 — Trailblazer', description: 'Financial client — $500K+' },
 ]
 
 function classificationLabel(segment: string | null): string {
@@ -186,7 +192,7 @@ function SelectableBadge<T extends string>({
 }: {
   value: T
   label: string
-  options: { value: T; label: string; className?: string }[]
+  options: { value: T; label: string; className?: string; description?: string }[]
   onChange: (v: T) => void
   className?: string
   leadingIcon?: React.ReactNode
@@ -229,13 +235,19 @@ function SelectableBadge<T extends string>({
                   <button
                     type="button"
                     onClick={() => { onChange(o.value); setOpen(false) }}
-                    className={cn(
-                      'flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm text-ink hover:bg-surface-muted',
-                      selected && 'font-semibold',
-                    )}
+                    className="flex w-full items-start justify-between gap-2 px-3 py-1.5 text-left hover:bg-surface-muted"
                   >
-                    {o.label}
-                    {selected && <Check className="size-4 text-brand-icon" aria-hidden />}
+                    <span className="min-w-0">
+                      <span className={cn('block text-sm text-ink', selected && 'font-semibold')}>
+                        {o.label}
+                      </span>
+                      {o.description && (
+                        <span className="mt-0.5 block text-xs text-ink-supporting">
+                          {o.description}
+                        </span>
+                      )}
+                    </span>
+                    {selected && <Check className="mt-0.5 size-4 shrink-0 text-brand-icon" aria-hidden />}
                   </button>
                 </li>
               )
@@ -323,7 +335,6 @@ export function CustomerOverviewPrototype({
           options={SEGMENT_OPTIONS}
           onChange={(v) => setSegment(v)}
           className="border-surface-border-strong bg-surface-muted text-ink-supporting"
-          leadingIcon={<Compass className="size-3.5" aria-hidden />}
           ariaLabel="Customer classification"
         />
       </div>
