@@ -827,7 +827,10 @@ export function CustomerContactCard({
             />
           </div>
 
-          {ap.showStatusKey && <ContactStatusKey appearance={ap} />}
+          {/* Status key in the editable view. A collapsible card hides it while
+              editing (the key belongs to the compact Overview); a non-collapsible
+              card keeps the existing `showStatusKey` behavior, unchanged. */}
+          {!collapsible && ap.showStatusKey && <ContactStatusKey appearance={ap} />}
 
           {/* The control that returns to the compact Overview. When a header is
               present the toggle lives in the header, so the bottom control is
@@ -872,6 +875,10 @@ export function CustomerContactCard({
               last
             />
           </div>
+
+          {/* The status key sits at the bottom of the compact Overview, so the
+              green/amber/red icons on the rows above read clearly. */}
+          <ContactStatusKey appearance={ap} />
 
           {/* Fallback Edit control for a collapsible card with no header slot.
               When a header is present the single Edit button lives in it. */}

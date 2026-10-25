@@ -98,8 +98,10 @@ const STATUS_OPTIONS: { value: CustomerStatus; label: string; className: string 
     className: 'bg-surface-muted text-ink-supporting border-surface-border-strong',
   },
   {
+    // Display label only; the underlying value stays `quiet_filed` (derived from
+    // is_deceased) so the meaning and any downstream logic are unchanged.
     value: 'quiet_filed',
-    label: 'Quiet Filed',
+    label: 'Deceased',
     className:
       'bg-status-missing-fill text-status-missing-strong border-status-missing-border',
   },
@@ -312,35 +314,39 @@ export function CustomerOverviewPrototype({
   )
 
   // The identity block that renders INSIDE the card header, across its top. The
-  // card places the single Edit button at the right end of this row.
+  // card places the single Edit/Done button at the right end of the first row
+  // (beside the name). Row two carries age, status, and classification.
   const headerContent = (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      {/* The approved Customer Contact name treatment: 150% of the 22px base
-          (33px), bold, in the teal brand token — identical to the card's
-          APPROVED_DEFAULTS name styling. */}
+    <div className="space-y-2">
+      {/* First row: the approved Customer Contact name treatment — 150% of the
+          22px base (33px), bold, teal brand token, identical to the card's
+          APPROVED_DEFAULTS. The card's Edit/Done control sits to its right. */}
       <h2 className="text-[33px] font-bold leading-tight tracking-tight text-brand">
         {name}
       </h2>
-      {age != null && (
-        <span className="text-base font-medium text-ink-supporting">Age {age}</span>
-      )}
-      <SelectableBadge
-        value={status}
-        label={statusMeta.label}
-        options={STATUS_OPTIONS}
-        onChange={setStatus}
-        className={statusMeta.className}
-        ariaLabel="Customer status"
-      />
-      <SelectableBadge
-        value={segment ?? ''}
-        label={classificationLabel(segment)}
-        options={SEGMENT_OPTIONS}
-        onChange={(v) => setSegment(v)}
-        className="border-surface-border-strong bg-surface-muted text-ink-supporting"
-        leadingIcon={<Compass className="size-3.5" aria-hidden />}
-        ariaLabel="Customer classification"
-      />
+      {/* Second row: age, selectable status, selectable classification. */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+        {age != null && (
+          <span className="text-base font-medium text-ink-supporting">Age {age}</span>
+        )}
+        <SelectableBadge
+          value={status}
+          label={statusMeta.label}
+          options={STATUS_OPTIONS}
+          onChange={setStatus}
+          className={statusMeta.className}
+          ariaLabel="Customer status"
+        />
+        <SelectableBadge
+          value={segment ?? ''}
+          label={classificationLabel(segment)}
+          options={SEGMENT_OPTIONS}
+          onChange={(v) => setSegment(v)}
+          className="border-surface-border-strong bg-surface-muted text-ink-supporting"
+          leadingIcon={<Compass className="size-3.5" aria-hidden />}
+          ariaLabel="Customer classification"
+        />
+      </div>
     </div>
   )
 
