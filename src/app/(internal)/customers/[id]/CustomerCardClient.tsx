@@ -8,7 +8,7 @@ import {
   Shield, CheckCircle, ShieldOff, FileQuestion, Send,
   AlertTriangle, ChevronRight, Search, X, Trash2,
   FolderKanban, Wrench, Link2, History, Compass, ChevronDown,
-  Pencil, Check, MessageSquare, Clipboard, Plus, ClipboardCheck, FolderOpen, Users,
+  Pencil, Check, MessageSquare, Clipboard, Plus, ClipboardCheck, Users,
   FileText, File, Image, FileSpreadsheet, Presentation, ExternalLink, RefreshCw,
 } from 'lucide-react'
 import type {
@@ -1255,12 +1255,6 @@ export function CustomerCardClient({
                           </a>
                           <VerifiedTick at={customer.email_verified_at} />
                         </span>
-                      )}
-                      {customer.drive_folder_url && (
-                        <a href={customer.drive_folder_url} target="_blank" rel="noopener noreferrer"
-                          className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 transition-colors">
-                          <FolderOpen className="w-3.5 h-3.5 shrink-0" /> Drive folder
-                        </a>
                       )}
                     </div>
                     {(customer.street || customer.city || customer.state) && (
