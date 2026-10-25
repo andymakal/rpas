@@ -9,6 +9,7 @@ import {
   AlertTriangle, ChevronRight, Search, X, Trash2,
   FolderKanban, Wrench, Link2, History, Compass, ChevronDown,
   Pencil, Check, MessageSquare, Clipboard, Plus, ClipboardCheck, FolderOpen, Users,
+  FileText, File, Image, FileSpreadsheet, Presentation, ExternalLink, RefreshCw,
 } from 'lucide-react'
 import type {
   CustomerDetail, LinkedCase, LinkedPolicy, LinkedServiceRequest,
@@ -619,6 +620,33 @@ export function CustomerCardClient({
   const [householdConfirm,    setHouseholdConfirm]    = useState<{ id: string; first_name: string; last_name: string } | null>(null)
   const [householdLinking,    setHouseholdLinking]    = useState(false)
   const [householdErr,        setHouseholdErr]        = useState<string | null>(null)
+
+  // Documents (Google Drive)
+  type DriveFile = { id: string; name: string; mimeType: string; modifiedTime: string | null; size: string | null; webViewLink: string | null }
+  const [docsExpanded,  setDocsExpanded]  = useState(false)
+  const [driveFiles,    setDriveFiles]    = useState<DriveFile[] | null>(null)
+  const [driveLoading,  setDriveLoading]  = useState(false)
+  const [driveErr,      setDriveErr]      = useState<string | null>(null)
+
+  async function loadDriveFiles() {
+    setDriveLoading(true)
+    setDriveErr(null)
+    try {
+      const res = await fetch(`/api/customers/${customer.id}/drive-files`)
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to load files')
+      setDriveFiles(json.files ?? [])
+    } catch (e) {
+      setDriveErr(e instanceof Error ? e.message : 'Failed to load files')
+    } finally {
+      setDriveLoading(false)
+    }
+  }
+
+  function toggleDocs() {
+    if (!docsExpanded && driveFiles === null) loadDriveFiles()
+    setDocsExpanded(v => !v)
+  }
 
   // Notes
   const [notes,        setNotes]        = useState<CustomerNote[]>(initialNotes)
@@ -2154,6 +2182,97 @@ export function CustomerCardClient({
           initialData={customer.fact_finder ?? null}
           initialVerifiedAt={customer.fact_finder_verified_at ?? null}
         />
+
+        {/* Documents (Google Drive) */}
+        {customer.drive_folder_url && (
+          <Section
+            title="Documents"
+            icon={FileText}
+            action={
+              <div className="flex items-center gap-2">
+                {docsExpanded && (
+                  <button
+                    onClick={() => loadDriveFiles()}
+                    disabled={driveLoading}
+                    className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors disabled:opacity-50"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${driveLoading ? 'animate-spin' : ''}`} /> Refresh
+                  </button>
+                )}
+                <a
+                  href={customer.drive_folder_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                >
+                  <ExternalLink className="w-3.5 h-3.5" /> Open folder
+                </a>
+                <button
+                  onClick={toggleDocs}
+                  className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                >
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${docsExpanded ? 'rotate-180' : ''}`} />
+                  {docsExpanded ? 'Hide' : 'Show files'}
+                </button>
+              </div>
+            }
+          >
+            {docsExpanded && (
+              <div className="px-5 pb-4">
+                {driveLoading && (
+                  <p className="text-sm text-slate-500 py-2">Loading files…</p>
+                )}
+                {driveErr && (
+                  <p className="text-sm text-red-400 py-2">{driveErr}</p>
+                )}
+                {!driveLoading && !driveErr && driveFiles !== null && driveFiles.length === 0 && (
+                  <p className="text-sm text-slate-500 py-2">No files in this folder.</p>
+                )}
+                {!driveLoading && driveFiles && driveFiles.length > 0 && (
+                  <div className="divide-y divide-slate-800">
+                    {driveFiles.map(f => {
+                      const icon = f.mimeType.includes('spreadsheet') ? FileSpreadsheet
+                        : f.mimeType.includes('presentation') ? Presentation
+                        : f.mimeType.includes('image') ? Image
+                        : f.mimeType === 'application/pdf' ? FileText
+                        : File
+                      const IconCmp = icon
+                      const modified = f.modifiedTime
+                        ? new Date(f.modifiedTime).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                        : null
+                      const size = f.size ? (parseInt(f.size) > 1_000_000
+                        ? `${(parseInt(f.size) / 1_000_000).toFixed(1)} MB`
+                        : `${Math.round(parseInt(f.size) / 1024)} KB`)
+                        : null
+                      return (
+                        <div key={f.id} className="flex items-center gap-3 py-2.5">
+                          <IconCmp className="w-4 h-4 text-slate-500 shrink-0" />
+                          <div className="flex-1 min-w-0">
+                            {f.webViewLink ? (
+                              <a
+                                href={f.webViewLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-sm text-blue-400 hover:text-blue-300 truncate block"
+                              >
+                                {f.name}
+                              </a>
+                            ) : (
+                              <span className="text-sm text-slate-300 truncate block">{f.name}</span>
+                            )}
+                            <span className="text-xs text-slate-500">
+                              {[modified, size].filter(Boolean).join(' · ')}
+                            </span>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </Section>
+        )}
 
         {/* Service Requests */}
         <Section
