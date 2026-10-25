@@ -1226,7 +1226,6 @@ function EmailRow({
       {result?.status === 'invalid' && result.reason && (
         <p className="mt-1.5 text-base text-status-missing-strong">{result.reason}</p>
       )}
-      <div className="mt-2.5"><EditActions busy={busy} onCancel={onCancel} appearance={appearance} /></div>
 
       {/* Email availability — an informational customer fact chosen here as part
           of the SAME Save/Cancel operation. Picking a selection only prepares it
@@ -1258,6 +1257,11 @@ function EmailRow({
           })}
         </div>
       </fieldset>
+
+      {/* Save / Cancel sits beneath the availability selections so the editor
+          reads: email input, then the availability choices, then the single
+          Save/Cancel for the whole operation. */}
+      <div className="mt-3"><EditActions busy={busy} onCancel={onCancel} appearance={appearance} /></div>
     </form>
   )
 }
