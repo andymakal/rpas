@@ -627,6 +627,9 @@ export function CustomerCardClient({
   const [driveFiles,    setDriveFiles]    = useState<DriveFile[] | null>(null)
   const [driveLoading,  setDriveLoading]  = useState(false)
   const [driveErr,      setDriveErr]      = useState<string | null>(null)
+  const [uploading,     setUploading]     = useState(false)
+  const [uploadErr,     setUploadErr]     = useState<string | null>(null)
+  const uploadInputRef  = useRef<HTMLInputElement>(null)
 
   async function loadDriveFiles() {
     setDriveLoading(true)
@@ -646,6 +649,28 @@ export function CustomerCardClient({
   function toggleDocs() {
     if (!docsExpanded && driveFiles === null) loadDriveFiles()
     setDocsExpanded(v => !v)
+  }
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    e.target.value = ''
+    setUploading(true)
+    setUploadErr(null)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res  = await fetch(`/api/customers/${customer.id}/drive-files`, { method: 'POST', body: fd })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Upload failed')
+      // Prepend to the file list so it appears immediately
+      setDriveFiles(prev => prev ? [json.file, ...prev] : [json.file])
+      if (!docsExpanded) setDocsExpanded(true)
+    } catch (err) {
+      setUploadErr(err instanceof Error ? err.message : 'Upload failed')
+    } finally {
+      setUploading(false)
+    }
   }
 
   // Notes
@@ -2193,14 +2218,22 @@ export function CustomerCardClient({
                     <RefreshCw className={`w-3.5 h-3.5 ${driveLoading ? 'animate-spin' : ''}`} /> Refresh
                   </button>
                 )}
-                <a
-                  href={customer.drive_folder_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                <input
+                  ref={uploadInputRef}
+                  type="file"
+                  className="hidden"
+                  onChange={handleUpload}
+                />
+                <button
+                  onClick={() => uploadInputRef.current?.click()}
+                  disabled={uploading}
+                  className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors disabled:opacity-50"
                 >
-                  <ExternalLink className="w-3.5 h-3.5" /> Open folder
-                </a>
+                  {uploading
+                    ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    : <Plus className="w-3.5 h-3.5" />}
+                  {uploading ? 'Uploading…' : 'Upload'}
+                </button>
                 <button
                   onClick={toggleDocs}
                   className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 transition-colors"
@@ -2218,6 +2251,9 @@ export function CustomerCardClient({
                 )}
                 {driveErr && (
                   <p className="text-sm text-red-400 py-2">{driveErr}</p>
+                )}
+                {uploadErr && (
+                  <p className="text-sm text-red-400 py-2">Upload failed: {uploadErr}</p>
                 )}
                 {!driveLoading && !driveErr && driveFiles !== null && driveFiles.length === 0 && (
                   <p className="text-sm text-slate-500 py-2">No files in this folder.</p>
