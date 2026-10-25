@@ -57,7 +57,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react'
 import {
   Mail, Phone, MapPin, Pencil, Check, X, Loader2,
-  ShieldQuestion, CheckCircle2, AlertTriangle,
+  ShieldQuestion, CheckCircle2, AlertTriangle, Plus, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMentorDisclosure, MentorCapButton, MentorCapPanel } from '@/lib/mentoring/MentorUi'
@@ -593,6 +593,8 @@ export function CustomerContactCard({
   collapsible = false,
   defaultExpanded = true,
   onExpandedChange,
+  alert,
+  onAlertChange,
 }: {
   customer: CustomerContact
   /** Called with the authoritative updated record after any successful write,
@@ -629,6 +631,17 @@ export function CustomerContactCard({
   defaultExpanded?: boolean
   /** Notified when the collapsible card switches between Overview and Edit. */
   onExpandedChange?: (expanded: boolean) => void
+  /** The customer's single current alert text, or null/empty when there is no
+   * alert. This is an optional, reusable card capability: a prominent banner
+   * near the top plus an Add / Edit / Clear control beside the status key. It is
+   * opt-in — omit `onAlertChange` and the card shows no alert affordance at all,
+   * so every existing call site is unchanged. One alert per customer; no
+   * categories, priorities, expiration, or workflow rules. */
+  alert?: string | null
+  /** Enable alert editing. When provided, the card renders the Add / Edit /
+   * Clear control and a Save/Cancel text editor, calling this with the new text
+   * (or null when cleared). Omit it to hide the alert feature entirely. */
+  onAlertChange?: (next: string | null) => void
 }) {
   const ap = useMemo(() => resolveAppearance(appearance), [appearance])
   // The card holds the current record locally so the display updates the instant
@@ -641,6 +654,26 @@ export function CustomerContactCard({
   // a non-collapsible card is always "expanded", preserving today's behavior.
   const [expanded, setExpanded] = useState(defaultExpanded)
   const isExpanded = !collapsible || expanded
+  // Alert editor (opt-in via onAlertChange). Open/draft are internal; the alert
+  // value itself is controlled by the host so it is clearly in-memory here and
+  // DB-backed later without touching this component.
+  const alertEditable = !!onAlertChange
+  const alertText = alert?.trim() ? alert : null
+  const [alertEditing, setAlertEditing] = useState(false)
+  const [alertDraft, setAlertDraft] = useState('')
+  const openAlertEditor = useCallback(() => {
+    setAlertDraft(alertText ?? '')
+    setAlertEditing(true)
+  }, [alertText])
+  const saveAlert = useCallback(() => {
+    const next = alertDraft.trim()
+    onAlertChange?.(next.length ? next : null)
+    setAlertEditing(false)
+  }, [alertDraft, onAlertChange])
+  const clearAlert = useCallback(() => {
+    onAlertChange?.(null)
+    setAlertEditing(false)
+  }, [onAlertChange])
   const setExpandedState = useCallback((next: boolean) => {
     setEditing(null); setError(null)
     setExpanded(next)
@@ -753,6 +786,20 @@ export function CustomerContactCard({
         </div>
       )}
 
+      {/* Prominent customer alert near the top. Shown only when an alert exists
+          and the feature is enabled; no banner when empty. The editor (opened
+          from the Add/Edit control below) replaces the banner while editing. */}
+      {alertEditable && alertEditing ? (
+        <AlertEditor
+          draft={alertDraft}
+          onDraftChange={setAlertDraft}
+          onSave={saveAlert}
+          onCancel={() => setAlertEditing(false)}
+        />
+      ) : (
+        alertText && <AlertBanner text={alertText} />
+      )}
+
       {/* The customer's name IS the card heading, with the inline graduation-cap
           mentoring control beside it. The approved default renders the name at
           150% (33px), bold, in the teal brand token; the Playground can override
@@ -827,10 +874,20 @@ export function CustomerContactCard({
             />
           </div>
 
-          {/* Status key in the editable view. A collapsible card hides it while
-              editing (the key belongs to the compact Overview); a non-collapsible
-              card keeps the existing `showStatusKey` behavior, unchanged. */}
-          {!collapsible && ap.showStatusKey && <ContactStatusKey appearance={ap} />}
+          {/* Bottom bar in the editable view. The status key is hidden while a
+              collapsible card is editing (it belongs to the compact Overview); a
+              non-collapsible card keeps the existing `showStatusKey` behavior.
+              The alert control stays available here in expanded mode. */}
+          {((!collapsible && ap.showStatusKey) || (alertEditable && !alertEditing)) && (
+            <div className="mt-3 flex items-center justify-between gap-3 border-t border-surface-border-strong pt-2.5">
+              {!collapsible && ap.showStatusKey
+                ? <ContactStatusKey appearance={ap} inline />
+                : <span />}
+              {alertEditable && !alertEditing && (
+                <AlertControl hasAlert={!!alertText} onEdit={openAlertEditor} onClear={clearAlert} />
+              )}
+            </div>
+          )}
 
           {/* The control that returns to the compact Overview. When a header is
               present the toggle lives in the header, so the bottom control is
@@ -876,9 +933,15 @@ export function CustomerContactCard({
             />
           </div>
 
-          {/* The status key sits at the bottom of the compact Overview, so the
-              green/amber/red icons on the rows above read clearly. */}
-          <ContactStatusKey appearance={ap} />
+          {/* Bottom bar of the compact Overview: the status key on the left so
+              the green/amber/red icons above read clearly, and the Add/Edit
+              alert control at the bottom right alongside it. */}
+          <div className="mt-3 flex items-center justify-between gap-3 border-t border-surface-border-strong pt-2.5">
+            <ContactStatusKey appearance={ap} inline />
+            {alertEditable && !alertEditing && (
+              <AlertControl hasAlert={!!alertText} onEdit={openAlertEditor} onClear={clearAlert} />
+            )}
+          </div>
 
           {/* Fallback Edit control for a collapsible card with no header slot.
               When a header is present the single Edit button lives in it. */}
@@ -1019,6 +1082,101 @@ function OverviewRow({
 }
 
 /**
+ * The prominent customer-alert banner near the top of the card. One short,
+ * high-contrast amber band (the known/amber status tokens, same family the
+ * card already uses) so the alert reads at a glance. Display-only; the text
+ * wraps and preserves line breaks from the editor.
+ */
+function AlertBanner({ text }: { text: string }) {
+  return (
+    <div
+      role="alert"
+      className="mt-3 flex items-start gap-2.5 rounded-xl border border-status-known-border bg-status-known-fill px-3 py-2.5"
+    >
+      <AlertTriangle className="mt-0.5 size-5 shrink-0 text-status-known-strong" aria-hidden />
+      <p className="min-w-0 whitespace-pre-line break-words text-base font-medium text-status-known-strong">
+        {text}
+      </p>
+    </div>
+  )
+}
+
+/**
+ * The multiline alert editor with Save and Cancel. Reuses the card's input and
+ * button chrome (the same tokens as the field editors) so it feels native to
+ * the card. Empty text on Save clears the alert.
+ */
+function AlertEditor({
+  draft, onDraftChange, onSave, onCancel,
+}: {
+  draft: string
+  onDraftChange: (v: string) => void
+  onSave: () => void
+  onCancel: () => void
+}) {
+  return (
+    <div className="mt-3 rounded-xl border border-status-known-border bg-status-known-soft p-3">
+      <label htmlFor="cc-alert" className="flex items-center gap-1.5 text-base font-semibold text-status-known-strong">
+        <AlertTriangle className="size-4" aria-hidden /> Customer alert
+      </label>
+      <textarea
+        id="cc-alert"
+        autoFocus
+        rows={3}
+        value={draft}
+        onChange={(e) => onDraftChange(e.target.value)}
+        placeholder="Add a short alert shown at the top of this customer's card."
+        className="mt-1.5 w-full rounded-lg border border-surface-border-strong px-3 py-2 text-base text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-wash"
+      />
+      <div className="mt-2.5 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onSave}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-base font-semibold text-brand-foreground hover:bg-brand-hover"
+        >
+          <Check className="size-3.5" aria-hidden /> Save
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-3 py-1.5 text-base font-medium text-ink-secondary hover:bg-surface-muted"
+        >
+          <X className="size-3.5" aria-hidden /> Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The Add / Edit + Clear alert control, shown in the card's bottom bar in both
+ * modes. "Add Alert" when none exists; "Edit alert" + "Clear" when one does.
+ */
+function AlertControl({
+  hasAlert, onEdit, onClear,
+}: {
+  hasAlert: boolean
+  onEdit: () => void
+  onClear: () => void
+}) {
+  const btn =
+    'inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-2.5 py-1 text-sm font-medium text-ink-secondary hover:bg-surface-muted'
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      <button type="button" onClick={onEdit} className={btn}>
+        {hasAlert ? <Pencil className="size-3.5" aria-hidden /> : <Plus className="size-3.5" aria-hidden />}
+        {hasAlert ? 'Edit alert' : 'Add Alert'}
+      </button>
+      {hasAlert && (
+        <button type="button" onClick={onClear} className={btn}>
+          <Trash2 className="size-3.5" aria-hidden /> Clear
+        </button>
+      )}
+    </div>
+  )
+}
+
+/**
  * The single control that switches the collapsible card between Overview and
  * Edit. It reuses the same neutral button chrome as the per-field Edit button
  * so the two modes feel like one card, not two components.
@@ -1043,11 +1201,16 @@ function ModeToggleButton({
 
 /** The compact status key at the foot of the card: the same Lucide icons and
  * colors as the field headings, so green / amber / red read consistently. */
-function ContactStatusKey({ appearance }: { appearance: ResolvedAppearance }) {
+function ContactStatusKey({ appearance, inline = false }: { appearance: ResolvedAppearance; inline?: boolean }) {
   const order: Tone[] = ['confirmed', 'known', 'missing']
   return (
     <div
-      className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-surface-border-strong pt-2.5 text-sm text-ink-supporting"
+      className={cn(
+        'flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-supporting',
+        // Standalone: its own top divider + spacing (the original look). Inline:
+        // it sits inside a shared bottom bar that already owns the border.
+        !inline && 'mt-3 border-t border-surface-border-strong pt-2.5',
+      )}
       style={textStyle(appearance, appearance.statusKeyFontPx, appearance.statusKeyColor)}
     >
       {order.map((tone) => {

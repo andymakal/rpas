@@ -11,7 +11,6 @@ import type {
 import {
   CustomerOverviewPrototype,
   type OverviewCustomer,
-  type OverviewAlert,
 } from './CustomerOverviewPrototype'
 
 /**
@@ -161,11 +160,11 @@ function applyPayload(
  */
 function LiveOverview({
   initial,
-  alert,
+  initialAlert,
   startExpanded,
 }: {
   initial: OverviewCustomer
-  alert?: OverviewAlert
+  initialAlert?: string | null
   startExpanded?: boolean
 }) {
   const [contact, setContact] = useState<CustomerContact>(initial)
@@ -193,7 +192,7 @@ function LiveOverview({
       customer={customer}
       onPersist={onPersist}
       onContactChange={setContact}
-      alert={alert}
+      initialAlert={initialAlert}
       startExpanded={startExpanded}
     />
   )
@@ -261,17 +260,17 @@ export const Prospect: Story = {
   ),
 }
 
-/** Optional variation: a prominent customer alert above the contact
- * information, similar to eAgent's alert box. Display-only — no persistence,
- * no new database field. */
+/**
+ * Starts with a customer alert already set, so the prominent banner shows near
+ * the top of the card and the bottom control offers Edit alert / Clear. The
+ * alert is in-memory and card-owned; edit or clear it live. The Overview and
+ * Edit stories above start with no alert, so the control reads "Add Alert".
+ */
 export const WithAlert: Story = {
   render: () => (
     <LiveOverview
       initial={baseCustomer}
-      alert={{
-        message: 'Do not call before 10:00 AM (customer request).',
-        detail: 'Noted on the last review. Mornings go to voicemail.',
-      }}
+      initialAlert={'Do not call before 10:00 AM (customer request).\nMornings go to voicemail.'}
     />
   ),
 }

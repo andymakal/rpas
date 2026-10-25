@@ -33,7 +33,7 @@
  */
 
 import { useMemo, useState } from 'react'
-import { Check, ChevronDown, Compass, TriangleAlert } from 'lucide-react'
+import { Check, ChevronDown, Compass } from 'lucide-react'
 
 import { cn } from '@/lib/utils'
 import { normalizeStreet, normalizeCity, normalizeState } from '@/lib/fmt'
@@ -247,30 +247,6 @@ function SelectableBadge<T extends string>({
   )
 }
 
-// ── Optional alert box (display-only, eAgent-style) ───────────────────────────
-
-export interface OverviewAlert {
-  message: string
-  detail?: string
-}
-
-function AlertBox({ alert }: { alert: OverviewAlert }) {
-  return (
-    <div
-      role="alert"
-      className="flex items-start gap-3 rounded-xl border border-status-known-border bg-status-known-fill px-4 py-3"
-    >
-      <TriangleAlert className="mt-0.5 size-5 shrink-0 text-status-known-strong" aria-hidden />
-      <div className="min-w-0">
-        <p className="text-base font-semibold text-status-known-strong">{alert.message}</p>
-        {alert.detail && (
-          <p className="mt-0.5 text-sm text-status-known-foreground">{alert.detail}</p>
-        )}
-      </div>
-    </div>
-  )
-}
-
 // ── The overview ─────────────────────────────────────────────────────────────
 
 export interface CustomerOverviewPrototypeProps {
@@ -281,8 +257,9 @@ export interface CustomerOverviewPrototypeProps {
   onPersist: (id: string, payload: ContactPersistPayload) => Promise<CustomerContact>
   /** Keep the host's copy of the contact record in sync when the card writes. */
   onContactChange?: (updated: CustomerContact) => void
-  /** Optional prominent alert shown above the contact information. */
-  alert?: OverviewAlert
+  /** Initial customer alert text (in-memory only). The card owns the alert
+   * banner and its Add / Edit / Clear editor; this just seeds it. */
+  initialAlert?: string | null
   /** Start in Edit (expanded) rather than Overview (collapsed). Customer
    * Overview starts collapsed; Contact Research would start expanded. */
   startExpanded?: boolean
@@ -293,7 +270,7 @@ export function CustomerOverviewPrototype({
   customer,
   onPersist,
   onContactChange,
-  alert,
+  initialAlert = null,
   startExpanded = false,
   className,
 }: CustomerOverviewPrototypeProps) {
@@ -304,6 +281,9 @@ export function CustomerOverviewPrototype({
   // from the sample's flags/segment and update the displayed badge on pick.
   const [status, setStatus] = useState<CustomerStatus>(() => deriveStatus(customer))
   const [segment, setSegment] = useState<string | null>(customer.segment)
+  // The single customer alert, in-memory. The card renders and edits it; the
+  // prototype just holds the current value.
+  const [alert, setAlert] = useState<string | null>(initialAlert)
   const statusMeta =
     STATUS_OPTIONS.find((o) => o.value === status) ?? STATUS_OPTIONS[0]
 
@@ -357,12 +337,10 @@ export function CustomerOverviewPrototype({
         className,
       )}
     >
-      {/* Optional prominent alert, above the contact information. */}
-      {alert && <AlertBox alert={alert} />}
-
       {/* Contact information — the REAL shared card, in its two-mode
           presentation, with the identity block inside its header and the single
-          Edit button at the header's right end. Name and mentoring are
+          Edit button at the header's right end. The card owns the customer
+          alert banner + editor (in-memory here). Name and mentoring are
           suppressed (the header owns the single name); the address is
           normalized for display. */}
       <CustomerContactCard
@@ -370,6 +348,8 @@ export function CustomerOverviewPrototype({
         onPersist={onPersist}
         onChange={onContactChange}
         header={headerContent}
+        alert={alert}
+        onAlertChange={setAlert}
         showName={false}
         showMentoring={false}
         collapsible
