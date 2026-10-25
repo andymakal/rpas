@@ -965,12 +965,19 @@ function overviewEmailText(record: CustomerContact): string | null {
 }
 
 /**
- * One compact, read-only row in the Overview: the field's status icon + contact
- * icon + label, with the value beneath. No Edit button and no Verified checkbox
- * — the single Edit button on the card reveals those. The status ICON carries
- * the same verified/on-file/missing meaning as the editable view (and the same
- * accessible label), so the Overview still communicates verification at a
- * glance without the interactive control.
+ * One compact, read-only row in the Overview: the field's status icon, the
+ * contact-method icon, then the actual contact value — all on a single line,
+ * with no text label. A long mailing address wraps naturally beneath the icons.
+ * No Edit button and no Verified checkbox; the single Edit button on the card
+ * reveals those. The status ICON carries the same verified/on-file/missing
+ * meaning as the editable view (and the same accessible label), and the
+ * contact-method icon carries the field name as its accessible label since the
+ * visible text label is gone, so the row stays meaningful without a label.
+ *
+ * Styling reuses the approved card tokens: the status/contact icons take the
+ * field's green/amber/red status color at the same `size-5` as the editable
+ * headings, and the value uses the same `text-lg text-ink` as the editable
+ * value line.
  */
 function OverviewRow({
   contactIcon: ContactIcon, label, tone, value, present, first, last,
@@ -986,14 +993,15 @@ function OverviewRow({
   const status = STATUS_META[tone]
   const StatusIcon = status.icon
   return (
-    <div className={cn('py-2.5', first && 'pt-0', last && 'pb-0')}>
-      <p className="flex items-center gap-2 text-base font-semibold text-black">
-        <StatusIcon className={cn('size-5 shrink-0', status.color)} aria-label={status.label} role="img" />
-        <ContactIcon className={cn('size-5 shrink-0', status.color)} aria-hidden />
-        {label}
-      </p>
+    <div className={cn('flex items-start gap-2 py-2.5', first && 'pt-0', last && 'pb-0')}>
+      <StatusIcon
+        className={cn('mt-0.5 size-5 shrink-0', status.color)}
+        aria-label={status.label}
+        role="img"
+      />
+      <ContactIcon className={cn('mt-0.5 size-5 shrink-0', status.color)} aria-label={label} role="img" />
       {present ? (
-        <p className="mt-0.5 whitespace-pre-line break-words text-lg text-ink">{value}</p>
+        <p className="min-w-0 whitespace-pre-line break-words text-lg text-ink">{value}</p>
       ) : (
         <p className="mt-0.5 text-lg font-medium text-status-missing-strong">
           {value ?? 'Missing'}

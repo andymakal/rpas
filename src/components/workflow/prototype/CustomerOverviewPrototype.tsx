@@ -315,7 +315,10 @@ export function CustomerOverviewPrototype({
   // card places the single Edit button at the right end of this row.
   const headerContent = (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-      <h2 className="text-[26px] font-bold leading-tight tracking-tight text-ink">
+      {/* The approved Customer Contact name treatment: 150% of the 22px base
+          (33px), bold, in the teal brand token — identical to the card's
+          APPROVED_DEFAULTS name styling. */}
+      <h2 className="text-[33px] font-bold leading-tight tracking-tight text-brand">
         {name}
       </h2>
       {age != null && (
