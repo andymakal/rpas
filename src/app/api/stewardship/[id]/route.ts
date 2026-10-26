@@ -23,6 +23,7 @@ import {
   NONRESPONSIVE_LABEL,
 } from '@/lib/stewardship/cadence-status'
 import { normalizeEmailInput, normalizePhoneInput } from '@/lib/contact-input'
+import { OFFICE_CALLBACK_PHONE } from '@/lib/constants/office-callback'
 import { resolveProducerForUser } from '@/lib/capabilities/resolve'
 import { SERVICING_AUTHORIZATION_TYPE } from '@/lib/stewardship/authorization-document'
 import { activeContactResearchProjectForCustomer } from '@/lib/projects/contact-review'
@@ -90,37 +91,36 @@ async function resolveEmployeeName(
 
 /**
  * Resolve the signed-in employee as the CALLER for the guided calling scripts:
- * their first name (populates "[Employee]") and their validated CALLBACK number
- * (populates "[Callback Number]").
+ * their first name (populates "[Employee]") and the CALLBACK number customers
+ * are asked to call back on (populates "[Callback Number]").
  *
- * Reuses the established producer source (producers row for the signed-in user);
- * the callback number is the employee's own `producers.phone`, NEVER the
- * customer's number. The phone is run through the shared contact-input validator
- * so a missing or malformed employee number resolves to null (the UI then treats
- * the callback-dependent channels as unavailable) rather than printing a bad or
- * placeholder number. Best-effort and never blocks the workflow.
+ * The callback number is the agency's office line (OFFICE_CALLBACK_PHONE) by
+ * default, for every employee. It is NEVER the customer's number, and it is NOT
+ * the employee's personal `producers.phone` — that field holds personal numbers
+ * that were not explicitly chosen for customer callbacks, so it must not be
+ * surfaced to customers as a callback number. An employee may override with an
+ * explicit direct callback number deliberately chosen for callbacks; no such
+ * field exists today, so this resolves to the office default. The number is run
+ * through the shared contact-input validator so only a clean `(XXX) XXX-XXXX`
+ * value is ever printed. Best-effort and never blocks the workflow.
  */
-async function resolveCallActor(
-  admin: ReturnType<typeof createAdminClient>,
-): Promise<{ first_name: string | null; callback_phone: string | null }> {
+async function resolveCallActor(): Promise<{ first_name: string | null; callback_phone: string | null }> {
+  const officeResult = normalizePhoneInput(OFFICE_CALLBACK_PHONE)
+  const officeCallback = officeResult.status === 'valid' ? officeResult.value : null
   try {
     const sessionClient = await createClient()
     const { data: { user } } = await sessionClient.auth.getUser()
-    if (!user) return { first_name: null, callback_phone: null }
+    if (!user) return { first_name: null, callback_phone: officeCallback }
     const producer = await resolveProducerForUser(user.id)
-    if (!producer) return { first_name: null, callback_phone: null }
-    const { data: row } = await admin
-      .from('producers')
-      .select('phone')
-      .eq('id', producer.id)
-      .maybeSingle()
-    const phoneResult = normalizePhoneInput((row?.phone as string | null) ?? null)
+    if (!producer) return { first_name: null, callback_phone: officeCallback }
+    // The callback number is the office default. `producers.phone` is a personal
+    // number and is intentionally NOT read here as an override.
     return {
       first_name: (producer.first_name ?? '').trim() || null,
-      callback_phone: phoneResult.status === 'valid' ? phoneResult.value : null,
+      callback_phone: officeCallback,
     }
   } catch {
-    return { first_name: null, callback_phone: null }
+    return { first_name: null, callback_phone: officeCallback }
   }
 }
 
@@ -339,9 +339,9 @@ export async function GET(
   // anchored to the request's representative policy with the project scope (or
   // null for the standalone intake path).
   // The signed-in employee as the CALLER for the guided calling scripts: their
-  // first name and validated callback number, from the established producer
-  // source. Used to fill the opening/voicemail/text/email scripts dynamically.
-  const callActor = await resolveCallActor(supabase)
+  // first name (from the producer source) and the office callback number.
+  // Used to fill the opening/voicemail/text/email scripts dynamically.
+  const callActor = await resolveCallActor()
 
   const requestPolicyIds = holdings.filter(h => h.in_request).map(h => h.id)
   let authorizationOnFile = false
