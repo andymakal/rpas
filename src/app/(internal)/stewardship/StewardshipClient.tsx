@@ -1664,7 +1664,7 @@ function StewardshipContextPanel({
           conversation. It replaces the former left-column note so the prompt
           lives next to the card it refers to. */}
       {forceCall && reached && (
-        <div className="flex items-start gap-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-4 text-base font-medium text-status-attention-strong">
+        <div className="flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 p-4 text-base font-medium text-amber-900">
           <CircleAlert className="mt-0.5 size-5 shrink-0" aria-hidden />
           <span>Confirm or correct the customer&apos;s phone number, email address, and mailing address.</span>
         </div>
@@ -2857,6 +2857,15 @@ function CallWorkbenchAction({
           {decision === 'agreed' && (
             <div className="space-y-2 rounded-xl border border-status-confirmed-border bg-status-confirmed-soft p-4">
               <p className="text-base font-semibold text-ink">Send the servicing-agent authorization form</p>
+              {/* The procedural guidance that used to sit beneath the confirm
+                  button now lives in the shared Mentoring disclosure at the top
+                  of this form-delivery section (HOW/why, above the steps it
+                  explains), leaving the action itself uncluttered. */}
+              <MentorGuidance label="How recording the form works">
+                Generate the form, send it (email or postal), then record it here. Recording the form sent is what
+                logs the reached call and moves the customer to Waiting for Form, then advances you to the next call.
+                Nothing is recorded until then, and nothing is auto-closed.
+              </MentorGuidance>
               <ServicingFormDelivery
                 detail={detail}
                 request={request}
@@ -2876,7 +2885,6 @@ function CallWorkbenchAction({
                   { advanceToNext: true },
                 )}
               />
-              <NextNote>Generate the form, send it (email or postal), then record it here. Recording the form sent is what logs the reached call and moves the customer to Waiting for Form, then advances you to the next call. Nothing is recorded until then, and nothing is auto-closed.</NextNote>
             </div>
           )}
 
