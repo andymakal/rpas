@@ -1598,7 +1598,7 @@ function StewardshipContextPanel({
       {useCard ? (
         // Writes straight to the customer record via the shared route and keeps
         // the surrounding task in sync through onChange.
-        <StewardshipCustomerContact detail={detail} setDetail={setDetail} />
+        <StewardshipCustomerContact detail={detail} setDetail={setDetail} overviewMode={forceCustomerInteraction} />
       ) : (
         <CustomerContext detail={detail} busy={busy} act={act} showVerification />
       )}
@@ -1629,10 +1629,16 @@ function StewardshipContextPanel({
  * /api/customers/[id]/contact route.
  */
 function StewardshipCustomerContact({
-  detail, setDetail,
+  detail, setDetail, overviewMode = false,
 }: {
   detail: Detail
   setDetail: React.Dispatch<React.SetStateAction<Detail | null>>
+  /** When true (Customer Interaction only), render the approved Overview/Edit
+   * presentation: a compact collapsed overview with the name + Edit/Done toggle
+   * at the top, expanding to the existing contact editing + verification. Every
+   * other stewardship surface leaves this false and renders the card exactly as
+   * before. */
+  overviewMode?: boolean
 }) {
   const c = detail.customer
   const customer: CustomerContact = {
@@ -1657,6 +1663,20 @@ function StewardshipCustomerContact({
       customer={customer}
       alert={c.contact_alert}
       alertEditable
+      // Customer Interaction uses the approved Overview/Edit presentation,
+      // starting collapsed; every other stewardship surface renders the card
+      // unchanged (always-expanded, its own name heading).
+      {...(overviewMode ? {
+        collapsible: true,
+        defaultExpanded: false,
+        showName: false,
+        showMentoring: false,
+        header: (
+          <h2 className="text-[33px] font-bold leading-tight tracking-tight text-brand">
+            {fullName(detail.customer)}
+          </h2>
+        ),
+      } : {})}
       onChange={(u) => setDetail(prev => prev ? {
         ...prev,
         email_verified_at: u.email_verified_at,

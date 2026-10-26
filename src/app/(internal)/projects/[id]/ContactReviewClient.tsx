@@ -960,6 +960,17 @@ function ContactReviewTask({
             customer={toCardCustomer(customer)}
             alert={customer.contact_alert}
             alertEditable
+            collapsible
+            // Contact Research is research work — start expanded in the editing
+            // view so the worker can correct contact information immediately.
+            defaultExpanded
+            showName={false}
+            showMentoring={false}
+            header={
+              <h2 className="text-[33px] font-bold leading-tight tracking-tight text-brand">
+                {fullName(customer)}
+              </h2>
+            }
             onChange={onContactChange}
           />
           {/* The Policies card owns its single "Policies" heading. */}
