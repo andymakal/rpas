@@ -1154,22 +1154,29 @@ export function describeCallSelection(
     }
     if (selection.decision === 'agreed') {
       // Never describe an unsent form as sent. Completing this path records the
-      // reached call AND sends the form in one step, so the entry that will be
-      // logged is the full agreed sentence with the chosen delivery method. The
-      // method-aware clause appears only once a method is chosen; until then the
-      // preview names the agreement without asserting a channel. The summary
-      // distinguishes the still-pending agreement ("Reached · Agreed") from the
-      // completed send ("Reached · Form Sent"), so the preview never claims an
-      // unsent form already went out.
+      // reached call AND sends the form in one step. BEFORE the send is
+      // confirmed the preview uses FUTURE-TENSE wording for the pending delivery
+      // ("Authorization form to be emailed / to be mailed"), so it accurately
+      // previews a form that has NOT gone out yet. Only once the send is
+      // confirmed (formSent) does it read as the completed, past-tense entry the
+      // history actually records. The method-aware clause appears once a method
+      // is chosen; until then the preview names the agreement without a channel.
+      // The summary likewise distinguishes the still-pending agreement
+      // ("Reached · Agreed") from the completed send ("Reached · Form Sent").
       const method = selection.formDeliveryMethod ?? null
+      const pendingClause =
+        method === 'postal' ? ' Authorization form to be mailed.'
+        : method === 'email' ? ' Authorization form to be emailed.'
+        : ''
       const sentClause =
         method === 'postal' ? ' Authorization form sent by postal mail. Awaiting signed authorization.'
         : method === 'email' ? ' Authorization form emailed. Awaiting signed authorization.'
         : ''
+      const deliveryClause = selection.formSent ? sentClause : pendingClause
       return {
         summary: selection.formSent ? 'Reached · Form Sent' : 'Reached · Agreed',
         description:
-          `Spoke with customer. Customer agreed to authorize our office as servicing agent.${sentClause}`,
+          `Spoke with customer. Customer agreed to authorize our office as servicing agent.${deliveryClause}`,
         note: extraNote,
       }
     }
