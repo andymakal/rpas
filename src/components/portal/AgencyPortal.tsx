@@ -215,7 +215,7 @@ const TOUCH_LABELS: Record<string, string> = {
   missed_appointment: 'Missed Appt.',
 }
 
-type TouchEntry = { touch_type: string; touched_at: string; touched_by: string | null }
+type TouchEntry = { touch_type: string; touched_at: string; touched_by: string | null; notes: string | null }
 
 function TouchLog({ caseId }: { caseId: string }) {
   const params                      = useParams<{ slug: string }>()
@@ -264,19 +264,26 @@ function TouchLog({ caseId }: { caseId: string }) {
             <p className="text-xs text-slate-300 italic pl-3">No touches logged yet.</p>
           ) : (
             touches.map((t, i) => (
-              <div key={i} className="flex items-center gap-3 pl-3 text-xs">
-                <span className="font-medium text-slate-600 w-24 shrink-0">
+              <div key={i} className="flex items-start gap-3 pl-3 text-xs">
+                <span className="font-medium text-slate-600 w-24 shrink-0 pt-px">
                   {TOUCH_LABELS[t.touch_type] ?? t.touch_type}
                 </span>
-                {t.touched_by && (
-                  <span className="text-slate-500 shrink-0">{t.touched_by}</span>
-                )}
-                <span className="text-slate-400">
-                  {new Date(t.touched_at).toLocaleString('en-US', {
-                    month: 'short', day: 'numeric',
-                    hour: 'numeric', minute: '2-digit',
-                  })}
-                </span>
+                <div className="flex flex-col gap-0.5 min-w-0">
+                  <div className="flex items-center gap-2">
+                    {t.touched_by && (
+                      <span className="text-slate-500 shrink-0">{t.touched_by}</span>
+                    )}
+                    <span className="text-slate-400">
+                      {new Date(t.touched_at).toLocaleString('en-US', {
+                        month: 'short', day: 'numeric',
+                        hour: 'numeric', minute: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                  {t.notes && (
+                    <span className="text-slate-500 italic">{t.notes}</span>
+                  )}
+                </div>
               </div>
             ))
           )}
