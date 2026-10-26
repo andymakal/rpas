@@ -82,20 +82,22 @@ export function ProjectsClient({
   const archivedCount = archived.length
 
   return (
-    <WorkflowPage>
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <WorkflowHeader primary="Projects" />
-        <WorkflowButton
-          icon={Plus}
-          selected
-          size="lg"
-          onClick={() => setOpen(true)}
-          className="h-12 gap-2 rounded-xl px-5 text-base font-semibold"
-        >
-          Start New
-        </WorkflowButton>
-      </div>
-
+    <WorkflowPage
+      heading={
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <WorkflowHeader primary="Projects" />
+          <WorkflowButton
+            icon={Plus}
+            selected
+            size="lg"
+            onClick={() => setOpen(true)}
+            className="h-12 gap-2 rounded-xl px-5 text-base font-semibold"
+          >
+            Start New
+          </WorkflowButton>
+        </div>
+      }
+    >
       {loadError && (
         <div
           role="alert"

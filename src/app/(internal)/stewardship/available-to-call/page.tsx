@@ -58,23 +58,27 @@ export default async function AvailableToCallPage({
   const actorTimeZone = await getActorTimeZone()
 
   return (
-    <WorkflowPage>
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
-        <Link
-          href="/my-work"
-          className="-ml-1 inline-flex items-center gap-1.5 text-base font-medium text-brand-hover transition-colors hover:text-brand"
-        >
-          <ArrowLeft className="size-4" aria-hidden />
-          Back to My Work
-        </Link>
-      </div>
+    <WorkflowPage
+      heading={
+        <div className="space-y-8">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+            <Link
+              href="/my-work"
+              className="-ml-1 inline-flex items-center gap-1.5 text-base font-medium text-brand-hover transition-colors hover:text-brand"
+            >
+              <ArrowLeft className="size-4" aria-hidden />
+              Back to My Work
+            </Link>
+          </div>
 
-      {/* "Call Reachable Customers" is the page title. The project scope, when
-          set, is preserved through the project id passed to the client; it is
-          deliberately not shown in the heading, matching Contact Research and
-          Send Introductory Emails. */}
-      <WorkflowHeader primary="Call Reachable Customers" />
-
+          {/* "Call Reachable Customers" is the page title. The project scope,
+              when set, is preserved through the project id passed to the client;
+              it is deliberately not shown in the heading, matching Contact
+              Research and Send Introductory Emails. */}
+          <WorkflowHeader primary="Call Reachable Customers" />
+        </div>
+      }
+    >
       <AvailableToCallClient
         projectId={project?.id ?? null}
         actorTimeZone={actorTimeZone}

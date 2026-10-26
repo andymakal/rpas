@@ -106,9 +106,7 @@ export function TodaysFocusClient({
   }
 
   return (
-    <WorkflowPage>
-      <WorkflowHeader primary="Today's Focus" secondary="Temporary management direction" />
-
+    <WorkflowPage heading={<WorkflowHeader primary="Today's Focus" secondary="Temporary management direction" />}>
       <p className="max-w-prose text-sm leading-relaxed text-ink-secondary">
         Elevate a project or a single activity so it is recommended more
         prominently. Focus influences recommendations for a limited time; it does

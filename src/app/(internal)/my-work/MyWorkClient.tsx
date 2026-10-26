@@ -207,20 +207,27 @@ export function MyWorkClient({
 
   if (state.noProfile) {
     return (
-      <WorkflowSurface className="sm:px-8">
-        <div className="mx-auto w-4/5 min-w-0 max-w-[1760px] space-y-6">
+      // Fixed title band + scrolling work area, same flex-fill model as
+      // WorkflowPage's heading slot but with My Work's own wider column, gutter,
+      // and rhythm so its appearance is unchanged.
+      <WorkflowSurface className="flex h-full min-h-0 flex-col !px-0 !py-0">
+        <div className="mx-auto w-4/5 min-w-0 max-w-[1760px] shrink-0 px-6 pt-8 sm:px-8">
           <WorkflowHeader primary="My Work" />
-          <p className="max-w-prose text-base text-ink-secondary">
-            Your account does not have a team member profile yet, so there is no
-            personal work view. Ask an administrator to add you on the Team page;
-            the shared work is still visible on the Stewardship board.
-          </p>
-          <Link
-            href="/stewardship"
-            className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground hover:bg-brand-hover"
-          >
-            Open the Stewardship board <ArrowRight className="size-4" aria-hidden />
-          </Link>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8 pt-6 sm:px-8">
+          <div className="mx-auto w-4/5 min-w-0 max-w-[1760px] space-y-6">
+            <p className="max-w-prose text-base text-ink-secondary">
+              Your account does not have a team member profile yet, so there is no
+              personal work view. Ask an administrator to add you on the Team page;
+              the shared work is still visible on the Stewardship board.
+            </p>
+            <Link
+              href="/stewardship"
+              className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-brand-foreground hover:bg-brand-hover"
+            >
+              Open the Stewardship board <ArrowRight className="size-4" aria-hidden />
+            </Link>
+          </div>
         </div>
       </WorkflowSurface>
     )
@@ -247,18 +254,25 @@ export function MyWorkClient({
     : null
 
   return (
-    <WorkflowSurface className="sm:px-8">
+    // Fixed title band + scrolling work area. The page title stays visible while
+    // the filters and the three-column board scroll beneath it. Same flex-fill
+    // model as WorkflowPage's heading slot (no viewport offset, adapts to any
+    // app-header height), with My Work's own wider column and rhythm preserved.
+    <WorkflowSurface className="flex h-full min-h-0 flex-col !px-0 !py-0">
       {/* The board fills the middle ~80% of the screen (balanced gutters),
           capped so it does not sprawl on an ultrawide monitor. */}
-      <div className="mx-auto w-4/5 min-w-0 max-w-[1760px] space-y-6">
+      <div className="mx-auto w-4/5 min-w-0 max-w-[1760px] shrink-0 px-6 pt-8 sm:px-8">
         <WorkflowHeader primary="My Work" />
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8 pt-6 sm:px-8">
+        <div className="mx-auto w-4/5 min-w-0 max-w-[1760px] space-y-6">
+          {filters && <WorkFilters {...filters} />}
 
-        {filters && <WorkFilters {...filters} />}
-
-        <div className="grid gap-6 lg:grid-cols-3 xl:gap-8">
-          <PrioritiesColumn state={filteredState} />
-          <AvailableWorkColumn direction={direction} state={filteredState} />
-          <PracticeDirectionColumn state={state} />
+          <div className="grid gap-6 lg:grid-cols-3 xl:gap-8">
+            <PrioritiesColumn state={filteredState} />
+            <AvailableWorkColumn direction={direction} state={filteredState} />
+            <PracticeDirectionColumn state={state} />
+          </div>
         </div>
       </div>
     </WorkflowSurface>

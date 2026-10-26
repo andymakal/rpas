@@ -34,8 +34,18 @@ export async function WorkflowChrome({ children }: { children: React.ReactNode }
 
   return (
     <MentoringProvider>
-      <InternalHeader greeting={greeting} />
-      {children}
+      {/* Fill the shared <main> scroll container as a flex column so the page
+          below the app header can own the remaining height. InternalHeader is a
+          non-shrinking band (its own height, whatever it is — no measurement),
+          and the page fills the rest via flex-1 + min-h-0. A page that opts into
+          WorkflowPage's heading slot then pins its own heading band and scrolls
+          only its work area; a page that does not simply fills and scrolls
+          normally. h-full resolves because <main> has a definite height (a flex
+          child of the fixed inset:0 shell). */}
+      <div className="flex h-full min-h-0 flex-col">
+        <InternalHeader greeting={greeting} />
+        <div className="min-h-0 flex-1">{children}</div>
+      </div>
     </MentoringProvider>
   )
 }

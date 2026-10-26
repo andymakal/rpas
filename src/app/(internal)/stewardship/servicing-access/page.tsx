@@ -49,19 +49,23 @@ export default async function ServicingAccessPage({
   const actorTimeZone = await getActorTimeZone()
 
   return (
-    <WorkflowPage>
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
-        <Link
-          href="/my-work"
-          className="-ml-1 inline-flex items-center gap-1.5 text-base font-medium text-brand-hover transition-colors hover:text-brand"
-        >
-          <ArrowLeft className="size-4" aria-hidden />
-          Back to My Work
-        </Link>
-      </div>
+    <WorkflowPage
+      heading={
+        <div className="space-y-8">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+            <Link
+              href="/my-work"
+              className="-ml-1 inline-flex items-center gap-1.5 text-base font-medium text-brand-hover transition-colors hover:text-brand"
+            >
+              <ArrowLeft className="size-4" aria-hidden />
+              Back to My Work
+            </Link>
+          </div>
 
-      <WorkflowHeader primary="Servicing Access" />
-
+          <WorkflowHeader primary="Servicing Access" />
+        </div>
+      }
+    >
       <ServicingAccessClient
         projectId={project?.id ?? null}
         actorTimeZone={actorTimeZone}

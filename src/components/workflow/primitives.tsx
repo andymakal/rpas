@@ -19,6 +19,7 @@ import type { ComponentType, ReactNode } from 'react'
 import { ExternalLink, MessageSquareQuote } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { TaskColumns } from './TaskColumns'
 
 type IconType = ComponentType<{ className?: string }>
 
@@ -81,17 +82,56 @@ export const WORKFLOW_MAX_WIDTH = 'max-w-[1360px]'
  */
 export function WorkflowPage({
   children,
+  heading,
   className,
   surfaceClassName,
+  contentWidthClassName = WORKFLOW_MAX_WIDTH,
 }: {
   children: ReactNode
+  /** Optional fixed heading band (e.g. a Back link + WorkflowHeader). When
+   * provided, the page fills the available height: this band stays visible and
+   * only `children` (the work area) scrolls. The behavior is pure flex — it
+   * needs no viewport offset and adapts to any app-header height — and it
+   * requires a height-providing parent (WorkflowChrome supplies one for every
+   * light-theme workflow route). Omit it and the page keeps its original
+   * single-scroll behavior exactly, so stories and non-workflow callers are
+   * unchanged. */
+  heading?: ReactNode
   className?: string
   surfaceClassName?: string
+  /** Max-width of the centered content column. Defaults to the shared workflow
+   * width; My Work passes its wider column so its appearance is preserved. */
+  contentWidthClassName?: string
 }) {
+  // No heading band: unchanged single-column surface that scrolls with the page.
+  if (heading == null) {
+    return (
+      <WorkflowSurface className={cn('sm:px-10', surfaceClassName)}>
+        <div className={cn('mx-auto w-full', contentWidthClassName, 'space-y-8 text-ink-secondary', className)}>
+          {children}
+        </div>
+      </WorkflowSurface>
+    )
+  }
+
+  // Heading band + independently scrolling work area. The surface becomes a
+  // flex column filling its parent (WorkflowChrome's flex-1 region). The band
+  // carries the top + side gutter and never scrolls; the work area carries the
+  // side + bottom gutter, fills the rest (flex-1 + min-h-0), and is the ONLY
+  // scroller (overflow-y-auto). min-h-0 is what lets the work area shrink below
+  // its content so it scrolls instead of growing the page. Same max-width,
+  // centering, gutters, and space-y-8 rhythm as the default, so appearance is
+  // preserved; only the scroll boundary moves from the whole page to the work
+  // area.
   return (
-    <WorkflowSurface className={cn('sm:px-10', surfaceClassName)}>
-      <div className={cn('mx-auto w-full', WORKFLOW_MAX_WIDTH, 'space-y-8 text-ink-secondary', className)}>
-        {children}
+    <WorkflowSurface className={cn('flex h-full min-h-0 flex-col !px-0 !py-0', surfaceClassName)}>
+      <div className={cn('mx-auto w-full shrink-0 px-6 pt-8 sm:px-10', contentWidthClassName)}>
+        {heading}
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8 pt-8 sm:px-10">
+        <div className={cn('mx-auto w-full', contentWidthClassName, 'space-y-8 text-ink-secondary', className)}>
+          {children}
+        </div>
       </div>
     </WorkflowSurface>
   )
@@ -240,28 +280,14 @@ export function TaskShell({
         // Three EQUAL-width columns on the widest screens, staying responsive:
         // one column on narrow, two on medium, three equal thirds on xl. Equal
         // thirds keep work · context · history balanced across the working
-        // screens. minmax(0,1fr) lets each column shrink so its content wraps
-        // instead of forcing overflow.
+        // screens.
         //
         // Independent column scrolling is INHERENT to the three-column workspace
-        // (not a per-page opt-in): on desktop (xl) the whole three-column row is
-        // bound to the viewport height, and each column scrolls within its own
-        // bounds. A long left-column workflow therefore never grows the page or
-        // pushes the heading/context out of view; a shorter column simply stays
-        // put. The bound requires a DEFINITE height — not max-height — so each
-        // column's `h-full min-h-0 overflow-y-auto` resolves (a percentage/height
-        // child needs a definite parent height, and min-h-0 lets a grid item
-        // shrink below its content so it scrolls instead of stretching the row).
-        // dvh tracks the real viewport. The offset is the shared page chrome
-        // above this row (the WorkflowSurface gutter, the Back link, and the
-        // WorkflowHeader) that stays visible while the columns scroll. Below xl
-        // the columns stack and the page scrolls normally, so small screens keep
-        // ordinary responsive scrolling.
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,1fr))] xl:h-[calc(100dvh-13rem)] xl:items-start">
-          <div className="space-y-5 xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1">{action}</div>
-          <div className="space-y-5 xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1">{context}</div>
-          <div className="space-y-5 xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1">{history}</div>
-        </div>
+        // (not a per-page opt-in). TaskColumns fits the row to the ACTUAL space
+        // beneath the page heading by measuring the row's own position — no
+        // guessed viewport offset — and scrolls each column within its bounds on
+        // desktop. Below xl the columns stack and the page scrolls normally.
+        <TaskColumns action={action} context={context} history={history} />
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[3fr_2fr]">
           <div className="space-y-5">{action}</div>

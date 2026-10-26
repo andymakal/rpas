@@ -647,20 +647,23 @@ export function StewardshipClient({
       .slice()
       .sort((a, b) => dueCallbackRank(a, actorTimeZone) - dueCallbackRank(b, actorTimeZone))
     return (
-      <WorkflowPage>
-        <QueueListHeader
-          icon={openPopulation === 'introductory-emails' ? Mail : Phone}
-          label={meta.label}
-          count={popItems.length}
-          blurb={meta.blurb}
-          onBack={() => setOpenPopulation(null)}
-        />
+      <WorkflowPage
+        heading={
+          <QueueListHeader
+            icon={openPopulation === 'introductory-emails' ? Mail : Phone}
+            label={meta.label}
+            count={popItems.length}
+            blurb={meta.blurb}
+            onBack={() => setOpenPopulation(null)}
+          />
+        }
+      >
         {claimMsg && (
-          <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
             {claimMsg}
           </p>
         )}
-        <div className="mt-5 space-y-3">
+        <div className="space-y-3">
           {populationLoading ? (
             <p className="text-sm text-slate-500">Loading…</p>
           ) : popItems.length === 0 ? (
@@ -721,20 +724,23 @@ export function StewardshipClient({
       ? `${researchCounts.outstanding} still to research${researchCounts.unsuccessful > 0 ? ` · ${researchCounts.unsuccessful} researched, nothing found` : ''}`
       : meta.blurb
     return (
-      <WorkflowPage>
-        <QueueListHeader
-          icon={QUEUE_ICON[openQueue]}
-          label={meta.label}
-          count={queueItems.length}
-          blurb={headerBlurb}
-          onBack={() => setOpenQueue(null)}
-        />
+      <WorkflowPage
+        heading={
+          <QueueListHeader
+            icon={QUEUE_ICON[openQueue]}
+            label={meta.label}
+            count={queueItems.length}
+            blurb={headerBlurb}
+            onBack={() => setOpenQueue(null)}
+          />
+        }
+      >
         {claimMsg && (
-          <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
             {claimMsg}
           </p>
         )}
-        <div className="mt-5 space-y-3">
+        <div className="space-y-3">
           {queueItems.length === 0 ? (
             <QueueEmptyState>No customers in this queue.</QueueEmptyState>
           ) : (
@@ -764,8 +770,8 @@ export function StewardshipClient({
   }
 
   return (
-    <WorkflowPage>
-      {project ? (
+    <WorkflowPage
+      heading={project ? (
         <WorkflowHeader
           primary={`Stewardship — ${project.name}`}
           secondary="Capture outreach scoped to this project's population. Queues and lists below show only this project's work."
@@ -776,7 +782,7 @@ export function StewardshipClient({
           secondary="Capture outreach — confirm servicing access on each customer's policies."
         />
       )}
-
+    >
       {project
         ? <ProjectOnboardingNote project={project} />
         : <StartCapture agencies={agencies} onStarted={loadBoard} />}
@@ -1658,8 +1664,8 @@ function StewardshipContextPanel({
           conversation. It replaces the former left-column note so the prompt
           lives next to the card it refers to. */}
       {forceCall && reached && (
-        <div className="flex items-start gap-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-4 text-base font-medium text-ink">
-          <CircleAlert className="mt-0.5 size-5 shrink-0 text-status-attention-strong" aria-hidden />
+        <div className="flex items-start gap-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-4 text-base font-medium text-status-attention-strong">
+          <CircleAlert className="mt-0.5 size-5 shrink-0" aria-hidden />
           <span>Confirm or correct the customer&apos;s phone number, email address, and mailing address.</span>
         </div>
       )}
