@@ -128,6 +128,36 @@ function saEmailBody(firstName: string): string {
     + '\r\n\r\n'
 }
 
+/**
+ * The servicing-agent form-delivery email AFTER a live conversation.
+ *
+ * This is the email that accompanies the authorization form once we have
+ * already spoken with the customer (the reached-by-phone and the guided-call
+ * "Agreed to authorize" paths). It deliberately does NOT repeat the
+ * introductory Everlake explanation, since that was covered on the call; it
+ * opens with "As we discussed" and goes straight to the form and what to do
+ * with it. The INTRODUCTORY outreach email (Send Introductory Emails) keeps its
+ * own full-explanation body in `saEmailBody` and is unchanged.
+ *
+ * Same formatting conventions as `saEmailBody`: one line per paragraph (Outlook
+ * wraps), a blank line between paragraphs, and a trailing blank paragraph so the
+ * worker's Outlook signature drops in cleanly. A mailto cannot carry a file, so
+ * the body says the form is attached and the UI still makes attaching it an
+ * explicit, required step before the send is recorded.
+ */
+function saFollowUpEmailBody(firstName: string): string {
+  return [
+    `Hi ${firstName},`,
+    '',
+    'As we discussed, I\'ve attached the servicing-agent authorization form and completed as much of it as possible. Signing this form does not change your policy or coverage. It simply allows our office to access your policy information and assist you when needed.',
+    '',
+    'Please print the form, sign it in ink (a wet signature is required), and scan and email it back to us or return it by mail. If you have additional policies, there\'s space on the form to include them.',
+  ].join('\n')
+    // Trailing blank paragraph (two CRLFs) so the worker can drop their Outlook
+    // signature at the bottom without first pressing Enter.
+    + '\r\n\r\n'
+}
+
 type Customer = { id: string; first_name: string; last_name: string; email: string | null; phone: string | null }
 
 type BoardItem = {
@@ -1396,6 +1426,11 @@ export function StewardshipTask({
               forceCustomerInteraction={forceCustomerInteraction}
             />
           : undefined}
+        // The guided calling workbench can accumulate a long left-column flow
+        // (opening script, decision, form delivery). Scroll the columns
+        // independently on desktop so the center contact card and the right
+        // history stay in view and the page itself does not grow.
+        independentColumnScroll={forceCall}
       />
     </TaskChrome>
   )
@@ -1924,7 +1959,15 @@ function ServicingFormDelivery({
   const contractNumbers = formPolicies.map(h => h.policy_number).filter(Boolean)
   const canGenerate = contractNumbers.length > 0
 
-  const mailto = buildMailto(detail.customer.email, SA_SUBJECT, saEmailBody(detail.customer.first_name))
+  // The introductory activity (emailOnly) sends the full-explanation
+  // introductory email; every other caller reaches this component AFTER a live
+  // conversation (reached-by-phone, the guided-call "Agreed to authorize"), so
+  // it uses the shorter "as we discussed" form-delivery body instead of
+  // repeating the Everlake explanation the customer already heard.
+  const emailBody = emailOnly
+    ? saEmailBody(detail.customer.first_name)
+    : saFollowUpEmailBody(detail.customer.first_name)
+  const mailto = buildMailto(detail.customer.email, SA_SUBJECT, emailBody)
 
   function chooseMethod(next: 'email' | 'postal') {
     if (next === method) return
@@ -2739,44 +2782,58 @@ function CallWorkbenchAction({
       {/* ── REACHED ──────────────────────────────────────────────────────────── */}
       {reach === 'reached' && (
         <div className="space-y-4 border-t border-surface-divider pt-4">
-          {/* The approved opening script appears only now that the customer is
-              reached, with the employee + customer names filled in. It is read
-              aloud on the line, so it uses the spoken-script card (no Copy), not
-              the copy-to-paste CallScriptCard the voicemail/text/email channels
-              use. */}
-          <SpokenScriptCard label={SERVICING_CALL_SCRIPTS.opening.label} body={callOpeningScript(c.first_name ?? 'there', senderName)} bodySizeClassName="text-lg" />
+          {/* The reason-for-calling mentoring and the opening script are the
+              guidance for HAVING the conversation, so they show only until the
+              caller records what the customer decided. Once a decision is
+              selected (Agreed / Callback / Not interested) both are hidden to
+              keep the column focused on the decision's next actions; clearing
+              the decision brings them back. Mentoring sits ABOVE the script. */}
+          {decision === null && (
+            <>
+              {/* Reason for calling + the servicing-agent authorization
+                  explanation, as a mentoring section: the global Mentoring
+                  toggle sets its default open/closed, and the caller can expand
+                  or collapse it independently (the shared MentorGuidance
+                  behavior). Apostrophes are real characters here, not \u2019
+                  escapes in JSX text. */}
+              <MentorGuidance label="Why you're calling">
+                Our office lost access to {c.first_name ? `${c.first_name}’s` : 'the customer’s'} life insurance
+                policy when Allstate’s life business moved to Everlake, because we are not listed as the servicing
+                agent. The servicing-agent authorization simply restores our access to help with questions and
+                servicing. It does not change the policy or coverage, and it needs a wet (ink) signature.
+              </MentorGuidance>
 
-          {/* Reason for calling + the servicing-agent authorization explanation,
-              now a mentoring section: the global Mentoring toggle sets its
-              default open/closed, and the caller can expand or collapse it
-              independently (the shared MentorGuidance behavior). Apostrophes are
-              real characters here, not \u2019 escapes in JSX text. */}
-          <MentorGuidance label="Why you're calling">
-            Our office lost access to {c.first_name ? `${c.first_name}’s` : 'the customer’s'} life insurance
-            policy when Allstate’s life business moved to Everlake, because we are not listed as the servicing
-            agent. The servicing-agent authorization simply restores our access to help with questions and
-            servicing. It does not change the policy or coverage, and it needs a wet (ink) signature.
-          </MentorGuidance>
+              {/* The approved opening script, read aloud on the line, with the
+                  employee + customer names filled in. The spoken-script card (no
+                  Copy), not the copy-to-paste CallScriptCard. */}
+              <SpokenScriptCard label={SERVICING_CALL_SCRIPTS.opening.label} body={callOpeningScript(c.first_name ?? 'there', senderName)} bodySizeClassName="text-lg" />
+            </>
+          )}
 
-          {/* Capture the customer’s actual decision. */}
+          {/* Capture the customer’s actual decision. Each choice toggles: picking
+              the one already selected clears it, which restores the script and
+              mentoring above. Clearing never un-records an already-recorded
+              reached attempt (that call happened); it only reopens the choice. */}
           <div>
             <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-supporting">What did the customer decide?</p>
             <div className="flex flex-wrap gap-2">
               <WorkflowButton icon={Check} selected={decision === 'agreed'} disabled={busy}
                 onClick={() => {
+                  if (decision === 'agreed') { setDecision(null); return }
                   setDecision('agreed')
-                  // Record the reached call as ONE attempt; the form step then
-                  // appears (last_call_outcome becomes 'reached' after reload).
+                  // Record the reached call as ONE attempt the FIRST time it is
+                  // chosen; the form step then appears (last_call_outcome becomes
+                  // 'reached' after reload). Never re-records on reselect.
                   if (!reached) act({ type: 'record-attempt', call: 'reached' }, 'Reached. Send the authorization form below.')
                 }}>
                 Agreed to authorize
               </WorkflowButton>
               <WorkflowButton icon={Clock} selected={decision === 'callback'} disabled={busy}
-                onClick={() => setDecision('callback')}>
+                onClick={() => setDecision(decision === 'callback' ? null : 'callback')}>
                 Wants a callback
               </WorkflowButton>
               <WorkflowButton icon={CircleAlert} selected={decision === 'not-interested'} disabled={busy}
-                onClick={() => setDecision('not-interested')}>
+                onClick={() => setDecision(decision === 'not-interested' ? null : 'not-interested')}>
                 Not interested
               </WorkflowButton>
             </div>
