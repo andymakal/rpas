@@ -48,6 +48,7 @@ import {
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { isPermanent } from '@/lib/policies/product-type'
 import { buildMailto, SERVICING_CALL_SCRIPTS, interpolate } from '@/lib/templates'
+import { formatPhoneDisplay } from '@/lib/contact-input'
 import type { AgencyOption } from './page'
 
 /**
@@ -2580,23 +2581,23 @@ function CallWorkbenchAction({
       {noteBox}
       <CallContext detail={detail} />
 
-      {/* 1. Name + phone. A tel: link dials via the team member\u2019s configured
-          phone; launching the dialer is not proof the call happened. */}
+      {/* 1. Phone button. The number is shown in the standard (XXX) XXX-XXXX
+          display form via the shared formatter; the tel: link still dials the
+          stored value through the team member\u2019s configured phone, so the
+          existing system phone behavior is unchanged. Launching the dialer is
+          not proof the call happened. */}
       {phone ? (
         <a href={`tel:${phone}`} className="block">
-          <PrimaryAction icon={Phone} label={`Call ${phone}`} />
+          <PrimaryAction icon={Phone} label={`Call ${formatPhoneDisplay(phone)}`} />
         </a>
       ) : (
         <PrimaryAction icon={Phone} label="No phone on file" disabled />
       )}
 
-      {/* 2. The approved opening script, with the employee + customer names
-          filled in. This is read aloud to the customer on the line, so it uses
-          the spoken-script card (no Copy) — not the copy-to-paste CallScriptCard
-          the voicemail/text/email channels use. */}
-      <SpokenScriptCard label={SERVICING_CALL_SCRIPTS.opening.label} body={callOpeningScript(c.first_name ?? 'there', senderName)} />
-
-      {/* 3. Two choices — Reached / Didn\u2019t Reach. */}
+      {/* 2. The three call choices sit immediately below the phone button —
+          Reached, Didn\u2019t Reach, and Skip for Now. The opening script stays
+          hidden until Reached is chosen, so the worker decides the outcome
+          first. Skip records nothing and advances to the next customer. */}
       <div className="border-t border-surface-divider pt-4">
         <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-supporting">Did you reach the customer?</p>
         <div className="flex flex-wrap gap-2">
@@ -2608,6 +2609,11 @@ function CallWorkbenchAction({
             onClick={() => setReach('not-reached')}>
             Didn&apos;t reach
           </WorkflowButton>
+          {onSkip && (
+            <WorkflowButton icon={SkipForward} disabled={busy} onClick={onSkip}>
+              Skip for now
+            </WorkflowButton>
+          )}
         </div>
       </div>
 
@@ -2707,6 +2713,13 @@ function CallWorkbenchAction({
       {/* ── REACHED ──────────────────────────────────────────────────────────── */}
       {reach === 'reached' && (
         <div className="space-y-4 border-t border-surface-divider pt-4">
+          {/* The approved opening script appears only now that the customer is
+              reached, with the employee + customer names filled in. It is read
+              aloud on the line, so it uses the spoken-script card (no Copy), not
+              the copy-to-paste CallScriptCard the voicemail/text/email channels
+              use. */}
+          <SpokenScriptCard label={SERVICING_CALL_SCRIPTS.opening.label} body={callOpeningScript(c.first_name ?? 'there', senderName)} />
+
           {/* Reason for calling + the servicing-agent authorization explanation. */}
           <div className="rounded-xl border border-surface-border bg-surface-muted p-4 text-base leading-relaxed text-ink-secondary">
             <p className="mb-1 font-semibold text-ink">Why you&apos;re calling</p>
@@ -2810,18 +2823,6 @@ function CallWorkbenchAction({
         </div>
       )}
 
-      {/* Skip for now. Available before AND during the call workflow (it sits
-          outside the Reached / Didn't Reach branches), so the worker can set a
-          customer aside at any point. It records nothing, changes no status, and
-          touches no follow-up date — the parent client only moves this customer
-          to the back of the working sequence and opens the next available one. */}
-      {onSkip && (
-        <div className="border-t border-surface-divider pt-4">
-          <WorkflowButton icon={SkipForward} disabled={busy} onClick={onSkip} className="w-full justify-center">
-            Skip for now
-          </WorkflowButton>
-        </div>
-      )}
     </ActionPanel>
   )
 }
