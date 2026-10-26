@@ -62,8 +62,20 @@ export function WorkflowSurface({
 // WorkflowPage / WorkflowHeader — page shell and prominent page heading.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The desktop working width shared by every workflow surface. */
-export const WORKFLOW_MAX_WIDTH = 'max-w-[1360px]'
+/**
+ * The ONE shared content-column width recipe for every Right Path workflow
+ * surface. It is the established My Work behavior, now the standard everywhere:
+ * the column fills ~80% of the viewport (balanced gutters on each side), stays
+ * responsive via the percentage on smaller screens, and is capped at 1760px so
+ * it does not sprawl on an ultrawide monitor. `min-w-0` lets it shrink so inner
+ * content wraps instead of forcing overflow; `mx-auto` centers it.
+ *
+ * This is a COMPLETE width recipe (it already sets width + centering), so apply
+ * it ALONE — do not combine it with `w-full`, which would conflict with `w-4/5`.
+ * Centralizing it here means existing and future workflow pages inherit the one
+ * width automatically; there are no per-page 1360px (or other) caps anymore.
+ */
+export const WORKFLOW_MAX_WIDTH = 'mx-auto w-4/5 min-w-0 max-w-[1760px]'
 
 /**
  * The standard page body for a Right Path workflow surface.
@@ -107,7 +119,7 @@ export function WorkflowPage({
   if (heading == null) {
     return (
       <WorkflowSurface className={cn('sm:px-10', surfaceClassName)}>
-        <div className={cn('mx-auto w-full', contentWidthClassName, 'space-y-8 text-ink-secondary', className)}>
+        <div className={cn(contentWidthClassName, 'space-y-8 text-ink-secondary', className)}>
           {children}
         </div>
       </WorkflowSurface>
@@ -125,11 +137,11 @@ export function WorkflowPage({
   // area.
   return (
     <WorkflowSurface className={cn('flex h-full min-h-0 flex-col !px-0 !py-0', surfaceClassName)}>
-      <div className={cn('mx-auto w-full shrink-0 px-6 pt-8 sm:px-10', contentWidthClassName)}>
+      <div className={cn('shrink-0 px-6 pt-8 sm:px-10', contentWidthClassName)}>
         {heading}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8 pt-8 sm:px-10">
-        <div className={cn('mx-auto w-full', contentWidthClassName, 'space-y-8 text-ink-secondary', className)}>
+        <div className={cn(contentWidthClassName, 'space-y-8 text-ink-secondary', className)}>
           {children}
         </div>
       </div>
@@ -274,7 +286,11 @@ export function TaskShell({
   history?: ReactNode
 }) {
   return (
-    <div className={cn('mx-auto w-full', WORKFLOW_MAX_WIDTH, 'space-y-6 text-ink-secondary')}>
+    // Full-width within its parent: the page's WorkflowPage work area already
+    // applies the shared workflow width recipe, so TaskShell must NOT re-cap the
+    // width (a nested w-4/5 inside w-4/5 would compound to ~64%). It simply fills
+    // the column it is given.
+    <div className={cn('w-full space-y-6 text-ink-secondary')}>
       {header}
       {history != null ? (
         // Three EQUAL-width columns on the widest screens, staying responsive:

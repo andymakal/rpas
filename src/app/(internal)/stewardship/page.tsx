@@ -78,11 +78,11 @@ export default async function StewardshipPage({
 
   return (
     <div className="min-h-full bg-workflow-surface">
-      {/* Top band: back-to-My-Work + the Assistant, in the SAME 1360px workflow
-          column the board below uses, on the shared workflow surface (not a raw
-          slate background or a narrower 72rem container). */}
+      {/* Top band: back-to-My-Work + the Assistant, in the SAME shared workflow
+          width column the board below uses, on the shared workflow surface (not
+          a raw slate background or a narrower container). */}
       <div className="px-6 pt-8 sm:px-10">
-        <div className={`mx-auto w-full ${WORKFLOW_MAX_WIDTH} space-y-6`}>
+        <div className={`${WORKFLOW_MAX_WIDTH} space-y-6`}>
           <Link
             href="/my-work"
             className="-ml-1 inline-flex items-center gap-1.5 text-sm font-medium text-brand-hover transition-colors hover:text-brand"
