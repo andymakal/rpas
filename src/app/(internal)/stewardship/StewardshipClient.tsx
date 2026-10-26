@@ -1426,11 +1426,6 @@ export function StewardshipTask({
               forceCustomerInteraction={forceCustomerInteraction}
             />
           : undefined}
-        // The guided calling workbench can accumulate a long left-column flow
-        // (opening script, decision, form delivery). Scroll the columns
-        // independently on desktop so the center contact card and the right
-        // history stay in view and the page itself does not grow.
-        independentColumnScroll={forceCall}
       />
     </TaskChrome>
   )
@@ -2645,6 +2640,26 @@ function CallWorkbenchAction({
     )
   }
 
+  // Reached / Didn't Reach are TOGGLES that only steer the on-screen workflow —
+  // they record NOTHING. Choosing one clears the OTHER branch's downstream
+  // selections so a half-made choice from the opposite outcome never leaks into
+  // the new one, and re-clicking the selected outcome clears it back to the
+  // undecided state. Recording happens only at each branch's explicit
+  // completion (form sent, callback saved, not-interested confirmed, attempt
+  // recorded), never here.
+  function chooseReached() {
+    if (reach === 'reached') { setReach(null); setDecision(null); setCallbackWhen(''); return }
+    setReach('reached')
+    // Entering Reached: drop any Didn't-Reach channel selections.
+    setVoicemailLeft(null); setTextSent(false); setEmailSent(false)
+  }
+  function chooseNotReached() {
+    if (reach === 'not-reached') { setReach(null); setVoicemailLeft(null); setTextSent(false); setEmailSent(false); return }
+    setReach('not-reached')
+    // Entering Didn't Reach: drop any Reached decision + callback draft.
+    setDecision(null); setCallbackWhen('')
+  }
+
   return (
     <ActionPanel heading={`Call ${name}`}>
       {noteBox}
@@ -2671,11 +2686,11 @@ function CallWorkbenchAction({
         <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-supporting">Did you reach the customer?</p>
         <div className="flex flex-wrap gap-2">
           <WorkflowButton icon={PhoneCall} selected={reach === 'reached'} disabled={busy}
-            onClick={() => setReach('reached')}>
+            onClick={chooseReached}>
             Reached
           </WorkflowButton>
           <WorkflowButton icon={PhoneOff} selected={reach === 'not-reached'} disabled={busy}
-            onClick={() => setReach('not-reached')}>
+            onClick={chooseNotReached}>
             Didn&apos;t reach
           </WorkflowButton>
           {onSkip && (
@@ -2818,14 +2833,7 @@ function CallWorkbenchAction({
             <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-supporting">What did the customer decide?</p>
             <div className="flex flex-wrap gap-2">
               <WorkflowButton icon={Check} selected={decision === 'agreed'} disabled={busy}
-                onClick={() => {
-                  if (decision === 'agreed') { setDecision(null); return }
-                  setDecision('agreed')
-                  // Record the reached call as ONE attempt the FIRST time it is
-                  // chosen; the form step then appears (last_call_outcome becomes
-                  // 'reached' after reload). Never re-records on reselect.
-                  if (!reached) act({ type: 'record-attempt', call: 'reached' }, 'Reached. Send the authorization form below.')
-                }}>
+                onClick={() => setDecision(decision === 'agreed' ? null : 'agreed')}>
                 Agreed to authorize
               </WorkflowButton>
               <WorkflowButton icon={Clock} selected={decision === 'callback'} disabled={busy}
@@ -2851,12 +2859,18 @@ function CallWorkbenchAction({
                 act={act}
                 confirmLabelFor={m => (m === 'postal' ? `Form mailed to customer.${nextSuffix}` : `Form sent to customer.${nextSuffix}`)}
                 onConfirm={() => act(
-                  { type: 'form-sent' },
-                  'Authorization form sent. Moved to Waiting for Form.',
+                  // The SINGLE completion of the Agreed path: record the reached
+                  // call AND the form send together, now that the form has
+                  // actually gone out. `reached` folds the reached outcome +
+                  // engagement into this one action, so nothing was recorded (and
+                  // the customer never left available work) merely by selecting
+                  // "Agreed to authorize" earlier.
+                  { type: 'form-sent', reached: true },
+                  'Reached and authorization form sent. Moved to Waiting for Form.',
                   { advanceToNext: true },
                 )}
               />
-              <NextNote>Generate the form, send it (email or postal), then record it here. That moves the customer to Waiting for Form and advances you to the next call. Nothing is auto-closed.</NextNote>
+              <NextNote>Generate the form, send it (email or postal), then record it here. Recording the form sent is what logs the reached call and moves the customer to Waiting for Form, then advances you to the next call. Nothing is recorded until then, and nothing is auto-closed.</NextNote>
             </div>
           )}
 

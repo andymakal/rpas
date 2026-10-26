@@ -855,20 +855,52 @@ export async function PATCH(
   // path records its own email touch separately below.
   if (action.type === 'form-sent') {
     const touchedBy = await resolveEmployeeName(supabase)
+    const touchedAt = new Date().toISOString()
     const isPostal = row.form_delivery_method === 'postal'
     const method = isPostal ? 'by postal mail' : 'by email'
-    const { error: touchErr } = await supabase
-      .from('case_touches')
-      .insert({
+
+    // The guided "Agreed to authorize" completion records the reached call as
+    // part of THIS single action (not earlier, on decision selection). Write the
+    // reached call touch here, identical to the record-attempt reached touch, so
+    // customer history is unchanged — and only when the customer is not already
+    // recorded reached, so re-sending the form never duplicates it. The reducer
+    // set last_call_outcome='reached' in the same patch; the engagement marker
+    // below keys off action.reached so engagement is stamped here too.
+    const recordReached = action.reached === true && row.last_call_outcome !== 'reached'
+    const touchRows: Array<{
+      customer_id: string; case_id: null; touch_type: string; notes: string; touched_at: string; touched_by: string | null
+    }> = []
+    if (recordReached) {
+      touchRows.push({
         customer_id: customerId,
         case_id:     null,
-        touch_type:  isPostal ? 'postal' : 'email',
-        notes:       `Servicing-agent authorization form sent to the customer ${method}.`,
-        touched_at:  new Date().toISOString(),
+        touch_type:  'call',
+        notes:       `Servicing-agent onboarding call: Reached the customer. ${REACHED_MARKER}`,
+        touched_at:  touchedAt,
         touched_by:  touchedBy,
       })
+    }
+    touchRows.push({
+      customer_id: customerId,
+      case_id:     null,
+      touch_type:  isPostal ? 'postal' : 'email',
+      notes:       `Servicing-agent authorization form sent to the customer ${method}.`,
+      touched_at:  touchedAt,
+      touched_by:  touchedBy,
+    })
+    const { error: touchErr } = await supabase.from('case_touches').insert(touchRows)
     if (touchErr) {
+      // When this action carries the reached completion, its history (reached +
+      // form sent) is required and must not silently vanish, so surface a retry
+      // rather than claim success. The queue patch has not persisted yet (it is
+      // written after this block), so a retry re-runs the whole completion.
       console.error('stewardship form-sent touch log error:', touchErr)
+      if (recordReached) {
+        return Response.json(
+          { error: 'Could not save the call history. Nothing was changed; please try again.' },
+          { status: 500 },
+        )
+      }
     }
   }
 
@@ -1455,6 +1487,11 @@ export async function PATCH(
   const engagingCall =
     (action.type === 'call-outcome' && (action.outcome === 'reached' || action.outcome === 'callback')) ||
     (action.type === 'record-attempt' && (action.call === 'reached' || action.call === 'callback')) ||
+    // The guided "Agreed to authorize" completion sends the form AND carries the
+    // reached call as one action, so it is a genuine engagement exactly like a
+    // reached record-attempt — the reached outcome just arrives folded into the
+    // form-sent completion instead of a separate prior record.
+    (action.type === 'form-sent' && action.reached === true) ||
     // A follow-up commitment recorded directly from a conversation is a genuine
     // engagement (the employee is in an active dialogue with the customer).
     action.type === 'set-follow-up'

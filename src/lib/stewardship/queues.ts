@@ -199,7 +199,14 @@ export type OutreachAction =
        * the route, used when the attempt schedules another call. */
       next_call_date?: string | null
     }
-  | { type: 'form-sent' }            // after a reached call, the form is (re)sent
+  // The servicing-agent form is (re)sent. `reached` marks the SINGLE completion
+  // of a live "Agreed to authorize" call: the customer was reached AND the form
+  // was sent, recorded together at this one explicit action rather than a
+  // premature reached record on decision selection. When set (and the customer
+  // is not already recorded reached), the reducer also stamps the reached call
+  // outcome so the one completion carries the reached fact; the route writes the
+  // reached call touch and the engagement marker alongside the form-sent touch.
+  | { type: 'form-sent'; reached?: boolean }
   // Signed form came back on its own after the intro email (which already
   // carried the form) — advance to waiting-for-form WITHOUT recording a second
   // send. Distinct from form-sent so no fictitious mailing is logged.
@@ -1013,11 +1020,19 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
       if (!inPreAuthFunnel(state.queue)) {
         return { patch: {} }
       }
+      // The guided "Agreed to authorize" completion records the reached call AND
+      // the form send as one action. Stamp the reached outcome here so it is not
+      // recorded earlier (on decision selection), and only when not already
+      // reached, so re-sending the form for an already-reached customer never
+      // writes a second reached fact. The route pairs this with the reached
+      // touch + engagement marker.
+      const recordReached = action.reached === true && state.last_call_outcome !== 'reached'
       return {
         patch: {
           queue: 'waiting-for-form',
           follow_up_due: addDays(new Date().toISOString(), AWAITING_SIGNATURE_FOLLOW_UP_DAYS),
           call_reason: null,
+          ...(recordReached ? { last_call_outcome: 'reached' as CallOutcome } : {}),
         },
       }
     }

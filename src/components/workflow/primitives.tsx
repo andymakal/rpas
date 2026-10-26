@@ -222,7 +222,7 @@ export function FieldStatusDot({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function TaskShell({
-  header, action, context, history, independentColumnScroll = false,
+  header, action, context, history,
 }: {
   header: ReactNode
   /** The current action: what the worker should do now (left column). */
@@ -232,13 +232,6 @@ export function TaskShell({
   /** Optional customer-history column. When present the layout is three columns
    * (work · context · history); when absent it stays the two-column default. */
   history?: ReactNode
-  /** Desktop only: constrain the three-column row to the viewport height and let
-   * each column scroll independently, so a long left-column workflow does not
-   * grow the whole page and the center/right context stay in view. Opt-in (the
-   * guided calling workbench), and only in the three-column (xl) layout; below
-   * xl the columns stack and the page scrolls normally. Ignored without a
-   * history column. */
-  independentColumnScroll?: boolean
 }) {
   return (
     <div className={cn('mx-auto w-full', WORKFLOW_MAX_WIDTH, 'space-y-6 text-ink-secondary')}>
@@ -250,19 +243,24 @@ export function TaskShell({
         // screens. minmax(0,1fr) lets each column shrink so its content wraps
         // instead of forcing overflow.
         //
-        // When independent scrolling is requested, the xl grid row is capped to
-        // the viewport height (minus the surface gutter + header) and each column
-        // scrolls on its own. Below xl none of that applies, so small screens
-        // keep normal stacked page scrolling.
-        <div
-          className={cn(
-            'grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,1fr))]',
-            independentColumnScroll && 'xl:max-h-[calc(100vh-11rem)] xl:items-start',
-          )}
-        >
-          <div className={cn('space-y-5', independentColumnScroll && 'xl:max-h-full xl:overflow-y-auto xl:pr-1')}>{action}</div>
-          <div className={cn('space-y-5', independentColumnScroll && 'xl:max-h-full xl:overflow-y-auto xl:pr-1')}>{context}</div>
-          <div className={cn('space-y-5', independentColumnScroll && 'xl:max-h-full xl:overflow-y-auto xl:pr-1')}>{history}</div>
+        // Independent column scrolling is INHERENT to the three-column workspace
+        // (not a per-page opt-in): on desktop (xl) the whole three-column row is
+        // bound to the viewport height, and each column scrolls within its own
+        // bounds. A long left-column workflow therefore never grows the page or
+        // pushes the heading/context out of view; a shorter column simply stays
+        // put. The bound requires a DEFINITE height — not max-height — so each
+        // column's `h-full min-h-0 overflow-y-auto` resolves (a percentage/height
+        // child needs a definite parent height, and min-h-0 lets a grid item
+        // shrink below its content so it scrolls instead of stretching the row).
+        // dvh tracks the real viewport. The offset is the shared page chrome
+        // above this row (the WorkflowSurface gutter, the Back link, and the
+        // WorkflowHeader) that stays visible while the columns scroll. Below xl
+        // the columns stack and the page scrolls normally, so small screens keep
+        // ordinary responsive scrolling.
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,1fr))] xl:h-[calc(100dvh-13rem)] xl:items-start">
+          <div className="space-y-5 xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1">{action}</div>
+          <div className="space-y-5 xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1">{context}</div>
+          <div className="space-y-5 xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1">{history}</div>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[3fr_2fr]">
