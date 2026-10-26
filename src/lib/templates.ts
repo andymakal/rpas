@@ -412,6 +412,8 @@ export const SERVICING_CALL_SCRIPTS = {
       'We need to speak with you briefly about your life insurance policy. Is there a convenient time for a call this week?',
       '',
       'You can also reach us at {phone}.',
+      '',
+      '',
     ].join('\n'),
   },
 
