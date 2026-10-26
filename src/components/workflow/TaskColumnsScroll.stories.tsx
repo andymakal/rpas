@@ -101,6 +101,24 @@ export const ThreeColumnLongLeft: Story = {
   ),
 }
 
+/** Three-column workbench with SHORT content in every column: the columns must
+ * use their NATURAL height (no cap, no scrollbars, no forced empty space), since
+ * everything fits on screen. */
+export const ThreeColumnShort: Story = {
+  render: () => (
+    <ShellFrame headerHeight={56}>
+      <WorkflowPage heading={<HeadingBand title="Make the Calls That Are Due" />}>
+        <TaskShell
+          header={null}
+          action={<LongBlocks label="action" n={3} />}
+          context={<ShortBlock label="context" />}
+          history={<ShortBlock label="history" />}
+        />
+      </WorkflowPage>
+    </ShellFrame>
+  ),
+}
+
 /** A single long work area (Contact Research / My Work shape): the app header
  * and page heading stay fixed while only the work area scrolls. A taller app
  * header is used to prove the model adapts to any header height. */

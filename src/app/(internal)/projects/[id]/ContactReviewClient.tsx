@@ -918,15 +918,16 @@ function ContactReviewTask({
             </p>
           )}
 
-          {/* The two advancing actions, equal width and visually balanced. Next
-              Customer is the primary teal action: contact edits already saved
-              automatically as they were entered, so it simply advances to the
-              next customer without creating any research-history entry, whether
-              or not anything changed. Nothing Usable & Next records the
-              unsuccessful research durably and continues. Both are the same
-              structural control so they stay balanced, and both allow their
-              label to WRAP to two lines (whitespace-normal + auto height) so
-              neither truncates in the narrower equal-thirds column. */}
+          {/* The two advancing actions, equal width and visually balanced. Skip
+              This Customer is the primary teal action: contact edits already
+              saved automatically as they were entered, so it simply advances to
+              the next customer without creating any research-history entry,
+              whether or not anything changed — the customer stays eligible for
+              future research. Nothing Usable & Next records the unsuccessful
+              research durably and continues. Both are the same structural
+              control so they stay balanced, and both allow their label to WRAP
+              to two lines (whitespace-normal + auto height) so neither truncates
+              in the narrower equal-thirds column. */}
           <div className="grid grid-cols-2 items-stretch gap-3">
             <WorkflowButton
               icon={Save}
@@ -936,7 +937,7 @@ function ContactReviewTask({
               disabled={busy}
               className="h-auto min-h-14 justify-center whitespace-normal rounded-xl px-5 py-3 text-center text-lg font-semibold leading-tight"
             >
-              Next Customer
+              Skip This Customer
             </WorkflowButton>
             <WorkflowButton
               icon={SkipForward}
