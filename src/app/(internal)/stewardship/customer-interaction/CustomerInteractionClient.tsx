@@ -1,41 +1,8 @@
 'use client'
 
-/**
- * Customer Interaction — the continuous direct-workflow client for the step
- * between routine calling/outreach and Servicing Access.
- *
- * It applies the established direct-working-screen pattern (Call Reachable
- * Customers / Servicing Access) to the customer-interaction population: the
- * customers who have genuinely engaged (responded by email, phone, or text, or
- * been reached on a call) but have NOT yet returned the signed authorization. An
- * active conversation is live work — the employee records incoming responses,
- * outgoing replies, conversation notes, and follow-up commitments, all into the
- * customer's durable history.
- *
- * It lands straight on the first engaged customer (no intermediate list) and
- * works the EXISTING stewardship task driven into its guided conversation flow
- * (forceCall): the same record-attempt grouping, outcome vocabulary and
- * transitions, callback persistence, follow-up scheduling, shared Customer
- * Contact card, and authorization-form process — nothing re-implemented. A
- * recorded step that moves the customer on (the signed form sent/returned) or
- * out (a refusal) advances the sequence to the next engaged customer.
- *
- * It also offers a customer search so an employee can open a specific customer
- * the moment a response comes in, and a compact "record an incoming response"
- * control that logs the received communication in Customer History and marks the
- * customer engaged (the lightweight engagement signal, never a claim or a queue
- * change). When the signed authorization arrives the customer leaves this
- * population for the existing Servicing Access workflow.
- *
- * Project scope and employee eligibility are preserved by the server: the
- * population fetch carries the project id when scoped, and the stewardship API
- * returns exactly the customers this employee can act on (capability-eligible
- * and not claimed by someone else) — the same set My Work counted.
- */
-
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Link from 'next/link'
-import { Loader2, MessageSquare, CheckCircle2, ArrowLeft, RefreshCw, Search } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Loader2, MessageSquare, RefreshCw, Search, Clock, CalendarClock } from 'lucide-react'
+import { OperationalTag } from '@/components/workflow'
 import {
   MentorCapButton, MentorCapPanel, useMentorDisclosure,
 } from '@/lib/mentoring/MentorUi'
@@ -51,6 +18,12 @@ type PopulationCustomer = {
 type PopulationItem = {
   id: string
   customer: PopulationCustomer
+  /** Newest recorded interaction (case_touches.touched_at), or null. */
+  last_touch_at?: string | null
+  /** The promised callback / signature-chase date shown on the list, or null. */
+  next_follow_up?: string | null
+  /** Whether that follow-up is due on the actor's calendar. */
+  interaction_follow_up_due?: boolean
 }
 
 type SearchResult = {
@@ -62,6 +35,25 @@ type SearchResult = {
 
 function fullName(c: PopulationCustomer | SearchResult): string {
   return `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim() || 'this customer'
+}
+
+/** A short, human date for a date-only (YYYY-MM-DD) or ISO value. Date only, no
+ * clock time, so a promised follow-up date reads as the day it is owed. */
+function formatDateOnly(value: string | null | undefined): string | null {
+  if (!value) return null
+  const d = value.length <= 10 ? new Date(`${value}T00:00:00`) : new Date(value)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
+}
+
+/** A short date-and-time for the last recorded interaction. */
+function formatDateTime(value: string | null | undefined): string | null {
+  if (!value) return null
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return null
+  return d.toLocaleString(undefined, {
+    month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
+  })
 }
 
 export function CustomerInteractionClient({
@@ -80,18 +72,15 @@ export function CustomerInteractionClient({
   const [items, setItems] = useState<PopulationItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  // The outreach item open right now. null while loading or on completion.
+  // The conversation open right now. null while on the relationship list.
   const [openId, setOpenId] = useState<string | null>(null)
-  // Items handled this session, so a reload does not re-present someone already
-  // handled and the completion tally stays accurate.
-  const [handled, setHandled] = useState<Set<string>>(new Set())
 
   const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
 
   // Soft reservation coordination so two employees never land on the same
   // conversation. A self-expiring lease over the stewardship_outreach row; it
   // changes no business record and is never an assignment.
-  const { reserveNext, reserveOne, release } = useWorkReservation({
+  const { reserveOne, release } = useWorkReservation({
     activity: 'customer_interaction',
     subjectType: 'stewardship_outreach',
   })
@@ -114,54 +103,37 @@ export function CustomerInteractionClient({
 
   useEffect(() => { void load() }, [load])
 
-  const remaining = useMemo(
-    () => items.filter(it => !handled.has(it.id)),
-    [items, handled],
-  )
-
-  // Land straight on the first available engaged customer once loaded.
-  const directOpenedRef = useRef(false)
-  useEffect(() => {
-    if (loading || error || directOpenedRef.current) return
-    directOpenedRef.current = true
-    const candidates = remaining.map(it => it.id)
-    // An empty population is not a failure: fall through to the empty state
-    // (openId stays null), keeping the search available. Only a genuine
-    // reservation attempt can surface the reservation-failed error.
-    if (candidates.length === 0) return
-    void reserveNext(candidates)
-      .then(reserved => { if (reserved) setOpenId(reserved) })
-      .catch(() => {
-        directOpenedRef.current = false
-        setError('Could not reserve a conversation to work. Try again.')
-      })
-  }, [loading, error, remaining, reserveNext])
-
-  // Advance to the next available conversation after a recorded step that
-  // removes this customer from the population (the signed form sent/returned —
-  // they move on to Servicing Access — or a refusal). The just-handled item's
-  // reservation is released first.
-  const advanceToNext = useCallback(() => {
-    if (!openId) return
-    const handledId = openId
-    setHandled(prev => { const next = new Set(prev); next.add(handledId); return next })
-    void release()
-    const candidates = remaining.filter(it => it.id !== handledId).map(it => it.id)
-    if (candidates.length === 0) {
-      setOpenId(null)
-      void load()
-      return
+  // The relationship list, overdue/due follow-ups first and everyone else after,
+  // each group newest-interaction first so the most recently active conversation
+  // leads. No customer is hidden — due work is simply surfaced at the top.
+  const sortedItems = useMemo(() => {
+    const byRecency = (a: PopulationItem, b: PopulationItem) => {
+      const at = a.last_touch_at ? new Date(a.last_touch_at).getTime() : 0
+      const bt = b.last_touch_at ? new Date(b.last_touch_at).getTime() : 0
+      return bt - at
     }
-    void reserveNext(candidates)
-      .then(reserved => setOpenId(reserved))
-      .catch(() => {
-        setOpenId(null)
-        setError('Could not advance to the next customer. Try again.')
-      })
-    void load()
-  }, [openId, remaining, load, release, reserveNext])
+    const due = items.filter(it => it.interaction_follow_up_due).sort(byRecency)
+    const rest = items.filter(it => !it.interaction_follow_up_due).sort(byRecency)
+    return [...due, ...rest]
+  }, [items])
 
-  const handledCount = handled.size
+  // Open a specific conversation (a list card click or a searched customer):
+  // reserve it (deliberate open proceeds regardless of lease) and open it.
+  const openConversation = useCallback(async (itemId: string) => {
+    await reserveOne(itemId)
+    setOpenId(itemId)
+  }, [reserveOne])
+
+  // Return to the relationship list from an open conversation. Releases the
+  // soft reservation and refreshes the population so a resolved customer (signed
+  // authorization received, or a refusal) drops off and a new follow-up date
+  // shows. This is the ONLY navigation out of a conversation: leaving records or
+  // completes nothing, and it never auto-opens another customer.
+  const backToConversations = useCallback(() => {
+    void release()
+    setOpenId(null)
+    void load()
+  }, [release, load])
 
   // ── Customer search: open a specific customer when a response arrives ───────
   const [query, setQuery] = useState('')
@@ -210,34 +182,25 @@ export function CustomerInteractionClient({
         return
       }
       const itemId = json.data.item_id as string
-      await reserveOne(itemId) // deliberate open; proceeds regardless of lease
       setQuery('')
       setResults([])
-      setOpenId(itemId)
+      await openConversation(itemId)
     } catch {
       setSearchError('Network error opening the customer.')
     } finally {
       setOpening(false)
     }
-  }, [reserveOne])
-
-  if (loading) {
-    return (
-      <div className="flex items-center gap-2 rounded-2xl border border-surface-border bg-surface-card p-6 text-ink-supporting">
-        <Loader2 className="size-4 animate-spin" aria-hidden /> Loading customer interaction work…
-      </div>
-    )
-  }
+  }, [openConversation])
 
   // The customer-search box, always available so an employee can jump straight
-  // to a customer when a response arrives — INCLUDING when a reservation or load
-  // failed. The search opens a specific customer directly (its own reserve path),
-  // so a population reservation failure must never make it inaccessible.
+  // to a customer when a response arrives — INCLUDING when a load failed. The
+  // search opens a specific customer directly (its own reserve path), so a
+  // population load failure must never make it inaccessible.
   const searchBox = (
     <div className="space-y-2 rounded-2xl border border-surface-border bg-surface-card p-4">
       <label htmlFor="ci-search" className="flex items-center gap-2 text-sm font-semibold text-ink">
         <Search className="size-4 text-ink-supporting" aria-hidden />
-        A customer just responded? Find them
+        Find a customer
       </label>
       <input
         id="ci-search"
@@ -277,10 +240,43 @@ export function CustomerInteractionClient({
     </div>
   )
 
+  // ── Open conversation ───────────────────────────────────────────────────────
+  if (openId) {
+    return (
+      <div className="space-y-4">
+        {/* The established three-column working layout: the dedicated Customer
+            Interaction action column (record incoming/outgoing email, phone, or
+            text, set a follow-up, resolve the conversation) on the left, the
+            customer contact card + policies in the center, and the shared
+            customer history on the right. Recording never advances; the only
+            way out is Back to Conversations, which returns to the list. */}
+        <StewardshipTask
+          key={openId}
+          itemId={openId}
+          forceCustomerInteraction
+          hideBackHeader
+          // Both the left-column "Back to Conversations" control and a resolved
+          // outcome (signed authorization received / refusal) return to the
+          // relationship list. Nothing auto-opens another customer.
+          onAdvanceToNext={backToConversations}
+          onBack={backToConversations}
+        />
+      </div>
+    )
+  }
+
+  // ── Loading ──────────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="flex items-center gap-2 rounded-2xl border border-surface-border bg-surface-card p-6 text-ink-supporting">
+        <Loader2 className="size-4 animate-spin" aria-hidden /> Loading conversations…
+      </div>
+    )
+  }
+
   // ── Error state ─────────────────────────────────────────────────────────────
-  // A load or reservation failure is surfaced with a retry, but the customer
-  // search stays ABOVE it so an employee can always open a specific customer who
-  // just responded — a reservation failure never blocks the search.
+  // A load failure is surfaced with a retry, but the customer search stays ABOVE
+  // it so an employee can always open a specific customer who just responded.
   if (error) {
     return (
       <div className="space-y-4">
@@ -289,10 +285,7 @@ export function CustomerInteractionClient({
           <p>{error}</p>
           <button
             type="button"
-            onClick={() => {
-              setError(null); setHandled(new Set()); directOpenedRef.current = false
-              setLoading(true); void load()
-            }}
+            onClick={() => { setError(null); setLoading(true); void load() }}
             className="inline-flex items-center gap-2 rounded-xl border border-surface-border-strong bg-surface-card px-4 py-2 text-base font-medium text-ink-secondary transition-colors hover:bg-surface-muted"
           >
             <RefreshCw className="size-4" aria-hidden /> Try again
@@ -302,37 +295,7 @@ export function CustomerInteractionClient({
     )
   }
 
-  // ── Single-customer task ───────────────────────────────────────────────────
-  if (openId) {
-    const hasNext = remaining.some(it => it.id !== openId)
-    return (
-      <div className="space-y-4">
-        {searchBox}
-        {/* The established three-column working layout: the dedicated Customer
-            Interaction action column (record incoming/outgoing email, phone, or
-            text, and set a follow-up — no telephone flow required) on the left,
-            the customer contact card + policies in the center, and the
-            communication history on the right. Contact context and history stay
-            visible throughout, without opening any workbench. */}
-        <StewardshipTask
-          key={openId}
-          itemId={openId}
-          forceCustomerInteraction
-          hideBackHeader
-          hasNextInActivity={hasNext}
-          // A recorded step that removes the customer from the interaction
-          // population (signed form received, or a refusal) advances the
-          // sequence to the next engaged customer.
-          onAdvanceToNext={advanceToNext}
-          // A non-advancing terminal path just refreshes the population; it
-          // must never advance or leave the screen on its own.
-          onBack={() => { void load() }}
-        />
-      </div>
-    )
-  }
-
-  // ── Completion state ───────────────────────────────────────────────────────
+  // ── Relationship list ────────────────────────────────────────────────────────
   return (
     <section className="space-y-5">
       {searchBox}
@@ -350,53 +313,83 @@ export function CustomerInteractionClient({
         <MentorCapPanel onClose={() => setMentorOpen(false)}>
           Customer interaction is the step between routine calling and servicing access. A customer
           who has responded — by email, phone, or text — or who you reached on a call is in an active
-          conversation, even if the signed authorization has not come back yet. Record what the
-          customer said, your replies, any notes, and the next follow-up you promised. Keep working
-          the conversation toward the signed servicing-agent authorization; when it comes back, the
+          conversation, even if the signed authorization has not come back yet. This is a list of
+          those conversations, with overdue and due follow-ups first: open any customer to record
+          what was said, your replies, notes, and the next follow-up you promised. Keep working the
+          conversation toward the signed servicing-agent authorization; when it comes back, the
           customer moves into Servicing Access automatically. An automated reply (out-of-office, a
-          delivery receipt) is not a response, and a customer who declines stops outreach. Everything
-          is saved once and recorded in the customer&apos;s history.
+          delivery receipt) is not a response, and a customer who declines stops outreach. Opening
+          and leaving a customer records nothing; everything you record is saved to the
+          customer&apos;s history.
         </MentorCapPanel>
       )}
 
-      <div className="flex flex-col items-center gap-4 rounded-2xl border border-surface-border bg-surface-card p-10 text-center">
-        <CheckCircle2 className="size-12 text-status-confirmed-strong" aria-hidden />
-        <div className="space-y-1">
-          <p className="text-xl font-semibold text-ink">
-            {handledCount > 0 ? 'Customer interaction complete' : 'No active conversations right now'}
-          </p>
-          <p className="text-lg text-ink-secondary">
-            {handledCount > 0
-              ? `You worked ${handledCount} ${handledCount === 1 ? 'conversation' : 'conversations'} this session. There are no more active conversations waiting.`
-              : 'No customers are in an active conversation right now. When one responds, find the customer above to start, or check back as responses come in.'}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <Link
-            href="/my-work"
-            className="inline-flex items-center gap-2 rounded-xl bg-brand px-5 py-3 text-lg font-semibold text-white transition-colors hover:bg-brand-hover"
-          >
-            <ArrowLeft className="size-5" aria-hidden /> Back to My Work
-          </Link>
-          <button
-            type="button"
-            onClick={() => {
-              setHandled(new Set()); directOpenedRef.current = false
-              setLoading(true); void load()
-            }}
-            className="inline-flex items-center gap-2 rounded-xl border border-surface-border-strong px-5 py-3 text-lg font-medium text-ink-secondary transition-colors hover:bg-surface-muted"
-          >
-            <RefreshCw className="size-5" aria-hidden /> Check again
-          </button>
-        </div>
-        <p className="inline-flex items-center gap-1.5 text-sm text-ink-supporting">
-          <MessageSquare className="size-4" aria-hidden /> Customer Interaction
-        </p>
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="text-xl font-semibold text-ink">
+          Conversations{items.length > 0 ? ` (${items.length})` : ''}
+        </h2>
+        <button
+          type="button"
+          onClick={() => { setLoading(true); void load() }}
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-supporting transition-colors hover:text-ink"
+        >
+          <RefreshCw className="size-4" aria-hidden /> Refresh
+        </button>
       </div>
+
+      {sortedItems.length === 0 ? (
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-surface-border bg-surface-card p-10 text-center">
+          <MessageSquare className="size-10 text-ink-muted" aria-hidden />
+          <p className="text-lg font-semibold text-ink">No active conversations right now</p>
+          <p className="text-base text-ink-secondary">
+            No customers are in an active conversation. When one responds, find the customer above to
+            start, or refresh as responses come in.
+          </p>
+        </div>
+      ) : (
+        <ul className="space-y-3">
+          {sortedItems.map(it => {
+            const last = formatDateTime(it.last_touch_at)
+            const followUp = formatDateOnly(it.next_follow_up)
+            return (
+              <li key={it.id}>
+                <button
+                  type="button"
+                  onClick={() => void openConversation(it.id)}
+                  className="group flex w-full flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl border-2 border-surface-border bg-surface-card px-6 py-5 text-left transition-colors hover:border-teal-400 hover:bg-brand-wash/50 focus-visible:border-teal-400 focus-visible:bg-brand-wash/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500/40"
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xl font-semibold text-ink">{fullName(it.customer)}</span>
+                    <span className="mt-0.5 flex items-center gap-1.5 text-base text-ink-supporting">
+                      <Clock className="size-4 shrink-0" aria-hidden />
+                      {last ? `Last interaction ${last}` : 'No interaction recorded yet'}
+                    </span>
+                  </span>
+
+                  {followUp && (
+                    it.interaction_follow_up_due ? (
+                      <OperationalTag tone="exception">
+                        <CalendarClock className="mr-1.5 size-4 shrink-0" aria-hidden />
+                        Follow-up due {followUp}
+                      </OperationalTag>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong px-3 py-1.5 text-base font-medium text-ink-secondary">
+                        <CalendarClock className="size-4 shrink-0 text-ink-supporting" aria-hidden />
+                        Follow-up {followUp}
+                      </span>
+                    )
+                  )}
+                </button>
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </section>
   )
 }
 
-// (The former inline EmailConversation panel is removed: the three-column
-// StewardshipTask (forceCustomerInteraction) now owns conversation recording
-// with the established working layout and the shared customer context/history.)
+// (The former auto-open, continuous one-customer-at-a-time flow is removed:
+// Customer Interaction is now a searchable relationship list. Selecting a
+// customer opens the shared three-column StewardshipTask (forceCustomerInteraction);
+// leaving returns to the list and records nothing.)

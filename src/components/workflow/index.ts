@@ -52,8 +52,6 @@ export {
   NextHistoryEntry,
 } from './CustomerHistoryCard'
 
-export { RelationshipTimeline } from './RelationshipTimeline'
-
 export {
   CustomerContactCard,
   type CustomerContact,

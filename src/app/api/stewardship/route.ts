@@ -587,6 +587,61 @@ export async function GET(request: NextRequest) {
         'customer-interaction': items.filter(it => it.customer_interaction === true).length,
       }
 
+  // Last recorded interaction, for the Customer Interaction relationship list.
+  // The redesigned opening screen lists each engaged customer with their last
+  // recorded interaction and next follow-up; follow_up_due/callback_date are
+  // already on each item, but "last interaction" is derived from the one history
+  // system (case_touches). Compute it ONLY for the customer-interaction
+  // population view (never on the unscoped board) with a single batched query —
+  // the newest touched_at per listed customer — so the enrichment adds no
+  // per-row cost and no new store. Items without a recorded touch carry null.
+  if (populationFilter === 'customer-interaction' && visibleItems.length > 0) {
+    const listedCustomerIds = Array.from(
+      new Set(visibleItems.map(it => it.customer?.id).filter((v): v is string => !!v)),
+    )
+    if (listedCustomerIds.length > 0) {
+      const { data: touches } = await supabase
+        .from('case_touches')
+        .select('customer_id, touched_at')
+        .in('customer_id', listedCustomerIds)
+        .order('touched_at', { ascending: false })
+      const lastTouchByCustomer = new Map<string, string>()
+      for (const t of (touches ?? []) as { customer_id: string | null; touched_at: string | null }[]) {
+        if (!t.customer_id || !t.touched_at) continue
+        // Rows arrive newest-first, so the FIRST seen per customer is the latest.
+        if (!lastTouchByCustomer.has(t.customer_id)) lastTouchByCustomer.set(t.customer_id, t.touched_at)
+      }
+      for (const it of visibleItems) {
+        const cid = it.customer?.id
+        const last = cid ? lastTouchByCustomer.get(cid) ?? null : null
+        // The single next-follow-up date shown on the list: the promised
+        // callback (pre-authorization) or the signature chase date
+        // (waiting-for-form, form not yet received). callback_date is date-only;
+        // follow_up_due is an instant, shown as its date.
+        const awaitingSignature = it.queue === 'waiting-for-form' && it.form_received_at == null
+        const nextFollowUp =
+          it.callback_date ??
+          (awaitingSignature && it.follow_up_due ? it.follow_up_due.slice(0, 10) : null)
+        // Whether that follow-up is DUE on the actor's calendar, so the list can
+        // surface overdue/due first. Pre-authorization uses the date-only
+        // callback test; awaiting-signature reuses the waiting follow-up test
+        // (follow_up_due_now already computes it for waiting queues).
+        const followUpDue =
+          isCallbackDue(it.callback_date, actorTimeZone) ||
+          (awaitingSignature && it.follow_up_due_now === true)
+        Object.assign(it as typeof it & {
+          last_touch_at: string | null
+          next_follow_up: string | null
+          interaction_follow_up_due: boolean
+        }, {
+          last_touch_at: last,
+          next_follow_up: nextFollowUp,
+          interaction_follow_up_due: followUpDue,
+        })
+      }
+    }
+  }
+
   return Response.json({
     data: {
       items: visibleItems,

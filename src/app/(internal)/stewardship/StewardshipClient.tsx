@@ -15,7 +15,7 @@ import {
   Mail, Phone, Search, Inbox, FileText, Building2, Check, ExternalLink,
   Clock, CircleAlert, Play, PenLine, MailX, Hand, UserCheck,
   ShieldCheck, ShieldAlert, Copy, Voicemail, MessageSquare, PhoneCall, PhoneOff,
-  Upload, Download, Loader2, SkipForward, StickyNote,
+  Upload, Download, Loader2, SkipForward, StickyNote, ArrowLeft,
 } from 'lucide-react'
 import {
   WorkflowPage, WorkflowHeader,
@@ -25,7 +25,7 @@ import {
   ExternalActionConfirm, SpokenScriptCard,
   CustomerContactCard, type CustomerContact, GatewayLookup,
   PolicySummaryList, type PolicySummary,
-  CustomerHistoryCard, NextHistoryEntry, RelationshipTimeline,
+  CustomerHistoryCard, NextHistoryEntry,
 } from '@/components/workflow'
 import {
   carrierEmailSubject, carrierEmailMessage, uniqueCarriers, resolveCarrierRecipient,
@@ -1401,7 +1401,7 @@ export function StewardshipTask({
           ) : forceCustomerInteraction ? (
             <CustomerInteractionAction
               detail={detail} busy={busy} note={note} act={act} reload={load}
-              hasNextInActivity={hasNextInActivity} onAdvanceToNext={onAdvanceToNext}
+              onAdvanceToNext={onAdvanceToNext}
             />
           ) : (
             <TaskAction
@@ -1497,17 +1497,22 @@ function StewardshipHistoryColumn({
    * preview; the history card below is the live record. */
   forceCustomerInteraction?: boolean
 }) {
+  // Customer Interaction uses the ONE shared Customer History presentation, the
+  // same card every other working screen uses, over the SAME customer history.
+  // It records each entry directly as the conversation is worked, so it shows no
+  // Next History Entry preview — just the live history. One history presentation,
+  // one history system.
+  if (forceCustomerInteraction) {
+    return <CustomerHistoryCard events={detail.customer_history ?? []} />
+  }
   const activity = resolveWorkflowActivity(detail, forceCall, forceServicingAccess)
   // The preview is built DYNAMICALLY from the live selection where the screen
   // makes one (the guided call flow, the intro email), so it reflects exactly
   // what completing the open work will record, combined into one concise entry.
   // The calling flow only generates an event once a reach decision is made, so
-  // before that the preview is withheld. Customer Interaction records each entry
-  // directly (no single pending entry), so it shows no preview — just history.
+  // before that the preview is withheld.
   const preview: NextHistoryEntryPreview | null =
-    forceCustomerInteraction
-      ? null
-      : activity === 'calling'
+    activity === 'calling'
       ? (callSelection
           ? describeCallSelection(callSelection, { customerName: detail.customer.first_name })
           : null)
@@ -1516,14 +1521,6 @@ function StewardshipHistoryColumn({
         : activity === 'servicing-access'
           ? describeServicingAccessStep(detail)
           : describeNextHistoryEntry(activity, { customerName: detail.customer.first_name })
-  // Customer Interaction opts into the improved Relationship Timeline
-  // presentation (bold teal headings, incoming/outgoing titles, expandable
-  // content) over the SAME customer history. It records each entry directly, so
-  // it has no Next History Entry preview; the timeline is the live record. Every
-  // other working screen keeps the existing Customer History card unchanged.
-  if (forceCustomerInteraction) {
-    return <RelationshipTimeline events={detail.customer_history ?? []} />
-  }
   return (
     <>
       {/* The card owns its single heading; blank until there is something to
@@ -3116,7 +3113,7 @@ const INTERACTION_CHANNELS: { id: 'email' | 'call' | 'text'; label: string; icon
 ]
 
 function CustomerInteractionAction({
-  detail, busy, note, act, reload, hasNextInActivity = false, onAdvanceToNext,
+  detail, busy, note, act, reload, onAdvanceToNext,
 }: {
   detail: Detail
   busy: boolean
@@ -3125,7 +3122,8 @@ function CustomerInteractionAction({
   /** Reload the task detail (history + engagement) after a touch-route record,
    * which does not go through `act`. */
   reload: () => Promise<void>
-  hasNextInActivity?: boolean
+  /** Return to the relationship list (Back to Conversations, and after a
+   * resolved outcome). Never advances to another customer. */
   onAdvanceToNext?: () => void
 }) {
   const name = fullName(detail.customer)
@@ -3196,6 +3194,19 @@ function CustomerInteractionAction({
 
   return (
     <ActionPanel heading={`Work ${name}\u2019s conversation`}>
+      {/* Collapsible Mentoring at the top of the working column (the purple
+          Mentor identity, distinct from the teal Assistant). It carries the
+          coaching that explains how to work the conversation — the guidance
+          that previously sat at the bottom of this column — so the explanatory
+          text now lives in Mentoring rather than as a trailing note. */}
+      <MentorGuidance label="Mentoring on this conversation">
+        Record incoming responses and outgoing replies, add conversation notes, and set the next
+        follow-up you promised. Keep working toward the signed servicing-agent authorization: when
+        it comes back, record it to hand off to Servicing Access. A refusal stops outreach
+        (reversible if the customer re-engages). Everything you record is saved to the
+        customer&apos;s history; leaving the conversation records nothing.
+      </MentorGuidance>
+
       {noteBox}
 
       {/* A due follow-up, surfaced as actionable within Customer Interaction.
@@ -3360,19 +3371,15 @@ function CustomerInteractionAction({
         </div>
       </div>
 
-      {/* Move on when the conversation is handled for now. The customer stays in
-          Customer Interaction until the signed authorization arrives or they
-          refuse; this only advances the working sequence. */}
+      {/* Return to the relationship list when the conversation is handled for
+          now. The customer stays in Customer Interaction until the signed
+          authorization arrives or they refuse; this never records anything and
+          never auto-opens another customer — it simply goes back to the list. */}
       {onAdvanceToNext && (
-        <WorkflowButton icon={Check} selected={false} disabled={busy || recBusy} onClick={onAdvanceToNext}>
-          {hasNextInActivity ? 'Next conversation' : 'Done for now'}
+        <WorkflowButton icon={ArrowLeft} selected={false} disabled={busy || recBusy} onClick={onAdvanceToNext}>
+          Back to Conversations
         </WorkflowButton>
       )}
-
-      <NextNote>
-        Record incoming responses and replies, set follow-ups, and when the signed authorization
-        comes back record it to hand off to Servicing Access. A refusal stops outreach.
-      </NextNote>
     </ActionPanel>
   )
 }
