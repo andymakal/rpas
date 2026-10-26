@@ -530,6 +530,8 @@ function makeInteractivePersist(record: CustomerContact, setRecord: (c: Customer
     } else if (payload.field === 'phone') {
       const changed = (payload.phone ?? null) !== (record.phone ?? null)
       next = { ...record, phone: payload.phone, phone_verified_at: changed ? null : record.phone_verified_at }
+    } else if (payload.field === 'alert') {
+      next = { ...record, contact_alert: payload.alert?.trim() ? payload.alert.trim() : null }
     } else {
       next = {
         ...record,

@@ -37,6 +37,7 @@ export type CustomerDetail = {
   phone:            string | null
   email:            string | null
   street:           string | null
+  address_line1:    string | null
   city:             string | null
   state:            string | null
   zip:              string | null
@@ -55,6 +56,8 @@ export type CustomerDetail = {
   phone_verified_at:    string | null
   email_verified_at:    string | null
   address_verified_at:  string | null
+  email_availability:   string | null
+  contact_alert:        string | null
   is_deceased:     boolean
   is_former_client: boolean
   is_prospect:     boolean
@@ -152,12 +155,13 @@ export default async function CustomerCardPage({
     .from('customers')
     .select(`
       id, first_name, last_name, phone, email,
-      street, city, state, zip,
+      street, address_line1, city, state, zip,
       date_of_birth, marital_status, gender,
       tobacco_use, preferred_language, health_notes,
       customer_group_id, segment, drive_folder_url,
       fact_finder, fact_finder_verified_at, fact_finder_verified_by,
       phone_verified_at, email_verified_at, address_verified_at,
+      email_availability, contact_alert,
       is_deceased, is_former_client, is_prospect, is_emoney_client
     `)
     .eq('id', id)

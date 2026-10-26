@@ -147,7 +147,7 @@ export async function GET(
       ${OUTREACH_COLUMNS},
       customer_prereviews!inner (
         id, customer_id, source_agency_id, decision, created_at,
-        customers!inner ( id, first_name, last_name, email, phone, date_of_birth, street, address_line1, city, state, zip, phone_verified_at, email_verified_at, address_verified_at, email_availability )
+        customers!inner ( id, first_name, last_name, email, phone, date_of_birth, street, address_line1, city, state, zip, phone_verified_at, email_verified_at, address_verified_at, email_availability, contact_alert )
       )
     `)
     .eq('id', id)
@@ -205,6 +205,7 @@ export async function GET(
     street: string | null; address_line1: string | null; city: string | null; state: string | null; zip: string | null
     phone_verified_at: string | null; email_verified_at: string | null; address_verified_at: string | null
     email_availability: EmailAvailability | null
+    contact_alert: string | null
   }
 
   // Required-signer identity is NOT durable today: there is no owner/signer

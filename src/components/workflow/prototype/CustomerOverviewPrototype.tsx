@@ -361,6 +361,7 @@ export function CustomerOverviewPrototype({
         header={headerContent}
         alert={alert}
         onAlertChange={setAlert}
+        alertEditable
         showName={false}
         showMentoring={false}
         collapsible

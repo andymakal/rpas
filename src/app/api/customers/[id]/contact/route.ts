@@ -84,11 +84,12 @@ type CustomerContactRow = {
   phone_verified_at: string | null
   address_verified_at: string | null
   email_availability: EmailAvailability | null
+  contact_alert: string | null
 }
 
 const SELECT =
   'id, first_name, last_name, email, phone, street, address_line1, city, state, zip, ' +
-  'email_verified_at, phone_verified_at, address_verified_at, email_availability'
+  'email_verified_at, phone_verified_at, address_verified_at, email_availability, contact_alert'
 
 /** The stable machine marker that identifies a case_touches 'workflow' note as
  * an email-availability change, carrying the new status. Bracketed so the
@@ -224,9 +225,12 @@ export async function PATCH(
   }
 
   const field = body.field
-  if (field !== 'email' && field !== 'phone' && field !== 'address' && field !== 'email_availability') {
+  if (
+    field !== 'email' && field !== 'phone' && field !== 'address' &&
+    field !== 'email_availability' && field !== 'alert'
+  ) {
     return Response.json(
-      { error: 'A field of email, phone, address, or email_availability is required.' },
+      { error: 'A field of email, phone, address, email_availability, or alert is required.' },
       { status: 400 },
     )
   }
@@ -245,6 +249,40 @@ export async function PATCH(
   }
   if (!before) {
     return Response.json({ error: 'Customer not found.' }, { status: 404 })
+  }
+
+  // ── SET / CLEAR THE CUSTOMER ALERT ────────────────────────────────────────
+  // Body: { field: 'alert', alert: string | null }
+  // One short free-text alert per customer, shown at the top of the shared card
+  // wherever it renders. Trimmed; an empty/whitespace value clears it (NULL).
+  // No categories, priorities, expiration, or workflow side effects — it writes
+  // exactly the one customers.contact_alert column.
+  if (field === 'alert') {
+    const raw = body.alert
+    if (raw != null && typeof raw !== 'string') {
+      return Response.json({ error: 'alert must be a string or null.' }, { status: 400 })
+    }
+    const trimmed = typeof raw === 'string' ? raw.trim() : ''
+    const next: string | null = trimmed.length > 0 ? trimmed : null
+
+    // Save-only-changed: a no-op returns the current record unchanged.
+    if ((before.contact_alert ?? null) === next) {
+      return Response.json({ data: before })
+    }
+
+    const { data: updated, error: aErr } = await supabase
+      .from('customers')
+      .update({ contact_alert: next })
+      .eq('id', customerId)
+      .eq('is_test', false)
+      .select(SELECT)
+      .maybeSingle<CustomerContactRow>()
+    if (aErr) {
+      console.error('customer alert update error:', aErr)
+      return Response.json({ error: aErr.message }, { status: 500 })
+    }
+    if (!updated) return Response.json({ error: 'Customer not found.' }, { status: 404 })
+    return Response.json({ data: updated })
   }
 
   // ── SET EMAIL AVAILABILITY ────────────────────────────────────────────────

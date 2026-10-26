@@ -147,6 +147,12 @@ function applyPayload(
         email_availability:
           payload.availability === 'missing' ? null : payload.availability,
       }
+    case 'alert':
+      // One current alert; empty clears it. Mirrors the server's trim+null rule.
+      return {
+        ...prev,
+        contact_alert: payload.alert?.trim() ? payload.alert.trim() : null,
+      }
     default:
       return prev
   }

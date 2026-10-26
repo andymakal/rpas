@@ -99,6 +99,11 @@ export interface CustomerContact {
    * unknown ("Missing"). Governs how the Email section reads and whether email
    * research is worthwhile. See `@/lib/email-availability`. */
   email_availability: EmailAvailability | null
+  /** The customer's single current alert (customers.contact_alert). NULL/empty
+   * means no alert. Shown as a prominent banner at the top of the card and
+   * editable via the Add / Edit / Clear control when alert editing is enabled.
+   * Optional so existing callers that don't select it still satisfy the type. */
+  contact_alert?: string | null
 }
 
 type ContactFieldKey = 'email' | 'phone' | 'address'
@@ -536,6 +541,7 @@ export type ContactPersistPayload =
   | { field: 'address'; street: string | null; city: string | null; state: string | null; zip: string | null }
   | { field: ContactFieldKey; verified: boolean }
   | { field: 'email_availability'; availability: SelectableEmailAvailability }
+  | { field: 'alert'; alert: string | null }
 
 type Tone = 'confirmed' | 'known' | 'missing'
 
@@ -595,6 +601,7 @@ export function CustomerContactCard({
   onExpandedChange,
   alert,
   onAlertChange,
+  alertEditable = false,
 }: {
   customer: CustomerContact
   /** Called with the authoritative updated record after any successful write,
@@ -638,10 +645,14 @@ export function CustomerContactCard({
    * so every existing call site is unchanged. One alert per customer; no
    * categories, priorities, expiration, or workflow rules. */
   alert?: string | null
-  /** Enable alert editing. When provided, the card renders the Add / Edit /
-   * Clear control and a Save/Cancel text editor, calling this with the new text
-   * (or null when cleared). Omit it to hide the alert feature entirely. */
+  /** Optional notification after the alert is saved/cleared, with the new text
+   * (or null). Persistence is handled by the card through the shared route; this
+   * just lets a host sync its own copy if needed. */
   onAlertChange?: (next: string | null) => void
+  /** Enable the alert feature (banner + Add / Edit / Clear control + editor).
+   * Default false, so every existing call site shows no alert affordance and is
+   * unchanged. The alert value is the durable `customer.contact_alert`. */
+  alertEditable?: boolean
 }) {
   const ap = useMemo(() => resolveAppearance(appearance), [appearance])
   // The card holds the current record locally so the display updates the instant
@@ -654,26 +665,21 @@ export function CustomerContactCard({
   // a non-collapsible card is always "expanded", preserving today's behavior.
   const [expanded, setExpanded] = useState(defaultExpanded)
   const isExpanded = !collapsible || expanded
-  // Alert editor (opt-in via onAlertChange). Open/draft are internal; the alert
-  // value itself is controlled by the host so it is clearly in-memory here and
-  // DB-backed later without touching this component.
-  const alertEditable = !!onAlertChange
-  const alertText = alert?.trim() ? alert : null
+  // Alert editor. Enabled with `alertEditable`. The alert VALUE is the durable
+  // customers.contact_alert carried on the record (with the controlled `alert`
+  // prop as an override for hosts that manage it externally). Save/Clear persist
+  // through the SAME shared route the card uses for contact (so Add/Edit/Clear
+  // survive refresh), update the held record, and notify `onChange`/`onAlertChange`.
+  const alertText = (alert !== undefined ? alert : record.contact_alert)?.trim()
+    ? (alert !== undefined ? alert : record.contact_alert)
+    : null
   const [alertEditing, setAlertEditing] = useState(false)
   const [alertDraft, setAlertDraft] = useState('')
+  const [alertBusy, setAlertBusy] = useState(false)
   const openAlertEditor = useCallback(() => {
     setAlertDraft(alertText ?? '')
     setAlertEditing(true)
   }, [alertText])
-  const saveAlert = useCallback(() => {
-    const next = alertDraft.trim()
-    onAlertChange?.(next.length ? next : null)
-    setAlertEditing(false)
-  }, [alertDraft, onAlertChange])
-  const clearAlert = useCallback(() => {
-    onAlertChange?.(null)
-    setAlertEditing(false)
-  }, [onAlertChange])
   const setExpandedState = useCallback((next: boolean) => {
     setEditing(null); setError(null)
     setExpanded(next)
@@ -714,7 +720,7 @@ export function CustomerContactCard({
     }
   }, [persist, applyUpdate])
 
-  const saveField = useCallback(async (payload: Exclude<ContactPersistPayload, { field: 'email_availability' }>) => {
+  const saveField = useCallback(async (payload: Exclude<ContactPersistPayload, { field: 'email_availability' } | { field: 'alert' }>) => {
     const field = payload.field
     setBusyField(field); setError(null)
     try {
@@ -748,6 +754,29 @@ export function CustomerContactCard({
     },
     [persist, applyUpdate],
   )
+
+  // Persist the alert through the shared route (or injected onPersist), update
+  // the held record, and notify the host. Save with empty text clears it.
+  const commitAlert = useCallback(async (next: string | null) => {
+    setAlertBusy(true); setError(null)
+    try {
+      const updated = await persist({ field: 'alert', alert: next })
+      applyUpdate(updated)
+      onAlertChange?.(updated.contact_alert ?? null)
+      setAlertEditing(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save alert')
+    } finally {
+      setAlertBusy(false)
+    }
+  }, [persist, applyUpdate, onAlertChange])
+
+  const saveAlert = useCallback(() => {
+    const t = alertDraft.trim()
+    void commitAlert(t.length ? t : null)
+  }, [alertDraft, commitAlert])
+
+  const clearAlert = useCallback(() => { void commitAlert(null) }, [commitAlert])
 
   const emailPresent = !!record.email?.trim()
   const phonePresent = !!record.phone?.trim()
@@ -792,6 +821,7 @@ export function CustomerContactCard({
       {alertEditable && alertEditing ? (
         <AlertEditor
           draft={alertDraft}
+          busy={alertBusy}
           onDraftChange={setAlertDraft}
           onSave={saveAlert}
           onCancel={() => setAlertEditing(false)}
@@ -1107,9 +1137,10 @@ function AlertBanner({ text }: { text: string }) {
  * the card. Empty text on Save clears the alert.
  */
 function AlertEditor({
-  draft, onDraftChange, onSave, onCancel,
+  draft, busy = false, onDraftChange, onSave, onCancel,
 }: {
   draft: string
+  busy?: boolean
   onDraftChange: (v: string) => void
   onSave: () => void
   onCancel: () => void
@@ -1124,22 +1155,25 @@ function AlertEditor({
         autoFocus
         rows={3}
         value={draft}
+        disabled={busy}
         onChange={(e) => onDraftChange(e.target.value)}
         placeholder="Add a short alert shown at the top of this customer's card."
-        className="mt-1.5 w-full rounded-lg border border-surface-border-strong px-3 py-2 text-base text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-wash"
+        className="mt-1.5 w-full rounded-lg border border-surface-border-strong px-3 py-2 text-base text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-wash disabled:opacity-50"
       />
       <div className="mt-2.5 flex items-center gap-2">
         <button
           type="button"
           onClick={onSave}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-base font-semibold text-brand-foreground hover:bg-brand-hover"
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-base font-semibold text-brand-foreground hover:bg-brand-hover disabled:opacity-50"
         >
-          <Check className="size-3.5" aria-hidden /> Save
+          {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />} Save
         </button>
         <button
           type="button"
           onClick={onCancel}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-3 py-1.5 text-base font-medium text-ink-secondary hover:bg-surface-muted"
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-3 py-1.5 text-base font-medium text-ink-secondary hover:bg-surface-muted disabled:opacity-40"
         >
           <X className="size-3.5" aria-hidden /> Cancel
         </button>

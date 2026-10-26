@@ -70,6 +70,7 @@ type ContactReviewCustomer = {
   phone_verified_at: string | null
   address_verified_at: string | null
   email_availability: EmailAvailability | null
+  contact_alert: string | null
   policy_number: string | null
   /** Reachability. 'needs_research' = reachable (missing one method), routine
    * active list. 'no_usable_contact' = no usable email or phone at all, always
@@ -473,7 +474,8 @@ export function ContactReviewClient({
                 email_verified_at: updated.email_verified_at,
                 phone_verified_at: updated.phone_verified_at,
                 address_verified_at: updated.address_verified_at,
-                email_availability: updated.email_availability }
+                email_availability: updated.email_availability,
+                contact_alert: updated.contact_alert ?? null }
             : r))
           setReopened(prev => prev && prev.customer_id === updated.id
             ? { ...prev,
@@ -485,7 +487,8 @@ export function ContactReviewClient({
                 email_verified_at: updated.email_verified_at,
                 phone_verified_at: updated.phone_verified_at,
                 address_verified_at: updated.address_verified_at,
-                email_availability: updated.email_availability }
+                email_availability: updated.email_availability,
+                contact_alert: updated.contact_alert ?? null }
             : prev)
         }}
         onSaved={() => {
@@ -768,6 +771,7 @@ function toCardCustomer(c: ContactReviewCustomer): CustomerContact {
     phone_verified_at: c.phone_verified_at,
     address_verified_at: c.address_verified_at,
     email_availability: c.email_availability,
+    contact_alert: c.contact_alert,
   }
 }
 
@@ -954,6 +958,8 @@ function ContactReviewTask({
         <>
           <CustomerContactCard
             customer={toCardCustomer(customer)}
+            alert={customer.contact_alert}
+            alertEditable
             onChange={onContactChange}
           />
           {/* The Policies card owns its single "Policies" heading. */}

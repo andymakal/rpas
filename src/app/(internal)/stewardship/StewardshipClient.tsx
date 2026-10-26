@@ -220,6 +220,7 @@ type Detail = BoardItem & {
     state: string | null
     zip: string | null
     email_availability: EmailAvailability | null
+    contact_alert: string | null
   }
   source_agency_id: string | null
   holdings: Holding[]
@@ -1649,10 +1650,13 @@ function StewardshipCustomerContact({
     phone_verified_at: detail.phone_verified_at,
     address_verified_at: detail.address_verified_at,
     email_availability: c.email_availability,
+    contact_alert: c.contact_alert,
   }
   return (
     <CustomerContactCard
       customer={customer}
+      alert={c.contact_alert}
+      alertEditable
       onChange={(u) => setDetail(prev => prev ? {
         ...prev,
         email_verified_at: u.email_verified_at,
@@ -1669,6 +1673,7 @@ function StewardshipCustomerContact({
           state: u.state,
           zip: u.zip,
           email_availability: u.email_availability,
+          contact_alert: u.contact_alert ?? null,
         },
       } : prev)}
     />

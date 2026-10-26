@@ -4,10 +4,10 @@ import { useState, useRef, useEffect, useCallback, Fragment } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
-  ArrowLeft, Phone, Mail, MapPin, User,
+  ArrowLeft, Phone, User,
   Shield, CheckCircle, ShieldOff, FileQuestion, Send,
   AlertTriangle, ChevronRight, Search, X, Trash2,
-  FolderKanban, Wrench, Link2, History, Compass, ChevronDown,
+  FolderKanban, Wrench, Link2, History,
   Pencil, Check, MessageSquare, Clipboard, Plus, ClipboardCheck, FolderOpen, Users,
 } from 'lucide-react'
 import type {
@@ -17,8 +17,8 @@ import type {
   CustomerOnboarding,
 } from './page'
 import { fmtDate } from '@/lib/fmt'
-import { formatPhone } from '@/lib/format-phone'
 import { FactFinderSection } from './FactFinderSection'
+import { CustomerOverviewHeader } from './CustomerOverviewHeader'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -209,125 +209,6 @@ function SrStatusBadge({ status }: { status: string }) {
 }
 
 // ── Customer status ───────────────────────────────────────────────────────────
-
-type CustomerStatus = 'active' | 'prospect' | 'former_client' | 'deceased'
-
-function deriveStatus(c: { is_deceased: boolean; is_former_client: boolean; is_prospect: boolean }): CustomerStatus {
-  if (c.is_deceased)     return 'deceased'
-  if (c.is_former_client) return 'former_client'
-  if (c.is_prospect)     return 'prospect'
-  return 'active'
-}
-
-const STATUS_OPTIONS: { value: CustomerStatus; label: string; badge: string; btn: string }[] = [
-  {
-    value: 'active',
-    label: 'Active',
-    badge: 'bg-emerald-900/40 text-emerald-300 border-emerald-800',
-    btn:   'border-emerald-800 hover:border-emerald-500 text-emerald-300',
-  },
-  {
-    value: 'prospect',
-    label: 'Prospect',
-    badge: 'bg-violet-900/40 text-violet-300 border-violet-800',
-    btn:   'border-violet-800 hover:border-violet-500 text-violet-300',
-  },
-  {
-    value: 'former_client',
-    label: 'Former Client',
-    badge: 'bg-slate-700/80 text-slate-400 border-slate-600',
-    btn:   'border-slate-600 hover:border-slate-400 text-slate-300',
-  },
-  {
-    value: 'deceased',
-    label: 'Quiet Filed',
-    badge: 'bg-red-900/30 text-red-400 border-red-900',
-    btn:   'border-red-900 hover:border-red-700 text-red-400',
-  },
-]
-
-function StatusBadge({ status }: { status: CustomerStatus }) {
-  const s = STATUS_OPTIONS.find(x => x.value === status)!
-  return (
-    <span className={`inline-flex items-center text-xs border rounded-full px-2.5 py-0.5 font-medium ${s.badge}`}>
-      {s.label}
-    </span>
-  )
-}
-
-// ── Segmentation ─────────────────────────────────────────────────────────────
-
-const SEGMENTS = [
-  {
-    value:   'wanderer',
-    label:   'Wanderer',
-    desc:    'Legacy policy — service only',
-    badge:   'bg-slate-700/80 text-slate-300 border-slate-600',
-    btn:     'border-slate-600 hover:border-slate-400 text-slate-300',
-  },
-  {
-    value:   'explorer',
-    label:   'Explorer',
-    desc:    'Life insurance client',
-    badge:   'bg-blue-900/50 text-blue-300 border-blue-800',
-    btn:     'border-blue-800 hover:border-blue-500 text-blue-300',
-  },
-  {
-    value:   'pathfinder',
-    label:   'Pathfinder',
-    desc:    'Financial client — under $100K',
-    badge:   'bg-emerald-900/50 text-emerald-300 border-emerald-800',
-    btn:     'border-emerald-800 hover:border-emerald-500 text-emerald-300',
-  },
-  {
-    value:   'voyageur',
-    label:   'Voyageur',
-    desc:    'Financial client — $100K – $500K',
-    badge:   'bg-amber-900/50 text-amber-300 border-amber-800',
-    btn:     'border-amber-800 hover:border-amber-500 text-amber-300',
-  },
-  {
-    value:   'trailblazer',
-    label:   'Trailblazer',
-    desc:    'Financial client — $500K+',
-    badge:   'bg-orange-900/50 text-orange-300 border-orange-800',
-    btn:     'border-orange-800 hover:border-orange-500 text-orange-300',
-  },
-] as const
-
-function SegmentBadge({ segment }: { segment: string | null }) {
-  const s = SEGMENTS.find(x => x.value === segment)
-  if (!s) {
-    return (
-      <span className="inline-flex items-center gap-1 text-xs text-slate-500 border border-dashed border-slate-700 rounded-full px-2.5 py-0.5">
-        <Compass className="w-3 h-3" /> Unassigned
-      </span>
-    )
-  }
-  return (
-    <span className={`inline-flex items-center gap-1 text-xs border rounded-full px-2.5 py-0.5 font-medium ${s.badge}`}>
-      <Compass className="w-3 h-3" /> {s.label}
-    </span>
-  )
-}
-
-/**
- * Small "customer verified" tick shown beside a contact value when the customer
- * confirmed it during onboarding (customers.*_verified_at). It stays visible on
- * the record after onboarding, and a DB trigger clears the flag when the value
- * changes — so a tick always means "this exact value was confirmed".
- */
-function VerifiedTick({ at }: { at: string | null }) {
-  if (!at) return null
-  return (
-    <span
-      title={`Customer-verified ${fmtDate(at)}`}
-      className="inline-flex items-center gap-1 rounded-full border border-emerald-800 bg-emerald-900/40 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300"
-    >
-      <Check className="w-2.5 h-2.5" /> Verified
-    </span>
-  )
-}
 
 // ── Servicing-Agent Onboarding ─────────────────────────────────────────────────
 
@@ -549,17 +430,6 @@ export function CustomerCardClient({
   const [editPolSaving,    setEditPolSaving]    = useState(false)
   const [editPolErr,       setEditPolErr]       = useState<string | null>(null)
 
-  const [segment,        setSegment]        = useState<string | null>(customer.segment)
-  const [editingSegment, setEditingSegment] = useState(false)
-  const [segmentSaving,  setSegmentSaving]  = useState(false)
-
-  const [statusValue,    setStatusValue]    = useState<CustomerStatus>(deriveStatus(customer))
-  const [editingStatus,  setEditingStatus]  = useState(false)
-  const [statusSaving,   setStatusSaving]   = useState(false)
-
-  const [isEmoney,       setIsEmoney]       = useState(customer.is_emoney_client)
-  const [emoneySaving,   setEmoneySaving]   = useState(false)
-
   // Household link
   const [showHouseholdLink,   setShowHouseholdLink]   = useState(false)
   const [householdQuery,      setHouseholdQuery]      = useState('')
@@ -581,14 +451,6 @@ export function CustomerCardClient({
   const [displayLast,  setDisplayLast]  = useState(customer.last_name)
 
   const [editingContact,  setEditingContact]  = useState(false)
-  const [editFirst,       setEditFirst]       = useState(customer.first_name)
-  const [editLast,        setEditLast]        = useState(customer.last_name)
-  const [editPhone,       setEditPhone]       = useState(formatPhone(customer.phone ?? ''))
-  const [editEmail,       setEditEmail]       = useState(customer.email ?? '')
-  const [editStreet,      setEditStreet]      = useState(customer.street ?? '')
-  const [editCity,        setEditCity]        = useState(customer.city ?? '')
-  const [editState,       setEditState]       = useState(customer.state ?? '')
-  const [editZip,         setEditZip]         = useState(customer.zip ?? '')
   const [editDob,         setEditDob]         = useState(dobToDisplay(customer.date_of_birth ?? ''))
   const [editGender,      setEditGender]      = useState(customer.gender ?? '')
   const [editMarital,     setEditMarital]     = useState(customer.marital_status ?? '')
@@ -601,8 +463,6 @@ export function CustomerCardClient({
 
   const caseAgencyMap = new Map(cases.map(c => [c.id, c.agencies?.display_name ?? c.agencies?.name ?? null]))
 
-  const segmentRef = useRef<HTMLDivElement>(null)
-  const statusRef  = useRef<HTMLDivElement>(null)
   const searchRef  = useRef<HTMLInputElement>(null)
   const dropRef   = useRef<HTMLDivElement>(null)
 
@@ -613,12 +473,6 @@ export function CustomerCardClient({
         dropRef.current && !dropRef.current.contains(e.target as Node) &&
         searchRef.current && !searchRef.current.contains(e.target as Node)
       ) setShowPolicyDrop(false)
-      if (segmentRef.current && !segmentRef.current.contains(e.target as Node)) {
-        setEditingSegment(false)
-      }
-      if (statusRef.current && !statusRef.current.contains(e.target as Node)) {
-        setEditingStatus(false)
-      }
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -802,52 +656,6 @@ export function CustomerCardClient({
     finally { setEditPolSaving(false) }
   }
 
-  async function handleSegmentChange(newSegment: string | null) {
-    setSegmentSaving(true)
-    try {
-      const res = await fetch(`/api/customers/${customer.id}`, {
-        method:  'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ segment: newSegment }),
-      })
-      if (res.ok) { setSegment(newSegment); setEditingSegment(false) }
-    } finally {
-      setSegmentSaving(false)
-    }
-  }
-
-  async function handleStatusChange(newStatus: CustomerStatus) {
-    setStatusSaving(true)
-    try {
-      const res = await fetch(`/api/customers/${customer.id}`, {
-        method:  'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          is_deceased:     newStatus === 'deceased',
-          is_former_client: newStatus === 'former_client',
-          is_prospect:     newStatus === 'prospect',
-        }),
-      })
-      if (res.ok) { setStatusValue(newStatus); setEditingStatus(false) }
-    } finally {
-      setStatusSaving(false)
-    }
-  }
-
-  async function handleEmoneyToggle() {
-    setEmoneySaving(true)
-    try {
-      const res = await fetch(`/api/customers/${customer.id}`, {
-        method:  'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ is_emoney_client: !isEmoney }),
-      })
-      if (res.ok) setIsEmoney(v => !v)
-    } finally {
-      setEmoneySaving(false)
-    }
-  }
-
   useEffect(() => {
     if (householdQuery.length < 2) { setHouseholdResults([]); return }
     setHouseholdSearching(true)
@@ -925,14 +733,6 @@ export function CustomerCardClient({
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
-          first_name:      editFirst.trim(),
-          last_name:       editLast.trim(),
-          phone:           editPhone.trim()  || null,
-          email:           editEmail.trim()  || null,
-          street:          editStreet.trim() || null,
-          city:            editCity.trim()   || null,
-          state:           editState.trim()  || null,
-          zip:             editZip.trim()    || null,
           date_of_birth:   dobToIso(editDob)  || null,
           gender:          editGender        || null,
           marital_status:  editMarital       || null,
@@ -946,8 +746,6 @@ export function CustomerCardClient({
         const j = await res.json()
         setContactMsg({ ok: false, text: j.error ?? 'Save failed' })
       } else {
-        setDisplayFirst(editFirst.trim() || customer.first_name)
-        setDisplayLast(editLast.trim()   || customer.last_name)
         setContactMsg({ ok: true, text: 'Saved' })
         setEditingContact(false)
         router.refresh()
@@ -1016,349 +814,174 @@ export function CustomerCardClient({
           Back
         </Link>
 
-        {/* Customer header — CRM contact card */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-          <div className="p-5">
-            <div className="flex items-start gap-4">
+        {/* Customer header — shared light contact card (owns identity, status,
+            tier, My Money, contact, verification, alert) */}
+        <CustomerOverviewHeader
+          customer={customer}
+          onNameChange={(f, l) => { setDisplayFirst(f); setDisplayLast(l) }}
+        />
 
-              {/* Avatar */}
-              <div
-                className="w-14 h-14 rounded-full flex items-center justify-center text-white font-bold text-xl shrink-0"
-                style={{ backgroundColor: '#1F3864' }}
+        {/* Stats strip */}
+        <div className="bg-slate-900 border border-slate-800 rounded-xl px-5 py-3 flex items-center gap-5 text-sm">
+          <div className="flex items-center gap-1.5">
+            <span className="text-white font-semibold">{cases.length}</span>
+            <span className="text-slate-500 text-xs">{cases.length === 1 ? 'Case' : 'Cases'}</span>
+          </div>
+          <div className="w-px h-3 bg-slate-800" />
+          <div className="flex items-center gap-1.5">
+            <span className="text-white font-semibold">{policies.length}</span>
+            <span className="text-slate-500 text-xs">Policies</span>
+          </div>
+          <div className="w-px h-3 bg-slate-800" />
+          <div className="flex items-center gap-1.5">
+            <span className="text-white font-semibold">{serviceRequests.length}</span>
+            <span className="text-slate-500 text-xs">{serviceRequests.length === 1 ? 'Service Request' : 'Service Requests'}</span>
+          </div>
+          {policies.filter(p => p.sa_status === 'confirmed').length > 0 && (
+            <>
+              <div className="w-px h-3 bg-slate-800" />
+              <span className="text-xs text-slate-500">
+                <span className="text-emerald-400 font-medium">{policies.filter(p => p.sa_status === 'confirmed').length}</span> SA confirmed
+              </span>
+            </>
+          )}
+        </div>
+
+        {/* Customer details — demographic fields the shared card does not own */}
+        <Section
+          title="Customer details"
+          icon={User}
+          action={
+            !editingContact ? (
+              <button
+                onClick={() => setEditingContact(true)}
+                className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-500 rounded-lg px-3 py-1.5 transition-colors shrink-0"
               >
-                {displayFirst[0]}{displayLast[0]}
+                <Pencil className="w-3 h-3" /> Edit
+              </button>
+            ) : undefined
+          }
+        >
+          <div className="p-5">
+            {/* Read mode */}
+            {!editingContact && (
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                {customer.date_of_birth && (
+                  <span>DOB: <span className="text-slate-300 font-mono">{maskDob(customer.date_of_birth)}</span></span>
+                )}
+                {customer.gender && (
+                  <span>Gender: <span className="text-slate-300">{customer.gender.charAt(0).toUpperCase() + customer.gender.slice(1)}</span></span>
+                )}
+                {customer.marital_status && (
+                  <span>Marital: <span className="text-slate-300 capitalize">{customer.marital_status}</span></span>
+                )}
+                {customer.tobacco_use && customer.tobacco_use !== 'none' && (
+                  <span className="text-amber-400">Tobacco: {customer.tobacco_use}</span>
+                )}
+                {customer.preferred_language && customer.preferred_language !== 'en' && (
+                  <span className="text-violet-400">
+                    {({es:'Spanish',zh:'Chinese',ru:'Russian',vi:'Vietnamese',other:'Other lang'} as Record<string,string>)[customer.preferred_language] ?? customer.preferred_language}
+                  </span>
+                )}
+                {customer.health_notes && (
+                  <span>Health: <span className="text-slate-300">{customer.health_notes}</span></span>
+                )}
+                {customer.drive_folder_url && (
+                  <a href={customer.drive_folder_url} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 transition-colors">
+                    <FolderOpen className="w-3.5 h-3.5 shrink-0" /> Drive folder
+                  </a>
+                )}
               </div>
+            )}
 
-              {/* Main info */}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-start justify-between gap-3">
+            {/* Edit mode */}
+            {editingContact && (
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <h1 className="text-white text-xl font-semibold leading-tight">
-                      {displayFirst} {displayLast}
-                    </h1>
-
-                    {/* Segment + Status controls */}
-                    <div className="flex items-center gap-3 mt-1.5">
-
-                    {/* Segment badge + editor */}
-                    <div ref={segmentRef} className="relative">
-                      <button
-                        onClick={() => setEditingSegment(o => !o)}
-                        disabled={segmentSaving}
-                        className="inline-flex items-center gap-1.5 focus:outline-none disabled:opacity-50"
-                      >
-                        <SegmentBadge segment={segment} />
-                        <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform ${editingSegment ? 'rotate-180' : ''}`} />
-                      </button>
-                      {editingSegment && (
-                        <div className="absolute left-0 top-full mt-1.5 z-20 bg-slate-800 border border-slate-700 rounded-xl shadow-xl p-2 min-w-64">
-                          <p className="text-xs text-slate-500 px-2 pb-2 font-medium uppercase tracking-wide">Assign tier</p>
-                          <div className="space-y-1">
-                            {SEGMENTS.map(s => (
-                              <button
-                                key={s.value}
-                                onClick={() => handleSegmentChange(s.value)}
-                                disabled={segmentSaving}
-                                className={`w-full text-left flex items-center justify-between px-3 py-2 rounded-lg border transition-colors disabled:opacity-50 ${
-                                  segment === s.value
-                                    ? s.btn + ' bg-slate-700/60'
-                                    : 'border-transparent hover:bg-slate-700/50 text-slate-300'
-                                }`}
-                              >
-                                <span className="text-sm font-medium">{s.label}</span>
-                                <span className="text-xs text-slate-500">{s.desc}</span>
-                              </button>
-                            ))}
-                            {segment && (
-                              <button
-                                onClick={() => handleSegmentChange(null)}
-                                disabled={segmentSaving}
-                                className="w-full text-left px-3 py-2 rounded-lg text-xs text-slate-600 hover:text-slate-400 hover:bg-slate-700/30 transition-colors disabled:opacity-50"
-                              >
-                                Clear assignment
-                              </button>
-                            )}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Status badge + editor */}
-                    <div ref={statusRef} className="relative">
-                      <button
-                        onClick={() => setEditingStatus(o => !o)}
-                        disabled={statusSaving}
-                        className="inline-flex items-center gap-1.5 focus:outline-none disabled:opacity-50"
-                      >
-                        <StatusBadge status={statusValue} />
-                        <ChevronDown className={`w-3 h-3 text-slate-500 transition-transform ${editingStatus ? 'rotate-180' : ''}`} />
-                      </button>
-                      {editingStatus && (
-                        <div className="absolute left-0 top-full mt-1.5 z-20 bg-slate-800 border border-slate-700 rounded-xl shadow-xl p-2 min-w-52">
-                          <p className="text-xs text-slate-500 px-2 pb-2 font-medium uppercase tracking-wide">Customer status</p>
-                          <div className="space-y-1">
-                            {STATUS_OPTIONS.map(s => (
-                              <button
-                                key={s.value}
-                                onClick={() => handleStatusChange(s.value)}
-                                disabled={statusSaving}
-                                className={`w-full text-left flex items-center px-3 py-2 rounded-lg border transition-colors disabled:opacity-50 ${
-                                  statusValue === s.value
-                                    ? s.btn + ' bg-slate-700/60'
-                                    : 'border-transparent hover:bg-slate-700/50 text-slate-300'
-                                }`}
-                              >
-                                <span className="text-sm font-medium">{s.label}</span>
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* My Money toggle */}
-                    <button
-                      onClick={handleEmoneyToggle}
-                      disabled={emoneySaving}
-                      title="Toggle Allstate My Money (eMoney) account"
-                      className={`inline-flex items-center text-xs border rounded-full px-2.5 py-0.5 font-medium transition-colors disabled:opacity-50 ${
-                        isEmoney
-                          ? 'bg-violet-900/50 text-violet-300 border-violet-800'
-                          : 'bg-slate-800 text-slate-600 border-slate-700 hover:text-slate-400 hover:border-slate-600'
-                      }`}
-                    >
-                      My Money
-                    </button>
-
-                    </div>{/* end flex row */}
+                    <label className="block text-xs text-slate-500 mb-1">Date of birth</label>
+                    <input value={editDob} onChange={e => setEditDob(formatDobInput(e.target.value))} type="text" placeholder="MM/DD/YYYY" className={inputCls} />
                   </div>
-
-                  {/* Edit contact button */}
-                  {!editingContact && (
-                    <button
-                      onClick={() => setEditingContact(true)}
-                      className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-500 rounded-lg px-3 py-1.5 transition-colors shrink-0"
-                    >
-                      <Pencil className="w-3 h-3" /> Edit
-                    </button>
-                  )}
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Gender</label>
+                    <select value={editGender} onChange={e => setEditGender(e.target.value)} className={inputCls}>
+                      <option value="">—</option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Non-binary">Non-binary</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Marital status</label>
+                    <select value={editMarital} onChange={e => setEditMarital(e.target.value)} className={inputCls}>
+                      <option value="">—</option>
+                      <option value="single">Single</option>
+                      <option value="married">Married</option>
+                      <option value="divorced">Divorced</option>
+                      <option value="widowed">Widowed</option>
+                      <option value="separated">Separated</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Tobacco use</label>
+                    <select value={editTobacco} onChange={e => setEditTobacco(e.target.value)} className={inputCls}>
+                      <option value="none">None</option>
+                      <option value="cigarettes">Cigarettes</option>
+                      <option value="cigars">Cigars</option>
+                      <option value="vaping">Vaping / E-Cig</option>
+                      <option value="chewing">Chewing / Dip</option>
+                      <option value="nicotine_replacement">Nicotine Replacement</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Health notes</label>
+                    <input value={editHealthNotes} onChange={e => setEditHealthNotes(e.target.value)} className={inputCls} placeholder="Conditions, medications…" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Preferred language</label>
+                  <select value={editLanguage} onChange={e => setEditLanguage(e.target.value)} className={inputCls}>
+                    <option value="en">English</option>
+                    <option value="es">Spanish</option>
+                    <option value="zh">Chinese</option>
+                    <option value="ru">Russian</option>
+                    <option value="vi">Vietnamese</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Google Drive folder URL</label>
+                  <input value={editDriveUrl} onChange={e => setEditDriveUrl(e.target.value)}
+                    type="url" placeholder="https://drive.google.com/drive/folders/…"
+                    className={inputCls} />
                 </div>
 
-                {/* Contact info — read mode */}
-                {!editingContact && (
-                  <div className="mt-4 space-y-2">
-                    <div className="flex flex-wrap gap-x-6 gap-y-1.5">
-                      {customer.phone && (
-                        <span className="flex items-center gap-1.5">
-                          <a href={`tel:${customer.phone}`} className="flex items-center gap-1.5 text-sm text-slate-300 hover:text-white transition-colors">
-                            <Phone className="w-3.5 h-3.5 text-slate-500 shrink-0" /> {formatPhone(customer.phone!)}
-                          </a>
-                          <VerifiedTick at={customer.phone_verified_at} />
-                        </span>
-                      )}
-                      {customer.email && (
-                        <span className="flex items-center gap-1.5">
-                          <a href={`mailto:${customer.email}`} className="flex items-center gap-1.5 text-sm text-slate-300 hover:text-white transition-colors">
-                            <Mail className="w-3.5 h-3.5 text-slate-500 shrink-0" /> {customer.email}
-                          </a>
-                          <VerifiedTick at={customer.email_verified_at} />
-                        </span>
-                      )}
-                      {customer.drive_folder_url && (
-                        <a href={customer.drive_folder_url} target="_blank" rel="noopener noreferrer"
-                          className="flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 transition-colors">
-                          <FolderOpen className="w-3.5 h-3.5 shrink-0" /> Drive folder
-                        </a>
-                      )}
-                    </div>
-                    {(customer.street || customer.city || customer.state) && (
-                      <div className="flex items-start gap-1.5 text-sm text-slate-400">
-                        <MapPin className="w-3.5 h-3.5 text-slate-500 shrink-0 mt-0.5" />
-                        <span>
-                          {customer.street && <>{customer.street}<br /></>}
-                          {[customer.city, customer.state, customer.zip].filter(Boolean).join(', ')}
-                        </span>
-                        <VerifiedTick at={customer.address_verified_at} />
-                      </div>
-                    )}
-                    <div className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-xs text-slate-500">
-                      {customer.date_of_birth && (
-                        <span>DOB: <span className="text-slate-300 font-mono">{maskDob(customer.date_of_birth)}</span></span>
-                      )}
-                      {customer.gender && (
-                        <span>Gender: <span className="text-slate-300">{customer.gender.charAt(0).toUpperCase() + customer.gender.slice(1)}</span></span>
-                      )}
-                      {customer.marital_status && (
-                        <span>Marital: <span className="text-slate-300 capitalize">{customer.marital_status}</span></span>
-                      )}
-                      {customer.tobacco_use && customer.tobacco_use !== 'none' && (
-                        <span className="text-amber-400">Tobacco: {customer.tobacco_use}</span>
-                      )}
-                      {customer.preferred_language && customer.preferred_language !== 'en' && (
-                        <span className="text-violet-400">
-                          {({es:'Spanish',zh:'Chinese',ru:'Russian',vi:'Vietnamese',other:'Other lang'} as Record<string,string>)[customer.preferred_language] ?? customer.preferred_language}
-                        </span>
-                      )}
-                      {customer.health_notes && (
-                        <span>Health: <span className="text-slate-300">{customer.health_notes}</span></span>
-                      )}
-                    </div>
-                  </div>
+                {contactMsg && (
+                  <p className={`text-xs ${contactMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{contactMsg.text}</p>
                 )}
 
-                {/* Contact edit form */}
-                {editingContact && (
-                  <div className="mt-4 space-y-3">
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs text-slate-500 mb-1">First name</label>
-                        <input value={editFirst} onChange={e => setEditFirst(e.target.value)} className={inputCls} />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-slate-500 mb-1">Last name</label>
-                        <input value={editLast} onChange={e => setEditLast(e.target.value)} className={inputCls} />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs text-slate-500 mb-1">Phone</label>
-                        <input value={editPhone} onChange={e => setEditPhone(formatPhone(e.target.value))} type="tel" placeholder="(555) 555-5555" className={inputCls} />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-slate-500 mb-1">Email</label>
-                        <input value={editEmail} onChange={e => setEditEmail(e.target.value)} type="email" className={inputCls} />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-slate-500 mb-1">Street address</label>
-                      <input value={editStreet} onChange={e => setEditStreet(e.target.value)} className={inputCls} />
-                    </div>
-                    <div className="grid grid-cols-6 gap-3">
-                      <div className="col-span-3">
-                        <label className="block text-xs text-slate-500 mb-1">City</label>
-                        <input value={editCity} onChange={e => setEditCity(e.target.value)} className={inputCls} />
-                      </div>
-                      <div className="col-span-1">
-                        <label className="block text-xs text-slate-500 mb-1">State</label>
-                        <input value={editState} onChange={e => setEditState(e.target.value)} maxLength={2} className={inputCls} />
-                      </div>
-                      <div className="col-span-2">
-                        <label className="block text-xs text-slate-500 mb-1">ZIP</label>
-                        <input value={editZip} onChange={e => setEditZip(e.target.value)} className={inputCls} />
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-3 gap-3">
-                      <div>
-                        <label className="block text-xs text-slate-500 mb-1">Date of birth</label>
-                        <input value={editDob} onChange={e => setEditDob(formatDobInput(e.target.value))} type="text" placeholder="MM/DD/YYYY" className={inputCls} />
-                      </div>
-                      <div>
-                        <label className="block text-xs text-slate-500 mb-1">Gender</label>
-                        <select value={editGender} onChange={e => setEditGender(e.target.value)} className={inputCls}>
-                          <option value="">—</option>
-                          <option value="Male">Male</option>
-                          <option value="Female">Female</option>
-                          <option value="Non-binary">Non-binary</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs text-slate-500 mb-1">Marital status</label>
-                        <select value={editMarital} onChange={e => setEditMarital(e.target.value)} className={inputCls}>
-                          <option value="">—</option>
-                          <option value="single">Single</option>
-                          <option value="married">Married</option>
-                          <option value="divorced">Divorced</option>
-                          <option value="widowed">Widowed</option>
-                          <option value="separated">Separated</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs text-slate-500 mb-1">Tobacco use</label>
-                        <select value={editTobacco} onChange={e => setEditTobacco(e.target.value)} className={inputCls}>
-                          <option value="none">None</option>
-                          <option value="cigarettes">Cigarettes</option>
-                          <option value="cigars">Cigars</option>
-                          <option value="vaping">Vaping / E-Cig</option>
-                          <option value="chewing">Chewing / Dip</option>
-                          <option value="nicotine_replacement">Nicotine Replacement</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-xs text-slate-500 mb-1">Health notes</label>
-                        <input value={editHealthNotes} onChange={e => setEditHealthNotes(e.target.value)} className={inputCls} placeholder="Conditions, medications…" />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-slate-500 mb-1">Preferred language</label>
-                      <select value={editLanguage} onChange={e => setEditLanguage(e.target.value)} className={inputCls}>
-                        <option value="en">English</option>
-                        <option value="es">Spanish</option>
-                        <option value="zh">Chinese</option>
-                        <option value="ru">Russian</option>
-                        <option value="vi">Vietnamese</option>
-                        <option value="other">Other</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-slate-500 mb-1">Google Drive folder URL</label>
-                      <input value={editDriveUrl} onChange={e => setEditDriveUrl(e.target.value)}
-                        type="url" placeholder="https://drive.google.com/drive/folders/…"
-                        className={inputCls} />
-                    </div>
-
-                    {contactMsg && (
-                      <p className={`text-xs ${contactMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{contactMsg.text}</p>
-                    )}
-
-                    <div className="flex items-center gap-2 pt-1">
-                      <button
-                        onClick={handleSaveContact}
-                        disabled={contactSaving}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg disabled:opacity-50 transition-colors"
-                      >
-                        {contactSaving ? '…' : <><Check className="w-3.5 h-3.5" /> Save</>}
-                      </button>
-                      <button
-                        onClick={() => { setEditingContact(false); setContactMsg(null) }}
-                        className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                )}
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    onClick={handleSaveContact}
+                    disabled={contactSaving}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg disabled:opacity-50 transition-colors"
+                  >
+                    {contactSaving ? '…' : <><Check className="w-3.5 h-3.5" /> Save</>}
+                  </button>
+                  <button
+                    onClick={() => { setEditingContact(false); setContactMsg(null) }}
+                    className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
-            </div>
-          </div>
-
-          {/* Stats strip */}
-          <div className="border-t border-slate-800 px-5 py-3 flex items-center gap-5 text-sm">
-            <div className="flex items-center gap-1.5">
-              <span className="text-white font-semibold">{cases.length}</span>
-              <span className="text-slate-500 text-xs">{cases.length === 1 ? 'Case' : 'Cases'}</span>
-            </div>
-            <div className="w-px h-3 bg-slate-800" />
-            <div className="flex items-center gap-1.5">
-              <span className="text-white font-semibold">{policies.length}</span>
-              <span className="text-slate-500 text-xs">Policies</span>
-            </div>
-            <div className="w-px h-3 bg-slate-800" />
-            <div className="flex items-center gap-1.5">
-              <span className="text-white font-semibold">{serviceRequests.length}</span>
-              <span className="text-slate-500 text-xs">{serviceRequests.length === 1 ? 'Service Request' : 'Service Requests'}</span>
-            </div>
-            {policies.filter(p => p.sa_status === 'confirmed').length > 0 && (
-              <>
-                <div className="w-px h-3 bg-slate-800" />
-                <span className="text-xs text-slate-500">
-                  <span className="text-emerald-400 font-medium">{policies.filter(p => p.sa_status === 'confirmed').length}</span> SA confirmed
-                </span>
-              </>
             )}
           </div>
-        </div>
+        </Section>
 
         {/* Policies */}
         <Section
