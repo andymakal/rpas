@@ -62,9 +62,12 @@ import {
 import { cn } from '@/lib/utils'
 import { useMentorDisclosure, MentorCapButton, MentorCapPanel } from '@/lib/mentoring/MentorUi'
 import {
-  normalizeEmailInput, normalizePhoneInput, formatPhoneAsTyped,
+  normalizeEmailInput, normalizePhoneInput, formatPhoneAsTyped, formatPhoneDisplay,
   type ContactFieldResult,
 } from '@/lib/contact-input'
+import {
+  normalizeEmail, normalizeStreet, normalizeCity, normalizeState,
+} from '@/lib/fmt'
 import {
   type EmailAvailability,
   type EmailAvailabilityDisplay,
@@ -555,14 +558,38 @@ function streetOf(c: CustomerContact): string {
   return (c.street ?? c.address_line1 ?? '').trim()
 }
 
+/** Street shown with normal capitalization, directional abbreviations
+ * preserved (NE/SW/PO/...), via the shared `normalizeStreet` helper. Display
+ * only: the stored record is untouched. */
+function streetDisplay(c: CustomerContact): string {
+  return normalizeStreet(streetOf(c)) ?? ''
+}
+
 function addressLines(c: CustomerContact): string[] {
-  const street = streetOf(c)
-  const cityStateZip = [[c.city, c.state].filter(Boolean).join(', '), c.zip].filter(Boolean).join(' ').trim()
+  const street = streetDisplay(c)
+  const city = normalizeCity(c.city) ?? ''
+  const state = normalizeState(c.state) ?? ''
+  const cityStateZip = [[city, state].filter(Boolean).join(', '), c.zip].filter(Boolean).join(' ').trim()
   return [street, cityStateZip].filter(Boolean)
 }
 
 function addressUsable(c: CustomerContact): boolean {
   return !!(streetOf(c) && c.city && c.state && c.zip)
+}
+
+/** Email shown trimmed and lowercased via the shared `normalizeEmail` helper.
+ * Display only: the stored record is untouched. */
+function emailDisplay(c: CustomerContact): string | null {
+  return normalizeEmail(c.email)
+}
+
+/** Phone shown in the `(XXX) XXX-XXXX` standard via the shared formatter.
+ * Display only: the stored record is untouched. Falls back to the trimmed
+ * stored value if it cannot be reduced to a formatted number. */
+function phoneDisplay(c: CustomerContact): string | null {
+  const t = c.phone?.trim()
+  if (!t) return null
+  return formatPhoneDisplay(t) || t
 }
 
 /** The field's green/amber/red tone. Verified → green; present but unverified →
@@ -863,7 +890,7 @@ export function CustomerContactCard({
             <EmailRow
               present={emailPresent}
               verifiedAt={record.email_verified_at}
-              value={record.email}
+              value={emailDisplay(record)}
               availability={record.email_availability}
               onSetAvailability={(status) => setEmailAvailability(status)}
               editing={editing === 'email'}
@@ -879,7 +906,7 @@ export function CustomerContactCard({
             <PhoneRow
               present={phonePresent}
               verifiedAt={record.phone_verified_at}
-              value={record.phone}
+              value={phoneDisplay(record)}
               editing={editing === 'phone'}
               busy={busyField === 'phone'}
               appearance={ap}
@@ -950,7 +977,7 @@ export function CustomerContactCard({
               contactIcon={Phone}
               label="Phone"
               tone={toneFor(phonePresent, record.phone_verified_at)}
-              value={record.phone}
+              value={phoneDisplay(record)}
               present={phonePresent}
             />
             <OverviewRow
@@ -1059,7 +1086,7 @@ function ContactMentoring({
  */
 function overviewEmailText(record: CustomerContact): string | null {
   const display = resolveEmailAvailabilityDisplay(record.email_availability, record.email)
-  if (display === 'on_file') return record.email
+  if (display === 'on_file') return emailDisplay(record)
   if (display === 'missing') return null
   return EMAIL_AVAILABILITY_LABEL[display]
 }
@@ -1766,14 +1793,18 @@ function AddressRow({
   onVerify: (v: boolean) => void
 }) {
   const tone = toneFor(present, verifiedAt)
-  const [street, setStreet] = useState(streetOf(record))
-  const [city, setCity] = useState(record.city ?? '')
-  const [stateVal, setStateVal] = useState(record.state ?? '')
+  // Seed the editable drafts with the shared display normalization so the
+  // operator edits (and can copy) properly-formatted values: street in normal
+  // capitalization with directionals preserved, city normal-cased, state
+  // uppercased. The stored record is never rewritten by seeding a draft.
+  const [street, setStreet] = useState(streetDisplay(record))
+  const [city, setCity] = useState(normalizeCity(record.city) ?? '')
+  const [stateVal, setStateVal] = useState(normalizeState(record.state) ?? '')
   const [zip, setZip] = useState(record.zip ?? '')
 
   const open = useCallback(() => {
-    setStreet(streetOf(record)); setCity(record.city ?? '')
-    setStateVal(record.state ?? ''); setZip(record.zip ?? '')
+    setStreet(streetDisplay(record)); setCity(normalizeCity(record.city) ?? '')
+    setStateVal(normalizeState(record.state) ?? ''); setZip(record.zip ?? '')
     onEdit()
   }, [record, onEdit])
 
@@ -1798,10 +1829,14 @@ function AddressRow({
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
     const clean = (v: string) => { const t = v.replace(/\s+/g, ' ').trim(); return t.length ? t : null }
+    // Save the same normalized forms the operator sees, so a Save before an
+    // onBlur fires still stores the display standard: street normal-cased with
+    // directionals preserved, city normal-cased, state uppercased. This only
+    // normalizes the value being actively edited; it rewrites no other record.
     onSave({
-      street: clean(street),
-      city: clean(city),
-      state: clean(stateVal) ? clean(stateVal)!.toUpperCase() : null,
+      street: normalizeStreet(street),
+      city: normalizeCity(city),
+      state: normalizeState(stateVal),
       zip: clean(zip),
     })
   }
@@ -1815,17 +1850,19 @@ function AddressRow({
         <div>
           <label htmlFor="cc-street" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">Street</label>
           <input id="cc-street" autoFocus value={street} onChange={(e) => setStreet(e.target.value)}
+            onBlur={() => setStreet((v) => normalizeStreet(v) ?? '')}
             placeholder="123 Main St" className={cn('mt-1', inputCls(false))} />
         </div>
         <div>
           <label htmlFor="cc-city" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">City</label>
           <input id="cc-city" value={city} onChange={(e) => setCity(e.target.value)}
+            onBlur={() => setCity((v) => normalizeCity(v) ?? '')}
             placeholder="Philadelphia" className={cn('mt-1', inputCls(false))} />
         </div>
         <div className="flex gap-2">
           <div className="w-24">
             <label htmlFor="cc-state" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">State</label>
-            <input id="cc-state" value={stateVal} onChange={(e) => setStateVal(e.target.value)}
+            <input id="cc-state" value={stateVal} onChange={(e) => setStateVal(e.target.value.toUpperCase())}
               maxLength={2} placeholder="PA" className={cn('mt-1 uppercase', inputCls(false))} />
           </div>
           <div className="flex-1">
