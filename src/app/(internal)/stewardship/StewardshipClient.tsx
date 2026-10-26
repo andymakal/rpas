@@ -1475,6 +1475,7 @@ function sameCallSelection(a: CallSelection | null, b: CallSelection | null): bo
     a.decision === b.decision &&
     a.callbackDate === b.callbackDate &&
     a.formSent === b.formSent &&
+    a.formDeliveryMethod === b.formDeliveryMethod &&
     a.note === b.note
   )
 }
@@ -2583,10 +2584,19 @@ function CallWorkbenchAction({
       emailSent,
       decision,
       callbackDate: callbackWhen || null,
-      formSent: reached && decision === 'agreed',
+      // The reached · agreed completion sends the form and records the reached
+      // call together. It is NOT "sent" merely because the customer was reached
+      // and agreed; the send is confirmed by the form-delivery confirm action,
+      // which immediately advances to the next customer. So the preview treats
+      // the form as pending (Reached · Agreed) throughout this screen and never
+      // claims an unsent form was sent.
+      formSent: false,
+      // The chosen delivery method, so the pending preview names emailed vs
+      // mailed accurately. Persisted on the detail when the worker picks it.
+      formDeliveryMethod: detail.form_delivery_method ?? null,
       note: callNote.trim() || null,
     })
-  }, [onSelectionChange, reach, voicemailLeft, textSent, emailSent, decision, callbackWhen, reached, callNote])
+  }, [onSelectionChange, reach, voicemailLeft, textSent, emailSent, decision, callbackWhen, detail.form_delivery_method, callNote])
 
   const nextSuffix = hasNextInActivity ? ' Next customer.' : ''
 

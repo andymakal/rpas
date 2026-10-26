@@ -71,6 +71,14 @@ export function NextHistoryEntry({
               {preview.description}
             </p>
           )}
+          {/* The optional employee call note, previewed exactly as it will be
+              saved with this interaction, so the worker sees their own words
+              will be recorded alongside the system description. */}
+          {preview.note && (
+            <p className="mt-1 text-sm italic leading-relaxed text-ink-secondary">
+              {preview.note}
+            </p>
+          )}
         </>
       ) : (
         <p className="mt-2 text-base italic text-ink-muted">Nothing to record yet.</p>

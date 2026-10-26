@@ -371,10 +371,16 @@ export function describeActivity(
  * "Follow-up auto-scheduled.") is also system prose and is removed. */
 const SYSTEM_OUTCOME_PHRASES: readonly RegExp[] = [
   // Reached-call sentences. "Spoke with customer." is the lead for every reached
-  // outcome; the agreed/callback/declined continuations are system prose too.
-  /^Spoke with customer\.(\s*Customer agreed to authorize our office as servicing agent\.\s*Authorization form (?:emailed|sent by postal mail)\.\s*Awaiting signed authorization\.?)?/i,
+  // outcome, but the agreed / callback / declined CONTINUATIONS are system prose
+  // too and must be stripped WHOLE — otherwise the bare "Spoke with customer."
+  // alone would be removed and the real continuation (e.g. "Customer requested a
+  // callback on 2026-11-05.") would be mistaken for an employee note. Each full
+  // sentence is matched first; only then the bare lead, anchored to end-of-note
+  // so it never partially strips one of the longer reached sentences.
+  /^Spoke with customer\.\s*Customer agreed to authorize our office as servicing agent\.\s*Authorization form (?:emailed|sent by postal mail)\.\s*Awaiting signed authorization\.?/i,
   /^Spoke with customer\.\s*Customer requested a callback(\s+on\s+\S+)?\.?/i,
   /^Spoke with customer\.\s*Customer declined servicing-agent authorization\.\s*Further outreach stopped unless deliberately reopened\.?/i,
+  /^Spoke with customer\.\s*$/i,
   // Didn't-reach call sentences (no-answer, with or without a voicemail left).
   /^Called customer\.\s*No answer\.(\s*Voicemail left\.)?\s*Next call scheduled\.?/i,
   /^Called customer\.\s*Number is not working\.\s*Customer referred to Contact Research\.?/i,
@@ -568,7 +574,20 @@ const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = 
  */
 export function describeHistoryNote(note: string | null): string | null {
   if (!note) return null
-  const stripped = stripMarkersAndPrefix(note)
+  const strippedFull = stripMarkersAndPrefix(note)
+  if (!strippedFull) return null
+
+  // Isolate the SYSTEM SENTENCE from any trailing employee note so the exact,
+  // end-anchored SYSTEM_DESCRIPTIONS matchers still apply when the worker added
+  // their own words (otherwise a callback/declined sentence with a note would
+  // fall through to the raw fallback and, e.g., show an unformatted date). The
+  // employee note is recovered separately by cleanHistoryNote and never folded
+  // in here, so the two stay complementary and never overlap.
+  const employeeNoteEarly = cleanHistoryNote(note)
+  const stripped =
+    employeeNoteEarly && strippedFull.endsWith(employeeNoteEarly)
+      ? strippedFull.slice(0, strippedFull.length - employeeNoteEarly.length).trim()
+      : strippedFull
   if (!stripped) return null
 
   // Match a known system sentence at the START of the stripped prose. The
@@ -597,14 +616,9 @@ export function describeHistoryNote(note: string | null): string | null {
   // they produce no separate description line.
   if (/^Contact research completed:/i.test(stripped)) return null
 
-  // An unmapped system sentence: show the stored sentence itself (first
-  // sentence only, so a trailing employee note is not swept in), so new
-  // workflow actions still read meaningfully until tuned above.
-  const employeeNote = cleanHistoryNote(note)
-  if (employeeNote && stripped.endsWith(employeeNote)) {
-    const systemPart = stripped.slice(0, stripped.length - employeeNote.length).trim()
-    return systemPart.length > 0 ? systemPart : null
-  }
+  // An unmapped system sentence: show the stored sentence itself. The employee
+  // note was already removed above, so `stripped` is the system part only and
+  // new workflow actions still read meaningfully until tuned above.
   return stripped.length > 0 ? stripped : null
 }
 
@@ -1067,6 +1081,10 @@ export interface CallSelection {
   /** Whether the authorization form has been confirmed sent on the reached ·
    * agreed path, so the preview can fold "Form Sent" into the entry. */
   formSent?: boolean
+  /** The chosen authorization-form delivery method on the reached · agreed
+   * path, so the preview names the pending send accurately (emailed vs mailed)
+   * WITHOUT claiming it has already gone out. */
+  formDeliveryMethod?: 'email' | 'postal' | null
   /** The optional Call Notes the worker has typed, folded into the preview's
    * note so it reads exactly as what completion will record. */
   note?: string | null
@@ -1135,16 +1153,23 @@ export function describeCallSelection(
       }
     }
     if (selection.decision === 'agreed') {
-      // Never describe an unsent form as sent: the full agreed sentence appears
-      // only once the form has actually been confirmed sent. Before that the
-      // preview shows the reached lead without claiming a form went out. The
-      // delivery method (email vs postal) is known at completion, so the preview
-      // uses the neutral "sent" until then.
+      // Never describe an unsent form as sent. Completing this path records the
+      // reached call AND sends the form in one step, so the entry that will be
+      // logged is the full agreed sentence with the chosen delivery method. The
+      // method-aware clause appears only once a method is chosen; until then the
+      // preview names the agreement without asserting a channel. The summary
+      // distinguishes the still-pending agreement ("Reached · Agreed") from the
+      // completed send ("Reached · Form Sent"), so the preview never claims an
+      // unsent form already went out.
+      const method = selection.formDeliveryMethod ?? null
+      const sentClause =
+        method === 'postal' ? ' Authorization form sent by postal mail. Awaiting signed authorization.'
+        : method === 'email' ? ' Authorization form emailed. Awaiting signed authorization.'
+        : ''
       return {
-        summary: selection.formSent ? 'Reached · Form Sent' : 'Reached',
-        description: selection.formSent
-          ? 'Spoke with customer. Customer agreed to authorize our office as servicing agent. Authorization form sent. Awaiting signed authorization.'
-          : 'Spoke with customer. Customer agreed to authorize our office as servicing agent.',
+        summary: selection.formSent ? 'Reached · Form Sent' : 'Reached · Agreed',
+        description:
+          `Spoke with customer. Customer agreed to authorize our office as servicing agent.${sentClause}`,
         note: extraNote,
       }
     }

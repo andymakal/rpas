@@ -712,12 +712,12 @@ export async function PATCH(
   // best-effort; a failed touch log must never block the workflow transition.
   if (action.type === 'call-outcome') {
     const outcome = action.outcome
-    // Voicemail is its own touch_type; every other call outcome is a 'call'.
-    const touchType = outcome === 'voicemail' ? 'voicemail' : 'call'
-    // This older board path records only the call channel, so a 'voicemail'
-    // outcome here cannot also carry a separate voicemail-left fact; it reads as
-    // a no-answer call. The guided workbench (record-attempt) is where a
-    // voicemail-left is recorded honestly.
+    // The PLACED CALL is always a 'call' touch. A 'voicemail' outcome here is the
+    // no-answer outcome that drives cadence; this older board path records only
+    // the call channel and never a separate voicemail-left fact, so it must read
+    // as a no-answer call, not a voicemail. The guided workbench (record-attempt)
+    // is where an actual voicemail-left is recorded as its own voicemail touch.
+    const touchType = 'call'
     const outcomeLabel: Record<CallOutcome, string> = {
       reached: 'Spoke with customer.',
       voicemail: 'Called customer. No answer. Next call scheduled.',
@@ -813,21 +813,27 @@ export async function PATCH(
       customer_id: string; case_id: null; touch_type: string; notes: string; touched_at: string; touched_by: string | null
     }> = []
 
-    // The call channel, when a call was placed in this attempt.
+    // The call channel, when a call was placed in this attempt. The PLACED CALL
+    // is always recorded as a 'call' touch — including the no-answer outcome the
+    // workbench sends as call:'voicemail'. That CallOutcome drives the call
+    // cadence (the queue reducer schedules the next attempt), but it does NOT
+    // mean a voicemail was left: a voicemail is a SEPARATE 'voicemail' channel
+    // touch recorded below only when one actually was. Storing the unanswered
+    // call as 'call' keeps the history honest (a call, not a voicemail) while
+    // the cadence is unchanged, and it no longer fabricates a voicemail touch.
     if (action.call) {
       const callMarker =
         action.call === 'bad-number' ? buildUnusableMarker('call', curPhone) :
         action.call === 'voicemail'  ? OUTCOME_MARKERS.no_contact :
         (action.call === 'reached' || action.call === 'callback' || action.call === 'not-interested') ? REACHED_MARKER :
         ''
-      const touchType = action.call === 'voicemail' ? 'voicemail' : 'call'
       // Structure: [system sentence] [employee note] [marker]. The employee note
       // sits between so cleanHistoryNote recovers it as the operator's own words
       // and the attempt carries the note without a separate history entry.
       const base = `Servicing-agent onboarding call: ${callLabel[action.call]}`
       const withNote = attemptNote ? `${base} ${attemptNote}` : base
       rows.push({
-        customer_id: customerId, case_id: null, touch_type: touchType,
+        customer_id: customerId, case_id: null, touch_type: 'call',
         notes: callMarker ? `${withNote} ${callMarker}` : withNote,
         touched_at: attemptAt, touched_by: touchedBy,
       })
