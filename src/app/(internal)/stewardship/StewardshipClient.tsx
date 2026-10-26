@@ -1770,6 +1770,7 @@ function TaskAction({
         <CallAction
           detail={detail} request={request} busy={busy} noteBox={noteBox} act={act}
           workbench hasNextInActivity={hasNextInActivity}
+          onSkip={onSkip}
           onSelectionChange={onCallSelectionChange}
         />
       )
@@ -2229,19 +2230,24 @@ function WaitingForResponseAction({
  * surface. Launching nothing — it only copies the text for the worker to paste
  * into their own voicemail greeting notes, Hearsay text, or email.
  */
-function CallScriptCard({ label, body }: { label: string; body: string }) {
+function CallScriptCard({ label, body, hideCopy = false }: { label: string; body: string; hideCopy?: boolean }) {
   const [copied, setCopied] = useState(false)
   return (
     <div className="space-y-2 rounded-xl border border-surface-border bg-surface-muted p-3">
       <div className="flex items-center justify-between gap-2">
         <p className="text-xs font-semibold uppercase tracking-wide text-ink-supporting">{label}</p>
-        <button
-          type="button"
-          onClick={() => { navigator.clipboard?.writeText(body); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
-          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-surface-border-strong bg-surface-card px-2 py-0.5 text-xs font-medium text-ink-secondary transition-colors hover:border-brand-ring hover:bg-brand-wash hover:text-brand-subtle-foreground"
-        >
-          {copied ? <><Check className="size-3 text-status-confirmed" aria-hidden /> Copied</> : <><Copy className="size-3" aria-hidden /> Copy</>}
-        </button>
+        {/* Copy is the paste-into-Hearsay/email affordance. The voicemail script
+            is read aloud, not pasted, so it hides Copy (hideCopy) while keeping
+            the same card treatment. Every other channel keeps Copy. */}
+        {!hideCopy && (
+          <button
+            type="button"
+            onClick={() => { navigator.clipboard?.writeText(body); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-surface-border-strong bg-surface-card px-2 py-0.5 text-xs font-medium text-ink-secondary transition-colors hover:border-brand-ring hover:bg-brand-wash hover:text-brand-subtle-foreground"
+          >
+            {copied ? <><Check className="size-3 text-status-confirmed" aria-hidden /> Copied</> : <><Copy className="size-3" aria-hidden /> Copy</>}
+          </button>
+        )}
       </div>
       <p className="whitespace-pre-line text-base leading-relaxed text-ink-secondary">{body}</p>
     </div>
@@ -2295,7 +2301,7 @@ function callOpeningScript(firstName: string, senderName: string | null): string
  */
 function CallAction({
   detail, request, busy, noteBox, act, workbench = false, hasNextInActivity = false,
-  onSelectionChange,
+  onSkip, onSelectionChange,
 }: {
   detail: Detail
   request: Holding[]
@@ -2308,6 +2314,11 @@ function CallAction({
   /** Whether another customer remains in the workbench to advance to (affects
    * the confirmation wording on terminal outcomes). */
   hasNextInActivity?: boolean
+  /** Skip the open customer WITHOUT recording a call, changing status, or
+   * touching follow-up dates: move to the next available customer and send this
+   * one to the back of the working sequence (the calling workbench). When
+   * supplied, the workbench shows a "Skip for now" control. */
+  onSkip?: () => void
   /** Report the live guided-call selection up for the history-column preview. */
   onSelectionChange?: (selection: CallSelection | null) => void
 }) {
@@ -2316,6 +2327,7 @@ function CallAction({
       <CallWorkbenchAction
         detail={detail} request={request} busy={busy} noteBox={noteBox} act={act}
         hasNextInActivity={hasNextInActivity}
+        onSkip={onSkip}
         onSelectionChange={onSelectionChange}
       />
     )
@@ -2438,7 +2450,7 @@ type ReachChoice = null | 'reached' | 'not-reached'
  * grouped attempt and then advances to the next customer.
  */
 function CallWorkbenchAction({
-  detail, request, busy, noteBox, act, hasNextInActivity, onSelectionChange,
+  detail, request, busy, noteBox, act, hasNextInActivity, onSkip, onSelectionChange,
 }: {
   detail: Detail
   request: Holding[]
@@ -2446,6 +2458,11 @@ function CallWorkbenchAction({
   noteBox: React.ReactNode
   act: (action: unknown, successNote?: string, opts?: { advanceToNext?: boolean }) => void
   hasNextInActivity: boolean
+  /** Skip the open customer without recording a call, changing status, or
+   * touching follow-up dates: advance to the next available customer and send
+   * this one to the back of the working sequence. When supplied, a "Skip for
+   * now" control is shown — available before AND during the call workflow. */
+  onSkip?: () => void
   /** Report the live selection up so the history column previews the entry this
    * call will record, built dynamically as the worker proceeds. */
   onSelectionChange?: (selection: CallSelection | null) => void
@@ -2597,7 +2614,8 @@ function CallWorkbenchAction({
       {/* ── DIDN\u2019T REACH ─────────────────────────────────────────────────── */}
       {reach === 'not-reached' && (
         <div className="space-y-4 border-t border-surface-divider pt-4">
-          {/* Voicemail. The approved script asks the customer to call back at the
+          {/* Voicemail. The approved script is READ ALOUD, so the card shows no
+              Copy (hideCopy). The script asks the customer to call back at the
               callback number, so it can only be read when that number resolves.
               Without it, the channel is shown as unavailable rather than offering
               a script with a missing number. */}
@@ -2607,7 +2625,7 @@ function CallWorkbenchAction({
             </p>
             {hasCallbackNumber ? (
               <>
-                <CallScriptCard label={SERVICING_CALL_SCRIPTS.voicemail.label} body={voicemailScript} />
+                <CallScriptCard label={SERVICING_CALL_SCRIPTS.voicemail.label} body={voicemailScript} hideCopy />
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-medium text-ink-secondary">Did you leave a voicemail?</span>
                   <WorkflowButton selected={voicemailLeft === true} disabled={busy} onClick={() => setVoicemailLeft(true)}>Yes</WorkflowButton>
@@ -2674,11 +2692,6 @@ function CallWorkbenchAction({
             <WorkflowButton icon={PenLine} selected disabled={busy || (hasCallbackNumber && voicemailLeft === null)} onClick={recordNotReached}>
               {busy ? 'Recording\u2026' : 'Record this attempt'}
             </WorkflowButton>
-            <NextNote>
-              Everything you completed is saved as one attempt: the call, the voicemail only if you left one,
-              and the text and email only if you marked them sent. The next call is scheduled automatically and
-              the customer moves to Waiting for Response.{nextSuffix}
-            </NextNote>
           </div>
 
           {/* Bad number: a distinct recorded outcome, kept out of the way. */}
@@ -2794,6 +2807,19 @@ function CallWorkbenchAction({
               </WorkflowButton>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Skip for now. Available before AND during the call workflow (it sits
+          outside the Reached / Didn't Reach branches), so the worker can set a
+          customer aside at any point. It records nothing, changes no status, and
+          touches no follow-up date — the parent client only moves this customer
+          to the back of the working sequence and opens the next available one. */}
+      {onSkip && (
+        <div className="border-t border-surface-divider pt-4">
+          <WorkflowButton icon={SkipForward} disabled={busy} onClick={onSkip} className="w-full justify-center">
+            Skip for now
+          </WorkflowButton>
         </div>
       )}
     </ActionPanel>
