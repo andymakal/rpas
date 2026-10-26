@@ -54,6 +54,22 @@ function fullName(c: PopulationCustomer): string {
   return `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim() || 'this customer'
 }
 
+/**
+ * The single live count shown beneath the page title: how many eligible
+ * customers still need an introductory email. It is derived from the same
+ * eligible-work population the screen already holds, so it updates in step with
+ * processing — a send removes a customer and lowers it; a skip leaves it
+ * unchanged. Pluralized naturally.
+ */
+function EligibleCount({ count }: { count: number }) {
+  return (
+    <p className="text-lg text-ink-secondary" aria-live="polite">
+      <span className="font-semibold text-ink">{count}</span>{' '}
+      {count === 1 ? 'customer still needs' : 'customers still need'} introductory emails
+    </p>
+  )
+}
+
 export function IntroductoryEmailsClient({
   projectId = null,
   actorTimeZone = null,
@@ -76,6 +92,14 @@ export function IntroductoryEmailsClient({
   // triggers after a send) does not re-present someone already handled and the
   // completion tally is accurate.
   const [handled, setHandled] = useState<Set<string>>(new Set())
+  // Customers skipped this session, in skip order (most recently skipped last).
+  // Skipping records nothing and changes no status; it only reorders the working
+  // sequence so a skipped customer goes to the BACK and is cycled back to once
+  // the un-skipped customers are exhausted. Keyed the same way as `handled`
+  // (real outreach id, or `virtual:<customerId>` for a record-less item). A
+  // customer that is later sent leaves the sequence entirely (it joins
+  // `handled`), so a skip never keeps anyone in the count.
+  const [skipOrder, setSkipOrder] = useState<string[]>([])
 
   const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
 
@@ -122,11 +146,30 @@ export function IntroductoryEmailsClient({
 
   // The still-to-do work: population items not yet handled this session. The
   // server already gated the population to this employee's actionable set; this
-  // only removes the ones completed in the current pass.
+  // only removes the ones completed in the current pass. This is ALSO the live
+  // count surfaced beneath the title: sending removes a customer (they join
+  // `handled`), skipping does not, so the count drops on a send and holds on a
+  // skip, refreshed from the same eligible-work data as customers are processed.
   const remaining = useMemo(
     () => items.filter(it => !handled.has(candidateKey(it))),
     [items, handled, candidateKey],
   )
+
+  // The working SEQUENCE: the same still-to-do customers, reordered so skipped
+  // ones sit at the BACK in the order they were skipped. Reserving walks this
+  // list and takes the first available, so an un-skipped customer is always
+  // reached before a skipped one, and once the un-skipped run is exhausted the
+  // sequence circles back to the first-skipped customer — continuing to cycle
+  // until none remain. When nothing has been skipped it is exactly `remaining`.
+  const orderedCandidates = useMemo(() => {
+    if (skipOrder.length === 0) return remaining
+    const skipIndex = new Map(skipOrder.map((key, i) => [key, i]))
+    const notSkipped = remaining.filter(it => !skipIndex.has(candidateKey(it)))
+    const skipped = remaining
+      .filter(it => skipIndex.has(candidateKey(it)))
+      .sort((a, b) => (skipIndex.get(candidateKey(a)) ?? 0) - (skipIndex.get(candidateKey(b)) ?? 0))
+    return [...notSkipped, ...skipped]
+  }, [remaining, skipOrder, candidateKey])
 
   // Direct working workflow: once loaded, RESERVE and land straight on the first
   // AVAILABLE eligible customer (one a teammate is not already working), never an
@@ -143,12 +186,12 @@ export function IntroductoryEmailsClient({
   useEffect(() => {
     if (loading || directOpenedRef.current) return
     directOpenedRef.current = true
-    void reserveNextDirectCandidate(remaining, reserveNext).then(reserved => {
+    void reserveNextDirectCandidate(orderedCandidates, reserveNext).then(reserved => {
       if (reserved) setOpenId(reserved)
       // else: nothing available (empty or all reserved) — completion state shows
       // (openId stays null).
     })
-  }, [loading, remaining, reserveNext])
+  }, [loading, orderedCandidates, reserveNext])
 
   // Mark the open customer sent and advance to the next AVAILABLE one. Called
   // after the task confirms a successful send. The just-sent customer's
@@ -172,7 +215,9 @@ export function IntroductoryEmailsClient({
     void release()
     // `handled` updates on the next render, so exclude the just-sent customer
     // here (by real id and, for a materialized virtual one, its virtual key).
-    const candidates = remaining.filter(
+    // Walk the SEQUENCE order so a send still reaches un-skipped customers before
+    // skipped ones.
+    const candidates = orderedCandidates.filter(
       it => it.id !== sentId && candidateKey(it) !== (sentVirtualKey ? `virtual:${sentVirtualKey.customer_id}` : ''),
     )
     void reserveNextDirectCandidate(candidates, reserveNext).then(reserved => {
@@ -181,7 +226,43 @@ export function IntroductoryEmailsClient({
     // Keep the local population in step with the server (the sent customer has
     // left Ready to Email); harmless if it is already gone.
     void load()
-  }, [openId, remaining, load, release, reserveNext, candidateKey])
+  }, [openId, orderedCandidates, remaining, load, release, reserveNext, candidateKey])
+
+  // Skip the open customer: move to the next AVAILABLE customer WITHOUT sending
+  // or recording anything and WITHOUT changing their status. The just-skipped
+  // customer is pushed to the BACK of the working sequence (via skipOrder), so
+  // after the rest of the run is worked the sequence circles back to it; this
+  // keeps cycling until no eligible customers remain. Skipping never adds to
+  // `handled`, so the live count is unchanged by a skip.
+  const advanceAfterSkip = useCallback(() => {
+    if (!openId) return
+    // Identify the skipped customer by the key that matches it in `remaining`:
+    // its real outreach id (recorded or just-materialized and open).
+    const skippedKey = openId
+    // Push to the back of the skip order. If it was already skipped earlier,
+    // move it to the very back (re-skipping sends it around again).
+    setSkipOrder(prev => [...prev.filter(k => k !== skippedKey), skippedKey])
+    // Free the lease so a teammate is not blocked by a customer this worker has
+    // set aside; it stays in this worker's sequence and is re-reserved when it
+    // cycles back (or immediately, if it is the only one left).
+    void release()
+    // Reserve the next customer in sequence order, with the just-skipped one
+    // moved to the back. When it is the only remaining customer, the sequence
+    // circles straight back to it (reserveNext treats a now-free subject as
+    // reservable), so a one-customer queue simply re-presents that customer.
+    const skipIndex = new Map(
+      [...skipOrder.filter(k => k !== skippedKey), skippedKey].map((key, i) => [key, i]),
+    )
+    const resequenced = [
+      ...remaining.filter(it => !skipIndex.has(candidateKey(it))),
+      ...remaining
+        .filter(it => skipIndex.has(candidateKey(it)))
+        .sort((a, b) => (skipIndex.get(candidateKey(a)) ?? 0) - (skipIndex.get(candidateKey(b)) ?? 0)),
+    ]
+    void reserveNextDirectCandidate(resequenced, reserveNext).then(reserved => {
+      setOpenId(reserved) // reserved id, or null -> completion state renders
+    })
+  }, [openId, skipOrder, remaining, release, reserveNext, candidateKey])
 
   const sentCount = handled.size
 
@@ -217,23 +298,35 @@ export function IntroductoryEmailsClient({
     // not reloaded yet, so one virtual in the list can be the current customer.
     const hasNext = otherRemaining.length > 0 || remainingVirtuals.length > 1
     return (
-      <StewardshipTask
-        key={openId}
-        itemId={openId}
-        // Chromeless: the page already supplies WorkflowPage + the "Back to My
-        // Work" link, so the task must NOT render its own "All queues" header.
-        hideBackHeader
-        hasNextInActivity={hasNext}
-        // ONLY a confirmed send advances the sequence. Advancement is wired to
-        // onAdvanceToNext, which the task fires solely after a successful send;
-        // it marks this customer handled and opens the next eligible one.
-        onAdvanceToNext={advanceAfterSend}
-        // Leaving the screen must never mark a customer handled or advance the
-        // sequence. The task only calls onBack on a non-send terminal path
-        // (e.g. a carrier completion, not reachable in the intro-email flow);
-        // if it ever fires, just refresh the population — do NOT advance.
-        onBack={() => { void load() }}
-      />
+      <div className="space-y-5">
+        {/* One live count beneath the page title. It counts the eligible
+            customers still needing an introductory email (remaining = eligible
+            population minus those sent this session). Sending removes a customer
+            and drops the count; skipping leaves the count unchanged because the
+            skipped customer still needs the email. It refreshes from the same
+            eligible-work data as customers are processed. */}
+        <EligibleCount count={remaining.length} />
+        <StewardshipTask
+          key={openId}
+          itemId={openId}
+          // Chromeless: the page already supplies WorkflowPage + the "Back to My
+          // Work" link, so the task must NOT render its own "All queues" header.
+          hideBackHeader
+          hasNextInActivity={hasNext}
+          // ONLY a confirmed send advances the sequence. Advancement is wired to
+          // onAdvanceToNext, which the task fires solely after a successful send;
+          // it marks this customer handled and opens the next eligible one.
+          onAdvanceToNext={advanceAfterSend}
+          // Skip for now: advance to the next available customer without sending
+          // or recording anything, sending this one to the back of the sequence.
+          onSkip={advanceAfterSkip}
+          // Leaving the screen must never mark a customer handled or advance the
+          // sequence. The task only calls onBack on a non-send terminal path
+          // (e.g. a carrier completion, not reachable in the intro-email flow);
+          // if it ever fires, just refresh the population — do NOT advance.
+          onBack={() => { void load() }}
+        />
+      </div>
     )
   }
 

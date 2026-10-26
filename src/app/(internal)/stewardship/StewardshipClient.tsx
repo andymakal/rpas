@@ -15,7 +15,7 @@ import {
   Mail, Phone, Search, Inbox, FileText, Building2, Check, ExternalLink,
   Clock, CircleAlert, Play, PenLine, MailX, Hand, UserCheck,
   ShieldCheck, ShieldAlert, Copy, Voicemail, MessageSquare, PhoneCall, PhoneOff,
-  Upload, Download, Loader2,
+  Upload, Download, Loader2, SkipForward,
 } from 'lucide-react'
 import {
   WorkflowPage, WorkflowHeader,
@@ -1167,7 +1167,7 @@ function ProjectOnboardingNote({ project }: { project: { id: string; name: strin
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function StewardshipTask({
-  itemId, onBack, hasNextInActivity = false, onAdvanceToNext, onComplete, hideBackHeader = false, forceCall = false,
+  itemId, onBack, hasNextInActivity = false, onAdvanceToNext, onSkip, onComplete, hideBackHeader = false, forceCall = false,
   forceServicingAccess = false, forceCustomerInteraction = false,
 }: {
   itemId: string
@@ -1176,6 +1176,12 @@ export function StewardshipTask({
   hasNextInActivity?: boolean
   /** Open the next customer in this activity (Introductory Emails fast flow). */
   onAdvanceToNext?: () => void
+  /** Skip the open customer WITHOUT sending or recording anything: move to the
+   * next available customer and send this one to the back of the working
+   * sequence (Send Introductory Emails fast flow). When supplied, the intro-
+   * email send panel shows a "Skip for now" control beneath the confirm. The
+   * skip never touches a business record — no history, no status change. */
+  onSkip?: () => void
   /** Called when the whole servicing request COMPLETES (every request policy
    * confirmed): the outreach row is gone and the customer has advanced out of
    * outreach. Carries the customer id and, when the customer belongs to an
@@ -1364,6 +1370,7 @@ export function StewardshipTask({
             <TaskAction
               detail={detail} request={request} busy={busy} note={note} act={act}
               hasNextInActivity={hasNextInActivity} forceCall={forceCall}
+              onSkip={onSkip}
               onCallSelectionChange={reportCallSelection}
             />
           )
@@ -1711,7 +1718,7 @@ function StewardshipCustomerContact({
  */
 function TaskAction({
   detail, request, busy, note, act, hasNextInActivity = false, forceCall = false,
-  onCallSelectionChange,
+  onSkip, onCallSelectionChange,
 }: {
   detail: Detail
   request: Holding[]
@@ -1722,6 +1729,8 @@ function TaskAction({
   /** Force the guided call flow regardless of the stored queue (the Call
    * Reachable Customers workbench). */
   forceCall?: boolean
+  /** Skip the open intro-email customer without sending/recording (fast flow). */
+  onSkip?: () => void
   /** Report the live guided-call selection up so the history column can preview
    * the entry that completing the call will record. */
   onCallSelectionChange?: (selection: CallSelection | null) => void
@@ -1770,7 +1779,7 @@ function TaskAction({
         return (
           <ReadyToEmailAction
             detail={detail} request={request} name={name} busy={busy} noteBox={noteBox} act={act}
-            hasNextInActivity={hasNextInActivity}
+            hasNextInActivity={hasNextInActivity} onSkip={onSkip}
           />
         )
       case 'ready-to-call':
@@ -1848,7 +1857,7 @@ const EVERLAKE_CARRIER_PATTERN = /everlake|allstate/i
  * email-sent touch the server records reflects the delivery method accurately.
  */
 function ServicingFormDelivery({
-  detail, request, name, busy, act, confirmLabelFor, onConfirm, emailOnly = false,
+  detail, request, name, busy, act, confirmLabelFor, onConfirm, emailOnly = false, onSkip,
 }: {
   detail: Detail
   request: Holding[]
@@ -1865,6 +1874,12 @@ function ServicingFormDelivery({
    * behavior is otherwise identical. Every OTHER caller leaves this false and
    * keeps the full delivery chooser, so postal stays available elsewhere. */
   emailOnly?: boolean
+  /** When supplied (Send Introductory Emails fast flow), render a "Skip for now"
+   * control beneath the confirm. It moves to the next available customer WITHOUT
+   * sending or recording anything and sends this one to the back of the working
+   * sequence. It is always enabled (not gated on form generation), since
+   * skipping is explicitly the "do nothing with this one yet" path. */
+  onSkip?: () => void
 }) {
   const [preparing, setPreparing] = useState(false)
   const [prepError, setPrepError] = useState<string | null>(null)
@@ -1987,6 +2002,20 @@ function ServicingFormDelivery({
       >
         {confirmLabelFor(method)}
       </WorkflowButton>
+      {/* Skip for now (Send Introductory Emails fast flow): move to the next
+          available customer without sending or recording anything. Sits beneath
+          the confirm as a quiet secondary action and is always available, since
+          skipping is the deliberate "not this one yet" path. */}
+      {onSkip && (
+        <WorkflowButton
+          icon={SkipForward}
+          disabled={busy}
+          onClick={onSkip}
+          className="w-full justify-center"
+        >
+          Skip for now
+        </WorkflowButton>
+      )}
     </div>
   )
 }
@@ -1998,7 +2027,7 @@ function ServicingFormDelivery({
  * /api/servicing-agent-change generator) so the worker has it ready to attach.
  */
 function ReadyToEmailAction({
-  detail, request, name, busy, noteBox, act, hasNextInActivity = false,
+  detail, request, name, busy, noteBox, act, hasNextInActivity = false, onSkip,
 }: {
   detail: Detail
   request: Holding[]
@@ -2009,6 +2038,10 @@ function ReadyToEmailAction({
   // the parent task supplies the actual navigation.
   act: (action: unknown, successNote?: string, opts?: { advanceToNext?: boolean }) => void
   hasNextInActivity?: boolean
+  /** Skip this customer without sending/recording (Send Introductory Emails fast
+   * flow). Only the introductory-EMAIL path offers it; the reached-by-phone
+   * authorization branch below never does. */
+  onSkip?: () => void
 }) {
   // If the worker has already CALLED and REACHED this customer (recorded as an
   // attempt from the context panel), the right next step is to send the
@@ -2073,6 +2106,10 @@ function ReadyToEmailAction({
           'Introductory email recorded.',
           { advanceToNext: true },
         )}
+        // Skip for now: move to the next available customer without sending or
+        // recording anything. Sends this customer to the back of the working
+        // sequence; the parent client owns the cycling.
+        onSkip={onSkip}
       />
     </ActionPanel>
   )
