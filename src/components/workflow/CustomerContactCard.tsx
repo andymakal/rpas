@@ -54,7 +54,7 @@
  *     production look exactly — see `resolveAppearance`/`isDefault`.
  */
 
-import { useCallback, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Mail, Phone, MapPin, Pencil, Check, X, Loader2,
   ShieldQuestion, CheckCircle2, AlertTriangle, Plus, Trash2,
@@ -691,6 +691,13 @@ export function CustomerContactCard({
   // Overview (collapsed) vs Edit (expanded). Only meaningful when `collapsible`;
   // a non-collapsible card is always "expanded", preserving today's behavior.
   const [expanded, setExpanded] = useState(defaultExpanded)
+  // Re-seed the Overview/Edit state when the host's default changes, mirroring
+  // MentorGuidance: a host that drives `defaultExpanded` from live state (e.g.
+  // the calling workbench opening the card in edit mode the instant the customer
+  // is reached) sees the card follow. Callers passing a constant `defaultExpanded`
+  // (every existing one) are unaffected, since the value never changes. A worker
+  // can still toggle Overview/Edit in between; only a new default re-seeds it.
+  useEffect(() => { setExpanded(defaultExpanded) }, [defaultExpanded])
   const isExpanded = !collapsible || expanded
   // Alert editor. Enabled with `alertEditable`. The alert VALUE is the durable
   // customers.contact_alert carried on the record (with the controlled `alert`

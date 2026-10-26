@@ -483,18 +483,23 @@ export function ExternalActionConfirm({
 export function SpokenScriptCard({
   label,
   body,
+  bodySizeClassName = 'text-base',
 }: {
   /** The short uppercase section label (e.g. "Opening script"). */
   label: string
   /** The talk track to read aloud. Preserves its own line breaks. */
   body: string
+  /** Tailwind text-size class for the body. Defaults to text-base (16px) so
+   * every existing call site is unchanged; a caller can pass e.g. text-lg (18px)
+   * for a larger, read-aloud-friendly size. */
+  bodySizeClassName?: string
 }) {
   return (
     <div className="space-y-2 rounded-xl border border-surface-border bg-surface-muted p-3">
       <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-supporting">
         <MessageSquareQuote className="size-3.5" aria-hidden /> {label}
       </p>
-      <p className="whitespace-pre-line text-base leading-relaxed text-ink-secondary">{body}</p>
+      <p className={cn('whitespace-pre-line leading-relaxed text-ink-secondary', bodySizeClassName)}>{body}</p>
     </div>
   )
 }

@@ -1382,6 +1382,11 @@ export function StewardshipTask({
             setDetail={setDetail} forceCall={forceCall}
             forceCustomerInteraction={forceCustomerInteraction}
             withHistoryColumn={isWorkingScreen}
+            // The guided call's live reach decision, lifted through the SAME
+            // callSelection channel the history column already uses. Drives the
+            // center column's Reached behavior: open the contact card in edit
+            // mode and show the yellow verify-contact instruction above it.
+            reached={callSelection?.reach === 'reached'}
           />
         }
         history={isWorkingScreen
@@ -1557,7 +1562,7 @@ function isIntroductoryEmailActivity(detail: Detail): boolean {
  * both capabilities stay fully available on the call and research activities.
  */
 function StewardshipContextPanel({
-  detail, request, context, busy, act, setDetail, forceCall = false, forceCustomerInteraction = false, withHistoryColumn = false,
+  detail, request, context, busy, act, setDetail, forceCall = false, forceCustomerInteraction = false, withHistoryColumn = false, reached = false,
 }: {
   detail: Detail
   request: Holding[]
@@ -1579,6 +1584,11 @@ function StewardshipContextPanel({
    * Summary beneath it (replacing the raw holdings list). Every other caller
    * keeps the original holdings context. */
   withHistoryColumn?: boolean
+  /** The guided call reached the customer. On the calling workbench this opens
+   * the contact card in edit mode and shows a prominent verify-contact
+   * instruction above it, so the caller corrects/verifies phone, email, and
+   * mailing address during the live conversation. */
+  reached?: boolean
 }) {
   const introEmail = isIntroductoryEmailActivity(detail)
   // Research Needed is the second 1035 contact-gathering activity: like
@@ -1598,7 +1608,11 @@ function StewardshipContextPanel({
   // Contact Information (Research Needed), which starts EXPANDED for immediate
   // contact research and editing.
   const useCard = true
-  const startExpanded = research
+  // The card starts EXPANDED (edit mode) for Research Needed as before, and now
+  // also the instant the guided call reaches the customer: the caller must be
+  // able to correct or verify phone, email, and mailing address immediately,
+  // without clicking Edit first. Every other surface still starts collapsed.
+  const startExpanded = research || (forceCall && reached)
 
   // Policy Summary on the working screens replaces the raw holdings list in the
   // center column. Summarize the servicing-request policies when the request
@@ -1608,10 +1622,22 @@ function StewardshipContextPanel({
 
   return (
     <>
+      {/* On the calling workbench, once the customer is reached, a prominent
+          yellow instruction sits directly above the contact card to draw the
+          caller's attention to the contact facts to review during the live
+          conversation. It replaces the former left-column note so the prompt
+          lives next to the card it refers to. */}
+      {forceCall && reached && (
+        <div className="flex items-start gap-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-4 text-base font-medium text-ink">
+          <CircleAlert className="mt-0.5 size-5 shrink-0 text-status-attention-strong" aria-hidden />
+          <span>Confirm or correct the customer&apos;s phone number, email address, and mailing address.</span>
+        </div>
+      )}
       {useCard ? (
         // Writes straight to the customer record via the shared route and keeps
         // the surrounding task in sync through onChange. Approved Overview/Edit
-        // presentation; collapsed by default, expanded only for Research Needed.
+        // presentation; collapsed by default, expanded for Research Needed and
+        // for a reached guided call (edit mode during the conversation).
         <StewardshipCustomerContact detail={detail} setDetail={setDetail} startExpanded={startExpanded} />
       ) : (
         <CustomerContext detail={detail} busy={busy} act={act} showVerification />
@@ -2718,25 +2744,21 @@ function CallWorkbenchAction({
               aloud on the line, so it uses the spoken-script card (no Copy), not
               the copy-to-paste CallScriptCard the voicemail/text/email channels
               use. */}
-          <SpokenScriptCard label={SERVICING_CALL_SCRIPTS.opening.label} body={callOpeningScript(c.first_name ?? 'there', senderName)} />
+          <SpokenScriptCard label={SERVICING_CALL_SCRIPTS.opening.label} body={callOpeningScript(c.first_name ?? 'there', senderName)} bodySizeClassName="text-lg" />
 
-          {/* Reason for calling + the servicing-agent authorization explanation. */}
-          <div className="rounded-xl border border-surface-border bg-surface-muted p-4 text-base leading-relaxed text-ink-secondary">
-            <p className="mb-1 font-semibold text-ink">Why you&apos;re calling</p>
-            <p>
-              Our office lost access to {c.first_name ? `${c.first_name}\u2019s` : 'the customer\u2019s'} life insurance
-              policy when Allstate\u2019s life business moved to Everlake, because we are not listed as the servicing
-              agent. The servicing-agent authorization simply restores our access to help with questions and
-              servicing. It does not change the policy or coverage, and it needs a wet (ink) signature.
-            </p>
-          </div>
+          {/* Reason for calling + the servicing-agent authorization explanation,
+              now a mentoring section: the global Mentoring toggle sets its
+              default open/closed, and the caller can expand or collapse it
+              independently (the shared MentorGuidance behavior). Apostrophes are
+              real characters here, not \u2019 escapes in JSX text. */}
+          <MentorGuidance label="Why you're calling">
+            Our office lost access to {c.first_name ? `${c.first_name}’s` : 'the customer’s'} life insurance
+            policy when Allstate’s life business moved to Everlake, because we are not listed as the servicing
+            agent. The servicing-agent authorization simply restores our access to help with questions and
+            servicing. It does not change the policy or coverage, and it needs a wet (ink) signature.
+          </MentorGuidance>
 
-          <NextNote>
-            Confirm or correct the customer&apos;s phone, email, and mailing address on the right as you speak,
-            then capture their decision below.
-          </NextNote>
-
-          {/* Capture the customer\u2019s actual decision. */}
+          {/* Capture the customer’s actual decision. */}
           <div>
             <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-supporting">What did the customer decide?</p>
             <div className="flex flex-wrap gap-2">
