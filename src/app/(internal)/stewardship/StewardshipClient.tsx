@@ -1580,12 +1580,17 @@ function StewardshipContextPanel({
   // the former separate contact summary, mailing-address block, and verification
   // checkboxes. The research capture + routing stays in the left ActionPanel.
   const research = detail.queue === 'research-needed'
-  // The calling workbench also uses the shared card: verifying/correcting a
-  // phone, email, or mailing address is part of a reached call, and the card is
-  // the one editable contact surface across the app. Customer Interaction uses
-  // it too, so contact facts stay visible and editable throughout the
-  // conversation.
-  const useCard = introEmail || research || forceCall || forceCustomerInteraction
+  // The shared Customer Contact card is the ONE standard contact surface across
+  // every stewardship working screen (Introductory Emails, Make Due Calls, Call
+  // Reachable Customers, Customer Interaction, Servicing Access, Research
+  // Needed). It is always the card now — the legacy read-only CustomerContext is
+  // no longer used — so contact information looks and behaves identically
+  // everywhere. The card runs in the approved Overview/Edit presentation and
+  // starts COLLAPSED (compact overview) on every surface EXCEPT Find Missing
+  // Contact Information (Research Needed), which starts EXPANDED for immediate
+  // contact research and editing.
+  const useCard = true
+  const startExpanded = research
 
   // Policy Summary on the working screens replaces the raw holdings list in the
   // center column. Summarize the servicing-request policies when the request
@@ -1597,8 +1602,9 @@ function StewardshipContextPanel({
     <>
       {useCard ? (
         // Writes straight to the customer record via the shared route and keeps
-        // the surrounding task in sync through onChange.
-        <StewardshipCustomerContact detail={detail} setDetail={setDetail} overviewMode={forceCustomerInteraction} />
+        // the surrounding task in sync through onChange. Approved Overview/Edit
+        // presentation; collapsed by default, expanded only for Research Needed.
+        <StewardshipCustomerContact detail={detail} setDetail={setDetail} startExpanded={startExpanded} />
       ) : (
         <CustomerContext detail={detail} busy={busy} act={act} showVerification />
       )}
@@ -1629,16 +1635,16 @@ function StewardshipContextPanel({
  * /api/customers/[id]/contact route.
  */
 function StewardshipCustomerContact({
-  detail, setDetail, overviewMode = false,
+  detail, setDetail, startExpanded = false,
 }: {
   detail: Detail
   setDetail: React.Dispatch<React.SetStateAction<Detail | null>>
-  /** When true (Customer Interaction only), render the approved Overview/Edit
-   * presentation: a compact collapsed overview with the name + Edit/Done toggle
-   * at the top, expanding to the existing contact editing + verification. Every
-   * other stewardship surface leaves this false and renders the card exactly as
-   * before. */
-  overviewMode?: boolean
+  /** Whether the Overview/Edit card starts EXPANDED. Find Missing Contact
+   * Information (Research Needed) passes true; every other stewardship surface
+   * starts COLLAPSED in the compact overview. The approved Overview/Edit
+   * presentation (name + Edit/Done toggle, compact overview, expand to the
+   * existing editing + verification) is used on every surface. */
+  startExpanded?: boolean
 }) {
   const c = detail.customer
   const customer: CustomerContact = {
@@ -1663,20 +1669,19 @@ function StewardshipCustomerContact({
       customer={customer}
       alert={c.contact_alert}
       alertEditable
-      // Customer Interaction uses the approved Overview/Edit presentation,
-      // starting collapsed; every other stewardship surface renders the card
-      // unchanged (always-expanded, its own name heading).
-      {...(overviewMode ? {
-        collapsible: true,
-        defaultExpanded: false,
-        showName: false,
-        showMentoring: false,
-        header: (
-          <h2 className="text-[33px] font-bold leading-tight tracking-tight text-brand">
-            {fullName(detail.customer)}
-          </h2>
-        ),
-      } : {})}
+      // The approved Overview/Edit presentation on every stewardship surface:
+      // name + Edit/Done toggle at the top, a compact overview when collapsed,
+      // and the existing editing + verification when expanded. Collapsed by
+      // default; Research Needed passes startExpanded so it opens in edit mode.
+      collapsible
+      defaultExpanded={startExpanded}
+      showName={false}
+      showMentoring={false}
+      header={
+        <h2 className="text-[33px] font-bold leading-tight tracking-tight text-brand">
+          {fullName(detail.customer)}
+        </h2>
+      }
       onChange={(u) => setDetail(prev => prev ? {
         ...prev,
         email_verified_at: u.email_verified_at,
