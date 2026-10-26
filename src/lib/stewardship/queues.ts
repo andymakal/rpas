@@ -168,7 +168,9 @@ export type OutreachAction =
   // for an unsuccessful (voicemail) call, computed by the route from the grouped
   // attempt history. Supplied so applyAction stays pure (no time-math/timezone).
   // When absent, the legacy flat FOLLOW_UP_INTERVAL_DAYS spacing is used.
-  | { type: 'call-outcome'; outcome: CallOutcome; callback_date?: string | null; next_call_date?: string | null }
+  // `note` is the optional employee Call Notes text, saved WITH this interaction
+  // (appended to the recorded touch), never as a separate history entry.
+  | { type: 'call-outcome'; outcome: CallOutcome; callback_date?: string | null; next_call_date?: string | null; note?: string | null }
   // ONE coordinated multi-channel outreach attempt (adapted from IPF
   // record_outreach_grouping). It records the outcome of each channel used in a
   // single reach-out AND advances the workflow, so the employee records the
@@ -198,6 +200,9 @@ export type OutreachAction =
       /** The cadence-resolved next automatic call date (YYYY-MM-DD), supplied by
        * the route, used when the attempt schedules another call. */
       next_call_date?: string | null
+      /** The optional employee Call Notes text, saved WITH this interaction
+       * (appended to the recorded call touch), never a separate history entry. */
+      note?: string | null
     }
   // The servicing-agent form is (re)sent. `reached` marks the SINGLE completion
   // of a live "Agreed to authorize" call: the customer was reached AND the form
@@ -206,7 +211,7 @@ export type OutreachAction =
   // is not already recorded reached), the reducer also stamps the reached call
   // outcome so the one completion carries the reached fact; the route writes the
   // reached call touch and the engagement marker alongside the form-sent touch.
-  | { type: 'form-sent'; reached?: boolean }
+  | { type: 'form-sent'; reached?: boolean; note?: string | null }
   // Signed form came back on its own after the intro email (which already
   // carried the form) — advance to waiting-for-form WITHOUT recording a second
   // send. Distinct from form-sent so no fictitious mailing is logged.

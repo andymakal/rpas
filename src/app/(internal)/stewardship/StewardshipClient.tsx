@@ -15,7 +15,7 @@ import {
   Mail, Phone, Search, Inbox, FileText, Building2, Check, ExternalLink,
   Clock, CircleAlert, Play, PenLine, MailX, Hand, UserCheck,
   ShieldCheck, ShieldAlert, Copy, Voicemail, MessageSquare, PhoneCall, PhoneOff,
-  Upload, Download, Loader2, SkipForward,
+  Upload, Download, Loader2, SkipForward, StickyNote,
 } from 'lucide-react'
 import {
   WorkflowPage, WorkflowHeader,
@@ -1474,7 +1474,8 @@ function sameCallSelection(a: CallSelection | null, b: CallSelection | null): bo
     a.badNumber === b.badNumber &&
     a.decision === b.decision &&
     a.callbackDate === b.callbackDate &&
-    a.formSent === b.formSent
+    a.formSent === b.formSent &&
+    a.note === b.note
   )
 }
 
@@ -2560,6 +2561,14 @@ function CallWorkbenchAction({
   const [decision, setDecision] = useState<null | 'agreed' | 'callback' | 'not-interested'>(reached ? 'agreed' : null)
   const [callbackWhen, setCallbackWhen] = useState('')
 
+  // ── Optional Call Notes ────────────────────────────────────────────────────
+  // One free-text field, available for EVERY recorded call outcome. It is saved
+  // WITH the completed interaction (appended to the recorded touch), never as a
+  // separate history entry. Empty by default; the employee documents only what
+  // the system does not already know.
+  const [callNote, setCallNote] = useState('')
+  const noteForAction = callNote.trim() || null
+
   // Report the live selection up so the Next History Entry column previews
   // exactly what completing this call will record, combined into one concise
   // entry, updating as the worker proceeds. The reached authorization form is
@@ -2575,8 +2584,9 @@ function CallWorkbenchAction({
       decision,
       callbackDate: callbackWhen || null,
       formSent: reached && decision === 'agreed',
+      note: callNote.trim() || null,
     })
-  }, [onSelectionChange, reach, voicemailLeft, textSent, emailSent, decision, callbackWhen, reached])
+  }, [onSelectionChange, reach, voicemailLeft, textSent, emailSent, decision, callbackWhen, reached, callNote])
 
   const nextSuffix = hasNextInActivity ? ' Next customer.' : ''
 
@@ -2630,6 +2640,7 @@ function CallWorkbenchAction({
     if (callbackPhone && voicemailLeft) action.voicemail = 'touch'
     if (textSent) action.text = 'touch'
     if (emailSent) action.email = 'touch'
+    if (noteForAction) action.note = noteForAction
     act(
       action,
       'Attempt recorded. Next call auto-scheduled; the customer moves to Waiting for Response.',
@@ -2640,7 +2651,7 @@ function CallWorkbenchAction({
   // Bad number: a single grouped attempt recording the unusable call channel.
   function recordBadNumber() {
     act(
-      { type: 'record-attempt', call: 'bad-number' },
+      { type: 'record-attempt', call: 'bad-number', note: noteForAction },
       'Bad number recorded. Moved to Contact Research.',
       { advanceToNext: true },
     )
@@ -2705,6 +2716,28 @@ function CallWorkbenchAction({
             </WorkflowButton>
           )}
         </div>
+      </div>
+
+      {/* Optional Call Notes — available for EVERY recorded call outcome. The
+          system already records what happened (reached, voicemail, callback,
+          bad number); this captures anything extra the employee wants on the
+          record. It is saved WITH the completed interaction, never as a separate
+          history entry, and nothing is recorded until an outcome is completed.
+          Skip for now and selecting an outcome record nothing, so a note typed
+          here is only saved when the worker completes a real outcome. */}
+      <div className="border-t border-surface-divider pt-4">
+        <label htmlFor="wb-call-note" className="mb-2 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-ink-supporting">
+          <StickyNote className="size-4" aria-hidden /> Call notes (optional)
+        </label>
+        <textarea
+          id="wb-call-note"
+          value={callNote}
+          onChange={e => setCallNote(e.target.value)}
+          disabled={busy}
+          rows={2}
+          placeholder="Anything extra worth recording. The outcome itself is logged automatically."
+          className="w-full rounded-lg border border-surface-border-strong bg-surface-card px-3 py-2 text-base text-ink placeholder:text-ink-muted focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-ring/40"
+        />
       </div>
 
       {/* ── DIDN\u2019T REACH ─────────────────────────────────────────────────── */}
@@ -2879,8 +2912,9 @@ function CallWorkbenchAction({
                   // actually gone out. `reached` folds the reached outcome +
                   // engagement into this one action, so nothing was recorded (and
                   // the customer never left available work) merely by selecting
-                  // "Agreed to authorize" earlier.
-                  { type: 'form-sent', reached: true },
+                  // "Agreed to authorize" earlier. The optional Call Notes ride
+                  // with this one interaction.
+                  { type: 'form-sent', reached: true, note: noteForAction },
                   'Reached and authorization form sent. Moved to Waiting for Form.',
                   { advanceToNext: true },
                 )}
@@ -2900,7 +2934,7 @@ function CallWorkbenchAction({
                 className="w-full max-w-xs rounded-lg border border-surface-border-strong bg-surface-card px-3 py-2 text-base text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-ring/40" />
               <WorkflowButton icon={Check} selected disabled={busy || !callbackWhen}
                 onClick={() => act(
-                  { type: 'record-attempt', call: 'callback', callback_date: callbackWhen },
+                  { type: 'record-attempt', call: 'callback', callback_date: callbackWhen, note: noteForAction },
                   `Callback promised for ${callbackWhen ? shortDate(callbackWhen) : ''}.`,
                   { advanceToNext: true },
                 )}>
@@ -2919,7 +2953,7 @@ function CallWorkbenchAction({
               </p>
               <WorkflowButton icon={CircleAlert} selected disabled={busy}
                 onClick={() => act(
-                  { type: 'record-attempt', call: 'not-interested' },
+                  { type: 'record-attempt', call: 'not-interested', note: noteForAction },
                   'Recorded as not interested. Outreach stopped; a human decides any next step.',
                   { advanceToNext: true },
                 )}>

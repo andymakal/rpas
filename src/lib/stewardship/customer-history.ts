@@ -370,6 +370,15 @@ export function describeActivity(
  * write (see /api/stewardship/[id]). A trailing clause after a period (e.g.
  * "Follow-up auto-scheduled.") is also system prose and is removed. */
 const SYSTEM_OUTCOME_PHRASES: readonly RegExp[] = [
+  // Reached-call sentences. "Spoke with customer." is the lead for every reached
+  // outcome; the agreed/callback/declined continuations are system prose too.
+  /^Spoke with customer\.(\s*Customer agreed to authorize our office as servicing agent\.\s*Authorization form (?:emailed|sent by postal mail)\.\s*Awaiting signed authorization\.?)?/i,
+  /^Spoke with customer\.\s*Customer requested a callback(\s+on\s+\S+)?\.?/i,
+  /^Spoke with customer\.\s*Customer declined servicing-agent authorization\.\s*Further outreach stopped unless deliberately reopened\.?/i,
+  // Didn't-reach call sentences (no-answer, with or without a voicemail left).
+  /^Called customer\.\s*No answer\.(\s*Voicemail left\.)?\s*Next call scheduled\.?/i,
+  /^Called customer\.\s*Number is not working\.\s*Customer referred to Contact Research\.?/i,
+  // Legacy sentences kept so existing history still cleans correctly.
   /^Reached the customer\.?/i,
   /^Left a voicemail\.?(\s*Follow-up auto-scheduled\.?)?/i,
   /^Bad number\.?(\s*Moved to Research Needed\.?)?/i,
@@ -459,6 +468,49 @@ function stripMarkersAndPrefix(note: string): string {
  * markers/prefix already stripped), so a new system sentence still shows
  * meaningfully until it is given a tuned description here. */
 const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = [
+  // ── The required servicing-agent call-outcome language ──────────────────────
+  // These are the authoritative, operator-facing history sentences. The stored
+  // note now carries the same wording, so the displayed description reads it
+  // back verbatim (the callback rule re-formats the embedded date).
+  {
+    // Reached · agreed · form emailed.
+    match: /^Spoke with customer\.\s*Customer agreed to authorize our office as servicing agent\.\s*Authorization form emailed\.\s*Awaiting signed authorization\.?$/i,
+    describe:
+      'Spoke with customer. Customer agreed to authorize our office as servicing agent. Authorization form emailed. Awaiting signed authorization.',
+  },
+  {
+    // Reached · agreed · form mailed.
+    match: /^Spoke with customer\.\s*Customer agreed to authorize our office as servicing agent\.\s*Authorization form sent by postal mail\.\s*Awaiting signed authorization\.?$/i,
+    describe:
+      'Spoke with customer. Customer agreed to authorize our office as servicing agent. Authorization form sent by postal mail. Awaiting signed authorization.',
+  },
+  {
+    // Reached · wants callback (date preserved from the stored sentence).
+    match: /^Spoke with customer\.\s*Customer requested a callback(\s+on\s+(\S+))?\.?$/i,
+    describe: 'Spoke with customer. Customer requested a callback.',
+  },
+  {
+    // Reached · not interested.
+    match: /^Spoke with customer\.\s*Customer declined servicing-agent authorization\.\s*Further outreach stopped unless deliberately reopened\.?$/i,
+    describe:
+      'Spoke with customer. Customer declined servicing-agent authorization. Further outreach stopped unless deliberately reopened.',
+  },
+  {
+    // Didn't reach · voicemail left.
+    match: /^Called customer\.\s*No answer\.\s*Voicemail left\.\s*Next call scheduled\.?$/i,
+    describe: 'Called customer. No answer. Voicemail left. Next call scheduled.',
+  },
+  {
+    // Didn't reach · no voicemail.
+    match: /^Called customer\.\s*No answer\.\s*Next call scheduled\.?$/i,
+    describe: 'Called customer. No answer. Next call scheduled.',
+  },
+  {
+    // Bad number.
+    match: /^Called customer\.\s*Number is not working\.\s*Customer referred to Contact Research\.?$/i,
+    describe: 'Called customer. Number is not working. Customer referred to Contact Research.',
+  },
+  // ── The introductory / form-send confirmations ──────────────────────────────
   {
     // The introductory 1035 email: the authorization form rides with it, so the
     // description names the form rather than echoing the terse "Email" summary.
@@ -470,6 +522,8 @@ const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = 
     describe: 'Introductory letter mailed with servicing-agent authorization form.',
   },
   {
+    // A form re-send with no reached completion (the reached sentence above owns
+    // the reached · agreed interaction).
     match: /^Servicing-agent authorization form sent to the customer by email\.?$/i,
     describe: 'Servicing-agent authorization form sent by email.',
   },
@@ -477,26 +531,28 @@ const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = 
     match: /^Servicing-agent authorization form sent to the customer by postal mail\.?$/i,
     describe: 'Servicing-agent authorization form sent by postal mail.',
   },
+  // ── Legacy sentences (pre-standard history still reads meaningfully) ────────
   {
     match: /^Reached the customer\.?$/i,
-    describe: 'Reached the customer.',
+    describe: 'Spoke with customer.',
   },
   {
     match: /^Left a voicemail\.?(\s*Follow-up auto-scheduled\.?)?$/i,
-    describe: 'Left a voicemail.',
+    describe: 'Called customer. No answer. Voicemail left. Next call scheduled.',
   },
   {
     match: /^Bad number\.?(\s*Moved to Research Needed\.?)?$/i,
-    describe: 'Bad number recorded.',
+    describe: 'Called customer. Number is not working. Customer referred to Contact Research.',
   },
   {
     match: /^Customer declined\.?(\s*Outreach stopped until deliberately reopened\.?)?$/i,
-    describe: 'Customer declined; outreach stopped until deliberately reopened.',
+    describe:
+      'Spoke with customer. Customer declined servicing-agent authorization. Further outreach stopped unless deliberately reopened.',
   },
   {
     match: /^Customer asked for a callback(\s+on\s+(\S+))?\.?$/i,
     // Preserve the date when the stored sentence carries one.
-    describe: 'Customer asked for a callback.',
+    describe: 'Spoke with customer. Customer requested a callback.',
   },
 ]
 
@@ -521,7 +577,14 @@ export function describeHistoryNote(note: string | null): string | null {
   for (const { match, describe } of SYSTEM_DESCRIPTIONS) {
     const m = stripped.match(match)
     if (m) {
-      // Callback keeps its date when present (capture group on the callback rule).
+      // Callback keeps its date when present (capture group on the callback
+      // rule). The required phrasing is "requested a callback on <date>"; the
+      // legacy sentence used "asked for a callback" — honor whichever the
+      // matched description uses so the displayed date reads consistently.
+      if (/requested a callback/i.test(describe) && m[2]) {
+        const when = formatCallbackDate(m[2])
+        return when ? `Spoke with customer. Customer requested a callback on ${when}.` : describe
+      }
       if (/asked for a callback/i.test(describe) && m[2]) {
         const when = formatCallbackDate(m[2])
         return when ? `Customer asked for a callback on ${when}.` : describe
@@ -799,12 +862,34 @@ export function buildCustomerHistory(
         .map((c) => (byAt.get(c.at) ?? []).find((r) => r.touch_type === c.channel)?.touched_by)
         .find((n) => !!n) ?? null
     // The system description shown under the summary. For a single-communication
-    // interaction it is that communication's description; when several channels
+    // interaction it is that communication's description. When several channels
     // group into one attempt the terse summary already lists them, so a single
-    // description line would misrepresent the mix — show it only when the
-    // attempt is one communication.
+    // description line would misrepresent the mix — EXCEPT the reached · agreed ·
+    // form interaction, where a reached call and the form send are recorded
+    // together and the form touch carries the ONE authoritative sentence for the
+    // whole interaction. There, show that sentence so the required history
+    // language appears even though the interaction has two communications.
+    const agreedFormDescription = communications.find(
+      (c) =>
+        (c.channel === 'email' || c.channel === 'postal') &&
+        !!c.systemDescription &&
+        /agreed to authorize our office as servicing agent/i.test(c.systemDescription),
+    )?.systemDescription ?? null
+    // The CALL communication's sentence is the authoritative description for a
+    // telephone interaction (reached outcomes, and the didn't-reach "Called
+    // customer…" language). When a call grouped with extra channel touches
+    // (e.g. a voicemail-left plus a text/email), the required call sentence is
+    // still the one to show; the extra channels remain preserved as their own
+    // detail/summary. The agreed·form interaction is the one exception: there
+    // the form touch owns the full sentence (a reached call grouped with the
+    // form send), so it takes precedence.
+    const callDescription = communications.find(
+      (c) => c.channel === 'call' && !!c.systemDescription,
+    )?.systemDescription ?? null
     const description =
-      communications.length === 1 ? communications[0].systemDescription : null
+      communications.length === 1
+        ? communications[0].systemDescription
+        : (agreedFormDescription ?? callDescription)
     // The interaction's direction: a genuine incoming response if any
     // communication is incoming; else automated if the only inbound one is an
     // auto-reply; else outgoing. Lets the Relationship Timeline title the event
@@ -982,6 +1067,9 @@ export interface CallSelection {
   /** Whether the authorization form has been confirmed sent on the reached ·
    * agreed path, so the preview can fold "Form Sent" into the entry. */
   formSent?: boolean
+  /** The optional Call Notes the worker has typed, folded into the preview's
+   * note so it reads exactly as what completion will record. */
+  note?: string | null
 }
 
 /**
@@ -997,11 +1085,19 @@ export function describeCallSelection(
   options?: { customerName?: string | null; note?: string | null },
 ): NextHistoryEntryPreview | null {
   const who = options?.customerName?.trim() || 'the customer'
-  const extraNote = options?.note?.trim() || undefined
+  // The note folded into the preview: the explicit option wins, else the live
+  // Call Notes the worker has typed on the selection. Either way the preview
+  // reflects exactly what completion will save with the interaction.
+  const extraNote = (options?.note ?? selection.note)?.trim() || undefined
 
   // Bad number is a distinct terminal outcome regardless of the reach choice.
+  // The description is the exact sentence the completion will record.
   if (selection.badNumber) {
-    return { summary: 'No Answer · Bad Number', note: extraNote }
+    return {
+      summary: 'No Answer · Bad Number',
+      description: 'Called customer. Number is not working. Customer referred to Contact Research.',
+      note: extraNote,
+    }
   }
 
   if (selection.reach === 'not-reached') {
@@ -1010,7 +1106,13 @@ export function describeCallSelection(
     if (selection.voicemailLeft) parts.push('Voicemail')
     if (selection.textSent) parts.push('Text')
     if (selection.emailSent) parts.push('Email')
-    return { summary: parts.join(' \u00b7 '), note: extraNote }
+    // The recorded call sentence is honest about whether a voicemail was left;
+    // the extra channels (text/email) are preserved alongside but the call line
+    // is the one the preview shows as the description.
+    const description = selection.voicemailLeft
+      ? 'Called customer. No answer. Voicemail left. Next call scheduled.'
+      : 'Called customer. No answer. Next call scheduled.'
+    return { summary: parts.join(' \u00b7 '), description, note: extraNote }
   }
 
   if (selection.reach === 'reached') {
@@ -1018,20 +1120,36 @@ export function describeCallSelection(
       const when = selection.callbackDate ? formatCallbackDate(selection.callbackDate) : null
       return {
         summary: when ? `Reached · Callback Scheduled ${when}` : 'Reached · Callback Scheduled',
+        description: when
+          ? `Spoke with customer. Customer requested a callback on ${when}.`
+          : 'Spoke with customer. Customer requested a callback.',
         note: extraNote,
       }
     }
     if (selection.decision === 'not-interested') {
-      return { summary: 'Reached · Not Interested', note: extraNote }
+      return {
+        summary: 'Reached · Not Interested',
+        description:
+          'Spoke with customer. Customer declined servicing-agent authorization. Further outreach stopped unless deliberately reopened.',
+        note: extraNote,
+      }
     }
     if (selection.decision === 'agreed') {
+      // Never describe an unsent form as sent: the full agreed sentence appears
+      // only once the form has actually been confirmed sent. Before that the
+      // preview shows the reached lead without claiming a form went out. The
+      // delivery method (email vs postal) is known at completion, so the preview
+      // uses the neutral "sent" until then.
       return {
         summary: selection.formSent ? 'Reached · Form Sent' : 'Reached',
+        description: selection.formSent
+          ? 'Spoke with customer. Customer agreed to authorize our office as servicing agent. Authorization form sent. Awaiting signed authorization.'
+          : 'Spoke with customer. Customer agreed to authorize our office as servicing agent.',
         note: extraNote,
       }
     }
     // Reached but no decision captured yet.
-    return { summary: `Reached ${who}`.trim(), note: extraNote }
+    return { summary: `Reached ${who}`.trim(), description: 'Spoke with customer.', note: extraNote }
   }
 
   // No reach decision yet: nothing to record.

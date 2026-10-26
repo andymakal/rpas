@@ -714,13 +714,18 @@ export async function PATCH(
     const outcome = action.outcome
     // Voicemail is its own touch_type; every other call outcome is a 'call'.
     const touchType = outcome === 'voicemail' ? 'voicemail' : 'call'
+    // This older board path records only the call channel, so a 'voicemail'
+    // outcome here cannot also carry a separate voicemail-left fact; it reads as
+    // a no-answer call. The guided workbench (record-attempt) is where a
+    // voicemail-left is recorded honestly.
     const outcomeLabel: Record<CallOutcome, string> = {
-      reached: 'Reached the customer.',
-      voicemail: 'Left a voicemail. Follow-up auto-scheduled.',
-      'bad-number': 'Bad number. Moved to Research Needed.',
-      'not-interested': 'Customer declined. Outreach stopped until deliberately reopened.',
-      callback: `Customer asked for a callback${action.callback_date ? ` on ${action.callback_date}` : ''}.`,
+      reached: 'Spoke with customer.',
+      voicemail: 'Called customer. No answer. Next call scheduled.',
+      'bad-number': 'Called customer. Number is not working. Customer referred to Contact Research.',
+      'not-interested': 'Spoke with customer. Customer declined servicing-agent authorization. Further outreach stopped unless deliberately reopened.',
+      callback: `Spoke with customer. Customer requested a callback${action.callback_date ? ` on ${action.callback_date}` : ''}.`,
     }
+    const outcomeNote = typeof action.note === 'string' ? action.note.trim() : ''
     const touchedBy = await resolveEmployeeName(supabase)
     // Carry the per-channel outcome marker so the attempt history reads this
     // touch correctly: a bad number marks the phone channel UNUSABLE (it cannot
@@ -739,7 +744,8 @@ export async function PATCH(
       outcome === 'voicemail'  ? OUTCOME_MARKERS.no_contact :
       (outcome === 'reached' || outcome === 'callback' || outcome === 'not-interested') ? REACHED_MARKER :
       ''
-    const callNote = `Servicing-agent onboarding call: ${outcomeLabel[outcome]}`
+    const callNoteBase = `Servicing-agent onboarding call: ${outcomeLabel[outcome]}`
+    const callNote = outcomeNote ? `${callNoteBase} ${outcomeNote}` : callNoteBase
     const { error: touchErr } = await supabase
       .from('case_touches')
       .insert({
@@ -767,13 +773,23 @@ export async function PATCH(
   if (action.type === 'record-attempt') {
     const touchedBy = await resolveEmployeeName(supabase)
     const attemptAt = new Date().toISOString()
+    // The optional employee Call Notes, saved WITH this interaction (appended to
+    // the recorded CALL touch), never as a separate history entry. Empty = none.
+    const attemptNote = typeof action.note === 'string' ? action.note.trim() : ''
 
+    // A 'voicemail' call outcome is the no-answer outcome that schedules the
+    // next call. Whether a voicemail was ACTUALLY left is a separate fact,
+    // signalled by the voicemail CHANNEL touch in this same attempt; the call
+    // sentence must never claim a voicemail that was not left.
+    const voicemailLeft = action.voicemail === 'touch'
     const callLabel: Record<CallOutcome, string> = {
-      reached: 'Reached the customer.',
-      voicemail: 'Left a voicemail. Follow-up auto-scheduled.',
-      'bad-number': 'Bad number. Moved to Research Needed.',
-      'not-interested': 'Customer declined. Outreach stopped until deliberately reopened.',
-      callback: `Customer asked for a callback${action.callback_date ? ` on ${action.callback_date}` : ''}.`,
+      reached: 'Spoke with customer.',
+      voicemail: voicemailLeft
+        ? 'Called customer. No answer. Voicemail left. Next call scheduled.'
+        : 'Called customer. No answer. Next call scheduled.',
+      'bad-number': 'Called customer. Number is not working. Customer referred to Contact Research.',
+      'not-interested': 'Spoke with customer. Customer declined servicing-agent authorization. Further outreach stopped unless deliberately reopened.',
+      callback: `Spoke with customer. Customer requested a callback${action.callback_date ? ` on ${action.callback_date}` : ''}.`,
     }
     // Map a non-call channel outcome to its stored note marker. An 'unusable'
     // outcome is VALUE-SCOPED: it records the specific failed value (the email
@@ -805,10 +821,14 @@ export async function PATCH(
         (action.call === 'reached' || action.call === 'callback' || action.call === 'not-interested') ? REACHED_MARKER :
         ''
       const touchType = action.call === 'voicemail' ? 'voicemail' : 'call'
+      // Structure: [system sentence] [employee note] [marker]. The employee note
+      // sits between so cleanHistoryNote recovers it as the operator's own words
+      // and the attempt carries the note without a separate history entry.
       const base = `Servicing-agent onboarding call: ${callLabel[action.call]}`
+      const withNote = attemptNote ? `${base} ${attemptNote}` : base
       rows.push({
         customer_id: customerId, case_id: null, touch_type: touchType,
-        notes: callMarker ? `${base} ${callMarker}` : base,
+        notes: callMarker ? `${withNote} ${callMarker}` : withNote,
         touched_at: attemptAt, touched_by: touchedBy,
       })
     }
@@ -858,6 +878,7 @@ export async function PATCH(
     const touchedAt = new Date().toISOString()
     const isPostal = row.form_delivery_method === 'postal'
     const method = isPostal ? 'by postal mail' : 'by email'
+    const formNote = typeof action.note === 'string' ? action.note.trim() : ''
 
     // The guided "Agreed to authorize" completion records the reached call as
     // part of THIS single action (not earlier, on decision selection). Write the
@@ -875,16 +896,31 @@ export async function PATCH(
         customer_id: customerId,
         case_id:     null,
         touch_type:  'call',
-        notes:       `Servicing-agent onboarding call: Reached the customer. ${REACHED_MARKER}`,
+        notes:       `Servicing-agent onboarding call: Spoke with customer. ${REACHED_MARKER}`,
         touched_at:  touchedAt,
         touched_by:  touchedBy,
       })
     }
+    // The agreed-to-authorize completion: the form touch carries the full
+    // required sentence for this interaction (it is the touch that knows the
+    // delivery method). When recorded together with the reached call at the same
+    // instant they group into one interaction, and this sentence is the one the
+    // history displays. The email/postal phrasing is matched centrally in
+    // customer-history.ts so the displayed description reads exactly this.
+    const formSentence = isPostal
+      ? 'Spoke with customer. Customer agreed to authorize our office as servicing agent. Authorization form sent by postal mail. Awaiting signed authorization.'
+      : 'Spoke with customer. Customer agreed to authorize our office as servicing agent. Authorization form emailed. Awaiting signed authorization.'
+    const formBase = `Servicing-agent authorization form sent to the customer ${method}.`
+    // When the form send carries the reached completion, the required sentence
+    // describes the whole interaction; otherwise (a re-send with no reached
+    // completion) keep the plain form-sent sentence. The employee note, if any,
+    // is appended so it is preserved as the operator's own words.
+    const formSystem = recordReached ? formSentence : formBase
     touchRows.push({
       customer_id: customerId,
       case_id:     null,
       touch_type:  isPostal ? 'postal' : 'email',
-      notes:       `Servicing-agent authorization form sent to the customer ${method}.`,
+      notes:       formNote ? `${formSystem} ${formNote}` : formSystem,
       touched_at:  touchedAt,
       touched_by:  touchedBy,
     })
