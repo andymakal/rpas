@@ -89,9 +89,14 @@ export interface ContactReviewCustomer {
   customer_id: string
   first_name: string | null
   last_name: string | null
-  /** Stored date of birth; used only to derive the displayed age (the day is
-   * never shown). Carried so the card header can show the customer's age. */
-  date_of_birth: string | null
+  /** Best-available-precision age, reusing the project age logic
+   * (public.project_customer_age): exact DOB when present, else the best masked
+   * owner DOB from the customer's policies. Null when age cannot be determined
+   * (never guessed). The day is never exposed — this is age only. */
+  age: number | null
+  /** True when `age` was derived from an incomplete masked policy DOB rather
+   * than an exact date_of_birth, so the UI can label it approximate. */
+  age_approximate: boolean
   /** Current stored contact facts, shown so the worker can see what exists. */
   email: string | null
   phone: string | null
@@ -196,15 +201,37 @@ type CustomerRow = {
   email_availability: EmailAvailability | null
   contact_alert: string | null
   sms_opt_out: boolean | null
-  date_of_birth: string | null
   is_test: boolean
 }
 
 /** The columns both loaders read for a Contact Review row. Includes the mailing
- * address and verification timestamps the shared CustomerContactCard needs. */
+ * address and verification timestamps the shared CustomerContactCard needs.
+ * Age is NOT read here — it comes from the reused project age logic via
+ * `readCustomerAges` (exact DOB or masked policy fallback), age only. */
 const CUSTOMER_SELECT =
   'id, first_name, last_name, email, phone, street, address_line1, city, state, zip, ' +
-  'email_verified_at, phone_verified_at, address_verified_at, email_availability, contact_alert, sms_opt_out, date_of_birth, is_test'
+  'email_verified_at, phone_verified_at, address_verified_at, email_availability, contact_alert, sms_opt_out, is_test'
+
+/** Batch the reused project age logic for a set of customers. Returns a map of
+ * customer id -> { age, approximate }. A read failure yields an empty map, so
+ * the card simply omits age rather than guessing. */
+async function readCustomerAges(
+  supabase: SupabaseClient,
+  customerIds: readonly string[],
+): Promise<Map<string, { age: number | null; approximate: boolean }>> {
+  const out = new Map<string, { age: number | null; approximate: boolean }>()
+  const unique = Array.from(new Set(customerIds))
+  if (unique.length === 0) return out
+  const { data, error } = await supabase.rpc('project_customer_ages', { p_customer_ids: unique })
+  if (error) {
+    console.error('contact-review customer ages read error:', error.message)
+    return out
+  }
+  for (const r of (data ?? []) as { customer_id: string; age: number | null; is_approximate: boolean }[]) {
+    out.set(r.customer_id, { age: r.age ?? null, approximate: r.is_approximate === true })
+  }
+  return out
+}
 
 const usable = (v: string | null): boolean => !!v && v.trim().length > 0
 
@@ -295,6 +322,8 @@ export async function buildContactReview(
     currentByCustomer,
   )
   const noneUnusable: Set<OutreachChannel> = new Set()
+  // Best-available-precision ages (reused project age logic), one batched pass.
+  const agesByCustomer = await readCustomerAges(supabase, realCustomers.map((c) => c.id))
 
   // Customers still missing a USABLE method (effective usability), before the
   // durable research suppression. Email, phone, and mailing address are the
@@ -352,11 +381,13 @@ export async function buildContactReview(
     // removes the customer from Contact Research. A found value self-heals the
     // method (it is no longer missing), so a completed customer leaves the list
     // naturally. There is no research-history suppression.
+    const ageInfo = agesByCustomer.get(c.id)
     out.push({
       customer_id: c.id,
       first_name: c.first_name,
       last_name: c.last_name,
-      date_of_birth: c.date_of_birth,
+      age: ageInfo?.age ?? null,
+      age_approximate: ageInfo?.approximate ?? false,
       email: c.email,
       phone: c.phone,
       has_email: hasEmail,
@@ -467,12 +498,15 @@ export async function loadContactReviewCustomer(
     ?? { email: false, phone: false, address: false }
   const stillRecommend = stillNeedsResearchRecommendation({ hasEmail, hasPhone, hasAddress }, researched)
   const noUsableContact = !hasEmail && !hasPhone
+  // Best-available-precision age (reused project age logic).
+  const ageInfo = (await readCustomerAges(supabase, [row.id])).get(row.id)
 
   return {
     customer_id: row.id,
     first_name: row.first_name,
     last_name: row.last_name,
-    date_of_birth: row.date_of_birth,
+    age: ageInfo?.age ?? null,
+    age_approximate: ageInfo?.approximate ?? false,
     email: row.email,
     phone: row.phone,
     has_email: hasEmail,

@@ -47,7 +47,6 @@ import {
   type HistoryEvent,
 } from '@/lib/stewardship/customer-history'
 import { type EmailAvailability } from '@/lib/email-availability'
-import { calcAge } from '@/lib/age'
 import {
   MentorGuidance, useMentorDisclosure, MentorCapButton, MentorCapPanel,
 } from '@/lib/mentoring/MentorUi'
@@ -57,8 +56,12 @@ type ContactReviewCustomer = {
   customer_id: string
   first_name: string | null
   last_name: string | null
-  /** Stored DOB; used only to derive the displayed age (day never shown). */
-  date_of_birth: string | null
+  /** Best-available-precision age (reused project age logic): exact DOB or the
+   * masked policy fallback. Null when unknown (never guessed). Age only. */
+  age: number | null
+  /** True when the age came from the masked policy fallback, so it is shown as
+   * approximate. */
+  age_approximate: boolean
   email: string | null
   phone: string | null
   has_email: boolean
@@ -812,9 +815,12 @@ function ContactReviewTask({
   // name button only in expanded Edit mode. The card opens expanded here
   // (defaultExpanded), so this starts true and the card notifies us on toggle.
   const [cardExpanded, setCardExpanded] = useState(true)
-  // Calculated age for the header subline, shown in both views. Null (omitted)
-  // when the DOB is missing or not a plausible full date — never guessed.
-  const age = calcAge(customer.date_of_birth)
+  // Best-available-precision age for the header subline, shown in both views.
+  // Resolved upstream by the reused project age logic (exact DOB, else masked
+  // policy fallback); null (omitted) when it cannot be determined — never
+  // guessed. An approximate age (from an incomplete policy DOB) is marked "~".
+  const age = customer.age
+  const ageApproximate = customer.age_approximate
 
   // The open customer's grouped history and policy summary for the shared
   // three-column working layout: the Customer History (with the Next History
@@ -996,10 +1002,19 @@ function ContactReviewTask({
                 // Edit name only in expanded Edit mode; hidden in the compact
                 // Overview.
                 showEditButton={cardExpanded}
-                // Calculated age beneath the name, shown in both views. Omitted
-                // when it cannot be determined.
+                // Age beneath the name, shown in both views. Omitted when it
+                // cannot be determined. An approximate age (derived from an
+                // incomplete policy DOB) is shown with "~" and labeled.
                 subline={age != null
-                  ? <span className="text-base font-medium text-ink-supporting">Age {age}</span>
+                  ? (
+                    <span
+                      className="text-base font-medium text-ink-supporting"
+                      title={ageApproximate ? 'Approximate age, estimated from policy records' : undefined}
+                    >
+                      Age {ageApproximate ? `~${age}` : age}
+                      {ageApproximate && <span className="ml-1 text-ink-muted">(approx.)</span>}
+                    </span>
+                  )
                   : undefined}
                 onSaved={onContactChange}
               />
