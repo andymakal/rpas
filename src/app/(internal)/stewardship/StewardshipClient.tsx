@@ -31,6 +31,7 @@ import {
   carrierEmailSubject, carrierEmailMessage, uniqueCarriers, resolveCarrierRecipient,
 } from '@/lib/stewardship/carrier-email'
 import { type EmailAvailability } from '@/lib/email-availability'
+import { canTextGivenFacts } from '@/lib/sms-availability'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import {
   QUEUE_META, OUTREACH_QUEUES,
@@ -328,6 +329,28 @@ const QUEUE_GROUPS: { label: string; queues: OutreachQueue[] }[] = [
 
 function fullName(c: Customer) {
   return `${c.first_name} ${c.last_name}`.trim()
+}
+
+/**
+ * Whether a Hearsay text may be offered for this customer RIGHT NOW. The server
+ * resolves `contact_options.canText` at load (usable number, minus any recorded
+ * unusable text channel and the durable opt-out), which is the base texting
+ * eligibility. We then intersect it with the LIVE customer-level restriction
+ * facts the self-contained Customer Contact Card keeps current on `detail`
+ * (`sms_opt_out` = Do Not Text; `text_undeliverable` = a recorded delivery
+ * failure for the number on file) using the SAME `canTextGivenFacts` the card
+ * displays. So setting Do Not Text or Text Undeliverable in the card disables
+ * the text action immediately, with no page reload, and replacing the failed
+ * number (which clears `text_undeliverable`) restores it — while calling, which
+ * never consults these facts, stays available. Falls back to the stored opts or
+ * the bare phone presence when options have not loaded yet.
+ */
+function textingAvailableNow(detail: Detail): boolean {
+  const base = detail.contact_options?.canText ?? !!detail.customer.phone
+  return base && canTextGivenFacts({
+    smsOptOut: detail.customer.sms_opt_out === true,
+    textUndeliverable: detail.customer.text_undeliverable === true && !!detail.customer.phone?.trim(),
+  })
 }
 
 /**
@@ -2673,7 +2696,10 @@ function CallWorkbenchAction({
   //   - The Hearsay text needs a textable phone AND the callback number is not
   //     required (the text does not state it), but it does identify the caller.
   //   - The follow-up email needs a usable email.
-  const canText = detail.contact_options?.canText ?? !!phone
+  // Texting availability honors the same live customer-level restrictions the
+  // card shows (Do Not Text / Text Undeliverable), so a restriction set in the
+  // card removes the Hearsay text action without a reload. Calling is unaffected.
+  const canText = textingAvailableNow(detail)
   const canEmail = detail.contact_options?.canEmail ?? !!c.email
   const hasCallbackNumber = !!callbackPhone
 
@@ -4142,7 +4168,10 @@ function RecordAttemptPanel({
   const channels: { id: ContactChannelId; label: string; available: boolean }[] = [
     { id: 'call', label: 'Call', available: opts?.canCall ?? !!detail.customer.phone },
     { id: 'voicemail', label: 'Voicemail', available: opts?.canCall ?? !!detail.customer.phone },
-    { id: 'text', label: 'Text (Hearsay)', available: opts?.canText ?? !!detail.customer.phone },
+    // Texting honors the live Do Not Text / Text Undeliverable restrictions the
+    // card keeps current, so a restriction set in the card removes the text
+    // channel here without a reload. Calling/voicemail never consult them.
+    { id: 'text', label: 'Text (Hearsay)', available: textingAvailableNow(detail) },
     { id: 'email', label: 'Email', available: opts?.canEmail ?? !!detail.customer.email },
   ]
   const offered = channels.filter(c => c.available)
