@@ -10,6 +10,7 @@ import { resolveNextCallDate } from '@/lib/stewardship/call-cadence'
 import { resolveContactOptions } from '@/lib/stewardship/contact-options'
 import { type EmailAvailability } from '@/lib/email-availability'
 import { OUTCOME_MARKERS, REACHED_MARKER, buildUnusableMarker } from '@/lib/stewardship/outreach-attempts'
+import { retireUndeliverableEmail } from '@/lib/stewardship/email-undeliverable'
 import {
   buildResearchTouchRows,
   contactMethodsStillMissing,
@@ -942,6 +943,36 @@ export async function PATCH(
         console.error('stewardship bad-number phone clear error:', clearErr)
       }
     }
+  }
+
+  // Email Undeliverable retires the failed address from active contact info, the
+  // same way the Contact Card does. The record-attempt branch above already
+  // PRESERVED the failed address and the outcome in Customer History via the
+  // value-scoped unusable marker ([channel-unusable:<email>]), so nothing is
+  // lost by clearing — and because that marker is the history record, we do NOT
+  // write a second entry here (that would duplicate the record).
+  //
+  // This was the write the outreach route omitted: without it the bounced
+  // address stays on customers.email as if usable and email_availability never
+  // becomes 'undeliverable', so the Contact Card keeps showing the dead address.
+  // retireUndeliverableEmail nulls the address + verification and sets
+  // email_availability = 'undeliverable', which the card's display resolver
+  // reflects immediately.
+  //
+  // Unlike the bad-number clear this is NOT gated on a queue transition: an
+  // undeliverable address is a customer-record fact that is correct to retire
+  // from any stage (it routes no queue, closes no case, and never regresses
+  // Waiting for Form / Waiting for Carrier progress). It is still guarded on the
+  // still-matching failed value inside the helper (.eq('email', failedEmail)),
+  // so a replacement email entered after the failure is never overwritten. A
+  // usable replacement restores normal availability via the shared contact
+  // route's email-save path.
+  if (action.type === 'record-attempt' && action.email === 'unusable') {
+    await retireUndeliverableEmail(
+      supabase,
+      customerId,
+      row.customer_prereviews.customers?.email ?? null,
+    )
   }
 
   // Record the servicing-agent form being sent to the customer (from a reached
