@@ -876,6 +876,51 @@ export async function PATCH(
     }
   }
 
+  // Bad Number clears the failed phone from the active contact record. The
+  // call-outcome and record-attempt branches above have already preserved the
+  // failed number and the outcome in customer history via the value-scoped
+  // unusable marker ([channel-unusable:<digits>]), so clearing here loses
+  // nothing — the history still holds exactly what was dialed and why it failed.
+  //
+  // This is the write the design assumed but the route omitted. Without it the
+  // bad number stays on customers.phone, which (a) keeps the value-scoped
+  // unusable comparison pinned to the still-present failed digits so a
+  // replacement never self-restores eligibility, and (b) keeps research-record's
+  // raw present(phone) check seeing a phone, so "no replacement found" can never
+  // settle the method and stop recommending it. Nulling the field makes both
+  // subsystems agree the phone is genuinely missing: Contact Research recommends
+  // it, a found number restores calling eligibility with no stale state, and an
+  // unsuccessful research outcome correctly suppresses the recommendation.
+  //
+  // Guarded three ways: (1) a bad number was actually recorded; (2) the
+  // transition actually routed the customer to Research Needed — in a
+  // waiting-for-form / waiting-for-carrier stage a bad-number is a CHASE that
+  // preserves the stage (callOutcomeInStage returns no queue change), and we
+  // must NOT strip the phone there; and (3) the number on file still matches the
+  // one recorded as bad, so a replacement a concurrent edit already saved is
+  // never overwritten. The verification stamp is cleared with it, mirroring the
+  // research-found write's change contract.
+  const recordedBadNumber =
+    (action.type === 'call-outcome' && action.outcome === 'bad-number') ||
+    (action.type === 'record-attempt' && action.call === 'bad-number')
+  const routedToResearch = result.patch.queue === 'research-needed'
+  if (recordedBadNumber && routedToResearch) {
+    const badPhone = row.customer_prereviews.customers?.phone ?? null
+    if (badPhone && badPhone.trim().length > 0) {
+      const { error: clearErr } = await supabase
+        .from('customers')
+        .update({ phone: null, phone_verified_at: null })
+        .eq('id', customerId)
+        .eq('phone', badPhone)
+      if (clearErr) {
+        // Non-fatal: the history and the research-needed routing already stand.
+        // Log for visibility; the customer still surfaces in Contact Research via
+        // the value-scoped unusable fold even if the clear did not land.
+        console.error('stewardship bad-number phone clear error:', clearErr)
+      }
+    }
+  }
+
   // Record the servicing-agent form being sent to the customer (from a reached
   // call or from the waiting-for-response engagement path). The ready-to-email
   // path records its own email touch separately below.
