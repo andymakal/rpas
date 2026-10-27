@@ -841,39 +841,49 @@ export function CustomerContactCard({
   )
 
   // Set / clear Do Not Text (the durable customers.sms_opt_out opt-out). Part of
-  // the phone editor's single Save/Cancel operation: the server writes the
-  // opt-out and the editor closes, exactly like a field save. Disables texting
-  // only; the opt-out follows the customer regardless of the number.
-  const setDoNotText = useCallback(async (doNotText: boolean) => {
-    setBusyField('phone'); setError(null)
-    try {
-      const updated = await persist({ field: 'sms', do_not_text: doNotText })
-      applyUpdate(updated)
-      setEditing(null)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not update Do Not Text')
-    } finally {
-      setBusyField(null)
-    }
-  }, [persist, applyUpdate])
-
-  // Record Text Undeliverable for the number on file: a deliberate "the text
-  // failed to deliver" action. The server writes the value-scoped text-failure
-  // fact against the current number (an ordinary unsent text is never this), and
-  // the editor closes. Replacing the number later restores text availability on
-  // its own because the fact is scoped to the failed number.
-  const recordTextUndeliverable = useCallback(async () => {
-    setBusyField('phone'); setError(null)
-    try {
-      const updated = await persist({ field: 'sms_undeliverable' })
-      applyUpdate(updated)
-      setEditing(null)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not record Text Undeliverable')
-    } finally {
-      setBusyField(null)
-    }
-  }, [persist, applyUpdate])
+  // Commit the phone editor as ONE Save/Cancel operation: the typed number plus
+  // the two STAGED texting-availability intents (Do Not Text and Text
+  // Undeliverable). Nothing is written while the operator toggles the controls;
+  // Save applies only what actually changed, in order, and the editor closes
+  // once. Each underlying write is still a single-field route call (one op per
+  // request), so this sequences them:
+  //   1. Phone value, when it changed. The server clears the value-scoped text
+  //      delivery failure on a number change, so saving a NEW number first means
+  //      a stale "undeliverable" is already gone before we re-evaluate step 3.
+  //   2. Do Not Text, when the staged opt-out differs from the current one.
+  //   3. Text Undeliverable, when the operator staged it on and the number on
+  //      file (after step 1) is not already undeliverable. An ordinary unsent
+  //      text is never this; it is a deliberate "the text bounced" record.
+  // Cancel writes nothing, so toggling back and forth leaves the record
+  // untouched until Save.
+  const savePhone = useCallback(
+    async (intents: { phone: string | null; doNotText: boolean; markUndeliverable: boolean }) => {
+      setBusyField('phone'); setError(null)
+      try {
+        let current = record
+        const phoneChanged = (intents.phone ?? null) !== (current.phone ?? null)
+        if (phoneChanged) {
+          current = await persist({ field: 'phone', phone: intents.phone })
+        }
+        if ((current.sms_opt_out === true) !== intents.doNotText) {
+          current = await persist({ field: 'sms', do_not_text: intents.doNotText })
+        }
+        // Only record a failure when the operator staged it AND the number now on
+        // file is not already marked undeliverable (a changed number cleared any
+        // prior mark in step 1, so this re-fails the new number only on request).
+        if (intents.markUndeliverable && current.text_undeliverable !== true && !!current.phone?.trim()) {
+          current = await persist({ field: 'sms_undeliverable' })
+        }
+        applyUpdate(current)
+        setEditing(null)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Could not save')
+      } finally {
+        setBusyField(null)
+      }
+    },
+    [persist, applyUpdate, record],
+  )
 
   // Persist the alert through the shared route (or injected onPersist), update
   // the held record, and notify the host. Save with empty text clears it.
@@ -1014,10 +1024,8 @@ export function CustomerContactCard({
               appearance={ap}
               onEdit={() => { setError(null); setEditing('phone') }}
               onCancel={() => setEditing(null)}
-              onSave={(phone) => saveField({ field: 'phone', phone })}
+              onSave={(intents) => savePhone(intents)}
               onVerify={(v) => toggleVerify('phone', v)}
-              onSetDoNotText={(v) => setDoNotText(v)}
-              onRecordTextUndeliverable={() => recordTextUndeliverable()}
             />
 
             <AddressRow
@@ -2098,7 +2106,6 @@ function EmailRow({
 function PhoneRow({
   present, verifiedAt, value, smsOptOut, textUndeliverable,
   editing, busy, appearance, onEdit, onCancel, onSave, onVerify,
-  onSetDoNotText, onRecordTextUndeliverable,
 }: {
   present: boolean
   verifiedAt: string | null
@@ -2112,16 +2119,23 @@ function PhoneRow({
   appearance: ResolvedAppearance
   onEdit: () => void
   onCancel: () => void
-  onSave: (phone: string | null) => void
+  /** Commit the whole phone editor at once: the typed number plus the STAGED
+   * texting intents. Called only on Save. */
+  onSave: (intents: { phone: string | null; doNotText: boolean; markUndeliverable: boolean }) => void
   onVerify: (v: boolean) => void
-  /** Set / clear the Do Not Text opt-out. */
-  onSetDoNotText: (doNotText: boolean) => void
-  /** Record a text-delivery failure for the number on file. */
-  onRecordTextUndeliverable: () => void
 }) {
   const tone = toneFor(present, verifiedAt)
   const [draft, setDraft] = useState(formatPhoneAsTyped(value ?? ''))
   const [result, setResult] = useState<ContactFieldResult | null>(null)
+  // Staged texting intents, local to this editing session. They mirror the
+  // current facts when the editor opens and change ONLY in local state as the
+  // operator clicks; nothing persists until Save. `markUndeliverable` tracks the
+  // operator's intent to record a NEW delivery failure for the number on file —
+  // it starts true only when the number is already undeliverable (so toggling it
+  // off then on is a no-op against an existing mark, and on a clean number it is
+  // a deliberate opt-in).
+  const [draftDoNotText, setDraftDoNotText] = useState(smsOptOut)
+  const [draftUndeliverable, setDraftUndeliverable] = useState(textUndeliverable && present)
 
   // The effective texting status from the two facts. Do Not Text outranks a
   // delivery failure; it holds even with no number on file (it follows the
@@ -2131,7 +2145,12 @@ function PhoneRow({
     textUndeliverable: textUndeliverable && present,
   })
 
-  const open = useCallback(() => { setDraft(formatPhoneAsTyped(value ?? '')); setResult(null); onEdit() }, [value, onEdit])
+  const open = useCallback(() => {
+    setDraft(formatPhoneAsTyped(value ?? '')); setResult(null)
+    setDraftDoNotText(smsOptOut)
+    setDraftUndeliverable(textUndeliverable && present)
+    onEdit()
+  }, [value, smsOptOut, textUndeliverable, present, onEdit])
 
   if (!editing) {
     return (
@@ -2143,12 +2162,37 @@ function PhoneRow({
     )
   }
 
+  // The number the operator is about to save (used so the texting controls
+  // reflect whether a usable number will be on file after Save).
+  const stagedPhone = normalizePhoneInput(draft)
+  const willHaveNumber = stagedPhone.status !== 'empty' && stagedPhone.status !== 'invalid'
+  // The number has NOT changed from the one already on file (compare canonical
+  // values). When it is unchanged AND already undeliverable, that mark cannot be
+  // cleared here — a delivery failure clears only by REPLACING the number — so
+  // the Undeliverable control is locked on. Typing a different (or empty) number
+  // means the stale mark will clear on Save, which re-enables the toggle.
+  const numberUnchanged = (stagedPhone.value ?? null) === (value ? (normalizePhoneInput(value).value ?? null) : null)
+  const lockedUndeliverable = textUndeliverable && present && numberUnchanged && willHaveNumber
+
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
     const r = normalizePhoneInput(draft)
     if (r.status === 'invalid') { setResult(r); return }
-    onSave(r.value)
+    onSave({
+      phone: r.value,
+      doNotText: draftDoNotText,
+      // Only a number that will actually be on file can be marked undeliverable.
+      markUndeliverable: draftUndeliverable && willHaveNumber,
+    })
   }
+
+  // The staged texting status, from the pending toggles, so the editor previews
+  // exactly what Save will produce. A number being removed makes Undeliverable
+  // moot; Do Not Text still holds (it follows the customer).
+  const draftSmsDisplay: SmsAvailabilityDisplay = resolveSmsAvailabilityDisplay({
+    smsOptOut: draftDoNotText,
+    textUndeliverable: draftUndeliverable && willHaveNumber,
+  })
 
   return (
     <form onSubmit={submit} className="py-3 first:pt-0 last:pb-0">
@@ -2171,17 +2215,22 @@ function PhoneRow({
         <p className="mt-1.5 text-base text-status-missing-strong">{result.reason}</p>
       )}
 
-      {/* Text-message availability — the two existing restrictions, controlled
-          here. Each acts immediately on its own (distinct from the typed-number
-          Save): Do Not Text toggles the durable opt-out; Text Undeliverable
-          records a delivery failure for the number on file. Both disable texting
-          only, never calling. */}
+      {/* Text-message availability — the two existing restrictions, STAGED here
+          as part of the single Save/Cancel operation. Clicking a control only
+          toggles the pending selection (shown highlighted); nothing persists
+          until Save, and Cancel discards it. Both disable texting only, never
+          calling. */}
       <SmsAvailabilityControls
-        display={smsDisplay}
-        hasNumber={present}
+        display={draftSmsDisplay}
+        hasNumber={willHaveNumber}
+        doNotText={draftDoNotText}
+        undeliverable={draftUndeliverable && willHaveNumber}
+        lockedUndeliverable={lockedUndeliverable}
         busy={busy}
-        onSetDoNotText={onSetDoNotText}
-        onRecordTextUndeliverable={onRecordTextUndeliverable}
+        onToggleDoNotText={() => setDraftDoNotText((v) => !v)}
+        // When the mark is locked (same number, already undeliverable) the toggle
+        // is a no-op: it clears only by replacing the number.
+        onToggleUndeliverable={() => { if (!lockedUndeliverable) setDraftUndeliverable((v) => !v) }}
       />
 
       <div className="mt-2.5"><EditActions busy={busy} onCancel={onCancel} appearance={appearance} /></div>
@@ -2208,24 +2257,35 @@ function SmsStatusLine({ display, appearance }: { display: SmsAvailabilityDispla
 }
 
 /** The Text-message availability controls inside the phone editor. Two
- * restrictions, each acting on its own existing mechanism:
- *   - Do Not Text toggles the durable customer opt-out (customers.sms_opt_out).
- *     Available here even with no number on file, since it follows the customer.
- *   - Text Undeliverable records a delivery failure for the NUMBER on file.
- *     Needs a number present; an ordinary unsent text is not a failure, so this
- *     is a deliberate action. Replacing the number later restores availability.
+ * restrictions, each a STAGED toggle that is part of the phone editor's single
+ * Save/Cancel operation — clicking only flips the pending selection, nothing
+ * persists until Save, and Cancel discards it. The parent owns the staged state:
+ *   - Do Not Text stages the durable customer opt-out (customers.sms_opt_out).
+ *     Togglable even with no number on file, since it follows the customer.
+ *   - Text Undeliverable stages a delivery-failure record for the NUMBER that
+ *     will be on file. Needs a number; an ordinary unsent text is not a failure,
+ *     so this is a deliberate opt-in. Replacing the number restores availability.
  * Both disable texting only; telephone calls are never affected. */
 function SmsAvailabilityControls({
-  display, hasNumber, busy, onSetDoNotText, onRecordTextUndeliverable,
+  display, hasNumber, doNotText, undeliverable, lockedUndeliverable, busy,
+  onToggleDoNotText, onToggleUndeliverable,
 }: {
+  /** The STAGED status (from the pending toggles), for the help/preview line. */
   display: SmsAvailabilityDisplay
+  /** Whether a usable number will be on file after Save. */
   hasNumber: boolean
+  /** The staged Do Not Text selection. */
+  doNotText: boolean
+  /** The staged Text Undeliverable selection (already gated on hasNumber). */
+  undeliverable: boolean
+  /** The number on file is already undeliverable and unchanged, so the mark
+   * cannot be cleared here (it clears only by replacing the number). The toggle
+   * shows pressed and is locked. */
+  lockedUndeliverable: boolean
   busy: boolean
-  onSetDoNotText: (doNotText: boolean) => void
-  onRecordTextUndeliverable: () => void
+  onToggleDoNotText: () => void
+  onToggleUndeliverable: () => void
 }) {
-  const doNotText = display === 'do_not_text'
-  const undeliverable = display === 'undeliverable'
   return (
     <fieldset className="mt-3 border-t border-surface-border-strong pt-3">
       <legend className="text-sm font-semibold text-ink-secondary">Text-message availability</legend>
@@ -2237,7 +2297,7 @@ function SmsAvailabilityControls({
           type="button"
           disabled={busy}
           aria-pressed={doNotText}
-          onClick={() => onSetDoNotText(!doNotText)}
+          onClick={onToggleDoNotText}
           className={cn(
             'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-sm font-medium disabled:opacity-60',
             doNotText
@@ -2246,31 +2306,33 @@ function SmsAvailabilityControls({
           )}
         >
           <Ban className="size-3.5 shrink-0" aria-hidden />
-          {doNotText ? 'Do Not Text — on (clear)' : 'Do Not Text'}
+          Do Not Text
         </button>
         <button
           type="button"
-          // A delivery failure is recorded against the number on file, so it
-          // needs a present number and is a no-op once already undeliverable or
-          // opted out. Disabled (not hidden) so the control stays legible.
-          disabled={busy || !hasNumber || undeliverable || doNotText}
+          // A delivery failure is recorded against the number that will be on
+          // file, so it needs a number and is moot while Do Not Text already
+          // disables texting. It is also locked ON when the current number is
+          // already undeliverable (it clears only by replacing the number).
+          // Disabled (not hidden) so the control stays legible.
+          disabled={busy || !hasNumber || doNotText || lockedUndeliverable}
           aria-pressed={undeliverable}
-          onClick={onRecordTextUndeliverable}
+          onClick={onToggleUndeliverable}
           title={
-            !hasNumber ? 'Add a phone number first.'
+            !hasNumber ? 'Enter a phone number first.'
             : doNotText ? 'Do Not Text already disables texting.'
-            : undeliverable ? 'This number is already marked undeliverable.'
-            : 'Record that a text to this number failed to deliver.'
+            : lockedUndeliverable ? 'Already undeliverable. Replace the number to restore texting.'
+            : 'Mark that a text to this number failed to deliver (saved on Save).'
           }
           className={cn(
             'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-sm font-medium disabled:opacity-60',
-            undeliverable
+            undeliverable && !doNotText
               ? 'border-status-missing-border bg-status-missing-soft text-status-missing-strong'
               : 'border-surface-border-strong bg-surface-card text-ink-secondary hover:bg-surface-muted',
           )}
         >
           <MessageSquareOff className="size-3.5 shrink-0" aria-hidden />
-          {undeliverable ? 'Text Undeliverable — recorded' : 'Text Undeliverable'}
+          Text Undeliverable
         </button>
       </div>
     </fieldset>
