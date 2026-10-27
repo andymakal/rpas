@@ -296,18 +296,20 @@ export function CustomerInteractionClient({
 
   // ── Relationship list ────────────────────────────────────────────────────────
   return (
-    <section className="space-y-5">
+    <section>
       {/* Find a customer stays visible while browsing: sticky to the top of
           WorkflowPage's existing scrolling work area so the conversation list
           scrolls underneath it. The work area is the only scroller (no new
           scroll container), the layout stays single-column, and the search
-          behavior is unchanged — only its position is pinned. The surface
-          background + negative-margin top padding keep list cards from showing
-          above the box as they scroll under it. */}
-      <div className="sticky top-0 z-10 -mt-8 bg-workflow-surface pt-8">
+          behavior is unchanged — only its position is pinned. The box carries a
+          solid surface background and an opaque bottom gutter (pb-5) so the
+          Conversations heading and cards begin below it with normal spacing and
+          nothing shows between them as the list scrolls under. */}
+      <div className="sticky top-0 z-10 bg-workflow-surface pb-5">
         {searchBox}
       </div>
 
+      <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-xl font-semibold text-ink">
           Conversations{items.length > 0 ? ` (${items.length})` : ''}
@@ -374,6 +376,7 @@ export function CustomerInteractionClient({
           })}
         </ul>
       )}
+      </div>
     </section>
   )
 }
