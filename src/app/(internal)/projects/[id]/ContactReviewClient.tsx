@@ -37,7 +37,7 @@ import {
 import {
   TaskShell, ActionPanel, PrimaryAction, WorkflowButton,
   AssistantPanel, GatewayLookup,
-  CustomerContactCard, type CustomerContact,
+  CustomerContactCard, CustomerNameHeading, type CustomerContact,
   PolicySummaryList, type PolicySummary,
   CustomerHistoryCard, NextHistoryEntry,
   QueueListHeader, CustomerQueueCard, QueueEmptyState, OperationalTag,
@@ -466,6 +466,7 @@ export function ContactReviewClient({
           const addr = usableAddress(updated)
           setRows(prev => prev.map(r => r.customer_id === updated.id
             ? { ...r,
+                first_name: updated.first_name, last_name: updated.last_name,
                 email: updated.email, phone: updated.phone,
                 has_email: usable(updated.email), has_phone: usable(updated.phone),
                 has_address: addr,
@@ -479,6 +480,7 @@ export function ContactReviewClient({
             : r))
           setReopened(prev => prev && prev.customer_id === updated.id
             ? { ...prev,
+                first_name: updated.first_name, last_name: updated.last_name,
                 email: updated.email, phone: updated.phone,
                 has_email: usable(updated.email), has_phone: usable(updated.phone),
                 has_address: addr,
@@ -968,9 +970,13 @@ function ContactReviewTask({
             showName={false}
             showMentoring={false}
             header={
-              <h2 className="text-[33px] font-bold leading-tight tracking-tight text-brand">
-                {fullName(customer)}
-              </h2>
+              <CustomerNameHeading
+                customerId={customer.customer_id}
+                firstName={customer.first_name}
+                lastName={customer.last_name}
+                className="text-[33px] font-bold leading-tight tracking-tight text-brand"
+                onSaved={onContactChange}
+              />
             }
             onChange={onContactChange}
           />

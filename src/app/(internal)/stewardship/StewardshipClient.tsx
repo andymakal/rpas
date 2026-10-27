@@ -23,7 +23,7 @@ import {
   TaskShell, SlimTaskHeader, ContextHeader, type ContextField,
   ActionPanel, PrimaryAction, WorkflowButton, NextNote, OperationalTag,
   ExternalActionConfirm, SpokenScriptCard,
-  CustomerContactCard, type CustomerContact, GatewayLookup,
+  CustomerContactCard, CustomerNameHeading, type CustomerContact, GatewayLookup,
   PolicySummaryList, type PolicySummary,
   CustomerHistoryCard, NextHistoryEntry,
 } from '@/components/workflow'
@@ -1793,9 +1793,23 @@ function StewardshipCustomerContact({
       showName={false}
       showMentoring={false}
       header={
-        <h2 className="text-[33px] font-bold leading-tight tracking-tight text-brand">
-          {fullName(detail.customer)}
-        </h2>
+        <CustomerNameHeading
+          customerId={detail.customer.id}
+          firstName={detail.customer.first_name}
+          lastName={detail.customer.last_name}
+          className="text-[33px] font-bold leading-tight tracking-tight text-brand"
+          onSaved={(u) => setDetail(prev => prev ? {
+            ...prev,
+            // A corrected name updates the heading and everywhere the detail's
+            // customer name is shown. Fall back to the existing value if the
+            // authoritative record returns null for either part.
+            customer: {
+              ...prev.customer,
+              first_name: u.first_name ?? prev.customer.first_name,
+              last_name: u.last_name ?? prev.customer.last_name,
+            },
+          } : prev)}
+        />
       }
       onChange={(u) => setDetail(prev => prev ? {
         ...prev,
@@ -1804,7 +1818,8 @@ function StewardshipCustomerContact({
         address_verified_at: u.address_verified_at,
         customer: {
           ...prev.customer,
-          // Name is not edited by this card; keep the existing (non-null) values.
+          // Name is corrected via the heading's own save; keep the existing
+          // values here.
           email: u.email,
           phone: u.phone,
           street: u.street,
