@@ -310,6 +310,15 @@ type Detail = BoardItem & {
    * servicing request (servicing-access working screen). Supplied by the GET
    * route from the shared document repository (policy_documents). */
   authorization_on_file?: boolean
+  /** CLIENT-ONLY snapshot (not from the server): the phone number the server
+   * resolved `contact_options` against — i.e. the number on file at load. The
+   * ZEN contact-options eligibility (canCall/canText) and the recorded
+   * call-unusable/text-unusable marks are all value-scoped to THIS number. When
+   * the self-contained Customer Contact Card later replaces the number, those
+   * load-time, number-scoped restrictions no longer apply to the NEW digits, so
+   * texting availability must be recomputed live rather than read from the stale
+   * eligibility. Captured once when a task loads; see `textingAvailableNow`. */
+  contact_options_phone?: string | null
 }
 
 const QUEUE_ICON: Record<OutreachQueue, typeof Mail> = {
@@ -332,24 +341,56 @@ function fullName(c: Customer) {
 }
 
 /**
- * Whether a Hearsay text may be offered for this customer RIGHT NOW. The server
- * resolves `contact_options.canText` at load (usable number, minus any recorded
- * unusable text channel and the durable opt-out), which is the base texting
- * eligibility. We then intersect it with the LIVE customer-level restriction
- * facts the self-contained Customer Contact Card keeps current on `detail`
- * (`sms_opt_out` = Do Not Text; `text_undeliverable` = a recorded delivery
- * failure for the number on file) using the SAME `canTextGivenFacts` the card
- * displays. So setting Do Not Text or Text Undeliverable in the card disables
- * the text action immediately, with no page reload, and replacing the failed
- * number (which clears `text_undeliverable`) restores it — while calling, which
- * never consults these facts, stays available. Falls back to the stored opts or
- * the bare phone presence when options have not loaded yet.
+ * Whether a Hearsay text may be offered for this customer RIGHT NOW, derived
+ * from CURRENT customer facts so it reacts immediately to a Customer Contact
+ * Card save in BOTH directions — no page reload.
+ *
+ * It reuses the established contact-availability relationship rather than
+ * duplicating the ZEN decision: texting is "the number is callable" minus the
+ * two text-only restrictions, i.e.
+ *     canText = callableNow && !Do-Not-Text && !Text-Undeliverable
+ * (`canTextGivenFacts` applies the two text-only facts, exactly as the card
+ * displays them). Calling never consults the text-only facts, so it is
+ * unaffected.
+ *
+ * The subtlety the earlier version missed: ZEN's load-time `canCall`/`canText`
+ * and every recorded call-unusable / text-unusable mark are value-scoped to the
+ * NUMBER on file at load. So:
+ *   - While the number is unchanged, the load-time `canCall` correctly describes
+ *     it (a recorded bad-number "call-unusable" keeps BOTH calling and texting
+ *     off), so we respect it.
+ *   - Once the card REPLACES the number, those load-time number-scoped marks no
+ *     longer apply to the new digits, so callability is simply "a number is on
+ *     file now". Any fresh restriction on the new number can only be recorded
+ *     through a new attempt, which reloads the detail. This is what restores
+ *     texting the instant a missing or failed number is replaced with a usable
+ *     one, while still respecting a call-unusable restriction on an UNCHANGED
+ *     number.
+ * The current Do Not Text / Text Undeliverable facts are the live ones the card
+ * keeps on `detail` (the card re-resolves `text_undeliverable` against the new
+ * digits on save, so replacing a failed number clears it on its own).
  */
 function textingAvailableNow(detail: Detail): boolean {
-  const base = detail.contact_options?.canText ?? !!detail.customer.phone
-  return base && canTextGivenFacts({
+  const currentPhone = detail.customer.phone?.trim() || null
+  if (!currentPhone) return false
+
+  const numberChangedSinceLoad =
+    (detail.contact_options_phone ?? null) !== (detail.customer.phone ?? null)
+
+  // Callability of the CURRENT number. Unchanged number: honor the load-time,
+  // number-scoped ZEN decision (which already subtracted a recorded bad-number
+  // call-unusable). Replaced number: the load-time number-scoped marks are void,
+  // so a usable number present now is callable.
+  const callableNow = numberChangedSinceLoad
+    ? true
+    : (detail.contact_options?.canCall ?? true)
+
+  // Subtract the two LIVE text-only restrictions the card keeps current (Do Not
+  // Text follows the customer; Text Undeliverable is scoped to the number on
+  // file). Neither touches calling.
+  return callableNow && canTextGivenFacts({
     smsOptOut: detail.customer.sms_opt_out === true,
-    textUndeliverable: detail.customer.text_undeliverable === true && !!detail.customer.phone?.trim(),
+    textUndeliverable: detail.customer.text_undeliverable === true,
   })
 }
 
@@ -1334,7 +1375,16 @@ export function StewardshipTask({
   const load = useCallback(async () => {
     const res = await fetch(`/api/stewardship/${itemId}`, { cache: 'no-store' })
     const json = await res.json()
-    if (res.ok) setDetail(json.data as Detail)
+    if (res.ok) {
+      const data = json.data as Detail
+      // Snapshot the number the server resolved contact_options against, so a
+      // later card edit that replaces the number can tell the load-time,
+      // number-scoped texting/calling restrictions no longer apply. Only the
+      // server read (re)establishes the snapshot; the card's onChange preserves
+      // it (it spreads the prior detail), so a card-side number change is
+      // detectable against it until the next full reload.
+      setDetail({ ...data, contact_options_phone: data.customer.phone ?? null })
+    }
   }, [itemId])
 
   useEffect(() => { void load() }, [load])
