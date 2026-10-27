@@ -62,7 +62,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useMentorDisclosure, MentorCapButton, MentorCapPanel } from '@/lib/mentoring/MentorUi'
 import {
-  normalizeEmailInput, normalizePhoneInput, formatPhoneAsTyped, formatPhoneDisplay,
+  normalizeEmailInput, normalizePhoneInput, normalizeNameInput, formatPhoneAsTyped, formatPhoneDisplay,
   type ContactFieldResult,
 } from '@/lib/contact-input'
 import {
@@ -539,6 +539,7 @@ function colorClass(choice: ColorChoice, statusColor: string): string {
 /** The request the card would send. Exposed so a host (or Storybook) can supply
  * its own persistence and still exercise the exact same payloads. */
 export type ContactPersistPayload =
+  | { field: 'name'; first_name: string | null; last_name: string | null }
   | { field: 'email'; email: string | null }
   | { field: 'phone'; phone: string | null }
   | { field: 'address'; street: string | null; city: string | null; state: string | null; zip: string | null }
@@ -688,6 +689,10 @@ export function CustomerContactCard({
   const [editing, setEditing] = useState<ContactFieldKey | null>(null)
   const [busyField, setBusyField] = useState<ContactFieldKey | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // The name heading has its own in-place editor (first + last), independent of
+  // the per-field `editing`/`busyField` which are typed to the contact fields.
+  const [nameEditing, setNameEditing] = useState(false)
+  const [nameBusy, setNameBusy] = useState(false)
   // Overview (collapsed) vs Edit (expanded). Only meaningful when `collapsible`;
   // a non-collapsible card is always "expanded", preserving today's behavior.
   const [expanded, setExpanded] = useState(defaultExpanded)
@@ -754,7 +759,7 @@ export function CustomerContactCard({
     }
   }, [persist, applyUpdate])
 
-  const saveField = useCallback(async (payload: Exclude<ContactPersistPayload, { field: 'email_availability' } | { field: 'alert' }>) => {
+  const saveField = useCallback(async (payload: Exclude<ContactPersistPayload, { field: 'name' } | { field: 'email_availability' } | { field: 'alert' }>) => {
     const field = payload.field
     setBusyField(field); setError(null)
     try {
@@ -765,6 +770,23 @@ export function CustomerContactCard({
       setError(e instanceof Error ? e.message : 'Could not save')
     } finally {
       setBusyField(null)
+    }
+  }, [persist, applyUpdate])
+
+  // Persist a corrected first/last name through the shared route (or injected
+  // onPersist), update the held record so the heading changes instantly, and
+  // notify the host. The server preserves capitalization and records the
+  // correction in Customer History.
+  const saveName = useCallback(async (first_name: string | null, last_name: string | null) => {
+    setNameBusy(true); setError(null)
+    try {
+      const updated = await persist({ field: 'name', first_name, last_name })
+      applyUpdate(updated)
+      setNameEditing(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save name')
+    } finally {
+      setNameBusy(false)
     }
   }, [persist, applyUpdate])
 
@@ -875,6 +897,13 @@ export function CustomerContactCard({
           appearance={ap}
           name={fullName(record)}
           showMentoring={showMentoring}
+          firstName={record.first_name}
+          lastName={record.last_name}
+          nameEditing={nameEditing}
+          nameBusy={nameBusy}
+          onEditName={() => { setError(null); setNameEditing(true) }}
+          onCancelName={() => setNameEditing(false)}
+          onSaveName={saveName}
         />
       )}
 
@@ -1039,12 +1068,24 @@ export function CustomerContactCard({
  */
 function ContactMentoring({
   appearance, name, showMentoring = true,
+  firstName, lastName, nameEditing, nameBusy, onEditName, onCancelName, onSaveName,
 }: {
   appearance: ResolvedAppearance
   name: string
   /** Render the mentoring cap/panel. Default true (the existing behavior). When
    * false, only the name heading renders and no mentoring appears. */
   showMentoring?: boolean
+  /** The stored first/last name backing the inline name editor. */
+  firstName?: string | null
+  lastName?: string | null
+  /** Whether the inline name editor is open, and whether a save is in flight. */
+  nameEditing?: boolean
+  nameBusy?: boolean
+  /** Open / cancel the inline name editor, and save the corrected first/last.
+   * When these are omitted the name heading is read-only, exactly as before. */
+  onEditName?: () => void
+  onCancelName?: () => void
+  onSaveName?: (first: string | null, last: string | null) => void
 }) {
   const body =
     'Changes here update customer information throughout Right Path. Check Verified only when the ' +
@@ -1052,6 +1093,10 @@ function ContactMentoring({
     'response.'
 
   const { open, setOpen } = useMentorDisclosure()
+
+  // The name is editable only when the host wired the save handler (every
+  // on-card call site does). A read-only host keeps today's plain heading.
+  const nameEditable = !!onSaveName
 
   // Presentation-only overrides for the coaching body (size / color); the cap
   // icon itself keeps its standard purple identity. Only applied when a
@@ -1062,6 +1107,19 @@ function ContactMentoring({
         ...(appearance.mentoringColor ? { color: appearance.mentoringColor } : {}),
       }
     : undefined
+
+  if (nameEditable && nameEditing) {
+    return (
+      <NameEditor
+        appearance={appearance}
+        firstName={firstName ?? null}
+        lastName={lastName ?? null}
+        busy={!!nameBusy}
+        onCancel={() => onCancelName?.()}
+        onSave={(first, last) => onSaveName?.(first, last)}
+      />
+    )
+  }
 
   return (
     <>
@@ -1075,6 +1133,16 @@ function ContactMentoring({
         {showMentoring && !open && (
           <MentorCapButton onOpen={() => setOpen(true)} label="Show mentoring about these fields" />
         )}
+        {nameEditable && (
+          <button
+            type="button"
+            onClick={() => onEditName?.()}
+            aria-label="Edit customer name"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-2 py-1 text-sm font-medium text-ink-secondary hover:bg-surface-muted"
+          >
+            <Pencil className="size-3.5" aria-hidden /> Edit name
+          </button>
+        )}
       </div>
       {showMentoring && open && (
         <MentorCapPanel className="mt-2" onClose={() => setOpen(false)}>
@@ -1082,6 +1150,121 @@ function ContactMentoring({
         </MentorCapPanel>
       )}
     </>
+  )
+}
+
+/**
+ * The inline editor for the customer's first and last name, shown in place of
+ * the name heading. Two independent fields; capitalization is preserved exactly
+ * as typed (McAndrew, DeLuca) and multiword surnames (La Bar, van der Berg) are
+ * kept whole — the shared `normalizeNameInput` only collapses whitespace and
+ * trims, it never title-cases or splits. First and last are saved independently;
+ * either may be cleared to empty. Save is blocked only when NOTHING would remain
+ * (both blank), since a customer must keep at least one name.
+ */
+function NameEditor({
+  appearance, firstName, lastName, busy, onCancel, onSave,
+}: {
+  appearance: ResolvedAppearance
+  firstName: string | null
+  lastName: string | null
+  busy: boolean
+  onCancel: () => void
+  onSave: (first: string | null, last: string | null) => void
+}) {
+  const [first, setFirst] = useState(firstName ?? '')
+  const [last, setLast] = useState(lastName ?? '')
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault()
+    // Normalize for storage: collapse internal whitespace and trim, preserving
+    // capitalization exactly as typed. Each field is independent; an empty field
+    // is a valid clear (null).
+    const f = normalizeNameInput(first)
+    const l = normalizeNameInput(last)
+    onSave(f.value, l.value)
+  }
+
+  // At least one name component must remain after normalization.
+  const nothingLeft =
+    normalizeNameInput(first).status === 'empty' && normalizeNameInput(last).status === 'empty'
+
+  return (
+    <form onSubmit={submit} className="py-1">
+      <p className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
+        <Pencil className="size-4" aria-hidden /> Edit name
+      </p>
+      <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <div>
+          <label htmlFor="cc-first-name" className="text-sm font-medium text-ink-secondary">First name</label>
+          <input
+            id="cc-first-name"
+            type="text"
+            autoFocus
+            value={first}
+            disabled={busy}
+            onChange={(e) => setFirst(e.target.value)}
+            onBlur={() => setFirst((v) => normalizeNameInput(v).value ?? '')}
+            placeholder="First name"
+            className={cn('mt-1', inputCls(false))}
+          />
+        </div>
+        <div>
+          <label htmlFor="cc-last-name" className="text-sm font-medium text-ink-secondary">Last name</label>
+          <input
+            id="cc-last-name"
+            type="text"
+            value={last}
+            disabled={busy}
+            onChange={(e) => setLast(e.target.value)}
+            onBlur={() => setLast((v) => normalizeNameInput(v).value ?? '')}
+            placeholder="Last name"
+            className={cn('mt-1', inputCls(false))}
+          />
+        </div>
+      </div>
+      {nothingLeft && (
+        <p className="mt-1.5 text-base text-status-missing-strong">Enter at least a first or last name.</p>
+      )}
+      <div className="mt-2.5">
+        <NameEditActions busy={busy} disabled={nothingLeft} onCancel={onCancel} appearance={appearance} />
+      </div>
+    </form>
+  )
+}
+
+/** Save / Cancel for the name editor. Mirrors `EditActions` but allows the Save
+ * button to be disabled independently (when both name fields are blank). */
+function NameEditActions({
+  busy, disabled, onCancel, appearance,
+}: {
+  busy: boolean
+  disabled: boolean
+  onCancel: () => void
+  appearance: ResolvedAppearance
+}) {
+  const style = fontStyle(appearance, appearance.controlFontPx)
+  return (
+    <div className="flex items-center gap-2">
+      <button
+        type="submit"
+        disabled={busy || disabled}
+        style={style}
+        className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-base font-semibold text-brand-foreground hover:bg-brand-hover disabled:opacity-50"
+      >
+        {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
+        Save
+      </button>
+      <button
+        type="button"
+        onClick={onCancel}
+        disabled={busy}
+        style={style}
+        className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-3 py-1.5 text-base font-medium text-ink-secondary hover:bg-surface-muted disabled:opacity-40"
+      >
+        <X className="size-3.5" aria-hidden /> Cancel
+      </button>
+    </div>
   )
 }
 
