@@ -2,7 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { WorkflowPage, WorkflowHeader } from '@/components/workflow'
+import { WorkflowPage } from '@/components/workflow'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { CustomerInteractionClient } from './CustomerInteractionClient'
 
@@ -53,18 +53,14 @@ export default async function CustomerInteractionPage({
   return (
     <WorkflowPage
       heading={
-        <div className="space-y-8">
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
-            <Link
-              href="/my-work"
-              className="-ml-1 inline-flex items-center gap-1.5 text-base font-medium text-brand-hover transition-colors hover:text-brand"
-            >
-              <ArrowLeft className="size-4" aria-hidden />
-              Back to My Work
-            </Link>
-          </div>
-
-          <WorkflowHeader primary="Customer Interaction" />
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+          <Link
+            href="/my-work"
+            className="-ml-1 inline-flex items-center gap-1.5 text-base font-medium text-brand-hover transition-colors hover:text-brand"
+          >
+            <ArrowLeft className="size-4" aria-hidden />
+            Back to My Work
+          </Link>
         </div>
       }
     >
