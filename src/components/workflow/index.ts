@@ -54,6 +54,7 @@ export {
 
 export {
   CustomerContactCard,
+  CustomerNameHeading,
   type CustomerContact,
   type ContactPersistPayload,
   type ContactCardAppearance,

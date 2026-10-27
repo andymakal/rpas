@@ -532,6 +532,10 @@ function makeInteractivePersist(record: CustomerContact, setRecord: (c: Customer
       next = { ...record, phone: payload.phone, phone_verified_at: changed ? null : record.phone_verified_at }
     } else if (payload.field === 'alert') {
       next = { ...record, contact_alert: payload.alert?.trim() ? payload.alert.trim() : null }
+    } else if (payload.field === 'name') {
+      // First/last corrected independently, capitalization preserved. Mirrors
+      // the app route (no title-casing, no splitting).
+      next = { ...record, first_name: payload.first_name, last_name: payload.last_name }
     } else {
       next = {
         ...record,
