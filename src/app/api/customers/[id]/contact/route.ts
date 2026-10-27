@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
-import { normalizeEmailInput, normalizePhoneInput } from '@/lib/contact-input'
+import { normalizeEmailInput, normalizePhoneInput, normalizeNameInput } from '@/lib/contact-input'
 import {
   type EmailAvailability,
   type SelectableEmailAvailability,
@@ -182,6 +182,44 @@ async function recordEmailAvailabilityHistory(
   }
 }
 
+/** Display a stored name component for the history sentence, or a placeholder
+ * when it is empty, so the prior/new values read clearly even when one side is
+ * blank. */
+function nameForHistory(name: string | null): string {
+  return name && name.trim() ? name : '(none)'
+}
+
+/**
+ * Record ONE name correction in the single durable history system
+ * (case_touches, 'workflow'), naming the prior and new full name so the previous
+ * value is preserved. Attributed to the acting employee with a timestamp.
+ * Best-effort: a history-write failure is logged but never fails the save (the
+ * durable fact on the customer row is the source of truth). The caller
+ * guarantees this is only invoked when the name ACTUALLY changed. The bracketed
+ * marker is hidden by the Customer History display while the sentence shows.
+ */
+async function recordNameChangeHistory(
+  admin: AdminClient,
+  customerId: string,
+  before: { first_name: string | null; last_name: string | null },
+  after: { first_name: string | null; last_name: string | null },
+): Promise<void> {
+  const touchedBy = await resolveEmployeeName(admin)
+  const priorFull = `${nameForHistory(before.first_name)} ${nameForHistory(before.last_name)}`.trim()
+  const newFull = `${nameForHistory(after.first_name)} ${nameForHistory(after.last_name)}`.trim()
+  const { error } = await admin.from('case_touches').insert({
+    customer_id: customerId,
+    case_id: null,
+    touch_type: 'workflow',
+    notes: `Customer name corrected: "${priorFull}" changed to "${newFull}". [name-change]`,
+    touched_at: new Date().toISOString(),
+    touched_by: touchedBy,
+  })
+  if (error) {
+    console.error('name-change history record error:', error)
+  }
+}
+
 /** Collapse internal whitespace and trim; null when nothing meaningful remains. */
 function cleanLine(raw: unknown): string | null {
   if (typeof raw !== 'string') return null
@@ -226,11 +264,11 @@ export async function PATCH(
 
   const field = body.field
   if (
-    field !== 'email' && field !== 'phone' && field !== 'address' &&
+    field !== 'name' && field !== 'email' && field !== 'phone' && field !== 'address' &&
     field !== 'email_availability' && field !== 'alert'
   ) {
     return Response.json(
-      { error: 'A field of email, phone, address, email_availability, or alert is required.' },
+      { error: 'A field of name, email, phone, address, email_availability, or alert is required.' },
       { status: 400 },
     )
   }
@@ -249,6 +287,64 @@ export async function PATCH(
   }
   if (!before) {
     return Response.json({ error: 'Customer not found.' }, { status: 404 })
+  }
+
+  // ── CORRECT THE CUSTOMER NAME ─────────────────────────────────────────────
+  // Body: { field: 'name', first_name: string | null, last_name: string | null }
+  // First and last are corrected IN PLACE on the customers row, INDEPENDENTLY.
+  // Capitalization is preserved exactly as typed (McAndrew, DeLuca) and
+  // multiword surnames (La Bar, van der Berg) are kept whole — normalizeNameInput
+  // only collapses whitespace and trims; it never title-cases or splits a name.
+  // Save-only-changed: a field matching the stored value is not rewritten. The
+  // correction (prior -> new) is recorded once in Customer History. A request
+  // that would leave BOTH names empty is rejected — a customer keeps at least
+  // one name component.
+  if (field === 'name') {
+    const rawFirst = body.first_name
+    const rawLast = body.last_name
+    if (
+      (rawFirst != null && typeof rawFirst !== 'string') ||
+      (rawLast != null && typeof rawLast !== 'string')
+    ) {
+      return Response.json({ error: 'first_name and last_name must be strings or null.' }, { status: 400 })
+    }
+    const nextFirst = normalizeNameInput(typeof rawFirst === 'string' ? rawFirst : null).value
+    const nextLast = normalizeNameInput(typeof rawLast === 'string' ? rawLast : null).value
+
+    if (!nextFirst && !nextLast) {
+      return Response.json({ error: 'A first or last name is required.' }, { status: 400 })
+    }
+
+    const patch: Partial<CustomerContactRow> = {}
+    if ((nextFirst ?? null) !== (before.first_name ?? null)) patch.first_name = nextFirst
+    if ((nextLast ?? null) !== (before.last_name ?? null)) patch.last_name = nextLast
+
+    // Nothing actually changed: return the current record unchanged.
+    if (Object.keys(patch).length === 0) {
+      return Response.json({ data: before })
+    }
+
+    const { data: updated, error: nErr } = await supabase
+      .from('customers')
+      .update(patch)
+      .eq('id', customerId)
+      .eq('is_test', false)
+      .select(SELECT)
+      .maybeSingle<CustomerContactRow>()
+    if (nErr) {
+      console.error('customer name update error:', nErr)
+      return Response.json({ error: nErr.message }, { status: 500 })
+    }
+    if (!updated) return Response.json({ error: 'Customer not found.' }, { status: 404 })
+
+    // Preserve the prior name and the correction in Customer History.
+    await recordNameChangeHistory(
+      supabase,
+      customerId,
+      { first_name: before.first_name, last_name: before.last_name },
+      { first_name: updated.first_name, last_name: updated.last_name },
+    )
+    return Response.json({ data: updated })
   }
 
   // ── SET / CLEAR THE CUSTOMER ALERT ────────────────────────────────────────
