@@ -1368,6 +1368,8 @@ export function CustomerNameHeading({
   lastName,
   className,
   style,
+  showEditButton = true,
+  subline,
   onPersist,
   onSaved,
 }: {
@@ -1377,6 +1379,13 @@ export function CustomerNameHeading({
   /** Applied to the heading text so it matches the host's existing name style. */
   className?: string
   style?: React.CSSProperties
+  /** Whether to render the "Edit name" button. Default true (every existing
+   * caller is unchanged). A host can hide it in a read-only context (e.g. the
+   * Contact Research compact Overview) while keeping the name heading. */
+  showEditButton?: boolean
+  /** Optional content rendered directly BENEATH the name (e.g. the customer's
+   * calculated age). Shown in both read and edit states. Omit for no subline. */
+  subline?: ReactNode
   /** Inject persistence. Omit to PATCH /api/customers/[id]/contact. Must resolve
    * with the full updated record. */
   onPersist?: (customerId: string, payload: ContactPersistPayload) => Promise<CustomerContact>
@@ -1434,16 +1443,21 @@ export function CustomerNameHeading({
   }
 
   return (
-    <div className="flex items-center gap-2">
-      <h2 className={className} style={style}>{display}</h2>
-      <button
-        type="button"
-        onClick={() => { setError(null); setEditing(true) }}
-        aria-label="Edit customer name"
-        className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-2 py-1 text-sm font-medium text-ink-secondary hover:bg-surface-muted"
-      >
-        <Pencil className="size-3.5" aria-hidden /> Edit name
-      </button>
+    <div>
+      <div className="flex items-center gap-2">
+        <h2 className={className} style={style}>{display}</h2>
+        {showEditButton && (
+          <button
+            type="button"
+            onClick={() => { setError(null); setEditing(true) }}
+            aria-label="Edit customer name"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-2 py-1 text-sm font-medium text-ink-secondary hover:bg-surface-muted"
+          >
+            <Pencil className="size-3.5" aria-hidden /> Edit name
+          </button>
+        )}
+      </div>
+      {subline != null && <div className="mt-0.5">{subline}</div>}
     </div>
   )
 }
@@ -2417,19 +2431,21 @@ function AddressRow({
             onBlur={() => setStreet((v) => normalizeStreet(v) ?? '')}
             placeholder="123 Main St" className={cn('mt-1', inputCls(false))} />
         </div>
-        <div>
-          <label htmlFor="cc-city" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">City</label>
-          <input id="cc-city" value={city} onChange={(e) => setCity(e.target.value)}
-            onBlur={() => setCity((v) => normalizeCity(v) ?? '')}
-            placeholder="Philadelphia" className={cn('mt-1', inputCls(false))} />
-        </div>
+        {/* City, State, and ZIP share one row: City takes most of the width,
+            State and ZIP stay narrow. Street keeps its own row above. */}
         <div className="flex gap-2">
-          <div className="w-24">
+          <div className="flex-1">
+            <label htmlFor="cc-city" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">City</label>
+            <input id="cc-city" value={city} onChange={(e) => setCity(e.target.value)}
+              onBlur={() => setCity((v) => normalizeCity(v) ?? '')}
+              placeholder="Philadelphia" className={cn('mt-1', inputCls(false))} />
+          </div>
+          <div className="w-16">
             <label htmlFor="cc-state" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">State</label>
             <input id="cc-state" value={stateVal} onChange={(e) => setStateVal(e.target.value.toUpperCase())}
               maxLength={2} placeholder="PA" className={cn('mt-1 uppercase', inputCls(false))} />
           </div>
-          <div className="flex-1">
+          <div className="w-24">
             <label htmlFor="cc-zip" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">ZIP</label>
             <input id="cc-zip" value={zip} onChange={(e) => setZip(e.target.value)}
               placeholder="19103" className={cn('mt-1', inputCls(false))} />

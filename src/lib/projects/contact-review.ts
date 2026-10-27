@@ -89,6 +89,9 @@ export interface ContactReviewCustomer {
   customer_id: string
   first_name: string | null
   last_name: string | null
+  /** Stored date of birth; used only to derive the displayed age (the day is
+   * never shown). Carried so the card header can show the customer's age. */
+  date_of_birth: string | null
   /** Current stored contact facts, shown so the worker can see what exists. */
   email: string | null
   phone: string | null
@@ -193,6 +196,7 @@ type CustomerRow = {
   email_availability: EmailAvailability | null
   contact_alert: string | null
   sms_opt_out: boolean | null
+  date_of_birth: string | null
   is_test: boolean
 }
 
@@ -200,7 +204,7 @@ type CustomerRow = {
  * address and verification timestamps the shared CustomerContactCard needs. */
 const CUSTOMER_SELECT =
   'id, first_name, last_name, email, phone, street, address_line1, city, state, zip, ' +
-  'email_verified_at, phone_verified_at, address_verified_at, email_availability, contact_alert, sms_opt_out, is_test'
+  'email_verified_at, phone_verified_at, address_verified_at, email_availability, contact_alert, sms_opt_out, date_of_birth, is_test'
 
 const usable = (v: string | null): boolean => !!v && v.trim().length > 0
 
@@ -352,6 +356,7 @@ export async function buildContactReview(
       customer_id: c.id,
       first_name: c.first_name,
       last_name: c.last_name,
+      date_of_birth: c.date_of_birth,
       email: c.email,
       phone: c.phone,
       has_email: hasEmail,
@@ -467,6 +472,7 @@ export async function loadContactReviewCustomer(
     customer_id: row.id,
     first_name: row.first_name,
     last_name: row.last_name,
+    date_of_birth: row.date_of_birth,
     email: row.email,
     phone: row.phone,
     has_email: hasEmail,

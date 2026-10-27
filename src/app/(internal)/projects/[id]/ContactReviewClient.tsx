@@ -47,6 +47,7 @@ import {
   type HistoryEvent,
 } from '@/lib/stewardship/customer-history'
 import { type EmailAvailability } from '@/lib/email-availability'
+import { calcAge } from '@/lib/age'
 import {
   MentorGuidance, useMentorDisclosure, MentorCapButton, MentorCapPanel,
 } from '@/lib/mentoring/MentorUi'
@@ -56,6 +57,8 @@ type ContactReviewCustomer = {
   customer_id: string
   first_name: string | null
   last_name: string | null
+  /** Stored DOB; used only to derive the displayed age (day never shown). */
+  date_of_birth: string | null
   email: string | null
   phone: string | null
   has_email: boolean
@@ -805,6 +808,13 @@ function ContactReviewTask({
   const [busy, setBusy] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
+  // Mirror the card's Overview/Edit state so the name heading shows the Edit
+  // name button only in expanded Edit mode. The card opens expanded here
+  // (defaultExpanded), so this starts true and the card notifies us on toggle.
+  const [cardExpanded, setCardExpanded] = useState(true)
+  // Calculated age for the header subline, shown in both views. Null (omitted)
+  // when the DOB is missing or not a plausible full date — never guessed.
+  const age = calcAge(customer.date_of_birth)
 
   // The open customer's grouped history and policy summary for the shared
   // three-column working layout: the Customer History (with the Next History
@@ -974,6 +984,7 @@ function ContactReviewTask({
             // Contact Research is research work — start expanded in the editing
             // view so the worker can correct contact information immediately.
             defaultExpanded
+            onExpandedChange={setCardExpanded}
             showName={false}
             showMentoring={false}
             header={
@@ -982,6 +993,14 @@ function ContactReviewTask({
                 firstName={customer.first_name}
                 lastName={customer.last_name}
                 className="text-[33px] font-bold leading-tight tracking-tight text-brand"
+                // Edit name only in expanded Edit mode; hidden in the compact
+                // Overview.
+                showEditButton={cardExpanded}
+                // Calculated age beneath the name, shown in both views. Omitted
+                // when it cannot be determined.
+                subline={age != null
+                  ? <span className="text-base font-medium text-ink-supporting">Age {age}</span>
+                  : undefined}
                 onSaved={onContactChange}
               />
             }
