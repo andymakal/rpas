@@ -239,10 +239,6 @@ export function CustomerInteractionClient({
     </div>
   )
 
-  // The page-level mentoring: the inline graduation-cap sits immediately beside
-  // the "Customer Interaction" page title; clicking it expands the coaching
-  // directly beneath the title (before the customer search), and it is present
-  // whether viewing the conversation list or an individual conversation.
   // ── Open conversation ───────────────────────────────────────────────────────
   if (openId) {
     return (
@@ -301,7 +297,16 @@ export function CustomerInteractionClient({
   // ── Relationship list ────────────────────────────────────────────────────────
   return (
     <section className="space-y-5">
-      {searchBox}
+      {/* Find a customer stays visible while browsing: sticky to the top of
+          WorkflowPage's existing scrolling work area so the conversation list
+          scrolls underneath it. The work area is the only scroller (no new
+          scroll container), the layout stays single-column, and the search
+          behavior is unchanged — only its position is pinned. The surface
+          background + negative-margin top padding keep list cards from showing
+          above the box as they scroll under it. */}
+      <div className="sticky top-0 z-10 -mt-8 bg-workflow-surface pt-8">
+        {searchBox}
+      </div>
 
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-xl font-semibold text-ink">
