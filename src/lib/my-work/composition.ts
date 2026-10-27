@@ -639,13 +639,23 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     if (emailRouted) return emailRouted
     // A replacement phone on a research-needed (bad-number / bounce-no-phone /
     // no-contact) item returns the now-callable customer to Available to Call —
-    // the phone analogue of the email re-derivation above. Applied after email
-    // so the authorization-carrying introductory email wins when both apply.
+    // the phone analogue of the email re-derivation above. Evaluated after email
+    // here, and derivePhoneRouting ALSO enforces the introductory-email
+    // precedence itself (it yields for an untouched no-contact opener that has a
+    // usable email), so the authorization-carrying introductory email wins when
+    // both apply, consistently everywhere.
     const phoneRouted = derivePhoneRouting({
       queue: r.queue,
+      call_reason: r.call_reason as CallReason | null,
       research_reason: r.research_reason as ResearchReason | null,
+      last_call_outcome: r.last_call_outcome as CallOutcome | null,
+      email_sent_at: r.email_sent_at,
+      callback_date: r.callback_date,
       refused_at: r.refused_at,
       has_usable_phone: !!r.customer_prereviews.customers?.phone?.trim(),
+      has_usable_email: !!r.customer_prereviews.customers?.email?.trim(),
+      current_email: r.customer_prereviews.customers?.email ?? null,
+      intro_email_recipient: r.intro_email_recipient,
     })?.queue as OutreachQueue | undefined
     return phoneRouted ?? r.queue
   }

@@ -761,26 +761,67 @@ export function deriveEmailRouting(
  * ready-to-call carries no due signal (no 'no-response', no due callback), so
  * the customer lands in Available to Call, not Calls Due.
  *
+ * Introductory-email PRECEDENCE. A 'no-contact' research item (no email AND no
+ * phone at intake) is ALSO the email side's untouched opener: when it gains a
+ * usable email it should open with the introductory email (which carries the
+ * authorization form), exactly as it would have at intake. If BOTH an email and
+ * a phone become available for such an untouched opener, the introductory email
+ * must win over the call. This precedence is built into the function (not just
+ * the call sites) so it holds everywhere derivePhoneRouting is used — including
+ * the board route's persistence loop, which calls derivePhoneRouting WITHOUT
+ * first consulting deriveEmailRouting. We defer by asking deriveEmailRouting
+ * whether it would route this exact item; if it would, phone routing yields and
+ * returns null so the email path takes it. 'bad-number' and 'bounce-no-phone'
+ * are not untouched no-contact openers (a bad number means a call was placed; a
+ * bounce means an email flow already ran), so deriveEmailRouting never claims
+ * them and phone routing proceeds as before — the Bad Number recovery behavior
+ * is unchanged.
+ *
  * Returns the effective-queue patch, or null when nothing changes.
  */
 export function derivePhoneRouting(
-  state: Pick<OutreachState, 'queue' | 'research_reason'> & {
+  state: Pick<
+    OutreachState,
+    'queue' | 'call_reason' | 'research_reason' | 'last_call_outcome' | 'email_sent_at' | 'callback_date'
+  > & {
     refused_at?: string | null
     has_usable_phone: boolean
+    /** Whether a usable email is now on file, so the introductory-email opener
+     * takes precedence for an untouched no-contact item. Optional; omitting it
+     * (or false) means no email, so there is no precedence to defer to. */
+    has_usable_email?: boolean
+    /** The customer's current usable email and the prior intro recipient, so the
+     * replaced-address re-offer in deriveEmailRouting is recognized too. */
+    current_email?: string | null
+    intro_email_recipient?: string | null
   },
 ): OutreachPatch | null {
   if (!state.has_usable_phone) return null
   if (state.refused_at) return null
-  // Only the research states a missing/bad PHONE produces. A 'no-contact'
-  // research item (no email AND no phone at intake) is the email side's opener
-  // and is handled by deriveEmailRouting once an email arrives; a phone arriving
-  // for a no-contact item still leaves the item callable here, so include it.
+  // Only the research states a missing/bad PHONE produces.
   if (state.queue !== 'research-needed') return null
   const phoneGapReason =
     state.research_reason === 'bad-number' ||
     state.research_reason === 'bounce-no-phone' ||
     state.research_reason === 'no-contact'
   if (!phoneGapReason) return null
+  // Introductory-email precedence: if the introductory-email routing would take
+  // this item (an untouched no-contact opener that now has a usable email, or a
+  // replaced-address re-offer), yield to it. Single source of truth for that
+  // condition — we ask deriveEmailRouting directly rather than duplicate it.
+  const emailWouldRoute = deriveEmailRouting({
+    queue: state.queue,
+    call_reason: state.call_reason,
+    research_reason: state.research_reason,
+    last_call_outcome: state.last_call_outcome,
+    email_sent_at: state.email_sent_at,
+    callback_date: state.callback_date,
+    refused_at: state.refused_at ?? null,
+    has_usable_email: state.has_usable_email ?? false,
+    current_email: state.current_email ?? null,
+    intro_email_recipient: state.intro_email_recipient ?? null,
+  })
+  if (emailWouldRoute) return null
   // The item is now callable. Clear the stale research reason and surface it as
   // a plain available call. A bounced email that now has a phone keeps the
   // 'email-bounced' reason (the reducer's own bounce+phone outcome); the other
