@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import {
   ClipboardList, ChevronDown, ChevronUp,
-  Check, AlertTriangle, Plus, Trash2, ShieldCheck,
+  Check, AlertTriangle, Plus, Trash2, ShieldCheck, Printer,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -11,6 +11,7 @@ import {
 type OtherPolicy = {
   company: string; policy_number: string; face_amount: string
   issue_date: string; type: string; sold: boolean
+  premium_amount: string; billing_mode: string; pay_period: string
 }
 
 type Bene = {
@@ -29,6 +30,15 @@ type LTCPolicy = {
 type DisabilityPolicy = {
   policy_name: string; policy_type: string; insured: string
   benefit_amount: string; annual_premium: string; taxable: boolean
+}
+
+type InvestmentAccount = {
+  institution: string
+  account_type: string
+  approximate_value: string
+  ownership: string
+  related_customer_id: string
+  related_person_name: string
 }
 
 type FF = {
@@ -194,20 +204,24 @@ function initArr<T>(raw: Record<string, unknown> | null, key: string, map: (o: R
   return (r[key] as unknown[]).map(x => map((x ?? {}) as Record<string, unknown>))
 }
 
-const EMPTY_POLICY: OtherPolicy = { company: '', policy_number: '', face_amount: '', issue_date: '', type: 'personal', sold: false }
+const EMPTY_POLICY: OtherPolicy = { company: '', policy_number: '', face_amount: '', issue_date: '', type: 'personal', sold: false, premium_amount: '', billing_mode: 'Annual', pay_period: '' }
 const EMPTY_BENE: Bene = { name: '', dob: '', relationship: '', percentage: '', ssn: '', phone: '', email: '' }
 const EMPTY_DEPENDENT: Dependent = { name: '', dob: '', relationship: 'child', marital_status: '' }
 const EMPTY_LTC: LTCPolicy = { policy_name: '', insured: '', benefit_amount: '', annual_premium: '' }
 const EMPTY_DISABILITY: DisabilityPolicy = { policy_name: '', policy_type: 'long_term', insured: '', benefit_amount: '', annual_premium: '', taxable: false }
+const EMPTY_INVESTMENT: InvestmentAccount = { institution: '', account_type: 'brokerage', approximate_value: '', ownership: 'individual', related_customer_id: '', related_person_name: '' }
 
 function mapPolicy(o: Record<string, unknown>): OtherPolicy {
   return {
-    company:       typeof o.company       === 'string' ? o.company       : '',
-    policy_number: typeof o.policy_number === 'string' ? o.policy_number : '',
-    face_amount:   typeof o.face_amount   === 'string' ? o.face_amount   : '',
-    issue_date:    typeof o.issue_date    === 'string' ? o.issue_date    : '',
-    type:          typeof o.type          === 'string' ? o.type          : 'personal',
-    sold:          typeof o.sold          === 'boolean' ? o.sold         : false,
+    company:        typeof o.company        === 'string' ? o.company        : '',
+    policy_number:  typeof o.policy_number  === 'string' ? o.policy_number  : '',
+    face_amount:    typeof o.face_amount    === 'string' ? o.face_amount    : '',
+    issue_date:     typeof o.issue_date     === 'string' ? o.issue_date     : '',
+    type:           typeof o.type           === 'string' ? o.type           : 'personal',
+    sold:           typeof o.sold           === 'boolean' ? o.sold          : false,
+    premium_amount: typeof o.premium_amount === 'string' ? o.premium_amount : '',
+    billing_mode:   typeof o.billing_mode   === 'string' ? o.billing_mode   : 'Annual',
+    pay_period:     typeof o.pay_period     === 'string' ? o.pay_period     : '',
   }
 }
 
@@ -252,10 +266,170 @@ function mapDisability(o: Record<string, unknown>): DisabilityPolicy {
   }
 }
 
+function mapInvestmentAccount(o: Record<string, unknown>): InvestmentAccount {
+  return {
+    institution:         typeof o.institution         === 'string' ? o.institution         : '',
+    account_type:        typeof o.account_type        === 'string' ? o.account_type        : 'brokerage',
+    approximate_value:   typeof o.approximate_value   === 'string' ? o.approximate_value   : '',
+    ownership:           typeof o.ownership           === 'string' ? o.ownership           : 'individual',
+    related_customer_id: typeof o.related_customer_id === 'string' ? o.related_customer_id : '',
+    related_person_name: typeof o.related_person_name === 'string' ? o.related_person_name : '',
+  }
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 const inp = 'w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 placeholder-slate-600'
 const inpSm = 'w-full bg-slate-800 border border-slate-600 text-slate-100 text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-500 placeholder-slate-600'
+
+type CustomerMatch = { id: string; first_name: string | null; last_name: string; phone: string | null }
+
+function RelatedPersonPicker({
+  customerId, value, onChange, label, relType,
+}: {
+  customerId: string
+  value: { id: string; name: string } | null
+  onChange: (v: { id: string; name: string } | null) => void
+  label: string
+  relType: 'spouse' | 'joint_owner' | 'custodian'
+}) {
+  const [query,    setQuery]    = useState('')
+  const [results,  setResults]  = useState<CustomerMatch[]>([])
+  const [loading,  setLoading]  = useState(false)
+  const [showAdd,  setShowAdd]  = useState(false)
+  const [newFirst, setNewFirst] = useState('')
+  const [newLast,  setNewLast]  = useState('')
+  const [newPhone, setNewPhone] = useState('')
+  const [adding,   setAdding]   = useState(false)
+
+  async function search(q: string) {
+    if (q.length < 2) { setResults([]); return }
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/customers/search?q=${encodeURIComponent(q)}&exclude=${customerId}`)
+      const json = await res.json()
+      setResults(json.data ?? [])
+    } finally { setLoading(false) }
+  }
+
+  function linkInDb(relatedId: string) {
+    fetch(`/api/customers/${customerId}/relationships`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ related_customer_id: relatedId, relationship_type: relType }),
+    }).catch(() => {})
+  }
+
+  function select(c: CustomerMatch) {
+    const name = [c.first_name, c.last_name].filter(Boolean).join(' ')
+    onChange({ id: c.id, name })
+    linkInDb(c.id)
+    setQuery(''); setResults([])
+  }
+
+  async function addNew() {
+    if (!newLast) return
+    setAdding(true)
+    try {
+      const res = await fetch('/api/customers', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ first_name: newFirst || undefined, last_name: newLast, phone: newPhone || undefined }),
+      })
+      const json = await res.json()
+      if (!res.ok || !json.data) return
+      const { id, first_name, last_name } = json.data
+      const name = [first_name, last_name].filter(Boolean).join(' ')
+      onChange({ id, name })
+      linkInDb(id)
+      setShowAdd(false); setNewFirst(''); setNewLast(''); setNewPhone('')
+    } finally { setAdding(false) }
+  }
+
+  if (value) {
+    return (
+      <div className="flex items-center gap-2">
+        <a
+          href={`/customers/${value.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 bg-blue-900/20 border border-blue-800/40 rounded-full px-2.5 py-1"
+        >
+          {value.name}
+        </a>
+        <button onClick={() => onChange(null)} className="text-slate-600 hover:text-red-400 transition-colors" title="Remove link">
+          <Trash2 className="w-3 h-3" />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="relative">
+        <input
+          value={query}
+          onChange={e => { setQuery(e.target.value); search(e.target.value) }}
+          placeholder={`Search for ${label.toLowerCase()}…`}
+          className={inpSm}
+        />
+        {(results.length > 0 || (loading && query.length >= 2)) && (
+          <div className="absolute z-10 mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden">
+            {loading && <div className="px-3 py-2 text-xs text-slate-500">Searching…</div>}
+            {results.map(c => (
+              <button
+                key={c.id}
+                onClick={() => select(c)}
+                className="w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 transition-colors border-b border-slate-700/50 last:border-0"
+              >
+                {[c.first_name, c.last_name].filter(Boolean).join(' ')}
+                {c.phone && <span className="text-slate-500 text-xs ml-2">{c.phone}</span>}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      {!showAdd ? (
+        <button
+          onClick={() => setShowAdd(true)}
+          className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-500 rounded-md px-2 py-1 transition-colors"
+        >
+          <Plus className="w-3 h-3" /> Add {label}
+        </button>
+      ) : (
+        <div className="bg-slate-800/60 border border-slate-700 rounded-lg p-3 space-y-2">
+          <p className="text-xs font-medium text-slate-400">Add new person</p>
+          <div className="grid grid-cols-2 gap-2">
+            <div><label className="block text-xs text-slate-500 mb-1">First name</label>
+              <input value={newFirst} onChange={e => setNewFirst(e.target.value)} className={inpSm} />
+            </div>
+            <div><label className="block text-xs text-slate-500 mb-1">Last name *</label>
+              <input value={newLast} onChange={e => setNewLast(e.target.value)} className={inpSm} />
+            </div>
+          </div>
+          <div><label className="block text-xs text-slate-500 mb-1">Phone (optional)</label>
+            <input value={newPhone} onChange={e => setNewPhone(e.target.value)} type="tel" className={inpSm} />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={addNew}
+              disabled={!newLast || adding}
+              className="inline-flex items-center gap-1 text-xs text-white bg-blue-600 hover:bg-blue-500 rounded-md px-3 py-1.5 disabled:opacity-50 transition-colors"
+            >
+              {adding ? '…' : <><Check className="w-3 h-3" /> Add &amp; Link</>}
+            </button>
+            <button
+              onClick={() => { setShowAdd(false); setNewFirst(''); setNewLast(''); setNewPhone('') }}
+              className="text-xs text-slate-400 hover:text-slate-200 border border-slate-700 rounded-md px-3 py-1.5 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function SubSection({ id, title, open, onToggle, flagged, children }: {
   id: string; title: string; open: boolean; onToggle: () => void
@@ -347,7 +521,8 @@ export function FactFinderSection({
   const [contBenes,   setContBenes]   = useState<Bene[]>(() => initArr(initialData, 'contingent_benes', mapBene))
   const [dependents,  setDependents]  = useState<Dependent[]>(() => initArr(initialData, 'dependents', mapDependent))
   const [ltcPolicies, setLtcPolicies] = useState<LTCPolicy[]>(() => initArr(initialData, 'ltc_policies', mapLTC))
-  const [disPolicies, setDisPolicies] = useState<DisabilityPolicy[]>(() => initArr(initialData, 'disability_policies', mapDisability))
+  const [disPolicies,  setDisPolicies]  = useState<DisabilityPolicy[]>(() => initArr(initialData, 'disability_policies', mapDisability))
+  const [investments,  setInvestments]  = useState<InvestmentAccount[]>(() => initArr(initialData, 'investment_accounts', mapInvestmentAccount))
   const [verifiedAt, setVerifiedAt] = useState<string | null>(initialVerifiedAt)
   const [saving,     setSaving]     = useState(false)
   const [saveMsg,    setSaveMsg]    = useState<{ ok: boolean; text: string } | null>(null)
@@ -378,7 +553,7 @@ export function FactFinderSection({
     setSaving(true); setSaveMsg(null)
     try {
       const payload: Record<string, unknown> = {
-        fact_finder: { ...ff, other_policies: policies, primary_benes: primBenes, contingent_benes: contBenes, dependents, ltc_policies: ltcPolicies, disability_policies: disPolicies },
+        fact_finder: { ...ff, other_policies: policies, primary_benes: primBenes, contingent_benes: contBenes, dependents, ltc_policies: ltcPolicies, disability_policies: disPolicies, investment_accounts: investments },
       }
       if (verify) payload.fact_finder_verified_at = new Date().toISOString()
 
@@ -418,11 +593,11 @@ export function FactFinderSection({
   return (
     <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
       {/* Header */}
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-5 py-3 text-xs font-medium text-slate-400 uppercase tracking-wide hover:text-slate-200 transition-colors"
-      >
-        <span className="flex items-center gap-1.5">
+      <div className="flex items-center px-5 py-3">
+        <button
+          onClick={() => setOpen(o => !o)}
+          className="flex-1 flex items-center gap-1.5 text-xs font-medium text-slate-400 uppercase tracking-wide hover:text-slate-200 transition-colors text-left"
+        >
           <ClipboardList className="w-3.5 h-3.5" />
           Fact Finder
           {anyData && (
@@ -439,9 +614,26 @@ export function FactFinderSection({
               {condCount} condition{condCount !== 1 ? 's' : ''}
             </span>
           )}
-        </span>
-        {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
-      </button>
+        </button>
+        <div className="flex items-center gap-3">
+          <a
+            href={`/customers/${customerId}/fact-finder/print`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1 text-xs normal-case font-normal text-slate-500 hover:text-slate-300 transition-colors"
+            title="Print Fact Finder form"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            Print Form
+          </a>
+          <button
+            onClick={() => setOpen(o => !o)}
+            className="text-slate-400 hover:text-slate-200 transition-colors"
+          >
+            {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+      </div>
 
       {open && (
         <div className="border-t border-slate-800">
@@ -851,6 +1043,20 @@ export function FactFinderSection({
                       </label>
                     </div>
                   </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div><label className="block text-xs text-slate-500 mb-1">Premium (billed)</label><input value={p.premium_amount} onChange={e => setPolicy(i, 'premium_amount', e.target.value)} type="number" min="0" step="1" placeholder="e.g. 148" className={inpSm} /></div>
+                    <div><label className="block text-xs text-slate-500 mb-1">Billing mode</label>
+                      <select value={p.billing_mode} onChange={e => setPolicy(i, 'billing_mode', e.target.value)} className={inpSm}>
+                        {['Annual','Semi-Annual','Quarterly','Monthly','EFT Monthly','Single'].map(m => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </div>
+                    <div><label className="block text-xs text-slate-500 mb-1">Pay period</label>
+                      <select value={p.pay_period} onChange={e => setPolicy(i, 'pay_period', e.target.value)} className={inpSm}>
+                        <option value="">—</option>
+                        {['Full Pay','10-Pay','20-Pay','Single Premium'].map(v => <option key={v} value={v}>{v}</option>)}
+                      </select>
+                    </div>
+                  </div>
                 </div>
               ))}
             </div>
@@ -988,6 +1194,93 @@ export function FactFinderSection({
                   placeholder="e.g. Filed with Atty. Smith, updated 2023" className={inp} />
               </div>
             </div>
+          </SubSection>
+
+          {/* ── Investment & Brokerage Accounts ──────────────────────────── */}
+          <SubSection id="investments" title="Investment & Brokerage Accounts"
+            open={openSections.has('investments')} onToggle={() => toggleSec('investments')}>
+            {investments.length === 0 && <p className="text-xs text-slate-600 italic">No investment accounts on file</p>}
+            {investments.map((acct, i) => {
+              const needsRelated = ['joint_spouse', 'joint_other', 'custodian'].includes(acct.ownership)
+              const relLabel = acct.ownership === 'custodian' ? 'Custodian' : 'Joint Owner'
+              const relType  = acct.ownership === 'joint_spouse' ? 'spouse' : acct.ownership === 'custodian' ? 'custodian' : 'joint_owner'
+              const linkedValue = acct.related_customer_id
+                ? { id: acct.related_customer_id, name: acct.related_person_name }
+                : null
+              return (
+                <div key={i} className="bg-slate-800/40 border border-slate-700/50 rounded-lg p-3 mb-2 space-y-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-slate-400 font-medium">Account {i + 1}</span>
+                    <button
+                      onClick={() => setInvestments(prev => prev.filter((_, j) => j !== i))}
+                      className="text-slate-600 hover:text-red-400 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div><label className="block text-xs text-slate-500 mb-1">Institution</label>
+                      <input value={acct.institution}
+                        onChange={e => setInvestments(prev => prev.map((x, j) => j === i ? { ...x, institution: e.target.value } : x))}
+                        placeholder="Fidelity, Vanguard…" className={inpSm} />
+                    </div>
+                    <div><label className="block text-xs text-slate-500 mb-1">Account type</label>
+                      <select value={acct.account_type}
+                        onChange={e => setInvestments(prev => prev.map((x, j) => j === i ? { ...x, account_type: e.target.value } : x))}
+                        className={inpSm}>
+                        <option value="brokerage">Brokerage</option>
+                        <option value="mutual_fund">Mutual Fund</option>
+                        <option value="ira_traditional">IRA (Traditional)</option>
+                        <option value="ira_roth">IRA (Roth)</option>
+                        <option value="401k">401(k)</option>
+                        <option value="403b">403(b)</option>
+                        <option value="annuity">Annuity</option>
+                        <option value="utma_ugma">UTMA / UGMA</option>
+                        <option value="529">529 Plan</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </div>
+                    <div><label className="block text-xs text-slate-500 mb-1">Approx. value ($)</label>
+                      <input value={acct.approximate_value}
+                        onChange={e => setInvestments(prev => prev.map((x, j) => j === i ? { ...x, approximate_value: e.target.value } : x))}
+                        type="number" min="0" step="1000" className={inpSm} />
+                    </div>
+                  </div>
+                  <div><label className="block text-xs text-slate-500 mb-1">Ownership</label>
+                    <select value={acct.ownership}
+                      onChange={e => setInvestments(prev => prev.map((x, j) => j === i
+                        ? { ...x, ownership: e.target.value, related_customer_id: '', related_person_name: '' }
+                        : x))}
+                      className={inpSm}>
+                      <option value="individual">Individual</option>
+                      <option value="joint_spouse">Joint – Spouse</option>
+                      <option value="joint_other">Joint – Other</option>
+                      <option value="custodian">UTMA / Custodial</option>
+                    </select>
+                  </div>
+                  {needsRelated && (
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">{relLabel}</label>
+                      <RelatedPersonPicker
+                        customerId={customerId}
+                        value={linkedValue}
+                        onChange={v => setInvestments(prev => prev.map((x, j) => j === i
+                          ? { ...x, related_customer_id: v?.id ?? '', related_person_name: v?.name ?? '' }
+                          : x))}
+                        label={relLabel}
+                        relType={relType as 'spouse' | 'joint_owner' | 'custodian'}
+                      />
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+            <button
+              onClick={() => setInvestments(p => [...p, { ...EMPTY_INVESTMENT }])}
+              className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-500 rounded-md px-2 py-1 transition-colors"
+            >
+              <Plus className="w-3 h-3" /> Add Account
+            </button>
           </SubSection>
 
           {/* ── Beneficiaries ─────────────────────────────────────────────── */}

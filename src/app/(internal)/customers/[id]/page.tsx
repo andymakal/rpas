@@ -93,6 +93,9 @@ export type LinkedPolicy = {
   product_type:        string | null
   face_amount:         number | null
   annual_premium:      number | null
+  premium_mode:        string | null
+  pay_period:          string | null
+  rate_class:          string | null
   coverage_status:     string
   sa_status:           string
   sa_form_sent_at:     string | null
@@ -191,7 +194,7 @@ export default async function CustomerCardPage({
     .select(`
       id, policy_number, client_name, carrier, product_type,
       face_amount, death_benefit_amount, annual_premium, cash_value_amount, cost_basis,
-      premium_mode, issue_date, term_length, rate_class, riders,
+      premium_mode, pay_period, issue_date, term_length, rate_class, riders,
       insured_first_name, insured_last_name, primary_beneficiary,
       coverage_status, sa_status, sa_form_sent_at, source_case_id,
       agencies ( name, display_name )
@@ -236,6 +239,9 @@ export default async function CustomerCardPage({
     product_type:    p.product_type,
     face_amount:         p.face_amount,
     annual_premium:      p.annual_premium,
+    premium_mode:        (p as unknown as Record<string, unknown>).premium_mode as string | null ?? null,
+    pay_period:          (p as unknown as Record<string, unknown>).pay_period as string | null ?? null,
+    rate_class:          (p as unknown as Record<string, unknown>).rate_class as string | null ?? null,
     coverage_status:     p.coverage_status,
     sa_status:           p.sa_status,
     sa_form_sent_at:     p.sa_form_sent_at,

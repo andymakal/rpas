@@ -32,6 +32,7 @@ import {
   FolderGit2,
   ListTodo,
   Sparkles,
+  FileText,
 } from 'lucide-react'
 import { NotificationBell } from '@/components/layout/NotificationBell'
 
@@ -48,6 +49,7 @@ const navItems = [
   { href: '/service',                icon: Wrench,          label: 'Service'          },
   { href: '/policies',               icon: BookOpen,        label: 'Policies'         },
   { href: '/reviews',                icon: ClipboardCheck,  label: 'Reviews'          },
+  { href: '/forms',                  icon: FileText,        label: 'Forms'            },
   { href: '/financial-review',       icon: BarChart2,       label: 'Financial Review' },
   { href: '/projects',               icon: FolderGit2,      label: 'Projects'         },
   { href: '/customers',               icon: Users,           label: 'Customers'        },
