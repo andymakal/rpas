@@ -149,7 +149,7 @@ export async function GET(
       ${OUTREACH_COLUMNS},
       customer_prereviews!inner (
         id, customer_id, source_agency_id, decision, created_at,
-        customers!inner ( id, first_name, last_name, email, phone, date_of_birth, street, address_line1, city, state, zip, phone_verified_at, email_verified_at, address_verified_at, email_availability, contact_alert )
+        customers!inner ( id, first_name, last_name, email, phone, date_of_birth, street, address_line1, city, state, zip, phone_verified_at, email_verified_at, address_verified_at, email_availability, contact_alert, sms_opt_out )
       )
     `)
     .eq('id', id)
@@ -208,6 +208,7 @@ export async function GET(
     phone_verified_at: string | null; email_verified_at: string | null; address_verified_at: string | null
     email_availability: EmailAvailability | null
     contact_alert: string | null
+    sms_opt_out: boolean | null
   }
 
   // Required-signer identity is NOT durable today: there is no owner/signer
@@ -389,6 +390,34 @@ export async function GET(
     authorizationOnFile = !!authRow
   }
 
+  // Best-available-precision age for the shared Customer Contact Card identity
+  // header, reusing the project age logic (exact DOB, else the agreed masked
+  // policy DOB, UNKNOWN on conflict). Age only; no DOB is exposed to the client.
+  let customerAge: number | null = null
+  let customerAgeApproximate = false
+  {
+    const { data: ageRows } = await supabase.rpc('project_customer_ages', { p_customer_ids: [customerId] })
+    const ageRow = (ageRows ?? [])[0] as { age: number | null; is_approximate: boolean } | undefined
+    if (ageRow) {
+      customerAge = ageRow.age ?? null
+      customerAgeApproximate = ageRow.is_approximate === true
+    }
+  }
+
+  // The texting facts the shared card needs on INITIAL display: the durable Do
+  // Not Text opt-out (customers.sms_opt_out) and whether the number on file has
+  // a recorded text-delivery failure (the value-scoped text unusable fact,
+  // already resolved against the current phone in history.unusableChannels).
+  // Attached to the customer so the card shows the correct texting status
+  // immediately, not only after an edit.
+  const customerForCard = {
+    ...cust,
+    sms_opt_out: cust.sms_opt_out === true,
+    text_undeliverable: history.unusableChannels.includes('text'),
+    customer_age: customerAge,
+    customer_age_approximate: customerAgeApproximate,
+  }
+
   // requires that confirmation.
   return Response.json({
     data: {
@@ -415,7 +444,7 @@ export async function GET(
       phone_verified_at: cust.phone_verified_at,
       email_verified_at: cust.email_verified_at,
       address_verified_at: cust.address_verified_at,
-      customer: cust,
+      customer: customerForCard,
       source_agency_id: pre.source_agency_id,
       holdings,
       // The available contact actions (call / text / email / postal) and whether

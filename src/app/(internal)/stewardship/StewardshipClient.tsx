@@ -254,6 +254,14 @@ type Detail = BoardItem & {
     zip: string | null
     email_availability: EmailAvailability | null
     contact_alert: string | null
+    /** Durable Do Not Text opt-out, for the shared card's texting status. */
+    sms_opt_out?: boolean
+    /** Whether the number on file has a recorded text-delivery failure. */
+    text_undeliverable?: boolean
+    /** Best-available-precision age (reused project age logic); null unknown. */
+    customer_age?: number | null
+    /** True when the age came from the masked policy fallback (approximate). */
+    customer_age_approximate?: boolean
   }
   source_agency_id: string | null
   holdings: Holding[]
@@ -1762,6 +1770,9 @@ function StewardshipCustomerContact({
   startExpanded?: boolean
 }) {
   const c = detail.customer
+  // Mirror the card's Overview/Edit state so the shared heading shows the Edit
+  // name button only in expanded Edit mode. The card opens at `startExpanded`.
+  const [cardExpanded, setCardExpanded] = useState(startExpanded)
   const customer: CustomerContact = {
     id: c.id,
     first_name: c.first_name,
@@ -1778,6 +1789,9 @@ function StewardshipCustomerContact({
     address_verified_at: detail.address_verified_at,
     email_availability: c.email_availability,
     contact_alert: c.contact_alert,
+    // Texting facts for the shared card's status on INITIAL display.
+    sms_opt_out: c.sms_opt_out === true,
+    text_undeliverable: c.text_undeliverable === true,
   }
   return (
     <CustomerContactCard
@@ -1790,6 +1804,7 @@ function StewardshipCustomerContact({
       // default; Research Needed passes startExpanded so it opens in edit mode.
       collapsible
       defaultExpanded={startExpanded}
+      onExpandedChange={setCardExpanded}
       showName={false}
       showMentoring={false}
       header={
@@ -1798,6 +1813,11 @@ function StewardshipCustomerContact({
           firstName={detail.customer.first_name}
           lastName={detail.customer.last_name}
           className="text-[33px] font-bold leading-tight tracking-tight text-brand"
+          // Shared identity rule: Edit name only in expanded Edit mode; age
+          // beneath the name in both modes (reused policy-aware age).
+          expanded={cardExpanded}
+          age={c.customer_age ?? null}
+          ageApproximate={c.customer_age_approximate === true}
           onSaved={(u) => setDetail(prev => prev ? {
             ...prev,
             // A corrected name updates the heading and everywhere the detail's
@@ -1829,6 +1849,11 @@ function StewardshipCustomerContact({
           zip: u.zip,
           email_availability: u.email_availability,
           contact_alert: u.contact_alert ?? null,
+          // Keep the texting facts in sync after a Do Not Text / Text
+          // Undeliverable or number change, so the status stays correct without
+          // a reload.
+          sms_opt_out: u.sms_opt_out ?? prev.customer.sms_opt_out,
+          text_undeliverable: u.text_undeliverable ?? prev.customer.text_undeliverable,
         },
       } : prev)}
     />

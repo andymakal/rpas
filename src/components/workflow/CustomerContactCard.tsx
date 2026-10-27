@@ -1368,8 +1368,9 @@ export function CustomerNameHeading({
   lastName,
   className,
   style,
-  showEditButton = true,
-  subline,
+  expanded = true,
+  age = null,
+  ageApproximate = false,
   onPersist,
   onSaved,
 }: {
@@ -1379,13 +1380,19 @@ export function CustomerNameHeading({
   /** Applied to the heading text so it matches the host's existing name style. */
   className?: string
   style?: React.CSSProperties
-  /** Whether to render the "Edit name" button. Default true (every existing
-   * caller is unchanged). A host can hide it in a read-only context (e.g. the
-   * Contact Research compact Overview) while keeping the name heading. */
-  showEditButton?: boolean
-  /** Optional content rendered directly BENEATH the name (e.g. the customer's
-   * calculated age). Shown in both read and edit states. Omit for no subline. */
-  subline?: ReactNode
+  /** The card's Overview/Edit state. This shared heading owns the uniform rule
+   * for every workflow screen: the Edit name button shows ONLY in expanded Edit
+   * mode and is hidden in the compact Overview. Hosts pass the card's expanded
+   * state (from `onExpandedChange`); default true preserves the always-editable
+   * behavior for a non-collapsible caller. */
+  expanded?: boolean
+  /** The customer's best-available-precision age (reused project age logic:
+   * exact DOB, else the agreed masked policy DOB). Shown directly beneath the
+   * name in BOTH modes. Null omits the age entirely — never guessed. */
+  age?: number | null
+  /** True when `age` came from the masked policy fallback rather than an exact
+   * date_of_birth, so it is labeled approximate ("~N (approx.)"). */
+  ageApproximate?: boolean
   /** Inject persistence. Omit to PATCH /api/customers/[id]/contact. Must resolve
    * with the full updated record. */
   onPersist?: (customerId: string, payload: ContactPersistPayload) => Promise<CustomerContact>
@@ -1426,6 +1433,22 @@ export function CustomerNameHeading({
     }
   }, [customerId, onPersist, onSaved])
 
+  // The age line beneath the name, shown uniformly in both modes. Omitted when
+  // age is unknown; an approximate age (from the masked policy fallback) is
+  // marked "~N (approx.)" with a clarifying tooltip. Shared by both the editing
+  // and read states so every workflow screen reads identically.
+  const ageSubline = age != null ? (
+    <div className="mt-0.5">
+      <span
+        className="text-base font-medium text-ink-supporting"
+        title={ageApproximate ? 'Approximate age, estimated from policy records' : undefined}
+      >
+        Age {ageApproximate ? `~${age}` : age}
+        {ageApproximate && <span className="ml-1 text-ink-muted">(approx.)</span>}
+      </span>
+    </div>
+  ) : null
+
   if (editing) {
     return (
       <div>
@@ -1437,6 +1460,7 @@ export function CustomerNameHeading({
           onCancel={() => { setError(null); setEditing(false) }}
           onSave={save}
         />
+        {ageSubline}
         {error && <p className="mt-1.5 text-base text-status-missing-strong">{error}</p>}
       </div>
     )
@@ -1446,7 +1470,9 @@ export function CustomerNameHeading({
     <div>
       <div className="flex items-center gap-2">
         <h2 className={className} style={style}>{display}</h2>
-        {showEditButton && (
+        {/* Uniform rule for every workflow screen: Edit name only in expanded
+            Edit mode, hidden in the compact Overview. */}
+        {expanded && (
           <button
             type="button"
             onClick={() => { setError(null); setEditing(true) }}
@@ -1457,7 +1483,7 @@ export function CustomerNameHeading({
           </button>
         )}
       </div>
-      {subline != null && <div className="mt-0.5">{subline}</div>}
+      {ageSubline}
     </div>
   )
 }

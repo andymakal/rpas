@@ -999,23 +999,11 @@ function ContactReviewTask({
                 firstName={customer.first_name}
                 lastName={customer.last_name}
                 className="text-[33px] font-bold leading-tight tracking-tight text-brand"
-                // Edit name only in expanded Edit mode; hidden in the compact
-                // Overview.
-                showEditButton={cardExpanded}
-                // Age beneath the name, shown in both views. Omitted when it
-                // cannot be determined. An approximate age (derived from an
-                // incomplete policy DOB) is shown with "~" and labeled.
-                subline={age != null
-                  ? (
-                    <span
-                      className="text-base font-medium text-ink-supporting"
-                      title={ageApproximate ? 'Approximate age, estimated from policy records' : undefined}
-                    >
-                      Age {ageApproximate ? `~${age}` : age}
-                      {ageApproximate && <span className="ml-1 text-ink-muted">(approx.)</span>}
-                    </span>
-                  )
-                  : undefined}
+                // The shared heading owns the uniform identity rule: Edit name
+                // only in expanded Edit mode, age beneath the name in both.
+                expanded={cardExpanded}
+                age={age}
+                ageApproximate={ageApproximate}
                 onSaved={onContactChange}
               />
             }
