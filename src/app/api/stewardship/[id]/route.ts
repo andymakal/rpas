@@ -340,9 +340,16 @@ export async function GET(
     ? null
     : derivePhoneRouting({
         queue: o.queue,
+        call_reason: o.call_reason,
         research_reason: o.research_reason,
+        last_call_outcome: o.last_call_outcome,
+        email_sent_at: o.email_sent_at,
+        callback_date: o.callback_date,
         refused_at: o.refused_at,
         has_usable_phone: !!cust.phone?.trim(),
+        has_usable_email: !!cust.email?.trim(),
+        current_email: cust.email,
+        intro_email_recipient: o.intro_email_recipient,
       })
   const effectivePatch = emailPatch ?? phonePatch
   const effectiveQueue: OutreachQueue = effectivePatch?.queue ?? o.queue

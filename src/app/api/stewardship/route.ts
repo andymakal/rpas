@@ -133,24 +133,41 @@ export async function GET(request: NextRequest) {
   // reason. refused items are excluded.
   const { data: phoneReturn } = await supabase
     .from('stewardship_outreach')
-    .select('id, research_reason, refused_at, customer_prereviews!inner ( customers!inner ( phone ) )')
+    .select('id, call_reason, research_reason, last_call_outcome, email_sent_at, callback_date, intro_email_recipient, refused_at, customer_prereviews!inner ( customers!inner ( phone, email ) )')
     .eq('queue', 'research-needed')
     .in('research_reason', ['bad-number', 'bounce-no-phone', 'no-contact'])
     .is('refused_at', null)
   type ResearchRow = {
     id: string
+    call_reason: string | null
     research_reason: string | null
+    last_call_outcome: string | null
+    email_sent_at: string | null
+    callback_date: string | null
+    intro_email_recipient: string | null
     refused_at: string | null
-    customer_prereviews: { customers: { phone: string | null } | { phone: string | null }[] } | null
+    customer_prereviews: { customers: { phone: string | null; email: string | null } | { phone: string | null; email: string | null }[] } | null
   }
   for (const rr of (phoneReturn ?? []) as unknown as ResearchRow[]) {
     const custRaw = rr.customer_prereviews?.customers
     const cust = Array.isArray(custRaw) ? custRaw[0] : custRaw
+    // derivePhoneRouting enforces introductory-email precedence itself: an
+    // untouched no-contact opener that now also has a usable email yields to the
+    // email routing (which the board applies in-memory below), so it is NOT
+    // persisted to ready-to-call here. bad-number / bounce-no-phone are
+    // unaffected and still return to calling work.
     const patch = derivePhoneRouting({
       queue: 'research-needed',
+      call_reason: rr.call_reason as CallReason | null,
       research_reason: rr.research_reason as ResearchReason | null,
+      last_call_outcome: rr.last_call_outcome as CallOutcome | null,
+      email_sent_at: rr.email_sent_at,
+      callback_date: rr.callback_date,
       refused_at: rr.refused_at,
       has_usable_phone: !!cust?.phone?.trim(),
+      has_usable_email: !!cust?.email?.trim(),
+      current_email: cust?.email ?? null,
+      intro_email_recipient: rr.intro_email_recipient,
     })
     if (patch) {
       await supabase.from('stewardship_outreach').update(patch).eq('id', rr.id)

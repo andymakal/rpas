@@ -710,9 +710,16 @@ test('normalizeRecipientEmail: trims, lowercases, and blanks to null', () => {
 function researchForBadNumber(partial: Partial<Parameters<typeof derivePhoneRouting>[0]> = {}) {
   return {
     queue: 'research-needed' as const,
+    call_reason: null,
     research_reason: 'bad-number' as const,
+    last_call_outcome: null,
+    email_sent_at: null,
+    callback_date: null,
     refused_at: null,
     has_usable_phone: true,
+    has_usable_email: false,
+    current_email: null,
+    intro_email_recipient: null,
     ...partial,
   }
 }
@@ -753,7 +760,7 @@ test('derivePhoneRouting: never touches an authorization/carrier stage (onboardi
     assert.equal(
       // research_reason is irrelevant off research-needed; the queue gate alone
       // keeps these stages untouched so completed outreach is preserved.
-      derivePhoneRouting({ queue, research_reason: null, refused_at: null, has_usable_phone: true }),
+      derivePhoneRouting(researchForBadNumber({ queue, research_reason: null })),
       null,
     )
   }
@@ -787,6 +794,74 @@ test('derivePhoneRouting end-to-end: still in research while no replacement exis
   })
   assert.equal(eff, 'research-needed')
   assert.equal(population, null)
+})
+
+// ── Introductory-email precedence over phone routing (PR #15 follow-up) ──────
+// An UNTOUCHED no-contact opener (no email AND no phone at intake) that gains
+// BOTH an email and a phone must open with the introductory email, not a call.
+// derivePhoneRouting must yield so deriveEmailRouting takes the item.
+
+test('derivePhoneRouting: an untouched no-contact opener with BOTH email and phone yields to the introductory email', () => {
+  // The exact regression PR #15 could cause: no-contact + usable phone would
+  // have promoted to ready-to-call. With a usable email also present and the
+  // item untouched, phone routing must yield (null) so email routing wins.
+  const patch = derivePhoneRouting(
+    researchForBadNumber({ research_reason: 'no-contact', has_usable_email: true, current_email: 'c@example.com' }),
+  )
+  assert.equal(patch, null)
+  // And the email side DOES take it to ready-to-email (the introductory email).
+  const emailPatch = deriveEmailRouting({
+    queue: 'research-needed',
+    call_reason: null,
+    research_reason: 'no-contact',
+    last_call_outcome: null,
+    email_sent_at: null,
+    callback_date: null,
+    refused_at: null,
+    has_usable_email: true,
+    current_email: 'c@example.com',
+    intro_email_recipient: null,
+  })
+  assert.equal(emailPatch?.queue, 'ready-to-email')
+})
+
+test('derivePhoneRouting: a no-contact opener with ONLY a phone (no email) still returns to Ready to Call', () => {
+  // No email means no introductory-email precedence to defer to, so the
+  // now-callable customer still returns to calling work.
+  const patch = derivePhoneRouting(researchForBadNumber({ research_reason: 'no-contact', has_usable_email: false }))
+  assert.equal(patch?.queue, 'ready-to-call')
+  assert.equal(patch?.research_reason, null)
+})
+
+test('derivePhoneRouting: a no-contact opener that ALREADY sent the intro email is callable once a phone arrives', () => {
+  // The intro email already went out (email_sent_at set to the current
+  // recipient), so deriveEmailRouting no longer claims it; a phone arriving now
+  // correctly returns the customer to Ready to Call rather than re-opening email.
+  const patch = derivePhoneRouting(
+    researchForBadNumber({
+      research_reason: 'no-contact',
+      has_usable_email: true,
+      current_email: 'c@example.com',
+      intro_email_recipient: 'c@example.com',
+      email_sent_at: '2026-01-01T00:00:00.000Z',
+    }),
+  )
+  assert.equal(patch?.queue, 'ready-to-call')
+})
+
+test('derivePhoneRouting: Bad Number recovery is UNCHANGED when an email is also present', () => {
+  // A bad-number item is not an untouched no-contact opener (a call was placed),
+  // so the introductory-email precedence never applies: it returns to calling
+  // work whether or not a usable email exists. Bad Number recovery intact.
+  assert.equal(
+    derivePhoneRouting(researchForBadNumber({ has_usable_email: true, current_email: 'c@example.com' }))?.queue,
+    'ready-to-call',
+  )
+  // bounce-no-phone likewise (an email flow already ran): still returns to call.
+  assert.equal(
+    derivePhoneRouting(researchForBadNumber({ research_reason: 'bounce-no-phone', has_usable_email: true, current_email: 'c@example.com' }))?.queue,
+    'ready-to-call',
+  )
 })
 
 // ── Value-scoped unusable: replacement restores eligibility (Fix #1) ─────────
