@@ -29,7 +29,7 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { QUEUE_META, OUTREACH_QUEUES, deriveFollowUpRouting, deriveEmailRouting, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
+import { QUEUE_META, OUTREACH_QUEUES, deriveFollowUpRouting, deriveEmailRouting, derivePhoneRouting, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
 import { readResearchedUnsuccessfullyBatch, stillNeedsResearchRecommendation } from '@/lib/stewardship/research-record'
 import { createTimeContext } from '@/lib/time'
 import { decideDailyDirection } from './engine'
@@ -147,7 +147,19 @@ export async function getDailyDirection(
       current_email: r.customer_prereviews.customers?.email ?? null,
       intro_email_recipient: r.intro_email_recipient,
     })?.queue as OutreachQueue | undefined
-    return emailRouted ?? r.queue
+    if (emailRouted) return emailRouted
+    // A replacement phone on a research-needed (bad-number / bounce-no-phone /
+    // no-contact) item makes the customer callable again, so the Assistant
+    // counts it in Available to Call rather than research — the same live
+    // re-derivation the board and My Work use. Applied after email so the
+    // introductory email wins when both apply.
+    const phoneRouted = derivePhoneRouting({
+      queue: r.queue,
+      research_reason: r.research_reason as ResearchReason | null,
+      refused_at: r.refused_at,
+      has_usable_phone: !!r.customer_prereviews.customers?.phone?.trim(),
+    })?.queue as OutreachQueue | undefined
+    return phoneRouted ?? r.queue
   }
 
   // Research-recommendation dampening. A research-needed item whose every

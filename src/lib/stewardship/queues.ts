@@ -733,6 +733,64 @@ export function deriveEmailRouting(
 }
 
 /**
+ * Deterministic derived routing for an item whose PHONE became usable again
+ * AFTER it was sent to Research Needed for a missing/bad number.
+ *
+ * This is the phone analogue of deriveEmailRouting, and it closes the second
+ * half of the Bad Number correction. Recording a bad number clears the failed
+ * phone and routes the customer to Research Needed (research_reason
+ * 'bad-number'); a lapsed email follow-up with no phone routes there too
+ * (research_reason 'bounce-no-phone'). In both, the ONLY reason the item sits in
+ * research is the absence of a usable number. When a replacement number is
+ * entered — through the guided research-found action OR through a plain contact
+ * edit that writes customers.phone directly — the number becomes usable, but the
+ * stored queue stays research-needed. The guided research-found action already
+ * routes forward; a direct contact edit does not, so without this the customer
+ * stays in research-needed and never returns to calling work even though they
+ * are now callable. Reads re-derive this live from the current phone, exactly
+ * the way deriveEmailRouting re-derives from the current email, so a replacement
+ * number surfaces the customer in Available to Call without a stored backfill.
+ *
+ * It fires ONLY for the two research states a missing/bad phone produces, and
+ * ONLY while a usable phone is now on file and the item is not refused. It never
+ * touches an authorization/carrier stage (those are not research-needed), so
+ * onboarding is never restarted. It changes only the recommended next action
+ * (queue + the now-stale research_reason); it never resets email_sent_at,
+ * last_call_outcome, callback_date, or any history — previously completed
+ * outreach, including a sent introductory email, is preserved. The resulting
+ * ready-to-call carries no due signal (no 'no-response', no due callback), so
+ * the customer lands in Available to Call, not Calls Due.
+ *
+ * Returns the effective-queue patch, or null when nothing changes.
+ */
+export function derivePhoneRouting(
+  state: Pick<OutreachState, 'queue' | 'research_reason'> & {
+    refused_at?: string | null
+    has_usable_phone: boolean
+  },
+): OutreachPatch | null {
+  if (!state.has_usable_phone) return null
+  if (state.refused_at) return null
+  // Only the research states a missing/bad PHONE produces. A 'no-contact'
+  // research item (no email AND no phone at intake) is the email side's opener
+  // and is handled by deriveEmailRouting once an email arrives; a phone arriving
+  // for a no-contact item still leaves the item callable here, so include it.
+  if (state.queue !== 'research-needed') return null
+  const phoneGapReason =
+    state.research_reason === 'bad-number' ||
+    state.research_reason === 'bounce-no-phone' ||
+    state.research_reason === 'no-contact'
+  if (!phoneGapReason) return null
+  // The item is now callable. Clear the stale research reason and surface it as
+  // a plain available call. A bounced email that now has a phone keeps the
+  // 'email-bounced' reason (the reducer's own bounce+phone outcome); the other
+  // origins carry no call reason, which Available to Call does not require.
+  const call_reason: CallReason | null =
+    state.research_reason === 'bounce-no-phone' ? 'email-bounced' : null
+  return { queue: 'ready-to-call', call_reason, research_reason: null }
+}
+
+/**
  * Whether a WAITING item (awaiting the signed form or awaiting carrier
  * confirmation) is due for a follow-up chase. Unlike deriveFollowUpRouting this
  * does NOT change the queue — those items are legitimately waiting on the
