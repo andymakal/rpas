@@ -8,6 +8,7 @@ import { getAttemptHistory } from '@/lib/stewardship/attempt-history'
 import { buildCustomerHistory, type HistoryTouchRow } from '@/lib/stewardship/customer-history'
 import { resolveNextCallDate } from '@/lib/stewardship/call-cadence'
 import { resolveContactOptions } from '@/lib/stewardship/contact-options'
+import { type EmailAvailability } from '@/lib/email-availability'
 import { OUTCOME_MARKERS, REACHED_MARKER, buildUnusableMarker } from '@/lib/stewardship/outreach-attempts'
 import {
   buildResearchTouchRows,
@@ -22,6 +23,7 @@ import {
   NONRESPONSIVE_LABEL,
 } from '@/lib/stewardship/cadence-status'
 import { normalizeEmailInput, normalizePhoneInput } from '@/lib/contact-input'
+import { OFFICE_CALLBACK_PHONE } from '@/lib/constants/office-callback'
 import { resolveProducerForUser } from '@/lib/capabilities/resolve'
 import { SERVICING_AUTHORIZATION_TYPE } from '@/lib/stewardship/authorization-document'
 import { activeContactResearchProjectForCustomer } from '@/lib/projects/contact-review'
@@ -30,6 +32,8 @@ import {
   applyAction,
   deriveEmailRouting,
   normalizeRecipientEmail,
+  engagedAtOf,
+  ENGAGED_AT_KEY,
   type OutreachAction,
   type OutreachState,
   type OutreachQueue,
@@ -54,12 +58,13 @@ type OutreachRow = {
   carrier_correction: string | null
   form_delivery_method: 'email' | 'postal' | null
   refused_at: string | null
+  action_context: unknown
 }
 
 const OUTREACH_COLUMNS =
   'id, prereview_id, queue, call_reason, research_reason, last_call_outcome, ' +
   'callback_date, email_sent_at, intro_email_recipient, follow_up_due, form_received_at, submitted_at, carrier_correction, ' +
-  'form_delivery_method, refused_at'
+  'form_delivery_method, refused_at, action_context'
 
 /**
  * Resolve the signed-in employee's display name for a touch log, mirroring the
@@ -86,37 +91,36 @@ async function resolveEmployeeName(
 
 /**
  * Resolve the signed-in employee as the CALLER for the guided calling scripts:
- * their first name (populates "[Employee]") and their validated CALLBACK number
- * (populates "[Callback Number]").
+ * their first name (populates "[Employee]") and the CALLBACK number customers
+ * are asked to call back on (populates "[Callback Number]").
  *
- * Reuses the established producer source (producers row for the signed-in user);
- * the callback number is the employee's own `producers.phone`, NEVER the
- * customer's number. The phone is run through the shared contact-input validator
- * so a missing or malformed employee number resolves to null (the UI then treats
- * the callback-dependent channels as unavailable) rather than printing a bad or
- * placeholder number. Best-effort and never blocks the workflow.
+ * The callback number is the agency's office line (OFFICE_CALLBACK_PHONE) by
+ * default, for every employee. It is NEVER the customer's number, and it is NOT
+ * the employee's personal `producers.phone` — that field holds personal numbers
+ * that were not explicitly chosen for customer callbacks, so it must not be
+ * surfaced to customers as a callback number. An employee may override with an
+ * explicit direct callback number deliberately chosen for callbacks; no such
+ * field exists today, so this resolves to the office default. The number is run
+ * through the shared contact-input validator so only a clean `(XXX) XXX-XXXX`
+ * value is ever printed. Best-effort and never blocks the workflow.
  */
-async function resolveCallActor(
-  admin: ReturnType<typeof createAdminClient>,
-): Promise<{ first_name: string | null; callback_phone: string | null }> {
+async function resolveCallActor(): Promise<{ first_name: string | null; callback_phone: string | null }> {
+  const officeResult = normalizePhoneInput(OFFICE_CALLBACK_PHONE)
+  const officeCallback = officeResult.status === 'valid' ? officeResult.value : null
   try {
     const sessionClient = await createClient()
     const { data: { user } } = await sessionClient.auth.getUser()
-    if (!user) return { first_name: null, callback_phone: null }
+    if (!user) return { first_name: null, callback_phone: officeCallback }
     const producer = await resolveProducerForUser(user.id)
-    if (!producer) return { first_name: null, callback_phone: null }
-    const { data: row } = await admin
-      .from('producers')
-      .select('phone')
-      .eq('id', producer.id)
-      .maybeSingle()
-    const phoneResult = normalizePhoneInput((row?.phone as string | null) ?? null)
+    if (!producer) return { first_name: null, callback_phone: officeCallback }
+    // The callback number is the office default. `producers.phone` is a personal
+    // number and is intentionally NOT read here as an override.
     return {
       first_name: (producer.first_name ?? '').trim() || null,
-      callback_phone: phoneResult.status === 'valid' ? phoneResult.value : null,
+      callback_phone: officeCallback,
     }
   } catch {
-    return { first_name: null, callback_phone: null }
+    return { first_name: null, callback_phone: officeCallback }
   }
 }
 
@@ -143,7 +147,7 @@ export async function GET(
       ${OUTREACH_COLUMNS},
       customer_prereviews!inner (
         id, customer_id, source_agency_id, decision, created_at,
-        customers!inner ( id, first_name, last_name, email, phone, date_of_birth, street, address_line1, city, state, zip, phone_verified_at, email_verified_at, address_verified_at )
+        customers!inner ( id, first_name, last_name, email, phone, date_of_birth, street, address_line1, city, state, zip, phone_verified_at, email_verified_at, address_verified_at, email_availability, contact_alert )
       )
     `)
     .eq('id', id)
@@ -200,6 +204,8 @@ export async function GET(
     email: string | null; phone: string | null; date_of_birth: string | null
     street: string | null; address_line1: string | null; city: string | null; state: string | null; zip: string | null
     phone_verified_at: string | null; email_verified_at: string | null; address_verified_at: string | null
+    email_availability: EmailAvailability | null
+    contact_alert: string | null
   }
 
   // Required-signer identity is NOT durable today: there is no owner/signer
@@ -333,9 +339,9 @@ export async function GET(
   // anchored to the request's representative policy with the project scope (or
   // null for the standalone intake path).
   // The signed-in employee as the CALLER for the guided calling scripts: their
-  // first name and validated callback number, from the established producer
-  // source. Used to fill the opening/voicemail/text/email scripts dynamically.
-  const callActor = await resolveCallActor(supabase)
+  // first name (from the producer source) and the office callback number.
+  // Used to fill the opening/voicemail/text/email scripts dynamically.
+  const callActor = await resolveCallActor()
 
   const requestPolicyIds = holdings.filter(h => h.in_request).map(h => h.id)
   let authorizationOnFile = false
@@ -706,15 +712,20 @@ export async function PATCH(
   // best-effort; a failed touch log must never block the workflow transition.
   if (action.type === 'call-outcome') {
     const outcome = action.outcome
-    // Voicemail is its own touch_type; every other call outcome is a 'call'.
-    const touchType = outcome === 'voicemail' ? 'voicemail' : 'call'
+    // The PLACED CALL is always a 'call' touch. A 'voicemail' outcome here is the
+    // no-answer outcome that drives cadence; this older board path records only
+    // the call channel and never a separate voicemail-left fact, so it must read
+    // as a no-answer call, not a voicemail. The guided workbench (record-attempt)
+    // is where an actual voicemail-left is recorded as its own voicemail touch.
+    const touchType = 'call'
     const outcomeLabel: Record<CallOutcome, string> = {
-      reached: 'Reached the customer.',
-      voicemail: 'Left a voicemail. Follow-up auto-scheduled.',
-      'bad-number': 'Bad number. Moved to Research Needed.',
-      'not-interested': 'Customer declined. Outreach stopped until deliberately reopened.',
-      callback: `Customer asked for a callback${action.callback_date ? ` on ${action.callback_date}` : ''}.`,
+      reached: 'Spoke with customer.',
+      voicemail: 'Called customer. No answer. Next call scheduled.',
+      'bad-number': 'Called customer. Number is not working. Customer referred to Contact Research.',
+      'not-interested': 'Spoke with customer. Customer declined servicing-agent authorization. Further outreach stopped unless deliberately reopened.',
+      callback: `Spoke with customer. Customer requested a callback${action.callback_date ? ` on ${action.callback_date}` : ''}.`,
     }
+    const outcomeNote = typeof action.note === 'string' ? action.note.trim() : ''
     const touchedBy = await resolveEmployeeName(supabase)
     // Carry the per-channel outcome marker so the attempt history reads this
     // touch correctly: a bad number marks the phone channel UNUSABLE (it cannot
@@ -733,7 +744,8 @@ export async function PATCH(
       outcome === 'voicemail'  ? OUTCOME_MARKERS.no_contact :
       (outcome === 'reached' || outcome === 'callback' || outcome === 'not-interested') ? REACHED_MARKER :
       ''
-    const callNote = `Servicing-agent onboarding call: ${outcomeLabel[outcome]}`
+    const callNoteBase = `Servicing-agent onboarding call: ${outcomeLabel[outcome]}`
+    const callNote = outcomeNote ? `${callNoteBase} ${outcomeNote}` : callNoteBase
     const { error: touchErr } = await supabase
       .from('case_touches')
       .insert({
@@ -761,13 +773,23 @@ export async function PATCH(
   if (action.type === 'record-attempt') {
     const touchedBy = await resolveEmployeeName(supabase)
     const attemptAt = new Date().toISOString()
+    // The optional employee Call Notes, saved WITH this interaction (appended to
+    // the recorded CALL touch), never as a separate history entry. Empty = none.
+    const attemptNote = typeof action.note === 'string' ? action.note.trim() : ''
 
+    // A 'voicemail' call outcome is the no-answer outcome that schedules the
+    // next call. Whether a voicemail was ACTUALLY left is a separate fact,
+    // signalled by the voicemail CHANNEL touch in this same attempt; the call
+    // sentence must never claim a voicemail that was not left.
+    const voicemailLeft = action.voicemail === 'touch'
     const callLabel: Record<CallOutcome, string> = {
-      reached: 'Reached the customer.',
-      voicemail: 'Left a voicemail. Follow-up auto-scheduled.',
-      'bad-number': 'Bad number. Moved to Research Needed.',
-      'not-interested': 'Customer declined. Outreach stopped until deliberately reopened.',
-      callback: `Customer asked for a callback${action.callback_date ? ` on ${action.callback_date}` : ''}.`,
+      reached: 'Spoke with customer.',
+      voicemail: voicemailLeft
+        ? 'Called customer. No answer. Voicemail left. Next call scheduled.'
+        : 'Called customer. No answer. Next call scheduled.',
+      'bad-number': 'Called customer. Number is not working. Customer referred to Contact Research.',
+      'not-interested': 'Spoke with customer. Customer declined servicing-agent authorization. Further outreach stopped unless deliberately reopened.',
+      callback: `Spoke with customer. Customer requested a callback${action.callback_date ? ` on ${action.callback_date}` : ''}.`,
     }
     // Map a non-call channel outcome to its stored note marker. An 'unusable'
     // outcome is VALUE-SCOPED: it records the specific failed value (the email
@@ -791,18 +813,28 @@ export async function PATCH(
       customer_id: string; case_id: null; touch_type: string; notes: string; touched_at: string; touched_by: string | null
     }> = []
 
-    // The call channel, when a call was placed in this attempt.
+    // The call channel, when a call was placed in this attempt. The PLACED CALL
+    // is always recorded as a 'call' touch — including the no-answer outcome the
+    // workbench sends as call:'voicemail'. That CallOutcome drives the call
+    // cadence (the queue reducer schedules the next attempt), but it does NOT
+    // mean a voicemail was left: a voicemail is a SEPARATE 'voicemail' channel
+    // touch recorded below only when one actually was. Storing the unanswered
+    // call as 'call' keeps the history honest (a call, not a voicemail) while
+    // the cadence is unchanged, and it no longer fabricates a voicemail touch.
     if (action.call) {
       const callMarker =
         action.call === 'bad-number' ? buildUnusableMarker('call', curPhone) :
         action.call === 'voicemail'  ? OUTCOME_MARKERS.no_contact :
         (action.call === 'reached' || action.call === 'callback' || action.call === 'not-interested') ? REACHED_MARKER :
         ''
-      const touchType = action.call === 'voicemail' ? 'voicemail' : 'call'
+      // Structure: [system sentence] [employee note] [marker]. The employee note
+      // sits between so cleanHistoryNote recovers it as the operator's own words
+      // and the attempt carries the note without a separate history entry.
       const base = `Servicing-agent onboarding call: ${callLabel[action.call]}`
+      const withNote = attemptNote ? `${base} ${attemptNote}` : base
       rows.push({
-        customer_id: customerId, case_id: null, touch_type: touchType,
-        notes: callMarker ? `${base} ${callMarker}` : base,
+        customer_id: customerId, case_id: null, touch_type: 'call',
+        notes: callMarker ? `${withNote} ${callMarker}` : withNote,
         touched_at: attemptAt, touched_by: touchedBy,
       })
     }
@@ -849,20 +881,68 @@ export async function PATCH(
   // path records its own email touch separately below.
   if (action.type === 'form-sent') {
     const touchedBy = await resolveEmployeeName(supabase)
+    const touchedAt = new Date().toISOString()
     const isPostal = row.form_delivery_method === 'postal'
     const method = isPostal ? 'by postal mail' : 'by email'
-    const { error: touchErr } = await supabase
-      .from('case_touches')
-      .insert({
+    const formNote = typeof action.note === 'string' ? action.note.trim() : ''
+
+    // The guided "Agreed to authorize" completion records the reached call as
+    // part of THIS single action (not earlier, on decision selection). Write the
+    // reached call touch here, identical to the record-attempt reached touch, so
+    // customer history is unchanged — and only when the customer is not already
+    // recorded reached, so re-sending the form never duplicates it. The reducer
+    // set last_call_outcome='reached' in the same patch; the engagement marker
+    // below keys off action.reached so engagement is stamped here too.
+    const recordReached = action.reached === true && row.last_call_outcome !== 'reached'
+    const touchRows: Array<{
+      customer_id: string; case_id: null; touch_type: string; notes: string; touched_at: string; touched_by: string | null
+    }> = []
+    if (recordReached) {
+      touchRows.push({
         customer_id: customerId,
         case_id:     null,
-        touch_type:  isPostal ? 'postal' : 'email',
-        notes:       `Servicing-agent authorization form sent to the customer ${method}.`,
-        touched_at:  new Date().toISOString(),
+        touch_type:  'call',
+        notes:       `Servicing-agent onboarding call: Spoke with customer. ${REACHED_MARKER}`,
+        touched_at:  touchedAt,
         touched_by:  touchedBy,
       })
+    }
+    // The agreed-to-authorize completion: the form touch carries the full
+    // required sentence for this interaction (it is the touch that knows the
+    // delivery method). When recorded together with the reached call at the same
+    // instant they group into one interaction, and this sentence is the one the
+    // history displays. The email/postal phrasing is matched centrally in
+    // customer-history.ts so the displayed description reads exactly this.
+    const formSentence = isPostal
+      ? 'Spoke with customer. Customer agreed to authorize our office as servicing agent. Authorization form sent by postal mail. Awaiting signed authorization.'
+      : 'Spoke with customer. Customer agreed to authorize our office as servicing agent. Authorization form emailed. Awaiting signed authorization.'
+    const formBase = `Servicing-agent authorization form sent to the customer ${method}.`
+    // When the form send carries the reached completion, the required sentence
+    // describes the whole interaction; otherwise (a re-send with no reached
+    // completion) keep the plain form-sent sentence. The employee note, if any,
+    // is appended so it is preserved as the operator's own words.
+    const formSystem = recordReached ? formSentence : formBase
+    touchRows.push({
+      customer_id: customerId,
+      case_id:     null,
+      touch_type:  isPostal ? 'postal' : 'email',
+      notes:       formNote ? `${formSystem} ${formNote}` : formSystem,
+      touched_at:  touchedAt,
+      touched_by:  touchedBy,
+    })
+    const { error: touchErr } = await supabase.from('case_touches').insert(touchRows)
     if (touchErr) {
+      // When this action carries the reached completion, its history (reached +
+      // form sent) is required and must not silently vanish, so surface a retry
+      // rather than claim success. The queue patch has not persisted yet (it is
+      // written after this block), so a retry re-runs the whole completion.
       console.error('stewardship form-sent touch log error:', touchErr)
+      if (recordReached) {
+        return Response.json(
+          { error: 'Could not save the call history. Nothing was changed; please try again.' },
+          { status: 500 },
+        )
+      }
     }
   }
 
@@ -946,6 +1026,79 @@ export async function PATCH(
       })
     if (touchErr) {
       console.error('stewardship record-follow-up touch log error:', touchErr)
+    }
+  }
+
+  // set-follow-up: a follow-up commitment recorded directly from an active
+  // Customer Interaction conversation (no call placed). Log the commitment to
+  // Customer History so the promised follow-up is visible in the record. The
+  // stage (awaiting signature vs pre-authorization) is reflected in the note so
+  // the history reads correctly either way. Best-effort; never blocks.
+  if (action.type === 'set-follow-up') {
+    const touchedBy = await resolveEmployeeName(supabase)
+    const awaitingSignature = state.queue === 'waiting-for-form' && state.form_received_at == null
+    const what = awaitingSignature
+      ? `Follow-up scheduled on the outstanding signed authorization for ${action.follow_up_date}.`
+      : `Follow-up with the customer scheduled for ${action.follow_up_date}.`
+    const { error: touchErr } = await supabase
+      .from('case_touches')
+      .insert({
+        customer_id: customerId,
+        case_id:     null,
+        // A scheduled follow-up is a WORKFLOW MILESTONE, not a telephone call.
+        // Recorded under the 'workflow' type so Customer History shows it as a
+        // milestone rather than fabricating a phone call that did not happen.
+        touch_type:  'workflow',
+        notes:       `Customer interaction follow-up: ${what}`,
+        touched_at:  new Date().toISOString(),
+        touched_by:  touchedBy,
+      })
+    if (touchErr) {
+      console.error('stewardship set-follow-up touch log error:', touchErr)
+    }
+  }
+
+  // complete-follow-up: the promised follow-up was carried out and no further
+  // one is scheduled yet, so it stops appearing overdue. Log the completion to
+  // Customer History. Best-effort; never blocks.
+  if (action.type === 'complete-follow-up') {
+    const touchedBy = await resolveEmployeeName(supabase)
+    const { error: touchErr } = await supabase
+      .from('case_touches')
+      .insert({
+        customer_id: customerId,
+        case_id:     null,
+        // A completed follow-up is a WORKFLOW MILESTONE, not a telephone call.
+        touch_type:  'workflow',
+        notes:       'Customer interaction follow-up completed; no further follow-up scheduled yet.',
+        touched_at:  new Date().toISOString(),
+        touched_by:  touchedBy,
+      })
+    if (touchErr) {
+      console.error('stewardship complete-follow-up touch log error:', touchErr)
+    }
+  }
+
+  // refuse: an explicit, channel-agnostic customer refusal. Log it to Customer
+  // History so the record shows outreach was stopped at the customer's request.
+  // Best-effort; never blocks.
+  if (action.type === 'refuse') {
+    const touchedBy = await resolveEmployeeName(supabase)
+    const { error: touchErr } = await supabase
+      .from('case_touches')
+      .insert({
+        customer_id: customerId,
+        case_id:     null,
+        // A recorded refusal is a WORKFLOW MILESTONE, not a telephone call: the
+        // refusal may have come by email or text. Recorded under 'workflow' so
+        // Customer History does not misrepresent it as a phone call.
+        touch_type:  'workflow',
+        notes:       'Customer declined. Outreach stopped until deliberately reopened.',
+        touched_at:  new Date().toISOString(),
+        touched_by:  touchedBy,
+      })
+    if (touchErr) {
+      console.error('stewardship refuse touch log error:', touchErr)
     }
   }
 
@@ -1361,6 +1514,42 @@ export async function PATCH(
     if (updErr) {
       console.error('stewardship patch error:', updErr)
       return Response.json({ error: updErr.message }, { status: 500 })
+    }
+  }
+
+  // Durable ENGAGEMENT: when this action is a GENUINE engagement — the customer
+  // was reached on a call or promised a callback — stamp engagedAt on
+  // action_context (idempotent; the first-engagement instant is never
+  // overwritten). This is what preserves the customer in Customer Interaction
+  // through a LATER unsuccessful attempt: a subsequent voicemail changes
+  // last_call_outcome to 'voicemail', but the durable engagedAt marker keeps
+  // isEngaged true, so the customer never falls back into routine calling or
+  // disappears from the conversation. A bad-number, voicemail, or no-response
+  // is NOT engagement and never stamps it; a refusal stops outreach separately.
+  const engagingCall =
+    (action.type === 'call-outcome' && (action.outcome === 'reached' || action.outcome === 'callback')) ||
+    (action.type === 'record-attempt' && (action.call === 'reached' || action.call === 'callback')) ||
+    // The guided "Agreed to authorize" completion sends the form AND carries the
+    // reached call as one action, so it is a genuine engagement exactly like a
+    // reached record-attempt — the reached outcome just arrives folded into the
+    // form-sent completion instead of a separate prior record.
+    (action.type === 'form-sent' && action.reached === true) ||
+    // A follow-up commitment recorded directly from a conversation is a genuine
+    // engagement (the employee is in an active dialogue with the customer).
+    action.type === 'set-follow-up'
+  if (engagingCall && engagedAtOf(row.action_context) == null) {
+    const base =
+      row.action_context && typeof row.action_context === 'object' && !Array.isArray(row.action_context)
+        ? (row.action_context as Record<string, unknown>)
+        : {}
+    const { error: engErr } = await supabase
+      .from('stewardship_outreach')
+      .update({ action_context: { ...base, [ENGAGED_AT_KEY]: new Date().toISOString() } })
+      .eq('id', id)
+    if (engErr) {
+      // Non-fatal: the workflow transition already persisted. Engagement is a
+      // soft marker; log and continue.
+      console.error('stewardship engagement marker (reached/callback) update error:', engErr)
     }
   }
 

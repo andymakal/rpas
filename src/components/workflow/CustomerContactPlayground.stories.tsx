@@ -82,6 +82,7 @@ const baseRecord: Omit<
   city: 'Philadelphia',
   state: 'PA',
   zip: '19102',
+  email_availability: 'available',
 }
 
 type ContactState = 'verified' | 'onfile' | 'missing' | 'mixed'
@@ -98,6 +99,7 @@ function recordForState(state: ContactState): CustomerContact {
       ...baseRecord,
       email: null, phone: null, street: null, city: null, state: null, zip: null,
       email_verified_at: null, phone_verified_at: null, address_verified_at: null,
+      email_availability: null,
     }
   }
   if (state === 'mixed') {
@@ -421,12 +423,30 @@ function makeInteractivePersist(
         : payload.field === 'phone' ? 'phone_verified_at'
         : 'address_verified_at'
       next = { ...record, [colKey]: payload.verified ? now : null }
+    } else if (payload.field === 'email_availability') {
+      // Every selection clears the active email and its verification (the
+      // removed address is kept in history in the app). 'missing' resets the
+      // stored fact to unknown (null); the reasons store their value. Mirrors
+      // the app route.
+      next = {
+        ...record,
+        email_availability: payload.availability === 'missing' ? null : payload.availability,
+        email: null,
+        email_verified_at: null,
+      }
     } else if (payload.field === 'email') {
       const changed = (payload.email ?? null) !== (record.email ?? null)
-      next = { ...record, email: payload.email, email_verified_at: changed ? null : record.email_verified_at }
+      // A usable replacement clears No Usable Email / Undeliverable -> available.
+      const clearable = record.email_availability === 'no_address' || record.email_availability === 'undeliverable'
+      const email_availability = payload.email && (clearable || record.email_availability == null)
+        ? 'available'
+        : record.email_availability
+      next = { ...record, email: payload.email, email_verified_at: changed ? null : record.email_verified_at, email_availability }
     } else if (payload.field === 'phone') {
       const changed = (payload.phone ?? null) !== (record.phone ?? null)
       next = { ...record, phone: payload.phone, phone_verified_at: changed ? null : record.phone_verified_at }
+    } else if (payload.field === 'alert') {
+      next = { ...record, contact_alert: payload.alert?.trim() ? payload.alert.trim() : null }
     } else {
       next = {
         ...record,

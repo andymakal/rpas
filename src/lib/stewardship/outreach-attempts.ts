@@ -305,3 +305,18 @@ export function unusableValueFromNote(note: string | null): string | null {
 export function noteIndicatesReached(note: string | null): boolean {
   return !!note && note.toLowerCase().includes(REACHED_MARKER)
 }
+
+/**
+ * The marker that records a communication was INBOUND — the customer reached out
+ * to us (an incoming email, phone call, or text) rather than us contacting them.
+ * A genuine inbound response is what moves a customer into Customer Interaction
+ * (it stamps the engagement signal); the marker lets the history read an
+ * incoming communication distinctly from an outgoing one. Kept separate from the
+ * per-channel outcome markers because direction is orthogonal to outcome.
+ */
+export const INBOUND_MARKER = '[inbound]'
+
+/** Whether a touch note records an INBOUND (customer-initiated) communication. */
+export function noteIndicatesInbound(note: string | null): boolean {
+  return !!note && note.toLowerCase().includes(INBOUND_MARKER)
+}

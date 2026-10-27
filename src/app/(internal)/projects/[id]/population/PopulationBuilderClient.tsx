@@ -29,6 +29,7 @@ import {
 } from '@/lib/projects/population-criteria'
 import type { PopulationFacets, AmbiguousStatus } from '@/lib/projects/population-engine'
 import { DiscreteFacet, RangeFacet, DateFacet, FacetShell } from './facet-controls'
+import { WORKFLOW_MAX_WIDTH } from '@/components/workflow'
 import { cn } from '@/lib/utils'
 
 type PreviewResponse = {
@@ -172,7 +173,7 @@ export function PopulationBuilderClient({
   const canCommit = !loading && !committing && customerCount > 0
 
   return (
-    <div className="mx-auto w-full max-w-[1360px] px-6 py-8 text-ink-secondary sm:px-10">
+    <div className={cn(WORKFLOW_MAX_WIDTH, 'px-6 py-8 text-ink-secondary sm:px-10')}>
       <Link
         href={`/projects/${projectId}`}
         className="-ml-1 inline-flex items-center gap-1.5 text-sm font-medium text-ink-supporting transition-colors hover:text-ink"

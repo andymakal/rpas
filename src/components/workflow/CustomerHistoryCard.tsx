@@ -23,7 +23,7 @@
  */
 
 import { useState } from 'react'
-import { History, ChevronDown, ChevronUp, CheckCircle2, PhoneCall, Search, FolderPlus } from 'lucide-react'
+import { History, ChevronDown, ChevronUp, CheckCircle2, PhoneCall, Search, FolderPlus, CalendarClock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { HistoryEvent } from '@/lib/stewardship/customer-history'
 import { formatHistoryTimestamp } from '@/lib/stewardship/customer-history'
@@ -71,6 +71,14 @@ export function NextHistoryEntry({
               {preview.description}
             </p>
           )}
+          {/* The optional employee call note, previewed exactly as it will be
+              saved with this interaction, so the worker sees their own words
+              will be recorded alongside the system description. */}
+          {preview.note && (
+            <p className="mt-1 text-sm italic leading-relaxed text-ink-secondary">
+              {preview.note}
+            </p>
+          )}
         </>
       ) : (
         <p className="mt-2 text-base italic text-ink-muted">Nothing to record yet.</p>
@@ -90,12 +98,37 @@ function HistoryEventRow({
   event: HistoryEvent
   actorTimeZone: string | null
 }) {
+  // Prefer the precise, event-specific heading the history model already derives
+  // (e.g. "Email Received", "Email Sent", "Customer Reached", "Voicemail Left"),
+  // falling back to the grouped summary for a legacy record whose direction is
+  // unknown. This is the SAME heading the history model exposes; it is read
+  // here so the one shared history presentation names the actual event rather
+  // than only its generic summary.
+  const heading = event.timelineHeading ?? event.summary
+
+  // The event-specific heading names only the LEAD communication of a grouped
+  // interaction (e.g. "Customer Reached" for a call recorded together with a
+  // voicemail, text, or email). To ensure the heading never HIDES the other
+  // recorded communications, when the heading is the precise event label AND the
+  // interaction groups more than one communication, show the full grouped
+  // summary — which enumerates every channel, e.g. "No Answer · Voicemail ·
+  // Text" — as a secondary line. Reuses the summary the history model already
+  // builds; no channel is dropped. Suppressed when the summary equals the
+  // heading (a single-communication event) so nothing is shown twice.
+  const groupsMultiple = event.communications.length > 1
+  const channelsLine =
+    groupsMultiple && event.summary && event.summary !== heading ? event.summary : null
+
   const extraDetails = event.communications
     .map((c) => c.detail)
-    .filter((d): d is string => !!d && d !== event.summary && d !== event.description)
+    .filter((d): d is string => !!d && d !== heading && d !== event.summary && d !== event.description)
 
   const isResearch = event.kind === 'research'
   const isEnrollment = event.kind === 'enrollment'
+  // A Customer Interaction workflow milestone (follow-up scheduled/completed,
+  // refusal): an administrative outreach event, NOT a telephone call, so it
+  // gets its own neutral affordance and never the phone icon.
+  const isMilestone = event.kind === 'milestone'
 
   return (
     <li className="py-3 first:pt-0 last:pb-0">
@@ -104,15 +137,14 @@ function HistoryEventRow({
           className={cn(
             'mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full',
             // Enrollment is a project membership event (its own affordance);
-            // research is internal work; a reached contact reads as confirmed;
-            // every other contact is a neutral touch.
-            isEnrollment
+            // research and workflow milestones are internal/administrative; a
+            // reached contact reads as confirmed; every other contact is a
+            // neutral touch.
+            isEnrollment || isResearch || isMilestone
               ? 'bg-surface-muted text-ink-supporting'
-              : isResearch
-                ? 'bg-surface-muted text-ink-supporting'
-                : event.reached
-                  ? 'bg-status-confirmed-fill text-status-confirmed-foreground'
-                  : 'bg-surface-muted text-ink-supporting',
+              : event.reached
+                ? 'bg-status-confirmed-fill text-status-confirmed-foreground'
+                : 'bg-surface-muted text-ink-supporting',
           )}
           aria-hidden
         >
@@ -120,12 +152,20 @@ function HistoryEventRow({
             <FolderPlus className="size-3" />
           ) : isResearch ? (
             <Search className="size-3" />
+          ) : isMilestone ? (
+            <CalendarClock className="size-3" />
           ) : (
             <PhoneCall className="size-3" />
           )}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-base font-medium text-ink">{event.summary}</p>
+          <p className="text-base font-medium text-ink">{heading}</p>
+          {/* Every communication in a grouped interaction, so the precise
+              heading never hides the others (e.g. a voicemail/text/email
+              recorded alongside a reached call). */}
+          {channelsLine && (
+            <p className="mt-0.5 text-sm font-medium text-ink-secondary">{channelsLine}</p>
+          )}
           <p className="mt-0.5 text-sm text-ink-supporting">
             {event.by ? `${event.by} \u00b7 ` : ''}
             {formatHistoryTimestamp(event.at, actorTimeZone)}

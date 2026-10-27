@@ -351,7 +351,8 @@ export const SCRIPTS = {
 // Variables (filled by interpolate at render time, never shown as placeholders):
 //   first_name  — the customer's first name
 //   sender_name — the signed-in employee's first name (the caller)
-//   phone       — the employee's/office CALLBACK number, never the customer's
+//   phone       — the office CALLBACK number, never the customer's number and
+//                 never the employee's personal producers.phone
 //
 // The opening script is a verbal talk track read live; voicemail and the Hearsay
 // text are copy cards; the follow-up email opens pre-composed in Outlook. The
@@ -393,7 +394,14 @@ export const SERVICING_CALL_SCRIPTS = {
     ].join(' '),
   },
 
-  /** Follow-up email — opens pre-composed in Outlook via mailto. */
+  /**
+   * Follow-up email — opens pre-composed in Outlook via mailto.
+   *
+   * No sign-off, sender name, or signature block: the employee sends this from
+   * Outlook, which appends their own signature, so Right Path must not duplicate
+   * it. The body keeps the personalized greeting and message and uses the office
+   * callback number ({phone} resolves to the office line).
+   */
   follow_up_email: {
     subject: 'Regarding Your Life Insurance Policy',
     body: [
@@ -403,9 +411,9 @@ export const SERVICING_CALL_SCRIPTS = {
       '',
       'We need to speak with you briefly about your life insurance policy. Is there a convenient time for a call this week?',
       '',
-      'You can also reach me at {phone}.',
+      'You can also reach us at {phone}.',
       '',
-      '{sender_name}',
+      '',
     ].join('\n'),
   },
 

@@ -54,17 +54,29 @@
  *     production look exactly — see `resolveAppearance`/`isDefault`.
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Mail, Phone, MapPin, Pencil, Check, X, Loader2,
-  ShieldQuestion, CheckCircle2, AlertTriangle,
+  ShieldQuestion, CheckCircle2, AlertTriangle, Plus, Trash2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMentorDisclosure, MentorCapButton, MentorCapPanel } from '@/lib/mentoring/MentorUi'
 import {
-  normalizeEmailInput, normalizePhoneInput, formatPhoneAsTyped,
+  normalizeEmailInput, normalizePhoneInput, formatPhoneAsTyped, formatPhoneDisplay,
   type ContactFieldResult,
 } from '@/lib/contact-input'
+import {
+  normalizeEmail, normalizeStreet, normalizeCity, normalizeState,
+} from '@/lib/fmt'
+import {
+  type EmailAvailability,
+  type EmailAvailabilityDisplay,
+  type SelectableEmailAvailability,
+  EMAIL_AVAILABILITY_LABEL,
+  EMAIL_AVAILABILITY_HELP,
+  SELECTABLE_EMAIL_AVAILABILITY_VALUES,
+  resolveEmailAvailabilityDisplay,
+} from '@/lib/email-availability'
 
 // ── Data shape ───────────────────────────────────────────────────────────────
 
@@ -86,6 +98,15 @@ export interface CustomerContact {
   email_verified_at: string | null
   phone_verified_at: string | null
   address_verified_at: string | null
+  /** Durable email-availability fact (customers.email_availability). NULL means
+   * unknown ("Missing"). Governs how the Email section reads and whether email
+   * research is worthwhile. See `@/lib/email-availability`. */
+  email_availability: EmailAvailability | null
+  /** The customer's single current alert (customers.contact_alert). NULL/empty
+   * means no alert. Shown as a prominent banner at the top of the card and
+   * editable via the Add / Edit / Clear control when alert editing is enabled.
+   * Optional so existing callers that don't select it still satisfy the type. */
+  contact_alert?: string | null
 }
 
 type ContactFieldKey = 'email' | 'phone' | 'address'
@@ -522,6 +543,8 @@ export type ContactPersistPayload =
   | { field: 'phone'; phone: string | null }
   | { field: 'address'; street: string | null; city: string | null; state: string | null; zip: string | null }
   | { field: ContactFieldKey; verified: boolean }
+  | { field: 'email_availability'; availability: SelectableEmailAvailability }
+  | { field: 'alert'; alert: string | null }
 
 type Tone = 'confirmed' | 'known' | 'missing'
 
@@ -535,14 +558,38 @@ function streetOf(c: CustomerContact): string {
   return (c.street ?? c.address_line1 ?? '').trim()
 }
 
+/** Street shown with normal capitalization, directional abbreviations
+ * preserved (NE/SW/PO/...), via the shared `normalizeStreet` helper. Display
+ * only: the stored record is untouched. */
+function streetDisplay(c: CustomerContact): string {
+  return normalizeStreet(streetOf(c)) ?? ''
+}
+
 function addressLines(c: CustomerContact): string[] {
-  const street = streetOf(c)
-  const cityStateZip = [[c.city, c.state].filter(Boolean).join(', '), c.zip].filter(Boolean).join(' ').trim()
+  const street = streetDisplay(c)
+  const city = normalizeCity(c.city) ?? ''
+  const state = normalizeState(c.state) ?? ''
+  const cityStateZip = [[city, state].filter(Boolean).join(', '), c.zip].filter(Boolean).join(' ').trim()
   return [street, cityStateZip].filter(Boolean)
 }
 
 function addressUsable(c: CustomerContact): boolean {
   return !!(streetOf(c) && c.city && c.state && c.zip)
+}
+
+/** Email shown trimmed and lowercased via the shared `normalizeEmail` helper.
+ * Display only: the stored record is untouched. */
+function emailDisplay(c: CustomerContact): string | null {
+  return normalizeEmail(c.email)
+}
+
+/** Phone shown in the `(XXX) XXX-XXXX` standard via the shared formatter.
+ * Display only: the stored record is untouched. Falls back to the trimmed
+ * stored value if it cannot be reduced to a formatted number. */
+function phoneDisplay(c: CustomerContact): string | null {
+  const t = c.phone?.trim()
+  if (!t) return null
+  return formatPhoneDisplay(t) || t
 }
 
 /** The field's green/amber/red tone. Verified → green; present but unverified →
@@ -573,6 +620,15 @@ export function CustomerContactCard({
   onPersist,
   className,
   appearance,
+  header,
+  showName = true,
+  showMentoring = true,
+  collapsible = false,
+  defaultExpanded = true,
+  onExpandedChange,
+  alert,
+  onAlertChange,
+  alertEditable = false,
 }: {
   customer: CustomerContact
   /** Called with the authoritative updated record after any successful write,
@@ -586,6 +642,44 @@ export function CustomerContactCard({
    * Design Playground to tune the REAL card. Never affects behavior, data, or
    * `onPersist` payloads. */
   appearance?: ContactCardAppearance
+  /** Optional content rendered across the TOP of the card, with the single
+   * Overview/Edit toggle at its right end (when `collapsible`). A host uses this
+   * to place the customer identity (name, age, status, classification) inside
+   * the card header. Omit it and the card has no header slot, exactly as today. */
+  header?: ReactNode
+  /** Render the customer name as the card heading. Default true (the existing
+   * behavior). Set false so a host can own a single name heading elsewhere. */
+  showName?: boolean
+  /** Render the inline mentoring control beside the name. Default true (the
+   * existing behavior). Set false to suppress mentoring for this instance only;
+   * every other call site is unaffected. */
+  showMentoring?: boolean
+  /** Opt into the two-mode Overview/Edit presentation. Default false, so every
+   * existing call site (including Contact Research) keeps rendering the single
+   * always-expanded card with per-field controls exactly as before. When true,
+   * the card shows a compact READ-ONLY overview with a single Edit button that
+   * expands to the existing per-field editing + verification controls. */
+  collapsible?: boolean
+  /** When `collapsible`, whether the card starts expanded (Edit) or collapsed
+   * (Overview). Default true. Ignored when not collapsible. */
+  defaultExpanded?: boolean
+  /** Notified when the collapsible card switches between Overview and Edit. */
+  onExpandedChange?: (expanded: boolean) => void
+  /** The customer's single current alert text, or null/empty when there is no
+   * alert. This is an optional, reusable card capability: a prominent banner
+   * near the top plus an Add / Edit / Clear control beside the status key. It is
+   * opt-in — omit `onAlertChange` and the card shows no alert affordance at all,
+   * so every existing call site is unchanged. One alert per customer; no
+   * categories, priorities, expiration, or workflow rules. */
+  alert?: string | null
+  /** Optional notification after the alert is saved/cleared, with the new text
+   * (or null). Persistence is handled by the card through the shared route; this
+   * just lets a host sync its own copy if needed. */
+  onAlertChange?: (next: string | null) => void
+  /** Enable the alert feature (banner + Add / Edit / Clear control + editor).
+   * Default false, so every existing call site shows no alert affordance and is
+   * unchanged. The alert value is the durable `customer.contact_alert`. */
+  alertEditable?: boolean
 }) {
   const ap = useMemo(() => resolveAppearance(appearance), [appearance])
   // The card holds the current record locally so the display updates the instant
@@ -594,6 +688,37 @@ export function CustomerContactCard({
   const [editing, setEditing] = useState<ContactFieldKey | null>(null)
   const [busyField, setBusyField] = useState<ContactFieldKey | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // Overview (collapsed) vs Edit (expanded). Only meaningful when `collapsible`;
+  // a non-collapsible card is always "expanded", preserving today's behavior.
+  const [expanded, setExpanded] = useState(defaultExpanded)
+  // Re-seed the Overview/Edit state when the host's default changes, mirroring
+  // MentorGuidance: a host that drives `defaultExpanded` from live state (e.g.
+  // the calling workbench opening the card in edit mode the instant the customer
+  // is reached) sees the card follow. Callers passing a constant `defaultExpanded`
+  // (every existing one) are unaffected, since the value never changes. A worker
+  // can still toggle Overview/Edit in between; only a new default re-seeds it.
+  useEffect(() => { setExpanded(defaultExpanded) }, [defaultExpanded])
+  const isExpanded = !collapsible || expanded
+  // Alert editor. Enabled with `alertEditable`. The alert VALUE is the durable
+  // customers.contact_alert carried on the record (with the controlled `alert`
+  // prop as an override for hosts that manage it externally). Save/Clear persist
+  // through the SAME shared route the card uses for contact (so Add/Edit/Clear
+  // survive refresh), update the held record, and notify `onChange`/`onAlertChange`.
+  const alertText = (alert !== undefined ? alert : record.contact_alert)?.trim()
+    ? (alert !== undefined ? alert : record.contact_alert)
+    : null
+  const [alertEditing, setAlertEditing] = useState(false)
+  const [alertDraft, setAlertDraft] = useState('')
+  const [alertBusy, setAlertBusy] = useState(false)
+  const openAlertEditor = useCallback(() => {
+    setAlertDraft(alertText ?? '')
+    setAlertEditing(true)
+  }, [alertText])
+  const setExpandedState = useCallback((next: boolean) => {
+    setEditing(null); setError(null)
+    setExpanded(next)
+    onExpandedChange?.(next)
+  }, [onExpandedChange])
 
   const persist = useCallback(
     async (payload: ContactPersistPayload): Promise<CustomerContact> => {
@@ -629,7 +754,7 @@ export function CustomerContactCard({
     }
   }, [persist, applyUpdate])
 
-  const saveField = useCallback(async (payload: ContactPersistPayload) => {
+  const saveField = useCallback(async (payload: Exclude<ContactPersistPayload, { field: 'email_availability' } | { field: 'alert' }>) => {
     const field = payload.field
     setBusyField(field); setError(null)
     try {
@@ -642,6 +767,50 @@ export function CustomerContactCard({
       setBusyField(null)
     }
   }, [persist, applyUpdate])
+
+  // Commit a selected "no usable email" reason (No Usable Email / Undeliverable)
+  // as a durable customer fact. This is the Save action of the email editor's
+  // single Save/Cancel operation: the server clears the active email and its
+  // verification, and the editor closes — exactly like saveField, so a stale
+  // email draft can never follow and overwrite the just-saved status.
+  const setEmailAvailability = useCallback(
+    async (status: SelectableEmailAvailability) => {
+      setBusyField('email'); setError(null)
+      try {
+        const updated = await persist({ field: 'email_availability', availability: status })
+        applyUpdate(updated)
+        setEditing(null)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Could not update email availability')
+      } finally {
+        setBusyField(null)
+      }
+    },
+    [persist, applyUpdate],
+  )
+
+  // Persist the alert through the shared route (or injected onPersist), update
+  // the held record, and notify the host. Save with empty text clears it.
+  const commitAlert = useCallback(async (next: string | null) => {
+    setAlertBusy(true); setError(null)
+    try {
+      const updated = await persist({ field: 'alert', alert: next })
+      applyUpdate(updated)
+      onAlertChange?.(updated.contact_alert ?? null)
+      setAlertEditing(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save alert')
+    } finally {
+      setAlertBusy(false)
+    }
+  }, [persist, applyUpdate, onAlertChange])
+
+  const saveAlert = useCallback(() => {
+    const t = alertDraft.trim()
+    void commitAlert(t.length ? t : null)
+  }, [alertDraft, commitAlert])
+
+  const clearAlert = useCallback(() => { void commitAlert(null) }, [commitAlert])
 
   const emailPresent = !!record.email?.trim()
   const phonePresent = !!record.phone?.trim()
@@ -663,11 +832,51 @@ export function CustomerContactCard({
         background: ap.cardBackground ?? 'var(--surface-card)',
       }}
     >
+      {/* Optional header slot across the top of the card: the host's identity
+          content on the left, the single Overview/Edit toggle at the right end.
+          Rendered only when a host supplies `header`; otherwise the card has no
+          header row, exactly as before. */}
+      {header != null && (
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">{header}</div>
+          {collapsible && (
+            <ModeToggleButton
+              label={isExpanded ? 'Done' : 'Edit'}
+              icon={isExpanded ? Check : Pencil}
+              onClick={() => setExpandedState(!isExpanded)}
+            />
+          )}
+        </div>
+      )}
+
+      {/* Prominent customer alert near the top. Shown only when an alert exists
+          and the feature is enabled; no banner when empty. The editor (opened
+          from the Add/Edit control below) replaces the banner while editing. */}
+      {alertEditable && alertEditing ? (
+        <AlertEditor
+          draft={alertDraft}
+          busy={alertBusy}
+          onDraftChange={setAlertDraft}
+          onSave={saveAlert}
+          onCancel={() => setAlertEditing(false)}
+        />
+      ) : (
+        alertText && <AlertBanner text={alertText} />
+      )}
+
       {/* The customer's name IS the card heading, with the inline graduation-cap
           mentoring control beside it. The approved default renders the name at
           150% (33px), bold, in the teal brand token; the Playground can override
-          any of those. */}
-      <ContactMentoring appearance={ap} name={fullName(record)} />
+          any of those. `showName` / `showMentoring` let a host suppress either
+          for one instance; both default to true so every existing call site is
+          unchanged. */}
+      {showName && (
+        <ContactMentoring
+          appearance={ap}
+          name={fullName(record)}
+          showMentoring={showMentoring}
+        />
+      )}
 
       {error && (
         <p className="mt-3 rounded-lg border border-status-missing-border bg-status-missing-soft px-3 py-2 text-base text-status-missing-strong">
@@ -675,57 +884,142 @@ export function CustomerContactCard({
         </p>
       )}
 
-      {/* Three compact sections in one card. The dividers use the stronger
-          surface border token so they read clearly against the white card. */}
-      <div
-        className={cn('mt-3', ap.isDefault && 'divide-y divide-surface-border-strong')}
-        style={ap.isDefault ? undefined : {
-          borderColor: ap.dividerColor ?? 'var(--surface-border-strong)',
-        }}
-      >
-        <EmailRow
-          present={emailPresent}
-          verifiedAt={record.email_verified_at}
-          value={record.email}
-          editing={editing === 'email'}
-          busy={busyField === 'email'}
-          appearance={ap}
-          first
-          onEdit={() => { setError(null); setEditing('email') }}
-          onCancel={() => setEditing(null)}
-          onSave={(email) => saveField({ field: 'email', email })}
-          onVerify={(v) => toggleVerify('email', v)}
-        />
+      {isExpanded ? (
+        <>
+          {/* Edit mode — the existing per-field editing + verification controls,
+              byte-identical to today when not collapsible. */}
+          <div
+            className={cn('mt-3', ap.isDefault && 'divide-y divide-surface-border-strong')}
+            style={ap.isDefault ? undefined : {
+              borderColor: ap.dividerColor ?? 'var(--surface-border-strong)',
+            }}
+          >
+            <EmailRow
+              present={emailPresent}
+              verifiedAt={record.email_verified_at}
+              value={emailDisplay(record)}
+              availability={record.email_availability}
+              onSetAvailability={(status) => setEmailAvailability(status)}
+              editing={editing === 'email'}
+              busy={busyField === 'email'}
+              appearance={ap}
+              first
+              onEdit={() => { setError(null); setEditing('email') }}
+              onCancel={() => setEditing(null)}
+              onSave={(email) => saveField({ field: 'email', email })}
+              onVerify={(v) => toggleVerify('email', v)}
+            />
 
-        <PhoneRow
-          present={phonePresent}
-          verifiedAt={record.phone_verified_at}
-          value={record.phone}
-          editing={editing === 'phone'}
-          busy={busyField === 'phone'}
-          appearance={ap}
-          onEdit={() => { setError(null); setEditing('phone') }}
-          onCancel={() => setEditing(null)}
-          onSave={(phone) => saveField({ field: 'phone', phone })}
-          onVerify={(v) => toggleVerify('phone', v)}
-        />
+            <PhoneRow
+              present={phonePresent}
+              verifiedAt={record.phone_verified_at}
+              value={phoneDisplay(record)}
+              editing={editing === 'phone'}
+              busy={busyField === 'phone'}
+              appearance={ap}
+              onEdit={() => { setError(null); setEditing('phone') }}
+              onCancel={() => setEditing(null)}
+              onSave={(phone) => saveField({ field: 'phone', phone })}
+              onVerify={(v) => toggleVerify('phone', v)}
+            />
 
-        <AddressRow
-          present={addrPresent}
-          verifiedAt={record.address_verified_at}
-          record={record}
-          editing={editing === 'address'}
-          busy={busyField === 'address'}
-          appearance={ap}
-          last
-          onEdit={() => { setError(null); setEditing('address') }}
-          onCancel={() => setEditing(null)}
-          onSave={(a) => saveField({ field: 'address', ...a })}
-          onVerify={(v) => toggleVerify('address', v)}
-        />
-      </div>
+            <AddressRow
+              present={addrPresent}
+              verifiedAt={record.address_verified_at}
+              record={record}
+              editing={editing === 'address'}
+              busy={busyField === 'address'}
+              appearance={ap}
+              last
+              onEdit={() => { setError(null); setEditing('address') }}
+              onCancel={() => setEditing(null)}
+              onSave={(a) => saveField({ field: 'address', ...a })}
+              onVerify={(v) => toggleVerify('address', v)}
+            />
+          </div>
 
-      {ap.showStatusKey && <ContactStatusKey appearance={ap} />}
+          {/* Bottom bar in the editable view. The status key is hidden while a
+              collapsible card is editing (it belongs to the compact Overview); a
+              non-collapsible card keeps the existing `showStatusKey` behavior.
+              The alert control stays available here in expanded mode. */}
+          {((!collapsible && ap.showStatusKey) || (alertEditable && !alertEditing)) && (
+            <div className="mt-3 flex items-center justify-between gap-3 border-t border-surface-border-strong pt-2.5">
+              {!collapsible && ap.showStatusKey
+                ? <ContactStatusKey appearance={ap} inline />
+                : <span />}
+              {alertEditable && !alertEditing && (
+                <AlertControl hasAlert={!!alertText} onEdit={openAlertEditor} onClear={clearAlert} />
+              )}
+            </div>
+          )}
+
+          {/* The control that returns to the compact Overview. When a header is
+              present the toggle lives in the header, so the bottom control is
+              only a fallback for a collapsible card with no header slot. */}
+          {collapsible && header == null && (
+            <div className="mt-3 flex justify-end border-t border-surface-border-strong pt-3">
+              <ModeToggleButton
+                label="Done"
+                icon={Check}
+                onClick={() => setExpandedState(false)}
+              />
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          {/* Overview mode — a compact, read-only summary of the same three
+              fields, reusing the status tones and value rendering. One Edit
+              button expands to the controls above. */}
+          <div className="mt-3 divide-y divide-surface-border-strong">
+            <OverviewRow
+              contactIcon={Mail}
+              label="Email"
+              tone={toneFor(emailPresent, record.email_verified_at)}
+              value={overviewEmailText(record)}
+              present={emailPresent}
+              first
+            />
+            <OverviewRow
+              contactIcon={Phone}
+              label="Phone"
+              tone={toneFor(phonePresent, record.phone_verified_at)}
+              value={phoneDisplay(record)}
+              present={phonePresent}
+            />
+            <OverviewRow
+              contactIcon={MapPin}
+              label="Mailing Address"
+              tone={toneFor(addrPresent, record.address_verified_at)}
+              value={addrPresent ? addressLines(record).join('\n') : null}
+              present={addrPresent}
+              last
+            />
+          </div>
+
+          {/* Bottom bar of the compact Overview: the status key on the left so
+              the green/amber/red icons above read clearly, and the Add/Edit
+              alert control at the bottom right alongside it. */}
+          <div className="mt-3 flex items-center justify-between gap-3 border-t border-surface-border-strong pt-2.5">
+            <ContactStatusKey appearance={ap} inline />
+            {alertEditable && !alertEditing && (
+              <AlertControl hasAlert={!!alertText} onEdit={openAlertEditor} onClear={clearAlert} />
+            )}
+          </div>
+
+          {/* Fallback Edit control for a collapsible card with no header slot.
+              When a header is present the single Edit button lives in it. */}
+          {header == null && (
+            <div className="mt-3 flex justify-end border-t border-surface-border-strong pt-3">
+              <ModeToggleButton
+                label="Edit"
+                icon={Pencil}
+                onClick={() => setExpandedState(true)}
+              />
+            </div>
+          )}
+        </>
+      )}
     </section>
   )
 }
@@ -743,7 +1037,15 @@ export function CustomerContactCard({
  * coaching body, which the Playground exposes for experimentation; when the
  * appearance is the untouched neutral baseline the body renders verbatim.
  */
-function ContactMentoring({ appearance, name }: { appearance: ResolvedAppearance; name: string }) {
+function ContactMentoring({
+  appearance, name, showMentoring = true,
+}: {
+  appearance: ResolvedAppearance
+  name: string
+  /** Render the mentoring cap/panel. Default true (the existing behavior). When
+   * false, only the name heading renders and no mentoring appears. */
+  showMentoring?: boolean
+}) {
   const body =
     'Changes here update customer information throughout Right Path. Check Verified only when the ' +
     'customer has confirmed the information is correct, including when they confirm it in an email ' +
@@ -770,9 +1072,11 @@ function ContactMentoring({ appearance, name }: { appearance: ResolvedAppearance
         >
           {name}
         </h3>
-        {!open && <MentorCapButton onOpen={() => setOpen(true)} label="Show mentoring about these fields" />}
+        {showMentoring && !open && (
+          <MentorCapButton onOpen={() => setOpen(true)} label="Show mentoring about these fields" />
+        )}
       </div>
-      {open && (
+      {showMentoring && open && (
         <MentorCapPanel className="mt-2" onClose={() => setOpen(false)}>
           <span style={bodyStyle}>{body}</span>
         </MentorCapPanel>
@@ -781,13 +1085,200 @@ function ContactMentoring({ appearance, name }: { appearance: ResolvedAppearance
   )
 }
 
+/**
+ * The read-only value for the Email line of the Overview. A usable address
+ * shows as-is; otherwise it shows the recorded reason ("No Usable Email",
+ * "Undeliverable") or "Missing" — the same wording the editable Email section
+ * uses, so Overview and Edit never disagree.
+ */
+function overviewEmailText(record: CustomerContact): string | null {
+  const display = resolveEmailAvailabilityDisplay(record.email_availability, record.email)
+  if (display === 'on_file') return emailDisplay(record)
+  if (display === 'missing') return null
+  return EMAIL_AVAILABILITY_LABEL[display]
+}
+
+/**
+ * One compact, read-only row in the Overview: the field's status icon, the
+ * contact-method icon, then the actual contact value — all on a single line,
+ * with no text label. A long mailing address wraps naturally beneath the icons.
+ * No Edit button and no Verified checkbox; the single Edit button on the card
+ * reveals those. The status ICON carries the same verified/on-file/missing
+ * meaning as the editable view (and the same accessible label), and the
+ * contact-method icon carries the field name as its accessible label since the
+ * visible text label is gone, so the row stays meaningful without a label.
+ *
+ * Styling reuses the approved card tokens: the status/contact icons take the
+ * field's green/amber/red status color at the same `size-5` as the editable
+ * headings, and the value uses the same `text-lg text-ink` as the editable
+ * value line.
+ */
+function OverviewRow({
+  contactIcon: ContactIcon, label, tone, value, present, first, last,
+}: {
+  contactIcon: typeof Mail
+  label: string
+  tone: Tone
+  value: string | null
+  present: boolean
+  first?: boolean
+  last?: boolean
+}) {
+  const status = STATUS_META[tone]
+  const StatusIcon = status.icon
+  return (
+    <div className={cn('flex items-start gap-2 py-2.5', first && 'pt-0', last && 'pb-0')}>
+      <StatusIcon
+        className={cn('mt-0.5 size-5 shrink-0', status.color)}
+        aria-label={status.label}
+        role="img"
+      />
+      <ContactIcon className={cn('mt-0.5 size-5 shrink-0', status.color)} aria-label={label} role="img" />
+      {present ? (
+        <p className="min-w-0 whitespace-pre-line break-words text-lg text-ink">{value}</p>
+      ) : (
+        <p className="mt-0.5 text-lg font-medium text-status-missing-strong">
+          {value ?? 'Missing'}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The prominent customer-alert banner near the top of the card. One short,
+ * high-contrast amber band (the known/amber status tokens, same family the
+ * card already uses) so the alert reads at a glance. Display-only; the text
+ * wraps and preserves line breaks from the editor.
+ */
+function AlertBanner({ text }: { text: string }) {
+  return (
+    <div
+      role="alert"
+      className="mt-3 flex items-start gap-2.5 rounded-xl border border-status-known-border bg-status-known-fill px-3 py-2.5"
+    >
+      <AlertTriangle className="mt-0.5 size-5 shrink-0 text-status-known-strong" aria-hidden />
+      <p className="min-w-0 whitespace-pre-line break-words text-base font-medium text-status-known-strong">
+        {text}
+      </p>
+    </div>
+  )
+}
+
+/**
+ * The multiline alert editor with Save and Cancel. Reuses the card's input and
+ * button chrome (the same tokens as the field editors) so it feels native to
+ * the card. Empty text on Save clears the alert.
+ */
+function AlertEditor({
+  draft, busy = false, onDraftChange, onSave, onCancel,
+}: {
+  draft: string
+  busy?: boolean
+  onDraftChange: (v: string) => void
+  onSave: () => void
+  onCancel: () => void
+}) {
+  return (
+    <div className="mt-3 rounded-xl border border-status-known-border bg-status-known-soft p-3">
+      <label htmlFor="cc-alert" className="flex items-center gap-1.5 text-base font-semibold text-status-known-strong">
+        <AlertTriangle className="size-4" aria-hidden /> Customer alert
+      </label>
+      <textarea
+        id="cc-alert"
+        autoFocus
+        rows={3}
+        value={draft}
+        disabled={busy}
+        onChange={(e) => onDraftChange(e.target.value)}
+        placeholder="Add a short alert shown at the top of this customer's card."
+        className="mt-1.5 w-full rounded-lg border border-surface-border-strong px-3 py-2 text-base text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-wash disabled:opacity-50"
+      />
+      <div className="mt-2.5 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-base font-semibold text-brand-foreground hover:bg-brand-hover disabled:opacity-50"
+        >
+          {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />} Save
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-3 py-1.5 text-base font-medium text-ink-secondary hover:bg-surface-muted disabled:opacity-40"
+        >
+          <X className="size-3.5" aria-hidden /> Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * The Add / Edit + Clear alert control, shown in the card's bottom bar in both
+ * modes. "Add Alert" when none exists; "Edit alert" + "Clear" when one does.
+ */
+function AlertControl({
+  hasAlert, onEdit, onClear,
+}: {
+  hasAlert: boolean
+  onEdit: () => void
+  onClear: () => void
+}) {
+  const btn =
+    'inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-2.5 py-1 text-sm font-medium text-ink-secondary hover:bg-surface-muted'
+  return (
+    <div className="flex shrink-0 items-center gap-2">
+      <button type="button" onClick={onEdit} className={btn}>
+        {hasAlert ? <Pencil className="size-3.5" aria-hidden /> : <Plus className="size-3.5" aria-hidden />}
+        {hasAlert ? 'Edit alert' : 'Add Alert'}
+      </button>
+      {hasAlert && (
+        <button type="button" onClick={onClear} className={btn}>
+          <Trash2 className="size-3.5" aria-hidden /> Clear
+        </button>
+      )}
+    </div>
+  )
+}
+
+/**
+ * The single control that switches the collapsible card between Overview and
+ * Edit. It reuses the same neutral button chrome as the per-field Edit button
+ * so the two modes feel like one card, not two components.
+ */
+function ModeToggleButton({
+  label, icon: Icon, onClick,
+}: {
+  label: string
+  icon: typeof Pencil
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-3 py-1.5 text-base font-medium text-ink-secondary hover:bg-surface-muted"
+    >
+      <Icon className="size-4" aria-hidden /> {label}
+    </button>
+  )
+}
+
 /** The compact status key at the foot of the card: the same Lucide icons and
  * colors as the field headings, so green / amber / red read consistently. */
-function ContactStatusKey({ appearance }: { appearance: ResolvedAppearance }) {
+function ContactStatusKey({ appearance, inline = false }: { appearance: ResolvedAppearance; inline?: boolean }) {
   const order: Tone[] = ['confirmed', 'known', 'missing']
   return (
     <div
-      className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-surface-border-strong pt-2.5 text-sm text-ink-supporting"
+      className={cn(
+        'flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-supporting',
+        // Standalone: its own top divider + spacing (the original look). Inline:
+        // it sits inside a shared bottom bar that already owns the border.
+        !inline && 'mt-3 border-t border-surface-border-strong pt-2.5',
+      )}
       style={textStyle(appearance, appearance.statusKeyFontPx, appearance.statusKeyColor)}
     >
       {order.map((tone) => {
@@ -1049,12 +1540,48 @@ const inputCls = (invalid: boolean) =>
 
 // ── Email ──────────────────────────────────────────────────────────────────
 
+/** The email-availability states the operator can select directly in the Email
+ * section: Missing (reset to unknown), No Usable Email, and Undeliverable.
+ * 'available' is never selected here — it is set by the system when a usable
+ * address is saved. */
+const EMAIL_REASON_CHOICES: readonly SelectableEmailAvailability[] =
+  SELECTABLE_EMAIL_AVAILABILITY_VALUES
+
+/**
+ * The read-only value line for the Email section. A usable address shows
+ * normally; otherwise it shows the recorded reason ("No Usable Email",
+ * "Undeliverable") or plain "Missing" when the reason is unknown — so the card
+ * explains WHY there is no email, not merely that it is absent.
+ */
+function EmailValue({
+  value, display, appearance,
+}: {
+  value: string | null
+  display: EmailAvailabilityDisplay
+  appearance: ResolvedAppearance
+}) {
+  if (display === 'on_file') {
+    return <ValueText value={value} present appearance={appearance} />
+  }
+  const label = display === 'missing' ? 'Missing' : EMAIL_AVAILABILITY_LABEL[display]
+  return (
+    <p
+      className={cn('text-lg font-medium text-status-missing-strong', weightClass(appearance.valueWeight))}
+      style={fontStyle(appearance, appearance.valueFontPx)}
+    >
+      {label}
+    </p>
+  )
+}
+
 function EmailRow({
-  present, verifiedAt, value, editing, busy, appearance, first, onEdit, onCancel, onSave, onVerify,
+  present, verifiedAt, value, availability, editing, busy, appearance, first,
+  onEdit, onCancel, onSave, onSetAvailability, onVerify,
 }: {
   present: boolean
   verifiedAt: string | null
   value: string | null
+  availability: EmailAvailability | null
   editing: boolean
   busy: boolean
   appearance: ResolvedAppearance
@@ -1062,29 +1589,75 @@ function EmailRow({
   onEdit: () => void
   onCancel: () => void
   onSave: (email: string | null) => void
+  onSetAvailability: (status: SelectableEmailAvailability) => void
   onVerify: (v: boolean) => void
 }) {
   const tone = toneFor(present, verifiedAt)
+  const display = resolveEmailAvailabilityDisplay(availability, value)
   const [draft, setDraft] = useState(value ?? '')
   const [result, setResult] = useState<ContactFieldResult | null>(null)
+  // A state selected in THIS editing session but not yet committed. The editor
+  // is one Save/Cancel operation: picking Missing / No Usable Email /
+  // Undeliverable only PREPARES the selection (it is not persisted on click);
+  // Save commits either the pending selection or the typed email, and Cancel
+  // discards both. This is what prevents a lingering email draft from
+  // overwriting a newly selected status.
+  const [pendingReason, setPendingReason] =
+    useState<SelectableEmailAvailability | null>(null)
 
-  // Reset the draft whenever the editor opens, so Cancel-then-Edit starts clean.
-  const open = useCallback(() => { setDraft(value ?? ''); setResult(null); onEdit() }, [value, onEdit])
+  // Reset the draft and any pending selection whenever the editor opens, so
+  // Cancel-then-Edit starts clean.
+  const open = useCallback(() => {
+    setDraft(value ?? ''); setResult(null); setPendingReason(null); onEdit()
+  }, [value, onEdit])
 
   if (!editing) {
+    // A recorded reason (No Usable Email / Undeliverable) explains WHY email is
+    // absent. 'on_file' needs no help, and 'missing' shows only "Missing" with
+    // no explanatory line. Verification stays bound to an actual address
+    // (SectionShell disables Verified when !present).
+    const helpText = display === 'on_file' || display === 'missing'
+      ? null
+      : EMAIL_AVAILABILITY_HELP[display]
     return (
       <SectionShell contactIcon={Mail} label="Email" tone={tone} present={present} verifiedAt={verifiedAt}
         busy={busy} appearance={appearance} first={first} onEdit={open} onVerify={onVerify}>
-        <ValueText value={value} present={present} appearance={appearance} />
+        <EmailValue value={value} display={display} appearance={appearance} />
+        {helpText && (
+          <p className="mt-0.5 text-sm text-ink-muted" style={fontStyle(appearance, appearance.supportingFontPx)}>
+            {helpText}
+          </p>
+        )}
       </SectionShell>
     )
   }
 
+  // Save commits exactly one outcome: a pending "no usable email" reason when
+  // one is selected, otherwise the typed email. The two are mutually exclusive,
+  // so a stale email draft can never ride along with — and overwrite — a chosen
+  // status. An email is validated only when it is the thing being saved.
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
+    if (pendingReason) {
+      onSetAvailability(pendingReason)
+      return
+    }
     const r = normalizeEmailInput(draft)
     if (r.status === 'invalid') { setResult(r); return }
     onSave(r.value) // valid canonical value, or null when empty (a valid clear)
+  }
+
+  // Selecting a reason only PREPARES it. It clears the email draft so the editor
+  // reflects that saving will remove the address, and clears any stale
+  // validation. Re-clicking the selected reason toggles it back off, returning
+  // to editing the email.
+  const selectReason = (choice: SelectableEmailAvailability) => {
+    setResult(null)
+    setPendingReason((prev) => {
+      const next = prev === choice ? null : choice
+      setDraft(next ? '' : (value ?? ''))
+      return next
+    })
   }
 
   return (
@@ -1097,16 +1670,52 @@ function EmailRow({
         type="email"
         autoFocus
         value={draft}
+        disabled={busy || !!pendingReason}
         onChange={(e) => { setDraft(e.target.value); if (result) setResult(null) }}
-        onBlur={() => setResult(normalizeEmailInput(draft))}
-        placeholder="name@example.com"
+        onBlur={() => { if (!pendingReason) setResult(normalizeEmailInput(draft)) }}
+        placeholder={pendingReason ? EMAIL_AVAILABILITY_LABEL[pendingReason] : 'name@example.com'}
         aria-invalid={result?.status === 'invalid' || undefined}
-        className={cn('mt-1.5', inputCls(result?.status === 'invalid'))}
+        className={cn('mt-1.5', inputCls(result?.status === 'invalid'), pendingReason && 'opacity-50')}
       />
       {result?.status === 'invalid' && result.reason && (
         <p className="mt-1.5 text-base text-status-missing-strong">{result.reason}</p>
       )}
-      <div className="mt-2.5"><EditActions busy={busy} onCancel={onCancel} appearance={appearance} /></div>
+
+      {/* Email availability — an informational customer fact chosen here as part
+          of the SAME Save/Cancel operation. Picking a selection only prepares it
+          (shown highlighted); Save commits it and clears the active email +
+          verification, Cancel discards it. Entering and saving an email returns
+          to Email on file. It changes no research or workflow. */}
+      <fieldset className="mt-3 border-t border-surface-border-strong pt-3">
+        <legend className="text-sm font-semibold text-ink-secondary">Set email availability</legend>
+        <div className="mt-1.5 flex flex-wrap gap-2">
+          {EMAIL_REASON_CHOICES.map((choice) => {
+            const selected = pendingReason === choice
+            return (
+              <button
+                key={choice}
+                type="button"
+                disabled={busy}
+                aria-pressed={selected}
+                onClick={() => selectReason(choice)}
+                className={cn(
+                  'inline-flex items-center rounded-lg border px-2.5 py-1 text-sm font-medium disabled:opacity-60',
+                  selected
+                    ? 'border-status-missing-border bg-status-missing-soft text-status-missing-strong'
+                    : 'border-surface-border-strong bg-surface-card text-ink-secondary hover:bg-surface-muted',
+                )}
+              >
+                {EMAIL_AVAILABILITY_LABEL[choice]}
+              </button>
+            )
+          })}
+        </div>
+      </fieldset>
+
+      {/* Save / Cancel sits beneath the availability selections so the editor
+          reads: email input, then the availability choices, then the single
+          Save/Cancel for the whole operation. */}
+      <div className="mt-3"><EditActions busy={busy} onCancel={onCancel} appearance={appearance} /></div>
     </form>
   )
 }
@@ -1191,14 +1800,18 @@ function AddressRow({
   onVerify: (v: boolean) => void
 }) {
   const tone = toneFor(present, verifiedAt)
-  const [street, setStreet] = useState(streetOf(record))
-  const [city, setCity] = useState(record.city ?? '')
-  const [stateVal, setStateVal] = useState(record.state ?? '')
+  // Seed the editable drafts with the shared display normalization so the
+  // operator edits (and can copy) properly-formatted values: street in normal
+  // capitalization with directionals preserved, city normal-cased, state
+  // uppercased. The stored record is never rewritten by seeding a draft.
+  const [street, setStreet] = useState(streetDisplay(record))
+  const [city, setCity] = useState(normalizeCity(record.city) ?? '')
+  const [stateVal, setStateVal] = useState(normalizeState(record.state) ?? '')
   const [zip, setZip] = useState(record.zip ?? '')
 
   const open = useCallback(() => {
-    setStreet(streetOf(record)); setCity(record.city ?? '')
-    setStateVal(record.state ?? ''); setZip(record.zip ?? '')
+    setStreet(streetDisplay(record)); setCity(normalizeCity(record.city) ?? '')
+    setStateVal(normalizeState(record.state) ?? ''); setZip(record.zip ?? '')
     onEdit()
   }, [record, onEdit])
 
@@ -1223,10 +1836,14 @@ function AddressRow({
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
     const clean = (v: string) => { const t = v.replace(/\s+/g, ' ').trim(); return t.length ? t : null }
+    // Save the same normalized forms the operator sees, so a Save before an
+    // onBlur fires still stores the display standard: street normal-cased with
+    // directionals preserved, city normal-cased, state uppercased. This only
+    // normalizes the value being actively edited; it rewrites no other record.
     onSave({
-      street: clean(street),
-      city: clean(city),
-      state: clean(stateVal) ? clean(stateVal)!.toUpperCase() : null,
+      street: normalizeStreet(street),
+      city: normalizeCity(city),
+      state: normalizeState(stateVal),
       zip: clean(zip),
     })
   }
@@ -1240,17 +1857,19 @@ function AddressRow({
         <div>
           <label htmlFor="cc-street" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">Street</label>
           <input id="cc-street" autoFocus value={street} onChange={(e) => setStreet(e.target.value)}
+            onBlur={() => setStreet((v) => normalizeStreet(v) ?? '')}
             placeholder="123 Main St" className={cn('mt-1', inputCls(false))} />
         </div>
         <div>
           <label htmlFor="cc-city" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">City</label>
           <input id="cc-city" value={city} onChange={(e) => setCity(e.target.value)}
+            onBlur={() => setCity((v) => normalizeCity(v) ?? '')}
             placeholder="Philadelphia" className={cn('mt-1', inputCls(false))} />
         </div>
         <div className="flex gap-2">
           <div className="w-24">
             <label htmlFor="cc-state" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">State</label>
-            <input id="cc-state" value={stateVal} onChange={(e) => setStateVal(e.target.value)}
+            <input id="cc-state" value={stateVal} onChange={(e) => setStateVal(e.target.value.toUpperCase())}
               maxLength={2} placeholder="PA" className={cn('mt-1 uppercase', inputCls(false))} />
           </div>
           <div className="flex-1">

@@ -4,12 +4,13 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { resolveCapabilityProfile, loadWorkFunctions } from '@/lib/capabilities/resolve'
 import { canActOnItem, claimedByOther } from '@/lib/capabilities/work-functions'
-import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
+import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, isCustomerInteraction, isEngaged, isServicingAccess, engagedAtOf, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
 import { readResearchedUnsuccessfullyBatch, stillNeedsResearchRecommendation } from '@/lib/stewardship/research-record'
 import { getProjectWorkflows, projectContainsWorkflow, onboardingCompleteForPolicies } from '@/lib/projects/workflows'
 import { deriveOnboardingPopulation } from '@/lib/stewardship/derived-onboarding'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
+import { buildCustomerHistory, type HistoryTouchRow } from '@/lib/stewardship/customer-history'
 
 /**
  * A derived population a My Work count can open on the board: the two
@@ -17,7 +18,7 @@ import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
  * subset of Ready to Email. Each opens EXACTLY the customers My Work counted,
  * gated by the same capability + claim rules.
  */
-type PopulationFilter = 'calls-due' | 'available-to-call' | 'introductory-emails' | 'servicing-access'
+type PopulationFilter = 'calls-due' | 'available-to-call' | 'introductory-emails' | 'servicing-access' | 'customer-interaction'
 
 /**
  * GET /api/stewardship
@@ -56,7 +57,8 @@ export async function GET(request: NextRequest) {
     populationParam === 'calls-due' ||
     populationParam === 'available-to-call' ||
     populationParam === 'introductory-emails' ||
-    populationParam === 'servicing-access'
+    populationParam === 'servicing-access' ||
+    populationParam === 'customer-interaction'
       ? populationParam
       : null
 
@@ -139,7 +141,7 @@ export async function GET(request: NextRequest) {
     .select(`
       id, prereview_id, queue, call_reason, research_reason, last_call_outcome,
       callback_date, email_sent_at, intro_email_recipient, follow_up_due, form_received_at, submitted_at, carrier_correction,
-      refused_at, updated_at, claimed_by_producer_id,
+      refused_at, action_context, updated_at, claimed_by_producer_id,
       customer_prereviews!inner (
         id, customer_id, source_agency_id, decision,
         customers!inner ( id, first_name, last_name, email, phone )
@@ -184,6 +186,7 @@ export async function GET(request: NextRequest) {
     submitted_at: string | null
     carrier_correction: string | null
     refused_at: string | null
+    action_context: unknown
     claimed_by_producer_id: string | null
     customer_prereviews: {
       id: string
@@ -299,11 +302,20 @@ export async function GET(request: NextRequest) {
     // Due status reads from DURABLE row state (call_reason + a due callback),
     // so it survives refreshes and the waiting-to-response -> Ready to Call
     // promotion (which persisted call_reason = 'no-response').
+    // An engaged customer has left routine calling for Customer Interaction, so
+    // they are excluded from the call and introductory-email populations (the
+    // SAME engagement test My Work uses, keeping counted and opened sets equal).
+    const engaged = isEngaged({
+      lastCallOutcome: r.last_call_outcome as CallOutcome | null,
+      callbackDate: r.callback_date,
+      engagedAt: engagedAtOf(r.action_context),
+    })
     const population = callPopulationOf({
       effectiveQueue,
       callReason: r.call_reason as CallReason | null,
       hasUsablePhone: !!r.customer_prereviews.customers?.phone?.trim(),
       callbackDue: isCallbackDue(r.callback_date, actorTimeZone),
+      engaged,
     })
     // First-touch introductory-email membership, via the SAME shared predicate
     // My Work counts with, so the opened introductory-email population equals the
@@ -315,6 +327,7 @@ export async function GET(request: NextRequest) {
       callbackDate: r.callback_date,
       currentEmail: r.customer_prereviews.customers?.email ?? null,
       introEmailRecipient: r.intro_email_recipient,
+      engaged,
     })
     return {
       id: r.id,
@@ -339,15 +352,30 @@ export async function GET(request: NextRequest) {
       // carried so the board can open that population exactly as counted.
       is_intro_email: introEmail,
       // Whether this item is in the SERVICING-ACCESS population: the signed
-      // authorization is in hand (form returned), so the work is to save the
-      // form, prepare the carrier email, submit, follow up, and confirm. Its
-      // effective queue is waiting-for-form or waiting-for-carrier, OR the form
-      // has already been recorded received. Carried so the servicing-access
-      // direct screen opens exactly the customers My Work counted.
-      servicing_access:
-        effectiveQueue === 'waiting-for-form' ||
-        effectiveQueue === 'waiting-for-carrier' ||
-        r.form_received_at != null,
+      // authorization is IN HAND. The sole boundary is RECEIPT
+      // (form_received_at), which also covers waiting-for-carrier (reachable only
+      // after receipt). SENDING the form (waiting-for-form without a receipt) is
+      // NOT servicing access — that customer stays in Customer Interaction.
+      // Carried so the servicing-access direct screen opens exactly the
+      // customers My Work counted.
+      servicing_access: isServicingAccess({
+        formReceivedAt: r.form_received_at,
+        refusedAt: r.refused_at,
+      }),
+      // Whether this item is in the CUSTOMER INTERACTION population: the customer
+      // has genuinely engaged (reached, a promised callback, or a recorded
+      // inbound response via action_context.engagedAt) but the signed
+      // authorization has not come back yet. Uses the SAME shared predicate My
+      // Work counts with, so the opened interaction population equals the counted
+      // one. A refused or servicing-access item is excluded by the predicate.
+      customer_interaction: isCustomerInteraction({
+        effectiveQueue,
+        lastCallOutcome: r.last_call_outcome as CallOutcome | null,
+        callbackDate: r.callback_date,
+        formReceivedAt: r.form_received_at,
+        refusedAt: r.refused_at,
+        engagedAt: engagedAtOf(r.action_context),
+      }),
       // Research outcome: set below for research-needed items whose every
       // still-missing method has been researched unsuccessfully. Default false.
       research_unsuccessful: false as boolean,
@@ -414,6 +442,10 @@ export async function GET(request: NextRequest) {
         // A derived onboarding item has no recorded outreach yet, so no
         // authorization has returned — never in the servicing-access set.
         servicing_access: false,
+        // A derived onboarding item has no recorded engagement either (no
+        // reached call, callback, or inbound response), so it is never in the
+        // customer-interaction set until a real outreach row records contact.
+        customer_interaction: false,
         research_unsuccessful: false as boolean,
         prereview_id: null as unknown as string,
         customer: { id: d.customerId, first_name: d.firstName ?? '', last_name: d.lastName ?? '', email: d.email, phone: d.phone },
@@ -499,6 +531,7 @@ export async function GET(request: NextRequest) {
   const inPopulation = (it: (typeof items)[number], pop: PopulationFilter): boolean =>
     pop === 'introductory-emails' ? it.is_intro_email === true
       : pop === 'servicing-access' ? it.servicing_access === true
+      : pop === 'customer-interaction' ? it.customer_interaction === true
       : it.call_population === pop
 
   // The caller's actionable items for a requested population: in that population,
@@ -545,13 +578,109 @@ export async function GET(request: NextRequest) {
         'available-to-call': items.filter(it => isActionableToMe(it, 'available-to-call')).length,
         'introductory-emails': items.filter(it => isActionableToMe(it, 'introductory-emails')).length,
         'servicing-access': items.filter(it => isActionableToMe(it, 'servicing-access')).length,
+        'customer-interaction': items.filter(it => isActionableToMe(it, 'customer-interaction')).length,
       }
     : {
         'calls-due': items.filter(it => it.call_population === 'calls-due').length,
         'available-to-call': items.filter(it => it.call_population === 'available-to-call').length,
         'introductory-emails': items.filter(it => it.is_intro_email === true).length,
         'servicing-access': items.filter(it => it.servicing_access === true).length,
+        'customer-interaction': items.filter(it => it.customer_interaction === true).length,
       }
+
+  // Last recorded interaction, for the Customer Interaction relationship list.
+  // The redesigned opening screen lists each engaged customer with their last
+  // recorded interaction and next follow-up; follow_up_due/callback_date are
+  // already on each item, but "last interaction" is derived from the one history
+  // system (case_touches). Compute it ONLY for the customer-interaction
+  // population view (never on the unscoped board) with a single batched query —
+  // the newest touched_at per listed customer — so the enrichment adds no
+  // per-row cost and no new store. Items without a recorded touch carry null.
+  if (populationFilter === 'customer-interaction' && visibleItems.length > 0) {
+    const listedCustomerIds = Array.from(
+      new Set(visibleItems.map(it => it.customer?.id).filter((v): v is string => !!v)),
+    )
+    if (listedCustomerIds.length > 0) {
+      // Read the one durable history (case_touches) for the listed customers and
+      // run it through the SAME shared history model the workbench uses
+      // (buildCustomerHistory), so the list's "last interaction" is derived from
+      // recorded history, not re-invented. The newest event gives both WHEN the
+      // last interaction happened and WHAT it was — its event-specific heading
+      // (timelineHeading, e.g. "Email Received", "Customer Reached"), falling
+      // back to the grouped summary. One batched read for the whole list.
+      // Collect every listed customer's touches, newest first. PostgREST caps a
+      // single result at ~1000 rows, so a one-shot query would silently truncate
+      // the oldest customers' rows once the combined history crosses that cap —
+      // and then those customers would show a wrong or missing "last
+      // interaction". Page through with .range() until a short page proves the
+      // end is reached, so every customer's full history is represented
+      // regardless of total volume and the grouped latest interaction is never
+      // split across a page boundary. For the realistic conversation list this
+      // is a single page; a very large history simply pages to completion.
+      const PAGE = 1000
+      const rowsByCustomer = new Map<string, HistoryTouchRow[]>()
+      for (let from = 0; ; from += PAGE) {
+        const { data: page } = await supabase
+          .from('case_touches')
+          .select('id, touch_type, notes, touched_at, touched_by, customer_id')
+          .in('customer_id', listedCustomerIds)
+          .order('touched_at', { ascending: false })
+          .range(from, from + PAGE - 1)
+        const rows = (page ?? []) as (HistoryTouchRow & { customer_id: string | null })[]
+        for (const t of rows) {
+          if (!t.customer_id) continue
+          const list = rowsByCustomer.get(t.customer_id) ?? []
+          list.push({ id: t.id, touch_type: t.touch_type, notes: t.notes, touched_at: t.touched_at, touched_by: t.touched_by })
+          rowsByCustomer.set(t.customer_id, list)
+        }
+        if (rows.length < PAGE) break
+      }
+      // The newest recorded interaction per customer: its timestamp and its
+      // event-specific type heading, from the shared history model.
+      const lastByCustomer = new Map<string, { at: string; type: string }>()
+      for (const [cid, rows] of rowsByCustomer) {
+        // buildCustomerHistory returns events newest-first; the first is the
+        // last recorded interaction.
+        const events = buildCustomerHistory(rows, actorTimeZone)
+        const latest = events[0]
+        if (latest) {
+          lastByCustomer.set(cid, { at: latest.at, type: latest.timelineHeading ?? latest.summary })
+        }
+      }
+      for (const it of visibleItems) {
+        const cid = it.customer?.id
+        const lastEvent = cid ? lastByCustomer.get(cid) ?? null : null
+        const last = lastEvent?.at ?? null
+        const lastType = lastEvent?.type ?? null
+        // The single next-follow-up date shown on the list: the promised
+        // callback (pre-authorization) or the signature chase date
+        // (waiting-for-form, form not yet received). callback_date is date-only;
+        // follow_up_due is an instant, shown as its date.
+        const awaitingSignature = it.queue === 'waiting-for-form' && it.form_received_at == null
+        const nextFollowUp =
+          it.callback_date ??
+          (awaitingSignature && it.follow_up_due ? it.follow_up_due.slice(0, 10) : null)
+        // Whether that follow-up is DUE on the actor's calendar, so the list can
+        // surface overdue/due first. Pre-authorization uses the date-only
+        // callback test; awaiting-signature reuses the waiting follow-up test
+        // (follow_up_due_now already computes it for waiting queues).
+        const followUpDue =
+          isCallbackDue(it.callback_date, actorTimeZone) ||
+          (awaitingSignature && it.follow_up_due_now === true)
+        Object.assign(it as typeof it & {
+          last_touch_at: string | null
+          last_interaction_type: string | null
+          next_follow_up: string | null
+          interaction_follow_up_due: boolean
+        }, {
+          last_touch_at: last,
+          last_interaction_type: lastType,
+          next_follow_up: nextFollowUp,
+          interaction_follow_up_due: followUpDue,
+        })
+      }
+    }
+  }
 
   return Response.json({
     data: {

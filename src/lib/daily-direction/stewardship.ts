@@ -57,7 +57,10 @@ type BoardRow = {
   refused_at: string | null
   customer_prereviews: {
     decision: string | null
-    customers: { id: string; first_name: string; last_name: string; email: string | null; phone: string | null }
+    customers: {
+      id: string; first_name: string; last_name: string
+      email: string | null; phone: string | null
+    }
   }
 }
 

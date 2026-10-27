@@ -24,7 +24,7 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
+import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, isCustomerInteraction, isEngaged, isServicingAccess, engagedAtOf, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
 import { createTimeContext } from '@/lib/time'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
@@ -132,6 +132,23 @@ function callsDueRoute(projectId?: string | null): string {
  */
 function servicingAccessRoute(projectId?: string | null): string {
   const base = `${STEWARDSHIP_ROUTE}/servicing-access`
+  return projectId ? `${base}?project_id=${encodeURIComponent(projectId)}` : base
+}
+
+/**
+ * The Customer Interaction DIRECT WORKING SCREEN for the customer-interaction
+ * population: customers who have genuinely engaged (responded by email, phone,
+ * or text, or been reached on a call) but have NOT yet returned the signed
+ * authorization. It is the step between routine calling/outreach and Servicing
+ * Access — record incoming responses, outgoing replies, conversation notes, and
+ * follow-up commitments while the conversation is live. When the signed form
+ * arrives the customer moves on to Servicing Access; an incomplete form keeps
+ * them here until resolved. Lands straight on the first eligible customer with
+ * no intermediate list, and offers a search so an employee can open a specific
+ * customer the moment a response comes in. Project scope is carried through.
+ */
+function customerInteractionRoute(projectId?: string | null): string {
+  const base = `${STEWARDSHIP_ROUTE}/customer-interaction`
   return projectId ? `${base}?project_id=${encodeURIComponent(projectId)}` : base
 }
 
@@ -250,6 +267,10 @@ type BoardRow = {
    * servicing-access population (the stage between Outreach and Ops Prep). */
   form_received_at: string | null
   refused_at: string | null
+  /** Lightweight per-item facts (soft lease / engagement marker); carries the
+   * engagedAt signal that puts a responding customer into Customer Interaction.
+   * NOT a claim, NOT a queue change. */
+  action_context: unknown
   claimed_by_producer_id: string | null
   customer_prereviews: {
     decision: string | null
@@ -493,7 +514,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   const { data: boardData, error: boardErr } = await supabase
     .from('stewardship_outreach')
     .select(`
-      id, queue, call_reason, research_reason, last_call_outcome, email_sent_at, intro_email_recipient, callback_date, follow_up_due, form_received_at, refused_at, claimed_by_producer_id,
+      id, queue, call_reason, research_reason, last_call_outcome, email_sent_at, intro_email_recipient, callback_date, follow_up_due, form_received_at, refused_at, action_context, claimed_by_producer_id,
       customer_prereviews!inner ( decision, customer_id, customers!inner ( phone, email ) )
     `)
     .order('updated_at', { ascending: true })
@@ -741,6 +762,13 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         callbackDate: r.callback_date,
         currentEmail: r.customer_prereviews.customers?.email ?? null,
         introEmailRecipient: r.intro_email_recipient,
+        // An engaged customer has left routine calling for Customer Interaction,
+        // so they are never offered an introductory email.
+        engaged: isEngaged({
+          lastCallOutcome: r.last_call_outcome as CallOutcome | null,
+          callbackDate: r.callback_date,
+          engagedAt: engagedAtOf(r.action_context),
+        }),
       }) &&
       (cls.bucket === 'available' || cls.bucket === 'owned')
     if (isIntroEmail) {
@@ -942,6 +970,12 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
           callReason: effCallReason,
           hasUsablePhone: !!r.customer_prereviews.customers?.phone?.trim(),
           callbackDue: isCallbackDue(r.callback_date, timeCtx),
+          // An engaged customer has left routine calling for Customer Interaction.
+          engaged: isEngaged({
+            lastCallOutcome: r.last_call_outcome as CallOutcome | null,
+            callbackDate: r.callback_date,
+            engagedAt: engagedAtOf(r.action_context),
+          }),
         })
         if (!population) continue
         // Eligibility + claim: only count items this employee can actually pick
@@ -1072,6 +1106,84 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         })
       }
 
+      // Customer Interaction: the step between routine calling/outreach and
+      // Servicing Access. A genuinely engaged customer (reached on a call, a
+      // promised callback, or a recorded inbound response) who has NOT yet
+      // returned the signed authorization is in an ACTIVE conversation — the
+      // work is to record incoming responses, outgoing replies, conversation
+      // notes, and follow-up commitments, keeping the conversation available to
+      // the team. Membership is the SAME shared isCustomerInteraction predicate
+      // the board route opens with, so the counted set equals the opened set.
+      // Eligible by the outreach capability and not claimed by someone else.
+      // Informational, like Servicing Access: it never adds to the activity
+      // total or invents a ZEN band; it opens the Customer Interaction direct
+      // working screen, landing on the first engaged customer (or the search
+      // when none are waiting).
+      let customerInteraction = 0
+      const customerInteractionByProject = new Map<string, number>()
+      for (const r of openRows) {
+        const inInteraction = isCustomerInteraction({
+          effectiveQueue: effectiveQueue(r),
+          lastCallOutcome: r.last_call_outcome as CallOutcome | null,
+          callbackDate: r.callback_date,
+          formReceivedAt: r.form_received_at,
+          refusedAt: r.refused_at,
+          engagedAt: engagedAtOf(r.action_context),
+        })
+        if (!inInteraction) continue
+        const itemProjects = projectsByCustomer.get(r.customer_prereviews.customer_id) ?? new Set<string>()
+        if (!canActOnItem(profile, 'outreach', requiredQualByActivity.get('outreach') ?? null, itemProjects)) continue
+        if (claimedByOther(r.claimed_by_producer_id, myProducerId)) continue
+        customerInteraction += 1
+        for (const pid of itemProjects) {
+          customerInteractionByProject.set(pid, (customerInteractionByProject.get(pid) ?? 0) + 1)
+        }
+      }
+      // Always a reachable entry point for an outreach-eligible employee, even
+      // at zero (a response can arrive at any time and the screen's search
+      // starts the work), matching how Servicing Access stays reachable.
+      {
+        const ciEligibleAnywhere =
+          agencyWideEligible('outreach') || scopedProjectsFor('outreach').size > 0
+        if (customerInteraction > 0 || ciEligibleAnywhere) {
+          const ciScopes = ((): Record<string, WorkSourceProjectScope> | undefined => {
+            if (customerInteractionByProject.size === 0) return undefined
+            const out: Record<string, WorkSourceProjectScope> = {}
+            for (const [pid, n] of customerInteractionByProject) {
+              if (n <= 0) continue
+              out[pid] = {
+                count: n,
+                ownedByMe: 0,
+                availableToMe: n,
+                claimedByOthers: 0,
+                notEligible: 0,
+                dueToMe: 0,
+                route: customerInteractionRoute(pid),
+              }
+            }
+            return Object.keys(out).length > 0 ? out : undefined
+          })()
+          outreach.sources.push({
+            kind: 'stewardship',
+            label: 'Shared Stewardship board — Customer interaction',
+            count: customerInteraction,
+            // Opens the Customer Interaction direct working screen (engaged,
+            // pre-authorization), landing on the first engaged customer — exactly
+            // the set this counted — or on the find-a-customer search when none
+            // are waiting.
+            route: customerInteractionRoute(),
+            projectId: null,
+            ownedByMe: 0,
+            availableToMe: customerInteraction,
+            claimedByOthers: 0,
+            notEligible: 0,
+            dueToMe: 0,
+            informational: true,
+            projectScopes: ciScopes,
+          })
+        }
+      }
+
       // Servicing Access: the stage between Outreach and Operations Preparation.
       // The signed authorization is in hand (the form has returned) — its
       // effective queue is waiting-for-form or waiting-for-carrier, OR receipt
@@ -1087,11 +1199,15 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       let servicingAccess = 0
       const servicingAccessByProject = new Map<string, number>()
       for (const r of openRows) {
-        const eq = effectiveQueue(r)
-        const inServicingAccess =
-          eq === 'waiting-for-form' ||
-          eq === 'waiting-for-carrier' ||
-          r.form_received_at != null
+        // Servicing Access is the signed authorization IN HAND — RECEIPT, not
+        // merely having SENT the form. A waiting-for-form item without a recorded
+        // receipt is still an active conversation (Customer Interaction), so the
+        // sole boundary is form_received_at (which also covers waiting-for-carrier,
+        // reachable only after receipt).
+        const inServicingAccess = isServicingAccess({
+          formReceivedAt: r.form_received_at,
+          refusedAt: r.refused_at,
+        })
         if (!inServicingAccess) continue
         const itemProjects = projectsByCustomer.get(r.customer_prereviews.customer_id) ?? new Set<string>()
         if (!canActOnItem(profile, 'outreach', requiredQualByActivity.get('outreach') ?? null, itemProjects)) continue

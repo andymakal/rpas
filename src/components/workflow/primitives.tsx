@@ -19,6 +19,7 @@ import type { ComponentType, ReactNode } from 'react'
 import { ExternalLink, MessageSquareQuote } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { TaskColumns } from './TaskColumns'
 
 type IconType = ComponentType<{ className?: string }>
 
@@ -61,8 +62,20 @@ export function WorkflowSurface({
 // WorkflowPage / WorkflowHeader — page shell and prominent page heading.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** The desktop working width shared by every workflow surface. */
-export const WORKFLOW_MAX_WIDTH = 'max-w-[1360px]'
+/**
+ * The ONE shared content-column width recipe for every Right Path workflow
+ * surface. It is the established My Work behavior, now the standard everywhere:
+ * the column fills ~80% of the viewport (balanced gutters on each side), stays
+ * responsive via the percentage on smaller screens, and is capped at 1760px so
+ * it does not sprawl on an ultrawide monitor. `min-w-0` lets it shrink so inner
+ * content wraps instead of forcing overflow; `mx-auto` centers it.
+ *
+ * This is a COMPLETE width recipe (it already sets width + centering), so apply
+ * it ALONE — do not combine it with `w-full`, which would conflict with `w-4/5`.
+ * Centralizing it here means existing and future workflow pages inherit the one
+ * width automatically; there are no per-page 1360px (or other) caps anymore.
+ */
+export const WORKFLOW_MAX_WIDTH = 'mx-auto w-4/5 min-w-0 max-w-[1760px]'
 
 /**
  * The standard page body for a Right Path workflow surface.
@@ -81,17 +94,56 @@ export const WORKFLOW_MAX_WIDTH = 'max-w-[1360px]'
  */
 export function WorkflowPage({
   children,
+  heading,
   className,
   surfaceClassName,
+  contentWidthClassName = WORKFLOW_MAX_WIDTH,
 }: {
   children: ReactNode
+  /** Optional fixed heading band (e.g. a Back link + WorkflowHeader). When
+   * provided, the page fills the available height: this band stays visible and
+   * only `children` (the work area) scrolls. The behavior is pure flex — it
+   * needs no viewport offset and adapts to any app-header height — and it
+   * requires a height-providing parent (WorkflowChrome supplies one for every
+   * light-theme workflow route). Omit it and the page keeps its original
+   * single-scroll behavior exactly, so stories and non-workflow callers are
+   * unchanged. */
+  heading?: ReactNode
   className?: string
   surfaceClassName?: string
+  /** Max-width of the centered content column. Defaults to the shared workflow
+   * width; My Work passes its wider column so its appearance is preserved. */
+  contentWidthClassName?: string
 }) {
+  // No heading band: unchanged single-column surface that scrolls with the page.
+  if (heading == null) {
+    return (
+      <WorkflowSurface className={cn('sm:px-10', surfaceClassName)}>
+        <div className={cn(contentWidthClassName, 'space-y-8 text-ink-secondary', className)}>
+          {children}
+        </div>
+      </WorkflowSurface>
+    )
+  }
+
+  // Heading band + independently scrolling work area. The surface becomes a
+  // flex column filling its parent (WorkflowChrome's flex-1 region). The band
+  // carries the top + side gutter and never scrolls; the work area carries the
+  // side + bottom gutter, fills the rest (flex-1 + min-h-0), and is the ONLY
+  // scroller (overflow-y-auto). min-h-0 is what lets the work area shrink below
+  // its content so it scrolls instead of growing the page. Same max-width,
+  // centering, gutters, and space-y-8 rhythm as the default, so appearance is
+  // preserved; only the scroll boundary moves from the whole page to the work
+  // area.
   return (
-    <WorkflowSurface className={cn('sm:px-10', surfaceClassName)}>
-      <div className={cn('mx-auto w-full', WORKFLOW_MAX_WIDTH, 'space-y-8 text-ink-secondary', className)}>
-        {children}
+    <WorkflowSurface className={cn('flex h-full min-h-0 flex-col !px-0 !py-0', surfaceClassName)}>
+      <div className={cn('shrink-0 px-6 pt-8 sm:px-10', contentWidthClassName)}>
+        {heading}
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8 pt-8 sm:px-10">
+        <div className={cn(contentWidthClassName, 'space-y-8 text-ink-secondary', className)}>
+          {children}
+        </div>
       </div>
     </WorkflowSurface>
   )
@@ -234,19 +286,24 @@ export function TaskShell({
   history?: ReactNode
 }) {
   return (
-    <div className={cn('mx-auto w-full', WORKFLOW_MAX_WIDTH, 'space-y-6 text-ink-secondary')}>
+    // Full-width within its parent: the page's WorkflowPage work area already
+    // applies the shared workflow width recipe, so TaskShell must NOT re-cap the
+    // width (a nested w-4/5 inside w-4/5 would compound to ~64%). It simply fills
+    // the column it is given.
+    <div className={cn('w-full space-y-6 text-ink-secondary')}>
       {header}
       {history != null ? (
         // Three EQUAL-width columns on the widest screens, staying responsive:
         // one column on narrow, two on medium, three equal thirds on xl. Equal
         // thirds keep work · context · history balanced across the working
-        // screens. minmax(0,1fr) lets each column shrink so its content wraps
-        // instead of forcing overflow.
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,1fr))]">
-          <div className="space-y-5">{action}</div>
-          <div className="space-y-5">{context}</div>
-          <div className="space-y-5">{history}</div>
-        </div>
+        // screens.
+        //
+        // Independent column scrolling is INHERENT to the three-column workspace
+        // (not a per-page opt-in). TaskColumns fits the row to the ACTUAL space
+        // beneath the page heading by measuring the row's own position — no
+        // guessed viewport offset — and scrolls each column within its bounds on
+        // desktop. Below xl the columns stack and the page scrolls normally.
+        <TaskColumns action={action} context={context} history={history} />
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[3fr_2fr]">
           <div className="space-y-5">{action}</div>
@@ -483,18 +540,23 @@ export function ExternalActionConfirm({
 export function SpokenScriptCard({
   label,
   body,
+  bodySizeClassName = 'text-base',
 }: {
   /** The short uppercase section label (e.g. "Opening script"). */
   label: string
   /** The talk track to read aloud. Preserves its own line breaks. */
   body: string
+  /** Tailwind text-size class for the body. Defaults to text-base (16px) so
+   * every existing call site is unchanged; a caller can pass e.g. text-lg (18px)
+   * for a larger, read-aloud-friendly size. */
+  bodySizeClassName?: string
 }) {
   return (
     <div className="space-y-2 rounded-xl border border-surface-border bg-surface-muted p-3">
       <p className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-supporting">
         <MessageSquareQuote className="size-3.5" aria-hidden /> {label}
       </p>
-      <p className="whitespace-pre-line text-base leading-relaxed text-ink-secondary">{body}</p>
+      <p className={cn('whitespace-pre-line leading-relaxed text-ink-secondary', bodySizeClassName)}>{body}</p>
     </div>
   )
 }

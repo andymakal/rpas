@@ -110,6 +110,13 @@ export function textControl(name: string, category: string): ArgType {
   return { name, control: { type: 'text' }, table: { category } }
 }
 
+/** A date picker control (native Storybook `date` control, surfaced as a
+ * YYYY-MM-DD string arg). Convention for date-only values such as a promised
+ * callback date. */
+export function dateControl(name: string, category: string): ArgType {
+  return { name, control: { type: 'date' }, table: { category } }
+}
+
 /** Hide a required prop from the Controls panel (set by `render`). */
 export const hiddenControl: ArgType = { table: { disable: true } }
 

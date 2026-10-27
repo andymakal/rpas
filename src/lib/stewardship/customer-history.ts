@@ -28,10 +28,164 @@ import {
   groupIntoAttempts,
   parseOutcomeFromNote,
   noteIndicatesReached,
+  noteIndicatesInbound,
   type Communication,
   type OutreachChannel,
   type ChannelOutcome,
 } from './outreach-attempts'
+
+/** The direction of a recorded communication, for presentations that title an
+ * event by who initiated it. Derived from the stored note (the inbound marker
+ * and the route's prefix wording); orthogonal to channel and outcome.
+ *   - 'incoming'  a genuine customer-initiated response (email/call/text in).
+ *   - 'automated' an inbound auto-reply (out-of-office, delivery receipt) — NOT
+ *                 a genuine response and never engagement.
+ *   - 'outgoing'  our reach-out to the customer (the default).
+ * Only the new Relationship Timeline presentation reads this; the existing
+ * Customer History card ignores it, so adding it changes no existing screen. */
+export type HistoryDirection = 'incoming' | 'outgoing' | 'automated'
+
+/** Whether a stored touch note records an AUTOMATED inbound reply. The touch
+ * route prefixes such a note "Automated <channel> reply received"; it still
+ * carries the inbound marker, so this narrows an inbound communication to the
+ * automated case. */
+function noteIndicatesAutomated(note: string | null): boolean {
+  return !!note && /^Automated\s+\w+\s+reply received/i.test(note.trim())
+}
+
+/** Resolve the direction of one stored touch note from its markers/prefix. */
+function directionOfNote(note: string | null): HistoryDirection {
+  if (!noteIndicatesInbound(note)) return 'outgoing'
+  return noteIndicatesAutomated(note) ? 'automated' : 'incoming'
+}
+
+/**
+ * Whether a touch note's DIRECTION is actually KNOWN from how it was recorded,
+ * as opposed to merely defaulting to outgoing. Direction is known when:
+ *   - it carries the inbound marker (a recorded incoming/automated reply), or
+ *   - it carries the outgoing "Servicing-agent onboarding <channel>" prefix the
+ *     touch/transition routes write, or
+ *   - it carries a recognized outcome/system marker or phrase that only an
+ *     outgoing workflow action writes (reached, voicemail, bad number, etc.).
+ * A bare legacy row with none of these has UNKNOWN direction, so the timeline
+ * must not invent one — it falls back to the grouped summary heading.
+ */
+function directionIsKnown(note: string | null): boolean {
+  if (!note) return false
+  if (noteIndicatesInbound(note)) return true
+  if (/^Servicing-agent onboarding\s+(?:call|voicemail|text|email|postal)\b/i.test(note.trim())) return true
+  // An outgoing workflow outcome leaves one of these stable signatures.
+  if (noteIndicatesReached(note)) return true
+  if (/\[no-contact\]|\[channel-unusable/i.test(note)) return true
+  for (const re of SYSTEM_OUTCOME_PHRASES) {
+    if (re.test(stripMarkersAndPrefix(note))) return true
+  }
+  return false
+}
+
+// ---------------------------------------------------------------------------
+// Timeline event headings — the precise, event-specific titles the Relationship
+// Timeline shows. Each names the ACTUAL recorded event (channel + direction +
+// outcome, or milestone type), never a generic "incoming/outgoing" label.
+// Additive: computed here and read only by the Relationship Timeline.
+// ---------------------------------------------------------------------------
+
+/** Title-case channel noun for a communication heading. */
+const CHANNEL_NOUN: Partial<Record<OutreachChannel, string>> = {
+  email: 'Email',
+  text: 'Text',
+  postal: 'Postal Mail',
+}
+
+/**
+ * The precise heading for one grouped CONTACT interaction, derived from its
+ * communications. Returns null when direction is unknown for every
+ * communication (a legacy record), so the timeline falls back to the grouped
+ * summary rather than inventing a direction.
+ *
+ * The lead communication is the one that defines the event: a reached/voicemail
+ * call outcome leads; otherwise the first communication whose direction is
+ * known. Headings map to the agreed vocabulary:
+ *   call reached            -> Customer Reached
+ *   call incoming           -> Incoming Call
+ *   voicemail               -> Voicemail Left
+ *   call unusable           -> Bad Number
+ *   call no-answer/outgoing  -> No Answer
+ *   email automated          -> Automated Email Reply
+ *   email outgoing           -> Email Sent      | incoming -> Email Received
+ *   email unusable           -> Email Undeliverable
+ *   text  automated          -> Automated Text Reply
+ *   text  outgoing           -> Text Sent        | incoming -> Text Received
+ *   postal outgoing          -> Postal Mail Sent | incoming -> Postal Mail Received
+ *
+ * An AUTOMATED inbound reply (out-of-office, delivery receipt) is a distinct,
+ * non-genuine event. It is titled "Automated … Reply" and is NEVER shown as a
+ * genuine "Received" communication. This is presentation only; it does not
+ * touch the engagement rule — an automated reply still never marks the customer
+ * engaged (that is decided when the touch is recorded, not here).
+ */
+function contactHeading(comms: HistoryCommunication[]): string | null {
+  if (comms.length === 0) return null
+
+  // Prefer a call that reached, then a voicemail (a voicemail channel means one
+  // was left regardless of the [no-contact] marker, which only says the call
+  // did not reach), then any communication whose direction is known. This names
+  // the meaningful event in a grouped interaction without inventing anything.
+  // "Customer Reached" and "Voicemail Left" carry no direction, so they are
+  // safe even for a legacy row; the direction-bearing headings below are only
+  // reached via `knownDirected`, so a legacy row of unknown direction never
+  // produces an invented "Received"/"Sent"/"Incoming" heading.
+  const reachedCall = comms.find((c) => c.channel === 'call' && c.reached)
+  const voicemail = comms.find((c) => c.channel === 'voicemail')
+  const knownDirected = comms.find(
+    (c) => c.direction === 'incoming' || c.direction === 'automated' || directionKnownFor(c),
+  )
+  const lead = reachedCall ?? voicemail ?? knownDirected
+  if (!lead) return null
+
+  // Three-way direction, so an automated reply is never conflated with a
+  // genuine incoming communication.
+  const automated = lead.direction === 'automated'
+  const incoming = lead.direction === 'incoming'
+
+  switch (lead.channel) {
+    case 'call':
+      if (lead.reached) return 'Customer Reached'
+      if (automated) return 'Automated Call Reply'
+      if (incoming) return 'Incoming Call'
+      if (lead.outcome === 'unusable') return 'Bad Number'
+      return 'No Answer'
+    case 'voicemail':
+      return 'Voicemail Left'
+    case 'email':
+      if (automated) return 'Automated Email Reply'
+      if (lead.outcome === 'unusable') return 'Email Undeliverable'
+      return incoming ? 'Email Received' : 'Email Sent'
+    case 'text':
+      if (automated) return 'Automated Text Reply'
+      return incoming ? 'Text Received' : 'Text Sent'
+    case 'postal':
+      return incoming ? `${CHANNEL_NOUN.postal} Received` : `${CHANNEL_NOUN.postal} Sent`
+    default:
+      return null
+  }
+}
+
+/** Per-communication direction-known flag, carried from the note at build time
+ * so contactHeading can prefer a communication whose direction is settled. */
+const DIRECTION_KNOWN = new WeakMap<HistoryCommunication, boolean>()
+function directionKnownFor(c: HistoryCommunication): boolean {
+  return DIRECTION_KNOWN.get(c) === true
+}
+
+/** The precise heading for a workflow MILESTONE event (follow-up scheduled /
+ * completed / refusal), from the already-derived summary. */
+function milestoneHeading(summary: string): string {
+  if (/completed/i.test(summary)) return 'Follow-up Completed'
+  if (/follow-up/i.test(summary)) return 'Follow-up Scheduled'
+  if (/refus/i.test(summary)) return 'Customer Declined'
+  return summary
+}
 
 // ---------------------------------------------------------------------------
 // Raw input — one case_touches row, exactly as stored. The route selects these
@@ -74,6 +228,9 @@ export interface HistoryCommunication {
   channel: OutreachChannel
   outcome: ChannelOutcome
   reached: boolean
+  /** Who initiated this communication, derived from the stored note. Defaults
+   * to 'outgoing'. Read only by the Relationship Timeline presentation. */
+  direction?: HistoryDirection
   /** The genuine employee-typed note, with internal machine markers and the
    * system boilerplate stripped. Null when the worker typed nothing. */
   detail: string | null
@@ -104,9 +261,29 @@ export interface HistoryEvent {
   reached: boolean
   /** What kind of event this is, so the card can render the right affordance:
    * a customer communication ('contact'), an internal research record
-   * ('research'), or a project enrollment ('enrollment'). Defaults to 'contact'
-   * when absent. */
-  kind?: 'contact' | 'research' | 'enrollment'
+   * ('research'), a project enrollment ('enrollment'), or a Customer
+   * Interaction workflow milestone ('milestone') such as a scheduled or
+   * completed follow-up or a recorded refusal. Defaults to 'contact' when
+   * absent. */
+  kind?: 'contact' | 'research' | 'enrollment' | 'milestone'
+  /** The direction of the interaction, for presentations that title an event by
+   * who initiated it (the Relationship Timeline). An interaction is 'incoming'
+   * when any of its communications is a genuine customer-initiated response,
+   * 'automated' when its only inbound communication is an auto-reply, and
+   * 'outgoing' otherwise. Only a 'contact' event carries a meaningful direction;
+   * research, enrollment, and milestone events leave it 'outgoing'. The existing
+   * Customer History card ignores this field. */
+  direction?: HistoryDirection
+  /** The precise, event-specific heading for the Relationship Timeline (e.g.
+   * "Email Received", "Customer Reached", "Voicemail Left", "Follow-up
+   * Scheduled"). It names the ACTUAL event from the recorded channel, direction,
+   * outcome, and milestone type — never a generic "incoming/outgoing" label.
+   * Additive: only the Relationship Timeline reads it; the existing Customer
+   * History card ignores it and keeps its grouped `summary`. Null when no
+   * confident heading can be derived (e.g. a legacy record of unknown
+   * direction), so the timeline falls back to the grouped summary rather than
+   * inventing direction. */
+  timelineHeading?: string | null
   /** For an enrollment event, the project the customer was added to, shown as
    * the detail line under the summary. Unused for other kinds. */
   projectName?: string
@@ -193,6 +370,21 @@ export function describeActivity(
  * write (see /api/stewardship/[id]). A trailing clause after a period (e.g.
  * "Follow-up auto-scheduled.") is also system prose and is removed. */
 const SYSTEM_OUTCOME_PHRASES: readonly RegExp[] = [
+  // Reached-call sentences. "Spoke with customer." is the lead for every reached
+  // outcome, but the agreed / callback / declined CONTINUATIONS are system prose
+  // too and must be stripped WHOLE — otherwise the bare "Spoke with customer."
+  // alone would be removed and the real continuation (e.g. "Customer requested a
+  // callback on 2026-11-05.") would be mistaken for an employee note. Each full
+  // sentence is matched first; only then the bare lead, anchored to end-of-note
+  // so it never partially strips one of the longer reached sentences.
+  /^Spoke with customer\.\s*Customer agreed to authorize our office as servicing agent\.\s*Authorization form (?:emailed|sent by postal mail)\.\s*Awaiting signed authorization\.?/i,
+  /^Spoke with customer\.\s*Customer requested a callback(\s+on\s+\S+)?\.?/i,
+  /^Spoke with customer\.\s*Customer declined servicing-agent authorization\.\s*Further outreach stopped unless deliberately reopened\.?/i,
+  /^Spoke with customer\.\s*$/i,
+  // Didn't-reach call sentences (no-answer, with or without a voicemail left).
+  /^Called customer\.\s*No answer\.(\s*Voicemail left\.)?\s*Next call scheduled\.?/i,
+  /^Called customer\.\s*Number is not working\.\s*Customer referred to Contact Research\.?/i,
+  // Legacy sentences kept so existing history still cleans correctly.
   /^Reached the customer\.?/i,
   /^Left a voicemail\.?(\s*Follow-up auto-scheduled\.?)?/i,
   /^Bad number\.?(\s*Moved to Research Needed\.?)?/i,
@@ -216,14 +408,22 @@ const SYSTEM_OUTCOME_PHRASES: readonly RegExp[] = [
 export function cleanHistoryNote(note: string | null): string | null {
   if (!note) return null
   let cleaned = note
-    // Every stored machine marker, including the address research marker.
+    // Every stored machine marker, including the address research marker and the
+    // inbound-direction marker (an internal flag that must never be displayed).
     .replace(/\[research-(?:email|phone|address)-not-found\]/gi, '')
     .replace(/\[channel-unusable(?::[^\]]*)?\]/gi, '')
     .replace(/\[no-contact\]/gi, '')
     .replace(/\[reached\]/gi, '')
-    // The "Servicing-agent onboarding <channel>" boilerplate prefix, with or
-    // without the trailing ": " (employee note) or "." (no note).
+    .replace(/\[inbound\]/gi, '')
+    .replace(/\[email-availability:[^\]]*\]/gi, '')
+    // The outgoing "Servicing-agent onboarding <channel>" boilerplate prefix,
+    // and the inbound "Customer <channel> response received" / "Automated
+    // <channel> reply received" prefixes the touch route prepends — with or
+    // without the trailing ": " (employee note) or "." (no note). Stripping
+    // these leaves only the operator's own words as the displayed message.
     .replace(/^Servicing-agent onboarding\s+(?:call|voicemail|text|email|postal)\s*[:.]?\s*/i, '')
+    .replace(/^Customer\s+(?:call|voicemail|text|email|postal)\s+response received\s*[:.]?\s*/i, '')
+    .replace(/^Automated\s+(?:call|voicemail|text|email|postal)\s+reply received\s*[:.]?\s*/i, '')
     .trim()
   // Remove a leading system outcome phrase; a genuine employee note (if any)
   // follows it and is kept.
@@ -256,7 +456,11 @@ function stripMarkersAndPrefix(note: string): string {
     .replace(/\[channel-unusable(?::[^\]]*)?\]/gi, '')
     .replace(/\[no-contact\]/gi, '')
     .replace(/\[reached\]/gi, '')
+    .replace(/\[inbound\]/gi, '')
+    .replace(/\[email-availability:[^\]]*\]/gi, '')
     .replace(/^Servicing-agent onboarding\s+(?:call|voicemail|text|email|postal)\s*[:.]?\s*/i, '')
+    .replace(/^Customer\s+(?:call|voicemail|text|email|postal)\s+response received\s*[:.]?\s*/i, '')
+    .replace(/^Automated\s+(?:call|voicemail|text|email|postal)\s+reply received\s*[:.]?\s*/i, '')
     .replace(/\s{2,}/g, ' ')
     .trim()
 }
@@ -270,6 +474,49 @@ function stripMarkersAndPrefix(note: string): string {
  * markers/prefix already stripped), so a new system sentence still shows
  * meaningfully until it is given a tuned description here. */
 const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = [
+  // ── The required servicing-agent call-outcome language ──────────────────────
+  // These are the authoritative, operator-facing history sentences. The stored
+  // note now carries the same wording, so the displayed description reads it
+  // back verbatim (the callback rule re-formats the embedded date).
+  {
+    // Reached · agreed · form emailed.
+    match: /^Spoke with customer\.\s*Customer agreed to authorize our office as servicing agent\.\s*Authorization form emailed\.\s*Awaiting signed authorization\.?$/i,
+    describe:
+      'Spoke with customer. Customer agreed to authorize our office as servicing agent. Authorization form emailed. Awaiting signed authorization.',
+  },
+  {
+    // Reached · agreed · form mailed.
+    match: /^Spoke with customer\.\s*Customer agreed to authorize our office as servicing agent\.\s*Authorization form sent by postal mail\.\s*Awaiting signed authorization\.?$/i,
+    describe:
+      'Spoke with customer. Customer agreed to authorize our office as servicing agent. Authorization form sent by postal mail. Awaiting signed authorization.',
+  },
+  {
+    // Reached · wants callback (date preserved from the stored sentence).
+    match: /^Spoke with customer\.\s*Customer requested a callback(\s+on\s+(\S+))?\.?$/i,
+    describe: 'Spoke with customer. Customer requested a callback.',
+  },
+  {
+    // Reached · not interested.
+    match: /^Spoke with customer\.\s*Customer declined servicing-agent authorization\.\s*Further outreach stopped unless deliberately reopened\.?$/i,
+    describe:
+      'Spoke with customer. Customer declined servicing-agent authorization. Further outreach stopped unless deliberately reopened.',
+  },
+  {
+    // Didn't reach · voicemail left.
+    match: /^Called customer\.\s*No answer\.\s*Voicemail left\.\s*Next call scheduled\.?$/i,
+    describe: 'Called customer. No answer. Voicemail left. Next call scheduled.',
+  },
+  {
+    // Didn't reach · no voicemail.
+    match: /^Called customer\.\s*No answer\.\s*Next call scheduled\.?$/i,
+    describe: 'Called customer. No answer. Next call scheduled.',
+  },
+  {
+    // Bad number.
+    match: /^Called customer\.\s*Number is not working\.\s*Customer referred to Contact Research\.?$/i,
+    describe: 'Called customer. Number is not working. Customer referred to Contact Research.',
+  },
+  // ── The introductory / form-send confirmations ──────────────────────────────
   {
     // The introductory 1035 email: the authorization form rides with it, so the
     // description names the form rather than echoing the terse "Email" summary.
@@ -281,6 +528,8 @@ const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = 
     describe: 'Introductory letter mailed with servicing-agent authorization form.',
   },
   {
+    // A form re-send with no reached completion (the reached sentence above owns
+    // the reached · agreed interaction).
     match: /^Servicing-agent authorization form sent to the customer by email\.?$/i,
     describe: 'Servicing-agent authorization form sent by email.',
   },
@@ -288,26 +537,28 @@ const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = 
     match: /^Servicing-agent authorization form sent to the customer by postal mail\.?$/i,
     describe: 'Servicing-agent authorization form sent by postal mail.',
   },
+  // ── Legacy sentences (pre-standard history still reads meaningfully) ────────
   {
     match: /^Reached the customer\.?$/i,
-    describe: 'Reached the customer.',
+    describe: 'Spoke with customer.',
   },
   {
     match: /^Left a voicemail\.?(\s*Follow-up auto-scheduled\.?)?$/i,
-    describe: 'Left a voicemail.',
+    describe: 'Called customer. No answer. Voicemail left. Next call scheduled.',
   },
   {
     match: /^Bad number\.?(\s*Moved to Research Needed\.?)?$/i,
-    describe: 'Bad number recorded.',
+    describe: 'Called customer. Number is not working. Customer referred to Contact Research.',
   },
   {
     match: /^Customer declined\.?(\s*Outreach stopped until deliberately reopened\.?)?$/i,
-    describe: 'Customer declined; outreach stopped until deliberately reopened.',
+    describe:
+      'Spoke with customer. Customer declined servicing-agent authorization. Further outreach stopped unless deliberately reopened.',
   },
   {
     match: /^Customer asked for a callback(\s+on\s+(\S+))?\.?$/i,
     // Preserve the date when the stored sentence carries one.
-    describe: 'Customer asked for a callback.',
+    describe: 'Spoke with customer. Customer requested a callback.',
   },
 ]
 
@@ -323,7 +574,20 @@ const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = 
  */
 export function describeHistoryNote(note: string | null): string | null {
   if (!note) return null
-  const stripped = stripMarkersAndPrefix(note)
+  const strippedFull = stripMarkersAndPrefix(note)
+  if (!strippedFull) return null
+
+  // Isolate the SYSTEM SENTENCE from any trailing employee note so the exact,
+  // end-anchored SYSTEM_DESCRIPTIONS matchers still apply when the worker added
+  // their own words (otherwise a callback/declined sentence with a note would
+  // fall through to the raw fallback and, e.g., show an unformatted date). The
+  // employee note is recovered separately by cleanHistoryNote and never folded
+  // in here, so the two stay complementary and never overlap.
+  const employeeNoteEarly = cleanHistoryNote(note)
+  const stripped =
+    employeeNoteEarly && strippedFull.endsWith(employeeNoteEarly)
+      ? strippedFull.slice(0, strippedFull.length - employeeNoteEarly.length).trim()
+      : strippedFull
   if (!stripped) return null
 
   // Match a known system sentence at the START of the stripped prose. The
@@ -332,7 +596,14 @@ export function describeHistoryNote(note: string | null): string | null {
   for (const { match, describe } of SYSTEM_DESCRIPTIONS) {
     const m = stripped.match(match)
     if (m) {
-      // Callback keeps its date when present (capture group on the callback rule).
+      // Callback keeps its date when present (capture group on the callback
+      // rule). The required phrasing is "requested a callback on <date>"; the
+      // legacy sentence used "asked for a callback" — honor whichever the
+      // matched description uses so the displayed date reads consistently.
+      if (/requested a callback/i.test(describe) && m[2]) {
+        const when = formatCallbackDate(m[2])
+        return when ? `Spoke with customer. Customer requested a callback on ${when}.` : describe
+      }
       if (/asked for a callback/i.test(describe) && m[2]) {
         const when = formatCallbackDate(m[2])
         return when ? `Customer asked for a callback on ${when}.` : describe
@@ -345,14 +616,9 @@ export function describeHistoryNote(note: string | null): string | null {
   // they produce no separate description line.
   if (/^Contact research completed:/i.test(stripped)) return null
 
-  // An unmapped system sentence: show the stored sentence itself (first
-  // sentence only, so a trailing employee note is not swept in), so new
-  // workflow actions still read meaningfully until tuned above.
-  const employeeNote = cleanHistoryNote(note)
-  if (employeeNote && stripped.endsWith(employeeNote)) {
-    const systemPart = stripped.slice(0, stripped.length - employeeNote.length).trim()
-    return systemPart.length > 0 ? systemPart : null
-  }
+  // An unmapped system sentence: show the stored sentence itself. The employee
+  // note was already removed above, so `stripped` is the system part only and
+  // new workflow actions still read meaningfully until tuned above.
   return stripped.length > 0 ? stripped : null
 }
 
@@ -371,6 +637,15 @@ const HISTORY_CHANNELS: ReadonlySet<string> = new Set([
  * research-record.ts). It is internal research, not a customer communication,
  * so it is shown as its own distinct, concise history event. */
 const RESEARCH_TOUCH_TYPE = 'research'
+
+/** The touch_type Customer Interaction WORKFLOW MILESTONES are stored under: a
+ * follow-up scheduled, a follow-up completed, or a recorded refusal. These are
+ * administrative outreach events, NOT telephone calls or any customer
+ * communication, so they are recorded under their own type and shown as their
+ * own distinct history event — the same pattern research uses. They must never
+ * be stored as 'call' (which would fabricate a phone call that did not happen).
+ * The note text is the human-readable milestone description. */
+const WORKFLOW_TOUCH_TYPE = 'workflow'
 
 /** Which contact method an unsuccessful-research touch note refers to, from its
  * stable marker. null when the note carries no recognizable research marker. */
@@ -440,6 +715,45 @@ function buildResearchEvents(rows: HistoryTouchRow[]): HistoryEvent[] {
     })
   }
   return events
+}
+
+/**
+ * Build the Customer Interaction WORKFLOW MILESTONE events: a scheduled
+ * follow-up, a completed follow-up, or a recorded refusal. These are
+ * administrative outreach events, not customer communications, so — exactly like
+ * research — they are their own distinct, concise events rather than folded into
+ * a contact attempt, and they are NEVER rendered as a telephone call. The stored
+ * note is already human-readable, so it is shown directly (markers/prefix
+ * stripped) as the event detail; the summary is a short label by milestone type.
+ */
+function buildWorkflowEvents(rows: HistoryTouchRow[]): HistoryEvent[] {
+  const workflowRows = rows.filter((r) => r.touch_type === WORKFLOW_TOUCH_TYPE)
+  if (workflowRows.length === 0) return []
+
+  return workflowRows.map((r) => {
+    const note = r.notes ?? ''
+    // A short, honest summary by milestone type, derived from the stored note.
+    // The note itself (self-describing prose written by the route) is shown as
+    // the detail line, so no communication is fabricated.
+    const summary =
+      /follow-up completed/i.test(note) ? 'Follow-up completed'
+      : /follow-up/i.test(note) ? 'Follow-up scheduled'
+      : /\[email-availability:/i.test(note) || /^Email (availability|marked)/i.test(note) ? 'Email availability updated'
+      : /declined|refus/i.test(note) ? 'Customer refusal'
+      : 'Workflow update'
+    return {
+      at: r.touched_at,
+      summary,
+      // Show the stored milestone note as the description line (it is already
+      // operator-facing prose); strip any machine markers/prefix for cleanliness.
+      description: stripMarkersAndPrefix(note) || null,
+      by: r.touched_by,
+      reached: false,
+      kind: 'milestone' as const,
+      timelineHeading: milestoneHeading(summary),
+      communications: [],
+    }
+  })
 }
 
 /**
@@ -540,14 +854,21 @@ export function buildCustomerHistory(
         candidates.find((r) => !used.has(r) && r.touch_type === c.channel) ??
         candidates.find((r) => !used.has(r))
       if (row) used.add(row)
-      return {
+      const note = row?.notes ?? null
+      const comm: HistoryCommunication = {
         id: row?.id ?? `${c.at}-${c.channel}`,
         channel: c.channel,
         outcome: c.outcome ?? 'touch',
         reached: c.reached === true,
-        detail: cleanHistoryNote(row?.notes ?? null),
-        systemDescription: describeHistoryNote(row?.notes ?? null),
+        direction: directionOfNote(note),
+        detail: cleanHistoryNote(note),
+        systemDescription: describeHistoryNote(note),
       }
+      // Record whether this communication's direction is actually known (vs a
+      // legacy row defaulting to outgoing), so the heading builder can prefer a
+      // settled communication and fall back cleanly when none is known.
+      DIRECTION_KNOWN.set(comm, directionIsKnown(note))
+      return comm
     })
     // Attribution: the employee name on any communication in the interaction.
     const by =
@@ -555,12 +876,43 @@ export function buildCustomerHistory(
         .map((c) => (byAt.get(c.at) ?? []).find((r) => r.touch_type === c.channel)?.touched_by)
         .find((n) => !!n) ?? null
     // The system description shown under the summary. For a single-communication
-    // interaction it is that communication's description; when several channels
+    // interaction it is that communication's description. When several channels
     // group into one attempt the terse summary already lists them, so a single
-    // description line would misrepresent the mix — show it only when the
-    // attempt is one communication.
+    // description line would misrepresent the mix — EXCEPT the reached · agreed ·
+    // form interaction, where a reached call and the form send are recorded
+    // together and the form touch carries the ONE authoritative sentence for the
+    // whole interaction. There, show that sentence so the required history
+    // language appears even though the interaction has two communications.
+    const agreedFormDescription = communications.find(
+      (c) =>
+        (c.channel === 'email' || c.channel === 'postal') &&
+        !!c.systemDescription &&
+        /agreed to authorize our office as servicing agent/i.test(c.systemDescription),
+    )?.systemDescription ?? null
+    // The CALL communication's sentence is the authoritative description for a
+    // telephone interaction (reached outcomes, and the didn't-reach "Called
+    // customer…" language). When a call grouped with extra channel touches
+    // (e.g. a voicemail-left plus a text/email), the required call sentence is
+    // still the one to show; the extra channels remain preserved as their own
+    // detail/summary. The agreed·form interaction is the one exception: there
+    // the form touch owns the full sentence (a reached call grouped with the
+    // form send), so it takes precedence.
+    const callDescription = communications.find(
+      (c) => c.channel === 'call' && !!c.systemDescription,
+    )?.systemDescription ?? null
     const description =
-      communications.length === 1 ? communications[0].systemDescription : null
+      communications.length === 1
+        ? communications[0].systemDescription
+        : (agreedFormDescription ?? callDescription)
+    // The interaction's direction: a genuine incoming response if any
+    // communication is incoming; else automated if the only inbound one is an
+    // auto-reply; else outgoing. Lets the Relationship Timeline title the event
+    // by who initiated it without changing the grouped summary.
+    const direction: HistoryDirection = communications.some((c) => c.direction === 'incoming')
+      ? 'incoming'
+      : communications.some((c) => c.direction === 'automated')
+        ? 'automated'
+        : 'outgoing'
     return {
       at: a.at,
       summary: summarizeInteraction(communications, overrides),
@@ -568,6 +920,10 @@ export function buildCustomerHistory(
       by,
       reached: a.reached,
       kind: 'contact' as const,
+      direction,
+      // The precise, event-specific timeline heading (null for a legacy record
+      // of unknown direction, so the timeline falls back to the summary).
+      timelineHeading: contactHeading(communications),
       communications,
     }
   })
@@ -578,6 +934,11 @@ export function buildCustomerHistory(
   // never folded into a call interaction.
   const researchEvents = buildResearchEvents(rows)
 
+  // Customer Interaction workflow milestones (follow-up scheduled/completed,
+  // refusal) are their own concise events, interleaved like research — recorded
+  // in the one history store but never shown as a telephone call.
+  const workflowEvents = buildWorkflowEvents(rows)
+
   // Project enrollments are their own events, interleaved chronologically with
   // the communication and research events. They come from the deduped
   // membership records, not case_touches, so they add to the one history
@@ -585,7 +946,7 @@ export function buildCustomerHistory(
   const enrollmentEvents = buildEnrollmentEvents(enrollmentRows)
 
   // Newest first for the card (the grouping returns oldest-first).
-  return [...events, ...researchEvents, ...enrollmentEvents].sort(
+  return [...events, ...researchEvents, ...workflowEvents, ...enrollmentEvents].sort(
     (x, y) => new Date(y.at).getTime() - new Date(x.at).getTime(),
   )
 }
@@ -720,6 +1081,13 @@ export interface CallSelection {
   /** Whether the authorization form has been confirmed sent on the reached ·
    * agreed path, so the preview can fold "Form Sent" into the entry. */
   formSent?: boolean
+  /** The chosen authorization-form delivery method on the reached · agreed
+   * path, so the preview names the pending send accurately (emailed vs mailed)
+   * WITHOUT claiming it has already gone out. */
+  formDeliveryMethod?: 'email' | 'postal' | null
+  /** The optional Call Notes the worker has typed, folded into the preview's
+   * note so it reads exactly as what completion will record. */
+  note?: string | null
 }
 
 /**
@@ -735,11 +1103,19 @@ export function describeCallSelection(
   options?: { customerName?: string | null; note?: string | null },
 ): NextHistoryEntryPreview | null {
   const who = options?.customerName?.trim() || 'the customer'
-  const extraNote = options?.note?.trim() || undefined
+  // The note folded into the preview: the explicit option wins, else the live
+  // Call Notes the worker has typed on the selection. Either way the preview
+  // reflects exactly what completion will save with the interaction.
+  const extraNote = (options?.note ?? selection.note)?.trim() || undefined
 
   // Bad number is a distinct terminal outcome regardless of the reach choice.
+  // The description is the exact sentence the completion will record.
   if (selection.badNumber) {
-    return { summary: 'No Answer · Bad Number', note: extraNote }
+    return {
+      summary: 'No Answer · Bad Number',
+      description: 'Called customer. Number is not working. Customer referred to Contact Research.',
+      note: extraNote,
+    }
   }
 
   if (selection.reach === 'not-reached') {
@@ -748,7 +1124,13 @@ export function describeCallSelection(
     if (selection.voicemailLeft) parts.push('Voicemail')
     if (selection.textSent) parts.push('Text')
     if (selection.emailSent) parts.push('Email')
-    return { summary: parts.join(' \u00b7 '), note: extraNote }
+    // The recorded call sentence is honest about whether a voicemail was left;
+    // the extra channels (text/email) are preserved alongside but the call line
+    // is the one the preview shows as the description.
+    const description = selection.voicemailLeft
+      ? 'Called customer. No answer. Voicemail left. Next call scheduled.'
+      : 'Called customer. No answer. Next call scheduled.'
+    return { summary: parts.join(' \u00b7 '), description, note: extraNote }
   }
 
   if (selection.reach === 'reached') {
@@ -756,20 +1138,50 @@ export function describeCallSelection(
       const when = selection.callbackDate ? formatCallbackDate(selection.callbackDate) : null
       return {
         summary: when ? `Reached · Callback Scheduled ${when}` : 'Reached · Callback Scheduled',
+        description: when
+          ? `Spoke with customer. Customer requested a callback on ${when}.`
+          : 'Spoke with customer. Customer requested a callback.',
         note: extraNote,
       }
     }
     if (selection.decision === 'not-interested') {
-      return { summary: 'Reached · Not Interested', note: extraNote }
+      return {
+        summary: 'Reached · Not Interested',
+        description:
+          'Spoke with customer. Customer declined servicing-agent authorization. Further outreach stopped unless deliberately reopened.',
+        note: extraNote,
+      }
     }
     if (selection.decision === 'agreed') {
+      // Never describe an unsent form as sent. Completing this path records the
+      // reached call AND sends the form in one step. BEFORE the send is
+      // confirmed the preview uses FUTURE-TENSE wording for the pending delivery
+      // ("Authorization form to be emailed / to be mailed"), so it accurately
+      // previews a form that has NOT gone out yet. Only once the send is
+      // confirmed (formSent) does it read as the completed, past-tense entry the
+      // history actually records. The method-aware clause appears once a method
+      // is chosen; until then the preview names the agreement without a channel.
+      // The summary likewise distinguishes the still-pending agreement
+      // ("Reached · Agreed") from the completed send ("Reached · Form Sent").
+      const method = selection.formDeliveryMethod ?? null
+      const pendingClause =
+        method === 'postal' ? ' Authorization form to be mailed.'
+        : method === 'email' ? ' Authorization form to be emailed.'
+        : ''
+      const sentClause =
+        method === 'postal' ? ' Authorization form sent by postal mail. Awaiting signed authorization.'
+        : method === 'email' ? ' Authorization form emailed. Awaiting signed authorization.'
+        : ''
+      const deliveryClause = selection.formSent ? sentClause : pendingClause
       return {
-        summary: selection.formSent ? 'Reached · Form Sent' : 'Reached',
+        summary: selection.formSent ? 'Reached · Form Sent' : 'Reached · Agreed',
+        description:
+          `Spoke with customer. Customer agreed to authorize our office as servicing agent.${deliveryClause}`,
         note: extraNote,
       }
     }
     // Reached but no decision captured yet.
-    return { summary: `Reached ${who}`.trim(), note: extraNote }
+    return { summary: `Reached ${who}`.trim(), description: 'Spoke with customer.', note: extraNote }
   }
 
   // No reach decision yet: nothing to record.
@@ -805,5 +1217,103 @@ export function describeIntroEmailSelection(
     // touch, so the preview reads identically to the logged history entry.
     description: 'Introductory email sent with servicing-agent authorization form.',
     note: extraNote,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Customer Interaction — the Next History Entry preview for the conversation
+// working screen. Unlike the guided call flow (one staged interaction), the
+// Customer Interaction column offers several INDEPENDENT actions: recording one
+// incoming/outgoing communication, setting a follow-up commitment, recording
+// receipt of the signed authorization, or recording a refusal. Each is its own
+// history entry, so the preview describes exactly ONE prepared action and NEVER
+// combines them. The screen reports which action the worker is preparing; the
+// phrasing lives here, reusing the same vocabulary the recorded history uses.
+// ---------------------------------------------------------------------------
+
+/** The single action the Customer Interaction worker is currently preparing, as
+ * reported live by the action column. Exactly one kind is previewed at a time;
+ * independent actions are never merged into one entry. Null fields mean the
+ * worker has not supplied that detail yet. */
+export type InteractionSelection =
+  | {
+      kind: 'communication'
+      /** Who initiated it: a genuine incoming response, an inbound automated
+       * reply, or our outgoing reply. */
+      direction: 'incoming' | 'automated' | 'outgoing'
+      /** The channel being recorded. */
+      channel: 'email' | 'call' | 'text'
+      /** The employee-typed note, folded into the preview exactly as it will be
+       * saved with the communication. */
+      note?: string | null
+    }
+  | {
+      kind: 'follow-up'
+      /** The chosen follow-up date (YYYY-MM-DD), or null before one is picked. */
+      date: string | null
+    }
+  | { kind: 'authorization' }
+  | { kind: 'refusal' }
+
+/** Title-case channel noun for an interaction communication heading. */
+const INTERACTION_CHANNEL_NOUN: Record<'email' | 'call' | 'text', string> = {
+  email: 'Email',
+  call: 'Call',
+  text: 'Text',
+}
+
+/**
+ * Build the Next History Entry preview for the Customer Interaction screen from
+ * the single action the worker is preparing. Returns null when there is nothing
+ * to record yet (an empty compose, or a follow-up with no date), so the preview
+ * stays blank until the selected action can generate a history entry. It never
+ * combines independent actions: each call describes exactly one.
+ *
+ * The communication heading matches the recorded event-specific headings:
+ *   email   incoming -> Email Received | outgoing -> Email Sent | automated -> Automated Email Reply
+ *   call    incoming -> Incoming Call  | outgoing -> Call        (a recorded call touch)
+ *   text    incoming -> Text Received  | outgoing -> Text Sent  | automated -> Automated Text Reply
+ * Nothing is claimed as already done; the preview names what completing the
+ * selected action WILL record.
+ */
+export function describeInteractionSelection(
+  selection: InteractionSelection | null,
+): NextHistoryEntryPreview | null {
+  if (!selection) return null
+
+  switch (selection.kind) {
+    case 'communication': {
+      const noun = INTERACTION_CHANNEL_NOUN[selection.channel]
+      const note = selection.note?.trim() || undefined
+      let summary: string
+      if (selection.direction === 'automated') {
+        summary = `Automated ${noun} Reply`
+      } else if (selection.channel === 'call') {
+        summary = selection.direction === 'incoming' ? 'Incoming Call' : 'Call'
+      } else {
+        summary = `${noun} ${selection.direction === 'incoming' ? 'Received' : 'Sent'}`
+      }
+      return { summary, note }
+    }
+    case 'follow-up': {
+      const when = selection.date ? formatCallbackDate(selection.date) : null
+      return {
+        summary: when ? `Follow-up Scheduled ${when}` : 'Follow-up Scheduled',
+        description: when
+          ? `Follow-up scheduled for ${when}.`
+          : 'A follow-up will be scheduled on the date you choose.',
+      }
+    }
+    case 'authorization':
+      return {
+        summary: 'Authorization Received',
+        description: 'Signed servicing-agent authorization recorded. Customer moves to Servicing Access.',
+      }
+    case 'refusal':
+      return {
+        summary: 'Customer Declined',
+        description:
+          'Customer declined servicing-agent authorization. Further outreach stopped unless deliberately reopened.',
+      }
   }
 }

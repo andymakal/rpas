@@ -168,7 +168,9 @@ export type OutreachAction =
   // for an unsuccessful (voicemail) call, computed by the route from the grouped
   // attempt history. Supplied so applyAction stays pure (no time-math/timezone).
   // When absent, the legacy flat FOLLOW_UP_INTERVAL_DAYS spacing is used.
-  | { type: 'call-outcome'; outcome: CallOutcome; callback_date?: string | null; next_call_date?: string | null }
+  // `note` is the optional employee Call Notes text, saved WITH this interaction
+  // (appended to the recorded touch), never as a separate history entry.
+  | { type: 'call-outcome'; outcome: CallOutcome; callback_date?: string | null; next_call_date?: string | null; note?: string | null }
   // ONE coordinated multi-channel outreach attempt (adapted from IPF
   // record_outreach_grouping). It records the outcome of each channel used in a
   // single reach-out AND advances the workflow, so the employee records the
@@ -198,8 +200,18 @@ export type OutreachAction =
       /** The cadence-resolved next automatic call date (YYYY-MM-DD), supplied by
        * the route, used when the attempt schedules another call. */
       next_call_date?: string | null
+      /** The optional employee Call Notes text, saved WITH this interaction
+       * (appended to the recorded call touch), never a separate history entry. */
+      note?: string | null
     }
-  | { type: 'form-sent' }            // after a reached call, the form is (re)sent
+  // The servicing-agent form is (re)sent. `reached` marks the SINGLE completion
+  // of a live "Agreed to authorize" call: the customer was reached AND the form
+  // was sent, recorded together at this one explicit action rather than a
+  // premature reached record on decision selection. When set (and the customer
+  // is not already recorded reached), the reducer also stamps the reached call
+  // outcome so the one completion carries the reached fact; the route writes the
+  // reached call touch and the engagement marker alongside the form-sent touch.
+  | { type: 'form-sent'; reached?: boolean; note?: string | null }
   // Signed form came back on its own after the intro email (which already
   // carried the form) — advance to waiting-for-form WITHOUT recording a second
   // send. Distinct from form-sent so no fictitious mailing is logged.
@@ -228,6 +240,29 @@ export type OutreachAction =
   // carrier confirmation) and schedule the next one. Stays in the same waiting
   // queue; rolls follow_up_due forward by that queue's interval. No attempt cap.
   | { type: 'record-follow-up' }
+  // Record a FOLLOW-UP COMMITMENT in an active conversation (Customer
+  // Interaction) WITHOUT a phone call: the employee promised to follow up with
+  // the customer on a date. Sets the promised date (callback_date) and marks the
+  // item callback-due so the follow-up surfaces when due, exactly like a
+  // promised callback — but it is recorded directly from the conversation, not
+  // as the outcome of a placed call. Valid across every Customer Interaction
+  // stage: the pre-authorization funnel sets a promised callback date;
+  // waiting-for-form (signed authorization sent, not yet returned) sets the
+  // signature-chase date, keeping the stage. Never valid in the carrier stage or
+  // once the form is in hand. The route also stamps engagement and logs the
+  // commitment to Customer History, so the conversation persists through later
+  // unsuccessful attempts.
+  | { type: 'set-follow-up'; follow_up_date: string }
+  // Mark the CURRENT follow-up commitment DONE without scheduling another, so it
+  // stops appearing overdue. The next due follow-up only reappears when one is
+  // deliberately scheduled. The route logs the completion to Customer History.
+  | { type: 'complete-follow-up' }
+  // Record an EXPLICIT customer refusal to stop outreach, channel-agnostic (the
+  // customer declined by email, phone, or text). Sets refused_at, exactly like a
+  // 'not-interested' call outcome, but WITHOUT requiring a placed call, so a
+  // refusal received by email/text can be recorded directly from Customer
+  // Interaction. Reversible via reopen; never an automatic terminal state.
+  | { type: 'refuse' }
 
 export interface OutreachState {
   queue: OutreachQueue
@@ -339,8 +374,17 @@ export function isIntroductoryEmail(input: {
   /** The address the prior introduction was sent to (stewardship_outreach
    * .intro_email_recipient). */
   introEmailRecipient?: string | null
+  /** Whether the customer has genuinely engaged (isEngaged). An engaged customer
+   * has left routine calling for Customer Interaction, so they are never offered
+   * an introductory email. Optional for back-compat; omitting it (or false)
+   * preserves the original behavior. */
+  engaged?: boolean
 }): boolean {
   if (input.effectiveQueue !== 'ready-to-email') return false
+  // An engaged customer belongs to Customer Interaction, not the introductory-
+  // email population — recording an inbound response moves them out of routine
+  // first-touch outreach even though no email has been SENT yet.
+  if (input.engaged) return false
   // The classic case: a first-touch opener with no workflow activity yet.
   const untouchedOpener =
     input.emailSentAt == null &&
@@ -412,8 +456,18 @@ export function callPopulationOf(input: {
   hasUsablePhone: boolean
   /** Whether a promised callback is due today (actor calendar; caller decides). */
   callbackDue: boolean
+  /** Whether the customer has genuinely engaged (isEngaged). An engaged customer
+   * has left routine calling for Customer Interaction, where their conversation
+   * (including any promised callback) is worked, so they are not surfaced in the
+   * generic call populations. Optional for back-compat; omitting it (or false)
+   * preserves the original behavior. */
+  engaged?: boolean
 }): CallPopulation | null {
   if (!input.hasUsablePhone) return null
+  // An engaged customer belongs to Customer Interaction, not routine calling.
+  // Their active conversation — including a promised callback — is worked there,
+  // so they are never surfaced in Calls Due / Available to Call.
+  if (input.engaged) return null
   const callable = input.effectiveQueue === 'ready-to-call' || input.effectiveQueue === 'ready-to-email'
   if (!callable) return null
   // A scheduled call has come due when, in the call flow, EITHER a promised
@@ -701,6 +755,125 @@ export function waitingFollowUpDays(queue: OutreachQueue): number {
 }
 
 /**
+ * The key, inside the stewardship_outreach.action_context jsonb, that records the
+ * moment a customer genuinely ENGAGED — responded by email, phone, or text, or
+ * was reached on a call — while still in the pre-authorization funnel. It is the
+ * lightweight engagement signal the Customer Interaction step reads; it is NOT a
+ * claim and NOT a queue change, so it never routes work to one person or creates
+ * a task. It is re-homed on action_context exactly as the IPF blueprint intends
+ * (a soft fact on the item, not an assignment). An automated reply and an
+ * explicit refusal never set it, so neither establishes engagement.
+ */
+export const ENGAGED_AT_KEY = 'engagedAt' as const
+
+/** Read the engagement timestamp from an action_context value, or null. The
+ * value is an ISO instant stamped when the customer first genuinely engaged. */
+export function engagedAtOf(actionContext: unknown): string | null {
+  if (actionContext && typeof actionContext === 'object' && !Array.isArray(actionContext)) {
+    const v = (actionContext as Record<string, unknown>)[ENGAGED_AT_KEY]
+    if (typeof v === 'string' && v.trim().length > 0) return v
+  }
+  return null
+}
+
+/**
+ * Whether an open outreach item is in the CUSTOMER INTERACTION population: a
+ * customer who is genuinely in an active conversation but has NOT yet returned
+ * the signed authorization. This is the step between routine calling/outreach
+ * and Servicing Access.
+ *
+ * Genuinely engaged means the customer responded or was reached — a recorded
+ * reached call, a promised callback (an active, scheduled conversation), or an
+ * `engagedAt` marker recorded on action_context when an inbound response came in.
+ * An automated reply and an explicit refusal never set engagedAt, so neither
+ * moves a customer into interaction.
+ *
+ * Pre-authorization means the signed form is NOT yet in hand. The boundary into
+ * Servicing Access is RECEIPT of the signed authorization (form_received_at),
+ * NOT merely having SENT the form. So a customer who was sent the form and sits
+ * in waiting-for-form WITHOUT a recorded receipt is still in an active
+ * conversation (Customer Interaction); only once the signed form comes back does
+ * the customer leave for the existing Servicing Access workflow. A refusal
+ * removes them from outreach entirely (reversible via reopen).
+ *
+ * This is the ONE shared definition both My Work (counting the population) and
+ * the board route (opening it) use, so the counted set and the opened set are
+ * always identical — the same contract callPopulationOf and isIntroductoryEmail
+ * give their populations.
+ */
+
+/**
+ * Whether the customer has GENUINELY ENGAGED — responded or been reached — while
+ * still working toward the signed authorization. Engagement is a recorded
+ * reached call, a promised callback (an active, scheduled conversation), or an
+ * `engagedAt` marker stamped on action_context when a genuine inbound response
+ * came in. A voicemail, bad number, or no-response is NOT engagement, and an
+ * automated reply never stamps engagedAt, so neither establishes it.
+ *
+ * This is the single engagement test shared by Customer Interaction (to INCLUDE
+ * engaged customers) and the intro-email / call populations (to EXCLUDE them, so
+ * an engaged customer leaves routine calling for the conversation step).
+ */
+export function isEngaged(input: {
+  lastCallOutcome: CallOutcome | null
+  callbackDate: string | null
+  engagedAt?: string | null
+}): boolean {
+  return (
+    input.lastCallOutcome === 'reached' ||
+    input.lastCallOutcome === 'callback' ||
+    input.callbackDate != null ||
+    (input.engagedAt != null && input.engagedAt.trim().length > 0)
+  )
+}
+
+/**
+ * Whether an open item is in the SERVICING ACCESS population: the signed
+ * authorization is IN HAND. The sole boundary is RECEIPT — form_received_at is
+ * recorded (set by form-received / form-returned) — which also covers
+ * waiting-for-carrier (it can only be reached after receipt). Being in
+ * waiting-for-form WITHOUT a recorded receipt means the form was only SENT and
+ * is still awaiting the customer's signature, which is NOT servicing access.
+ *
+ * The one shared definition both My Work and the board route use for servicing
+ * access, so sending a form never moves a customer into servicing access — only
+ * receiving the signed one does.
+ */
+export function isServicingAccess(input: {
+  formReceivedAt: string | null
+  refusedAt: string | null
+}): boolean {
+  if (input.refusedAt != null) return false
+  return input.formReceivedAt != null
+}
+
+export function isCustomerInteraction(input: {
+  /** Effective queue after follow-up/email re-derivation. */
+  effectiveQueue: OutreachQueue
+  lastCallOutcome: CallOutcome | null
+  callbackDate: string | null
+  /** stewardship_outreach.form_received_at — non-null once a signed form is in hand. */
+  formReceivedAt: string | null
+  /** stewardship_outreach.refused_at — non-null once the customer declined. */
+  refusedAt: string | null
+  /** The engagement marker from action_context (engagedAtOf), when present. */
+  engagedAt?: string | null
+}): boolean {
+  // Refused: not an active conversation.
+  if (input.refusedAt != null) return false
+  // Past the receipt boundary into Servicing Access: the signed form is in hand.
+  // (Sending the form — waiting-for-form WITHOUT a receipt — does NOT count, so
+  // such a customer stays in Customer Interaction.)
+  if (isServicingAccess({ formReceivedAt: input.formReceivedAt, refusedAt: input.refusedAt })) return false
+  // Otherwise an active conversation when the customer has genuinely engaged.
+  return isEngaged({
+    lastCallOutcome: input.lastCallOutcome,
+    callbackDate: input.callbackDate,
+    engagedAt: input.engagedAt,
+  })
+}
+
+/**
  * Pure transition function. Given the current state and an action, return the
  * patch to persist. Invalid actions for the current queue return an error so
  * the API can reject them rather than silently corrupting state.
@@ -852,11 +1025,19 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
       if (!inPreAuthFunnel(state.queue)) {
         return { patch: {} }
       }
+      // The guided "Agreed to authorize" completion records the reached call AND
+      // the form send as one action. Stamp the reached outcome here so it is not
+      // recorded earlier (on decision selection), and only when not already
+      // reached, so re-sending the form for an already-reached customer never
+      // writes a second reached fact. The route pairs this with the reached
+      // touch + engagement marker.
+      const recordReached = action.reached === true && state.last_call_outcome !== 'reached'
       return {
         patch: {
           queue: 'waiting-for-form',
           follow_up_due: addDays(new Date().toISOString(), AWAITING_SIGNATURE_FOLLOW_UP_DAYS),
           call_reason: null,
+          ...(recordReached ? { last_call_outcome: 'reached' as CallOutcome } : {}),
         },
       }
     }
@@ -989,6 +1170,23 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
       return { patch: { form_delivery_method: action.method } }
     }
 
+    case 'refuse': {
+      // An explicit, channel-agnostic customer refusal: stop outreach now. Same
+      // effect as a 'not-interested' call outcome (sets refused_at, clears the
+      // pending follow-up and call reason) but without a placed call, so a
+      // refusal received by email or text is recorded directly. Reversible via
+      // reopen; never an automatic terminal state. Idempotent if already refused.
+      return {
+        patch: {
+          last_call_outcome: 'not-interested',
+          refused_at: state.refused_at ?? new Date().toISOString(),
+          follow_up_due: null,
+          callback_date: null,
+          call_reason: null,
+        },
+      }
+    }
+
     case 'reopen': {
       // Deliberate reversal of an explicit refusal. Clear refused_at so the item
       // becomes actionable again. Only meaningful when currently refused.
@@ -1021,6 +1219,71 @@ export function applyAction(state: OutreachState, action: OutreachAction): Trans
           follow_up_due: addDays(new Date().toISOString(), waitingFollowUpDays(state.queue)),
         },
       }
+    }
+
+    case 'set-follow-up': {
+      // A follow-up commitment recorded directly from an active conversation,
+      // without placing a call. Valid across EVERY Customer Interaction stage —
+      // the pre-authorization funnel AND waiting-for-form while the signed
+      // authorization has been sent but not yet returned (form_received_at
+      // null). Only the carrier stage (waiting-for-carrier) uses its own
+      // record-follow-up chase, and a form already IN HAND has moved on to
+      // Servicing Access, so a follow-up there is rejected rather than moving
+      // the customer backward.
+      if (!action.follow_up_date) {
+        return { patch: {}, error: 'A follow-up date is required.' }
+      }
+      if (state.queue === 'waiting-for-form' && state.form_received_at == null) {
+        // Awaiting the signed authorization: this is a signature chase on the
+        // employee's chosen date. Keep the customer in waiting-for-form (no
+        // backward move) and set the next follow-up to the chosen date.
+        return {
+          patch: {
+            follow_up_due: dateOnlyToIso(action.follow_up_date),
+          },
+        }
+      }
+      if (!inPreAuthFunnel(state.queue)) {
+        // waiting-for-carrier, or a form already received (now in Servicing
+        // Access): a conversation follow-up does not apply here.
+        return { patch: {}, error: `Cannot set a conversation follow-up from ${state.queue}` }
+      }
+      // Pre-authorization conversation: record the promised date and mark it
+      // callback-due, exactly like a promised callback, so it surfaces as a due
+      // follow-up when the date arrives. Keep the item callable (ready-to-call)
+      // so the due follow-up is actionable; engagement (stamped by the route)
+      // keeps it in Customer Interaction rather than routine calling.
+      return {
+        patch: {
+          queue: 'ready-to-call',
+          call_reason: 'callback-due',
+          callback_date: action.follow_up_date,
+          research_reason: null,
+        },
+      }
+    }
+
+    case 'complete-follow-up': {
+      // Mark the CURRENT follow-up commitment DONE without scheduling another,
+      // so it no longer appears overdue. The next follow-up only reappears when
+      // one is deliberately scheduled (set-follow-up). Valid across every
+      // Customer Interaction stage; a refusal/decision is handled elsewhere.
+      //
+      // Pre-authorization: clear the promised callback (callback_date +
+      // callback-due reason) so the due marker clears; the customer stays in the
+      // conversation (engagement is durable) but is no longer flagged due.
+      // Awaiting-signature (waiting-for-form, no receipt): clear follow_up_due so
+      // the signature chase is no longer overdue, keeping the stage unchanged.
+      if (state.queue === 'waiting-for-form' && state.form_received_at == null) {
+        return { patch: { follow_up_due: null } }
+      }
+      if (!inPreAuthFunnel(state.queue)) {
+        return { patch: {}, error: `Cannot complete a conversation follow-up from ${state.queue}` }
+      }
+      const patch: OutreachPatch = { callback_date: null, follow_up_due: null }
+      // Clear the callback-due reason only (leave other call reasons intact).
+      if (state.call_reason === 'callback-due') patch.call_reason = null
+      return { patch }
     }
   }
 }

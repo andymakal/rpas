@@ -31,7 +31,8 @@ import { requireInternalAdmin } from '@/lib/stewardship/auth'
  *   notes is the free-text outcome for that channel (optional).
  */
 
-import { OUTCOME_MARKERS, type ChannelOutcome } from '@/lib/stewardship/outreach-attempts'
+import { OUTCOME_MARKERS, INBOUND_MARKER, type ChannelOutcome } from '@/lib/stewardship/outreach-attempts'
+import { ENGAGED_AT_KEY, engagedAtOf } from '@/lib/stewardship/queues'
 
 const ALLOWED_TOUCH_TYPES = ['call', 'voicemail', 'text', 'email', 'postal'] as const
 type TouchType = (typeof ALLOWED_TOUCH_TYPES)[number]
@@ -69,7 +70,14 @@ export async function POST(
     touch_type?: string
     notes?: string
     outcome?: string
-    channels?: Array<{ touch_type?: string; notes?: string; outcome?: string }>
+    // Direction of the communication. 'incoming' is a customer-initiated
+    // response (they emailed/called/texted us); 'outgoing' (the default) is our
+    // reach-out. A genuine incoming response moves the customer into Customer
+    // Interaction. 'automated' flags a non-human auto-reply (out-of-office,
+    // delivery receipt), which is NOT engagement and never moves the customer.
+    direction?: string
+    automated?: boolean
+    channels?: Array<{ touch_type?: string; notes?: string; outcome?: string; direction?: string; automated?: boolean }>
   }
   try {
     body = await request.json()
@@ -88,9 +96,11 @@ export async function POST(
   // never influences cadence/timing (IPF Decision Engine Boundary).
   const rawChannels = Array.isArray(body.channels)
     ? body.channels
-    : (body.touch_type ? [{ touch_type: body.touch_type, notes: body.notes, outcome: body.outcome }] : [])
+    : (body.touch_type
+        ? [{ touch_type: body.touch_type, notes: body.notes, outcome: body.outcome, direction: body.direction, automated: body.automated }]
+        : [])
 
-  const channels: { touchType: TouchType; notes: string; outcome: ChannelOutcome }[] = []
+  const channels: { touchType: TouchType; notes: string; outcome: ChannelOutcome; inbound: boolean; automated: boolean }[] = []
   for (const ch of rawChannels) {
     const t = ch.touch_type as TouchType | undefined
     if (!t || !ALLOWED_TOUCH_TYPES.includes(t)) {
@@ -106,7 +116,13 @@ export async function POST(
         { status: 400 },
       )
     }
-    channels.push({ touchType: t, notes: typeof ch.notes === 'string' ? ch.notes.trim() : '', outcome })
+    // Direction falls back to the top-level direction, then 'outgoing'. Only an
+    // 'incoming' direction marks a received communication. 'automated' likewise
+    // falls back to the top-level flag.
+    const direction = (ch.direction ?? body.direction ?? 'outgoing')
+    const inbound = direction === 'incoming'
+    const automated = ch.automated ?? body.automated ?? false
+    channels.push({ touchType: t, notes: typeof ch.notes === 'string' ? ch.notes.trim() : '', outcome, inbound, automated })
   }
 
   if (channels.length === 0) {
@@ -118,18 +134,22 @@ export async function POST(
 
   const supabase = createAdminClient()
 
-  // Resolve the customer for this outreach item.
+  // Resolve the customer for this outreach item. action_context carries the
+  // engagement marker we may stamp below for a genuine incoming response.
   const { data: outreach, error: readErr } = await supabase
     .from('stewardship_outreach')
-    .select('id, customer_prereviews!inner ( customer_id )')
+    .select('id, action_context, customer_prereviews!inner ( customer_id )')
     .eq('id', id)
     .single()
   if (readErr || !outreach) {
     return Response.json({ error: 'Outreach item not found' }, { status: 404 })
   }
-  const customerId = (outreach as unknown as {
+  const outreachRow = outreach as unknown as {
+    id: string
+    action_context: unknown
     customer_prereviews: { customer_id: string }
-  }).customer_prereviews.customer_id
+  }
+  const customerId = outreachRow.customer_prereviews.customer_id
 
   const touchedBy = await resolveEmployeeName(supabase)
   const touchedAt = new Date().toISOString()
@@ -143,15 +163,26 @@ export async function POST(
   // The per-channel outcome is appended as a stable machine marker so the
   // attempt history can tell a real touch from an unusable channel; a completed
   // touch carries no marker (reads as ordinary onboarding contact prose).
-  const rows = channels.map(({ touchType, notes, outcome }) => {
-    const prefix = `Servicing-agent onboarding ${typeLabel[touchType].toLowerCase()}`
-    const marker = OUTCOME_MARKERS[outcome]
+  const rows = channels.map(({ touchType, notes, outcome, inbound, automated }) => {
+    // An inbound (customer-initiated) communication reads as a RESPONSE from the
+    // customer; an outgoing one keeps the onboarding reach-out wording. An
+    // automated inbound (out-of-office / delivery receipt) is labeled so the
+    // history makes clear it is not a genuine response.
+    const label = typeLabel[touchType].toLowerCase()
+    const prefix = inbound
+      ? (automated ? `Automated ${label} reply received` : `Customer ${label} response received`)
+      : `Servicing-agent onboarding ${label}`
+    const outcomeMarker = OUTCOME_MARKERS[outcome]
+    // The inbound marker lets the history read a received communication
+    // distinctly from an outgoing one; automated inbound is never engagement.
+    const inboundMarker = inbound ? INBOUND_MARKER : ''
     const base = notes ? `${prefix}: ${notes}` : `${prefix}.`
+    const suffix = [inboundMarker, outcomeMarker].filter(Boolean).join(' ')
     return {
       customer_id: customerId,
       case_id:     null,
       touch_type:  touchType,
-      notes:       marker ? `${base} ${marker}` : base,
+      notes:       suffix ? `${base} ${suffix}` : base,
       touched_at:  touchedAt,
       touched_by:  touchedBy,
     }
@@ -163,5 +194,31 @@ export async function POST(
     return Response.json({ error: 'Could not record the history entry.' }, { status: 500 })
   }
 
-  return Response.json({ data: { ok: true, recorded: rows.length } }, { status: 201 })
+  // A GENUINE incoming response (not an automated reply) means the customer has
+  // engaged: stamp the engagement signal on action_context so the customer moves
+  // into Customer Interaction. This is a lightweight soft fact on the item, NOT
+  // a claim and NOT a queue change — it never routes work to one person, never
+  // creates a task, and never advances the workflow. Stamped once (idempotent):
+  // a later response does not overwrite the first-engagement instant. Best-effort
+  // and non-fatal; the history is already saved.
+  const hasGenuineInbound = channels.some((c) => c.inbound && !c.automated)
+  let engaged = false
+  if (hasGenuineInbound && engagedAtOf(outreachRow.action_context) == null) {
+    const base =
+      outreachRow.action_context && typeof outreachRow.action_context === 'object' && !Array.isArray(outreachRow.action_context)
+        ? (outreachRow.action_context as Record<string, unknown>)
+        : {}
+    const nextContext = { ...base, [ENGAGED_AT_KEY]: touchedAt }
+    const { error: ctxErr } = await supabase
+      .from('stewardship_outreach')
+      .update({ action_context: nextContext })
+      .eq('id', outreachRow.id)
+    if (ctxErr) {
+      console.error('stewardship engagement marker update error:', ctxErr)
+    } else {
+      engaged = true
+    }
+  }
+
+  return Response.json({ data: { ok: true, recorded: rows.length, engaged } }, { status: 201 })
 }

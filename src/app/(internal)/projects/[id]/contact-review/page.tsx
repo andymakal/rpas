@@ -52,22 +52,26 @@ export default async function ProjectContactReviewPage({
   if (!isReviewType || isArchived) notFound()
 
   return (
-    <WorkflowPage>
-      <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
-        <Link
-          href="/my-work"
-          className="-ml-1 inline-flex items-center gap-1.5 text-base font-medium text-brand-hover transition-colors hover:text-brand"
-        >
-          <ArrowLeft className="size-4" aria-hidden />
-          Back to My Work
-        </Link>
-      </div>
+    <WorkflowPage
+      heading={
+        <div className="space-y-8">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+            <Link
+              href="/my-work"
+              className="-ml-1 inline-flex items-center gap-1.5 text-base font-medium text-brand-hover transition-colors hover:text-brand"
+            >
+              <ArrowLeft className="size-4" aria-hidden />
+              Back to My Work
+            </Link>
+          </div>
 
-      {/* "Contact Research" is the page title. The project scope is preserved
-          through the project id passed to the client below; it is deliberately
-          not shown in the heading. */}
-      <WorkflowHeader primary="Contact Research" />
-
+          {/* "Contact Research" is the page title. The project scope is
+              preserved through the project id passed to the client below; it is
+              deliberately not shown in the heading. */}
+          <WorkflowHeader primary="Contact Research" />
+        </div>
+      }
+    >
       <ContactReviewClient projectId={project.id} initialCustomerId={customer_id ?? null} />
     </WorkflowPage>
   )

@@ -147,6 +147,15 @@ export function AvailableToCallClient({
   // task triggers after a recorded interaction) does not re-present someone
   // already handled and the completion tally is accurate.
   const [handled, setHandled] = useState<Set<string>>(new Set())
+  // Customers skipped this session, in skip order (most recently skipped last).
+  // Skipping records nothing and changes no status or follow-up date; it only
+  // reorders the working sequence so a skipped customer goes to the BACK and is
+  // cycled back to once the un-skipped customers are exhausted. Keyed the same
+  // way as `handled` (real outreach id, or `virtual:<customerId>` for a
+  // record-less item). A customer later handled leaves the sequence entirely
+  // (it joins `handled`), so a skip never keeps anyone around permanently. This
+  // mirrors the Send Introductory Emails skip behavior.
+  const [skipOrder, setSkipOrder] = useState<string[]>([])
 
   const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
 
@@ -203,6 +212,22 @@ export function AvailableToCallClient({
     [items, handled, candidateKey],
   )
 
+  // The working SEQUENCE: the same still-to-do customers, reordered so skipped
+  // ones sit at the BACK in the order they were skipped. Reserving walks this
+  // list and takes the first available, so an un-skipped customer is always
+  // reached before a skipped one, and once the un-skipped run is exhausted the
+  // sequence circles back to the first-skipped customer — continuing to cycle
+  // until none remain. When nothing has been skipped it is exactly `remaining`.
+  const orderedCandidates = useMemo(() => {
+    if (skipOrder.length === 0) return remaining
+    const skipIndex = new Map(skipOrder.map((key, i) => [key, i]))
+    const notSkipped = remaining.filter(it => !skipIndex.has(candidateKey(it)))
+    const skipped = remaining
+      .filter(it => skipIndex.has(candidateKey(it)))
+      .sort((a, b) => (skipIndex.get(candidateKey(a)) ?? 0) - (skipIndex.get(candidateKey(b)) ?? 0))
+    return [...notSkipped, ...skipped]
+  }, [remaining, skipOrder, candidateKey])
+
   // Direct working workflow: once loaded, RESERVE and land straight on the first
   // AVAILABLE eligible customer (one a teammate is not already working), never
   // an intermediate list. Applied once per fresh landing; after that the worker
@@ -219,7 +244,7 @@ export function AvailableToCallClient({
   useEffect(() => {
     if (loading || error || directOpenedRef.current) return
     directOpenedRef.current = true
-    void reserveNextDirectCandidate(remaining, reserveNext)
+    void reserveNextDirectCandidate(orderedCandidates, reserveNext)
       .then(reserved => {
         if (reserved) setOpenId(reserved)
         // else: a successful empty result — nobody available. Completion shows.
@@ -229,7 +254,7 @@ export function AvailableToCallClient({
         directOpenedRef.current = false
         setError('Could not reserve a customer to call. Try again.')
       })
-  }, [loading, error, remaining, reserveNext])
+  }, [loading, error, orderedCandidates, reserveNext])
 
   // Mark the open customer handled and advance to the next AVAILABLE one. Called
   // after the task records a terminal interaction for this customer (a recorded
@@ -255,7 +280,9 @@ export function AvailableToCallClient({
     void release()
     // `handled` updates on the next render, so exclude the just-handled customer
     // here (by real id and, for a materialized virtual one, its virtual key).
-    const candidates = remaining.filter(
+    // Walk the SEQUENCE order so advancing still reaches un-skipped customers
+    // before skipped ones.
+    const candidates = orderedCandidates.filter(
       it => it.id !== handledId && candidateKey(it) !== (handledVirtual ? `virtual:${handledVirtual.customer_id}` : ''),
     )
     void reserveNextDirectCandidate(candidates, reserveNext)
@@ -270,7 +297,49 @@ export function AvailableToCallClient({
       })
     // Keep the local population in step with the server; harmless if already gone.
     void load()
-  }, [openId, remaining, load, release, reserveNext, candidateKey])
+  }, [openId, orderedCandidates, remaining, load, release, reserveNext, candidateKey])
+
+  // Skip the open customer: move to the next AVAILABLE customer WITHOUT recording
+  // a call, changing status, or touching any follow-up date. The just-skipped
+  // customer is pushed to the BACK of the working sequence (via skipOrder), so
+  // after the rest of the run is worked the sequence circles back to it; this
+  // keeps cycling until no eligible customers remain. Skipping never adds to
+  // `handled`, so the session tally and the population are unchanged by a skip.
+  // This is the same skip behavior as Send Introductory Emails.
+  const advanceAfterSkip = useCallback(() => {
+    if (!openId) return
+    // Identify the skipped customer by the key that matches it in `remaining`:
+    // its real outreach id (recorded or just-materialized and open).
+    const skippedKey = openId
+    // Push to the back of the skip order. If it was already skipped earlier,
+    // move it to the very back (re-skipping sends it around again).
+    setSkipOrder(prev => [...prev.filter(k => k !== skippedKey), skippedKey])
+    // Free the lease so a teammate is not blocked by a customer this worker has
+    // set aside; it stays in this worker's sequence and is re-reserved when it
+    // cycles back (or immediately, if it is the only one left).
+    void release()
+    // Reserve the next customer in sequence order, with the just-skipped one
+    // moved to the back. When it is the only remaining customer, the sequence
+    // circles straight back to it (reserveNext treats a now-free subject as
+    // reservable), so a one-customer queue simply re-presents that customer.
+    const skipIndex = new Map(
+      [...skipOrder.filter(k => k !== skippedKey), skippedKey].map((key, i) => [key, i]),
+    )
+    const resequenced = [
+      ...remaining.filter(it => !skipIndex.has(candidateKey(it))),
+      ...remaining
+        .filter(it => skipIndex.has(candidateKey(it)))
+        .sort((a, b) => (skipIndex.get(candidateKey(a)) ?? 0) - (skipIndex.get(candidateKey(b)) ?? 0)),
+    ]
+    void reserveNextDirectCandidate(resequenced, reserveNext)
+      .then(reserved => {
+        setOpenId(reserved) // reserved id, or null -> completion state renders
+      })
+      .catch(() => {
+        setOpenId(null)
+        setError('Could not advance to the next customer. Try again.')
+      })
+  }, [openId, skipOrder, remaining, release, reserveNext, candidateKey])
 
   const handledCount = handled.size
 
@@ -332,6 +401,10 @@ export function AvailableToCallClient({
         // A recorded terminal interaction advances the sequence; the guided call
         // flow fires onAdvanceToNext only after it records such an interaction.
         onAdvanceToNext={advanceAfterCall}
+        // Skip for now: advance to the next available customer without recording
+        // a call, changing status, or touching a follow-up date, sending this
+        // one to the back of the working sequence.
+        onSkip={advanceAfterSkip}
         // Leaving the screen must never mark a customer handled or advance. The
         // call flow only calls onBack on a non-advancing terminal path (e.g. a
         // carrier completion, not reachable here); if it ever fires, just refresh

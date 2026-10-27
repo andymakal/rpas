@@ -428,6 +428,25 @@ function outreachServicingAccess(
 }
 
 /**
+ * The Customer Interaction standing source, read the same way as Servicing
+ * Access (WITHOUT a count>0 gate): the composition always emits this
+ * informational source for an outreach-eligible employee (count 0 or more), so
+ * Customer Interaction stays a reachable Available-work step — between calling
+ * and Servicing Access — even when no conversations are active right now, with
+ * its find-a-customer search ready the moment a response arrives. The count is
+ * the real engaged-pre-authorization figure (owned + available).
+ */
+function outreachCustomerInteraction(
+  outreach: ActivityGroup,
+): { count: number; route: string | null } | null {
+  const s = outreach.sources.find(
+    (src) => src.informational && /customer interaction/i.test(src.label),
+  )
+  if (!s) return null
+  return { count: s.ownedByMe + s.availableToMe, route: s.route }
+}
+
+/**
  * The fixed workflow order Available Work always follows, by work function. The
  * six operator-facing steps run research -> outreach (introductory emails, then
  * due calls, then other reachable customers, then servicing access) ->
@@ -543,6 +562,29 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
             emphasis,
           })
         }
+        // Customer Interaction sits between calling and Servicing Access in the
+        // working order: a customer who has genuinely responded (reached, a
+        // promised callback, or a recorded inbound response) is in an active
+        // conversation worked after routine calling and before a signed
+        // authorization is in hand. Like Servicing Access it is ALWAYS shown as
+        // a reachable step for an outreach-eligible employee, even at count 0 (a
+        // response can arrive at any time and the screen's find-a-customer search
+        // starts the work), so it is NOT gated on count > 0. The count is the
+        // real engaged-pre-authorization figure from the composition's
+        // informational source (0 when none); the route preserves project scope.
+        const customerInteraction = outreachCustomerInteraction(a)
+        if (customerInteraction) {
+          steps.push({
+            key: 'outreach:customer-interaction',
+            title: 'Work active customer conversations',
+            reason:
+              'These customers have responded and are in an active conversation, but the signed authorization has not come back yet. Record incoming responses, outgoing replies, conversation notes, and follow-up commitments; the signed form moves them on to Servicing Access.',
+            count: customerInteraction.count,
+            actionLabel: 'Open Customer Interaction',
+            route: customerInteraction.route,
+            emphasis,
+          })
+        }
         // Servicing Access sits between calling and operations preparation in the
         // working order: a signed authorization in hand is worked after outreach
         // reaches the customer and before operations collects documents. It is
@@ -573,7 +615,7 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
         // empty, eligible Outreach), the fallback must not add a redundant
         // zero-count "Continue outreach" step on top of it.
         const hasActionableSubPopulation = !!intro || !!callsDue || !!otherCalls
-        if (!hasActionableSubPopulation && !servicingAccess) {
+        if (!hasActionableSubPopulation && !servicingAccess && !customerInteraction) {
           steps.push({
             key: 'outreach',
             title: 'Continue outreach',

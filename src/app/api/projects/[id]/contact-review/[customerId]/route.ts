@@ -4,7 +4,11 @@ import { createClient } from '@/lib/supabase/server'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { assertProjectActive } from '@/lib/projects/guard'
 import { normalizeEmailInput, normalizePhoneInput } from '@/lib/contact-input'
-import { buildResearchTouchRows, contactMethodsStillMissing } from '@/lib/stewardship/research-record'
+import {
+  buildResearchTouchRows,
+  contactMethodsStillMissing,
+  readResearchedUnsuccessfully,
+} from '@/lib/stewardship/research-record'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
@@ -53,7 +57,10 @@ async function resolveEmployeeName(admin: AdminClient): Promise<string | null> {
  *   NOT a close: the customer keeps project membership, history, and every
  *   contact method; a method that later gets a value re-opens the recommendation
  *   on its own. A method already on file is never recorded (presence makes it
- *   moot). If both methods are already present, this is a no-op.
+ *   moot). A method that was ALREADY recorded unsuccessfully is not recorded
+ *   again — existing history is preserved and no duplicate entry is created. If
+ *   every still-missing method already has an unsuccessful-research entry (or
+ *   every method is present), this is a no-op and the caller simply advances.
  *
  * A body with none of these fields is a 400. The FOUND path writes only the
  * customers row; the NOT FOUND path writes only a case_touches history row.
@@ -111,10 +118,10 @@ export async function PATCH(
       return Response.json({ error: 'Customer not found.' }, { status: 404 })
     }
 
-    // Record a "nothing usable found" outcome against every still-missing
-    // method — email, phone, AND mailing address — so an unsuccessful look-up on
-    // any of the three independent contact methods is recorded and the customer
-    // stops being re-recommended for that method on later passes.
+    // Record a "nothing usable found" outcome against the still-missing
+    // methods — email, phone, AND mailing address are independent — so an
+    // unsuccessful look-up on any of the three is recorded and that method stops
+    // being re-recommended on later passes.
     const missing = contactMethodsStillMissing({
       email: cust.email, phone: cust.phone,
       street: cust.street, address_line1: cust.address_line1,
@@ -125,14 +132,26 @@ export async function PATCH(
       return Response.json({ data: { customer_id: customerId, recorded: [] } })
     }
 
+    // Do NOT create a second unsuccessful-research entry for a method that
+    // already has one. Read the existing research history and record only the
+    // still-missing methods that have NOT been recorded unsuccessfully before.
+    // All existing history is preserved (this path only ever inserts). If every
+    // still-missing method was already recorded, there is nothing new to write
+    // and the caller simply advances to the next customer.
+    const alreadyRecorded = await readResearchedUnsuccessfully(supabase, customerId)
+    const toRecord = missing.filter((m) => !alreadyRecorded[m])
+    if (toRecord.length === 0) {
+      return Response.json({ data: { customer_id: customerId, recorded: [] } })
+    }
+
     const touchedBy = await resolveEmployeeName(supabase)
-    const rows = buildResearchTouchRows(customerId, missing, touchedBy)
+    const rows = buildResearchTouchRows(customerId, toRecord, touchedBy)
     const { error: insErr } = await supabase.from('case_touches').insert(rows)
     if (insErr) {
       console.error('contact-review research record error:', insErr)
       return Response.json({ error: 'Could not record the research outcome; please try again.' }, { status: 500 })
     }
-    return Response.json({ data: { customer_id: customerId, recorded: missing } })
+    return Response.json({ data: { customer_id: customerId, recorded: toRecord } })
   }
 
   // Build a field-level patch of ONLY the fields explicitly present. An omitted

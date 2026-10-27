@@ -6,6 +6,7 @@ import {
 import { readUnusableChannelsByCustomer } from '@/lib/stewardship/attempt-history'
 import type { OutreachChannel } from '@/lib/stewardship/outreach-attempts'
 import { activeProjectsWithWorkflow, isPermanentPolicyReviewTypeName } from '@/lib/projects/workflows'
+import { type EmailAvailability } from '@/lib/email-availability'
 
 /**
  * Effective contact usability folds the recorded-UNUSABLE fact into mere
@@ -109,6 +110,14 @@ export interface ContactReviewCustomer {
   email_verified_at: string | null
   phone_verified_at: string | null
   address_verified_at: string | null
+  /** Durable email-availability fact (customers.email_availability). Carried so
+   * the shared CustomerContactCard can show the current state. Informational
+   * only: it does not affect research recommendation or any workflow routing. */
+  email_availability: EmailAvailability | null
+  /** The customer's single alert (customers.contact_alert). Carried so the
+   * shared CustomerContactCard shows the same alert banner here. Informational
+   * only; no effect on research or routing. */
+  contact_alert: string | null
   /** Any one policy number already on file for this customer, shown so the
    * worker can search Gateway by last name + policy number. null when the
    * customer has no policy on file. */
@@ -173,6 +182,8 @@ type CustomerRow = {
   email_verified_at: string | null
   phone_verified_at: string | null
   address_verified_at: string | null
+  email_availability: EmailAvailability | null
+  contact_alert: string | null
   is_test: boolean
 }
 
@@ -180,7 +191,7 @@ type CustomerRow = {
  * address and verification timestamps the shared CustomerContactCard needs. */
 const CUSTOMER_SELECT =
   'id, first_name, last_name, email, phone, street, address_line1, city, state, zip, ' +
-  'email_verified_at, phone_verified_at, address_verified_at, is_test'
+  'email_verified_at, phone_verified_at, address_verified_at, email_availability, contact_alert, is_test'
 
 const usable = (v: string | null): boolean => !!v && v.trim().length > 0
 
@@ -345,6 +356,8 @@ export async function buildContactReview(
       email_verified_at: c.email_verified_at,
       phone_verified_at: c.phone_verified_at,
       address_verified_at: c.address_verified_at,
+      email_availability: c.email_availability,
+      contact_alert: c.contact_alert,
       policy_number: policyByCustomer.get(c.id) ?? null,
       // Status is reachability: no usable method at all vs missing one. The
       // No Usable Contact Information section shows every 'no_usable_contact'
@@ -453,6 +466,8 @@ export async function loadContactReviewCustomer(
     email_verified_at: row.email_verified_at,
     phone_verified_at: row.phone_verified_at,
     address_verified_at: row.address_verified_at,
+    email_availability: row.email_availability,
+    contact_alert: row.contact_alert,
     policy_number: policyByCustomer.get(row.id) ?? null,
     status: !stillRecommend && noUsableContact ? 'no_usable_contact' : 'needs_research',
     researched_unsuccessfully: !stillRecommend,
@@ -478,7 +493,7 @@ export async function researchAgainProjectId(
 ): Promise<string | null> {
   const { data: c } = await supabase
     .from('customers')
-    .select('email, phone, street, address_line1, city, state, zip, is_test')
+    .select('email, phone, street, address_line1, city, state, zip, email_availability, is_test')
     .eq('id', customerId)
     .maybeSingle()
   if (!c || (c as CustomerRow).is_test) return null
@@ -497,9 +512,10 @@ export async function researchAgainProjectId(
 
   // Only when the customer is settled by research (dropped from the active list)
   // does a special reopen link apply; an outstanding method keeps them in the
-  // list.
-  const researched = await readResearchedUnsuccessfullyBatch(supabase, [customerId])
-  const research = researched.get(customerId) ?? { email: false, phone: false, address: false }
+  // list. The durable email-availability fact settles the email method the same
+  // way recorded research does ('no_address' / 'refused'; not 'undeliverable').
+  const recordedResearch = await readResearchedUnsuccessfullyBatch(supabase, [customerId])
+  const research = recordedResearch.get(customerId) ?? { email: false, phone: false, address: false }
   if (stillNeedsResearchRecommendation({ hasEmail, hasPhone, hasAddress }, research)) return null
 
   return activeContactResearchProjectForCustomer(supabase, customerId)

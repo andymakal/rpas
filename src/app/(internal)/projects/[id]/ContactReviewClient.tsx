@@ -11,8 +11,9 @@
  *
  * The worker works the list continuously: open a customer, search Gateway by
  * their last name and policy number, read what Gateway shows, type in the email
- * and/or phone they find, and Save & Next — or, if Gateway has nothing usable,
- * Nothing Usable & Next. Either action advances to the next customer in place;
+ * and/or phone they find (saved automatically as entered), and Next Customer —
+ * or, if Gateway has nothing usable, Nothing Usable & Next. Either action
+ * advances to the next customer in place;
  * the worker never returns to the queue between customers, and a customer
  * already handled this session is not presented again.
  *
@@ -45,6 +46,7 @@ import {
   describeContactResearchSelection,
   type HistoryEvent,
 } from '@/lib/stewardship/customer-history'
+import { type EmailAvailability } from '@/lib/email-availability'
 import {
   MentorGuidance, useMentorDisclosure, MentorCapButton, MentorCapPanel,
 } from '@/lib/mentoring/MentorUi'
@@ -67,6 +69,8 @@ type ContactReviewCustomer = {
   email_verified_at: string | null
   phone_verified_at: string | null
   address_verified_at: string | null
+  email_availability: EmailAvailability | null
+  contact_alert: string | null
   policy_number: string | null
   /** Reachability. 'needs_research' = reachable (missing one method), routine
    * active list. 'no_usable_contact' = no usable email or phone at all, always
@@ -171,9 +175,9 @@ export function ContactReviewClient({
   // Missing-method filter: Email, Phone, and Mailing Address, all selected by
   // default. A customer is included when they are missing ANY selected method,
   // so any combination can be selected or cleared. This shapes both the lists
-  // and the entire Save & Next sequence. The research option works UNRESEARCHED
+  // and the entire Next Customer sequence. The research option works UNRESEARCHED
   // customers first and keeps previously-unsuccessful research available as a
-  // separate pass without re-recommending it as new work.
+  // separate, opt-in pass without re-recommending it as new work.
   const [methodFilter, setMethodFilter] = useState<Set<Method>>(
     () => new Set<Method>(['email', 'phone', 'address']),
   )
@@ -187,8 +191,8 @@ export function ContactReviewClient({
   // durable truth is simply whether the customer still lacks contact info.
   const [handled, setHandled] = useState<Set<string>>(new Set())
 
-  // Temporary reservation coordination: opening and Save & Next / Nothing Usable
-  // & Next ask the server for the next AVAILABLE customer, so two employees
+  // Temporary reservation coordination: opening and Next Customer / Nothing
+  // Usable & Next ask the server for the next AVAILABLE customer, so two employees
   // working Contact Research on the same project never land on the same customer.
   // The reservation is a soft, self-expiring lease the hook heartbeats while the
   // screen is open and releases on save / skip / leave; it changes no customer
@@ -262,7 +266,7 @@ export function ContactReviewClient({
   )
   // The active (reachable) list split by research state, exactly as the No
   // Usable Contact exception is split. Previously-unsuccessful research is held
-  // apart here too so the Save & Next sequence can exclude it unless the worker
+  // apart here too so the Next Customer sequence excludes it unless the worker
   // opts in — applied CONSISTENTLY to every incomplete customer, whatever field
   // they are missing, not only the no-usable-contact ones.
   const activeOutstanding = useMemo(
@@ -289,17 +293,20 @@ export function ContactReviewClient({
     [exceptionRemaining],
   )
 
-  // The ordered work queue the worker walks through with Save & Next / Nothing
+  // The ordered work queue the worker walks through with Next Customer / Nothing
   // Usable & Next. Unresearched customers come FIRST: the actively-recommended
   // reachable list, then the outstanding (never-researched) No Usable Contact
-  // exceptions. Previously-unsuccessful research is a SEPARATE pass — included
-  // only when the worker opts in via "Include previously unsuccessful research"
-  // — so it is never repeatedly recommended as fresh work. This gate applies
+  // exceptions. Previously-unsuccessful research is a SEPARATE, OPT-IN pass —
+  // included ONLY when the worker explicitly checks "Include previously
+  // unsuccessful research" — so it is never recommended as fresh work and the
+  // pass finishes when unresearched work is exhausted. This gate applies
   // CONSISTENTLY to every previously-unsuccessful customer regardless of which
   // field they are missing (reachable missing-one AND no-usable-contact).
   // Honors the current missing-method filter.
-  // The two passes, independent of the checkbox: never-researched work first,
-  // then previously-unsuccessful research. Each honors the missing-method filter.
+  // The two passes: never-researched work first, then (only when the box is
+  // checked) previously-unsuccessful research. Each honors the missing-method
+  // filter. workQueue is the checkbox-gated sequence both advancement buttons
+  // and the direct open walk.
   const unresearchedQueue = useMemo(
     () => [...activeOutstanding, ...exceptionOutstanding],
     [activeOutstanding, exceptionOutstanding],
@@ -315,22 +322,12 @@ export function ContactReviewClient({
     [unresearchedQueue, previouslyUnsuccessfulQueue, includeUnsuccessful],
   )
 
-  // Auto-advance to the previously-unsuccessful pass once no unresearched work
-  // remains. When the never-researched queue is exhausted but previously-
-  // unsuccessful research is still on file, select "Include previously
-  // unsuccessful research" automatically so the worker continues straight into
-  // that pass — the checkbox turns itself on, the previously-researched
-  // customers enter the work queue, and Save & Next flows directly into the
-  // first of them. The worker can still uncheck it to stop. Only flips ON
-  // automatically (never off), so a deliberate uncheck is not immediately undone
-  // while unresearched work is genuinely gone. Waits until after the first load.
-  useEffect(() => {
-    if (loading) return
-    if (includeUnsuccessful) return
-    if (unresearchedQueue.length === 0 && previouslyUnsuccessfulQueue.length > 0) {
-      setIncludeUnsuccessful(true)
-    }
-  }, [loading, includeUnsuccessful, unresearchedQueue.length, previouslyUnsuccessfulQueue.length])
+  // Repeat research is OPT-IN only. When the never-researched queue is
+  // exhausted, the pass is finished — the screen does not automatically enable
+  // "Include previously unsuccessful research". Previously-unsuccessful
+  // customers enter the automatic sequence only when the employee explicitly
+  // checks that box, and both advancement buttons honor that choice. (No
+  // auto-opt-in effect: that behavior was deliberately removed.)
 
   // Direct working workflow: when there is no deep-link, clicking "Find Missing
   // Contact Information" lands straight on the FIRST customer requiring research,
@@ -340,15 +337,6 @@ export function ContactReviewClient({
   useEffect(() => {
     if (loading || initialCustomerId) return
     if (directOpenedRef.current) return
-    // Defer the one-shot open while the auto-opt-in is still pending: the
-    // unresearched queue is empty but previously-unsuccessful research exists and
-    // the box has not flipped on yet. The auto-opt-in effect will select the
-    // checkbox, repopulate workQueue, and this effect re-runs to land on the
-    // first previously-researched customer rather than falsely showing a done
-    // state.
-    const autoOptInPending =
-      !includeUnsuccessful && workQueue.length === 0 && previouslyUnsuccessfulQueue.length > 0
-    if (autoOptInPending) return
     directOpenedRef.current = true
     // Reserve and land on the first AVAILABLE customer (one a teammate is not
     // already working). reserveNext atomically skips reserved customers and
@@ -359,7 +347,7 @@ export function ContactReviewClient({
       if (reserved) setOpenId(reserved)
       else setShowingList(true)
     })
-  }, [loading, initialCustomerId, workQueue, previouslyUnsuccessfulQueue.length, includeUnsuccessful, reserveNext])
+  }, [loading, initialCustomerId, workQueue, reserveNext])
 
   const openCustomer = useMemo(
     () =>
@@ -370,11 +358,11 @@ export function ContactReviewClient({
 
   // Mark a customer handled for this session and advance to the next unhandled
   // customer. If none remain, return to the (now empty) list so the worker sees
-  // the done state. Used by both Save & Next and Nothing Usable & Next.
+  // the done state. Used by both Next Customer and Nothing Usable & Next.
   // Open a customer the worker picked deliberately (a list card, or the
   // Start/Continue button). Coordination-tracked like the continuous flow —
   // reserved and heartbeated so a teammate sees it busy, released on leave — but
-  // never BLOCKED: a deliberate pick always opens. The continuous Save & Next
+  // never BLOCKED: a deliberate pick always opens. The continuous Next Customer
   // path uses reserveNext instead (it must skip a customer a teammate holds).
   const openWithReservation = useCallback((customerId: string) => {
     void reserveOne(customerId)
@@ -389,16 +377,14 @@ export function ContactReviewClient({
     })
     // This customer is handled: release its reservation so a teammate is never
     // blocked by a finished item, then reserve and advance to the next AVAILABLE
-    // customer. Save & Next continues DIRECTLY across both passes: never-
-    // researched first, then previously-unsuccessful research, honoring the
-    // active missing-method filter. Advancing uses the full sequence (not the
-    // checkbox-gated queue) so the worker flows straight into the previously-
-    // researched pass once unresearched work is exhausted; the auto-opt-in
-    // effect flips the checkbox on in lockstep so the list/filter stay
-    // consistent. `handled` updates on the next render, so exclude this id here.
+    // customer. Advancing honors the "Include previously unsuccessful research"
+    // choice: it walks the SAME checkbox-gated workQueue the list and the direct
+    // open use. Unchecked, the sequence is never-researched work only and the
+    // pass finishes when that is exhausted; checked, previously-unsuccessful
+    // research joins the sequence. Both advancement buttons respect this.
+    // `handled` updates on the next render, so exclude this id here.
     void release()
-    const fullSequence = [...unresearchedQueue, ...previouslyUnsuccessfulQueue]
-    const candidates = fullSequence
+    const candidates = workQueue
       .filter(r => r.customer_id !== customerId && !handled.has(r.customer_id))
       .map(r => r.customer_id)
     void reserveNext(candidates).then(reserved => {
@@ -411,7 +397,7 @@ export function ContactReviewClient({
         setShowingList(true)
       }
     })
-  }, [unresearchedQueue, previouslyUnsuccessfulQueue, handled, release, reserveNext])
+  }, [workQueue, handled, release, reserveNext])
 
   // The compact, dynamically-updated filter summary, computed over the rows that
   // match the active missing-method filter so it tracks the checkboxes. Computed
@@ -476,7 +462,7 @@ export function ContactReviewClient({
           // The shared card persisted a contact change for this customer. Fold
           // the authoritative record back into the local rows so the list and
           // summary stay accurate without a reload. This does NOT advance — the
-          // worker advances deliberately with Save & Next.
+          // worker advances deliberately with Next Customer.
           const addr = usableAddress(updated)
           setRows(prev => prev.map(r => r.customer_id === updated.id
             ? { ...r,
@@ -487,7 +473,9 @@ export function ContactReviewClient({
                 city: updated.city, state: updated.state, zip: updated.zip,
                 email_verified_at: updated.email_verified_at,
                 phone_verified_at: updated.phone_verified_at,
-                address_verified_at: updated.address_verified_at }
+                address_verified_at: updated.address_verified_at,
+                email_availability: updated.email_availability,
+                contact_alert: updated.contact_alert ?? null }
             : r))
           setReopened(prev => prev && prev.customer_id === updated.id
             ? { ...prev,
@@ -498,12 +486,15 @@ export function ContactReviewClient({
                 city: updated.city, state: updated.state, zip: updated.zip,
                 email_verified_at: updated.email_verified_at,
                 phone_verified_at: updated.phone_verified_at,
-                address_verified_at: updated.address_verified_at }
+                address_verified_at: updated.address_verified_at,
+                email_availability: updated.email_availability,
+                contact_alert: updated.contact_alert ?? null }
             : prev)
         }}
         onSaved={() => {
-          // Save & Next: the card has already written any edits to the customer
-          // record; this advances the session. A reopened customer is not in the
+          // Next Customer: the card has already written any edits to the customer
+          // record as they were entered; this only advances the session and
+          // records no research history. A reopened customer is not in the
           // list, so for them just clear the hold and return to the list rather
           // than advancing to a next row.
           if (isReopened) { setReopened(null); setOpenId(null); setShowingList(true) }
@@ -531,7 +522,7 @@ export function ContactReviewClient({
           and Mailing Address checkboxes (all on by default, any combination),
           the previously-unsuccessful pass option, and a compact, dynamically
           updated summary. They shape both the lists below and the entire
-          Save & Next / Nothing Usable & Next sequence. */}
+          Next Customer / Nothing Usable & Next sequence. */}
       {filterBar}
 
       <AssistantPanel heading="Find the contact information Gateway is missing">
@@ -556,12 +547,14 @@ export function ContactReviewClient({
             customer record.
           </p>
           <p className="text-base text-ink-supporting">
-            Save &amp; Next moves you to the next customer; if Gateway has nothing usable, Nothing
-            Usable &amp; Next records that research found nothing and keeps you moving. Unresearched
-            customers come first; previously-unsuccessful research is a separate pass you opt into
-            with the filters above. A customer you have handled will not keep coming back, and anyone whose details
-            later turn up returns automatically. Customers with no usable contact at all stay visible
-            below, so the agency keeps sight of who it cannot reach.
+            Next Customer moves you to the next customer (your edits already saved as you entered
+            them); if Gateway has nothing usable, Nothing Usable &amp; Next records that research
+            found nothing and keeps you moving. Unresearched customers come first, and when they are
+            done the pass is finished. Previously-unsuccessful research is a separate pass you opt
+            into with &ldquo;Include previously unsuccessful research&rdquo; above. A customer you
+            have handled will not keep coming back, and anyone whose details later turn up returns
+            automatically. Customers with no usable contact at all stay visible below, so the agency
+            keeps sight of who it cannot reach.
           </p>
         </div>
         {workQueue.length > 0 && (
@@ -597,8 +590,8 @@ export function ContactReviewClient({
           {/* Split by research state, the same way the No Usable Contact section
               is split, so previously-unsuccessful research is visibly distinct
               here too. Both groups stay in the overall count; only the
-              never-researched group is in the default Save & Next sequence
-              (previously-unsuccessful joins it when the worker opts in). */}
+              never-researched group is in the default Next Customer sequence
+              (previously-unsuccessful joins it only when the worker opts in). */}
           {activeOutstanding.length > 0 && (
             <div className="space-y-3">
               {activeUnsuccessful.length > 0 && (
@@ -683,7 +676,7 @@ export function ContactReviewClient({
 // title. Email, Phone, and Mailing Address checkboxes (all selected by default,
 // any combination), the separate previously-unsuccessful pass option, and a
 // compact, dynamically-updated summary of the filtered population. The checkbox
-// selection controls both the lists and the entire Save & Next sequence.
+// selection controls both the lists and the entire Next Customer sequence.
 // ─────────────────────────────────────────────────────────────────────────────
 
 function ContactResearchFilters({
@@ -755,7 +748,7 @@ function ContactResearchFilters({
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ContactReviewTask — one customer. The left ActionPanel carries the Mentoring,
-// the shared Gateway look-up, and the Save & Next / Nothing Usable progression;
+// the shared Gateway look-up, and the Next Customer / Nothing Usable progression;
 // the right column is the shared, editable CustomerContactCard, which owns the
 // contact capture and writes straight to the customer record.
 // ─────────────────────────────────────────────────────────────────────────────
@@ -777,6 +770,8 @@ function toCardCustomer(c: ContactReviewCustomer): CustomerContact {
     email_verified_at: c.email_verified_at,
     phone_verified_at: c.phone_verified_at,
     address_verified_at: c.address_verified_at,
+    email_availability: c.email_availability,
+    contact_alert: c.contact_alert,
   }
 }
 
@@ -787,9 +782,10 @@ function ContactReviewTask({
   customer: ContactReviewCustomer
   /** The Missing Fields filter row, shown above the workbench so the controls
    * are available while working a customer (they drive the counts and the
-   * Save & Next progression upstream). */
+   * Next Customer progression upstream). */
   filterBar: ReactNode
-  /** Save & Next — advance the session. The card has already persisted edits. */
+  /** Next Customer — advance the session without recording research history.
+   * Contact edits were already saved automatically by the card. */
   onSaved: () => void
   /** Nothing Usable & Next — the durable research record was written; advance. */
   onSkipped: () => void
@@ -887,8 +883,8 @@ function ContactReviewTask({
           </div>
           {mentorOpen && (
             <MentorCapPanel onClose={() => setMentorOpen(false)}>
-              The Missing Fields filters above choose which gaps you work and drive the Save &amp;
-              Next order; a customer appears while they are missing any checked field. To research,
+              The Missing Fields filters above choose which gaps you work and drive the Next
+              Customer order; a customer appears while they are missing any checked field. To research,
               search Gateway with the last name and policy number together — the policy number lands
               you on the right record fastest; if it finds nothing, try the last name alone and
               confirm the date of birth before you copy anything back. Enter what Gateway shows on the
@@ -922,13 +918,16 @@ function ContactReviewTask({
             </p>
           )}
 
-          {/* The two advancing actions, equal width and visually balanced. Save
-              & Next is the primary teal action (advances to the next customer;
-              edits are already persisted by the card); Nothing Usable & Next
-              records the unsuccessful research durably and continues. Both are
-              the same structural control so they stay balanced, and both allow
-              their label to WRAP to two lines (whitespace-normal + auto height)
-              so neither truncates in the narrower equal-thirds column. */}
+          {/* The two advancing actions, equal width and visually balanced. Skip
+              This Customer is the primary teal action: contact edits already
+              saved automatically as they were entered, so it simply advances to
+              the next customer without creating any research-history entry,
+              whether or not anything changed — the customer stays eligible for
+              future research. Nothing Usable & Next records the unsuccessful
+              research durably and continues. Both are the same structural
+              control so they stay balanced, and both allow their label to WRAP
+              to two lines (whitespace-normal + auto height) so neither truncates
+              in the narrower equal-thirds column. */}
           <div className="grid grid-cols-2 items-stretch gap-3">
             <WorkflowButton
               icon={Save}
@@ -938,7 +937,7 @@ function ContactReviewTask({
               disabled={busy}
               className="h-auto min-h-14 justify-center whitespace-normal rounded-xl px-5 py-3 text-center text-lg font-semibold leading-tight"
             >
-              Save &amp; Next
+              Skip This Customer
             </WorkflowButton>
             <WorkflowButton
               icon={SkipForward}
@@ -960,6 +959,19 @@ function ContactReviewTask({
         <>
           <CustomerContactCard
             customer={toCardCustomer(customer)}
+            alert={customer.contact_alert}
+            alertEditable
+            collapsible
+            // Contact Research is research work — start expanded in the editing
+            // view so the worker can correct contact information immediately.
+            defaultExpanded
+            showName={false}
+            showMentoring={false}
+            header={
+              <h2 className="text-[33px] font-bold leading-tight tracking-tight text-brand">
+                {fullName(customer)}
+              </h2>
+            }
             onChange={onContactChange}
           />
           {/* The Policies card owns its single "Policies" heading. */}
