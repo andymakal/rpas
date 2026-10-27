@@ -31,6 +31,7 @@ import { getCustomerEnrollmentEvents } from '@/lib/projects/customer-enrollments
 import {
   applyAction,
   deriveEmailRouting,
+  derivePhoneRouting,
   normalizeRecipientEmail,
   engagedAtOf,
   ENGAGED_AT_KEY,
@@ -329,9 +330,24 @@ export async function GET(
     current_email: cust.email,
     intro_email_recipient: o.intro_email_recipient,
   })
-  const effectiveQueue: OutreachQueue = emailPatch?.queue ?? o.queue
-  const effectiveCallReason: CallReason | null = emailPatch ? (emailPatch.call_reason ?? null) : o.call_reason
-  const effectiveResearchReason: ResearchReason | null = emailPatch ? (emailPatch.research_reason ?? null) : o.research_reason
+  // A replacement phone on a research-needed (bad-number / bounce-no-phone /
+  // no-contact) item returns the now-callable customer to Available to Call, the
+  // phone analogue of the email re-derivation above, so opening the customer
+  // shows the call action rather than research. Applied only when email routing
+  // did not already upgrade the item, so the authorization-carrying
+  // introductory email wins when both apply.
+  const phonePatch = emailPatch
+    ? null
+    : derivePhoneRouting({
+        queue: o.queue,
+        research_reason: o.research_reason,
+        refused_at: o.refused_at,
+        has_usable_phone: !!cust.phone?.trim(),
+      })
+  const effectivePatch = emailPatch ?? phonePatch
+  const effectiveQueue: OutreachQueue = effectivePatch?.queue ?? o.queue
+  const effectiveCallReason: CallReason | null = effectivePatch ? (effectivePatch.call_reason ?? null) : o.call_reason
+  const effectiveResearchReason: ResearchReason | null = effectivePatch ? (effectivePatch.research_reason ?? null) : o.research_reason
 
   // Whether a signed servicing-agent authorization is already on file for this
   // servicing request, so the working screen can reflect it (uploaded vs not).

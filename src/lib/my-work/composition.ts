@@ -24,7 +24,7 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, isCustomerInteraction, isEngaged, isServicingAccess, engagedAtOf, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
+import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, derivePhoneRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, isCustomerInteraction, isEngaged, isServicingAccess, engagedAtOf, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
 import { createTimeContext } from '@/lib/time'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
@@ -636,7 +636,18 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       current_email: r.customer_prereviews.customers?.email ?? null,
       intro_email_recipient: r.intro_email_recipient,
     })?.queue as OutreachQueue | undefined
-    return emailRouted ?? r.queue
+    if (emailRouted) return emailRouted
+    // A replacement phone on a research-needed (bad-number / bounce-no-phone /
+    // no-contact) item returns the now-callable customer to Available to Call —
+    // the phone analogue of the email re-derivation above. Applied after email
+    // so the authorization-carrying introductory email wins when both apply.
+    const phoneRouted = derivePhoneRouting({
+      queue: r.queue,
+      research_reason: r.research_reason as ResearchReason | null,
+      refused_at: r.refused_at,
+      has_usable_phone: !!r.customer_prereviews.customers?.phone?.trim(),
+    })?.queue as OutreachQueue | undefined
+    return phoneRouted ?? r.queue
   }
 
   // Tally the shared board PER ITEM. Outreach is split by its actual queue so
