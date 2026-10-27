@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { resolveCapabilityProfile, loadWorkFunctions } from '@/lib/capabilities/resolve'
 import { canActOnItem, claimedByOther } from '@/lib/capabilities/work-functions'
-import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, isCustomerInteraction, isEngaged, isServicingAccess, engagedAtOf, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
+import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, derivePhoneRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, isCustomerInteraction, isEngaged, isServicingAccess, engagedAtOf, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
 import { readResearchedUnsuccessfullyBatch, stillNeedsResearchRecommendation } from '@/lib/stewardship/research-record'
 import { getProjectWorkflows, projectContainsWorkflow, onboardingCompleteForPolicies } from '@/lib/projects/workflows'
 import { deriveOnboardingPopulation } from '@/lib/stewardship/derived-onboarding'
@@ -117,6 +117,43 @@ export async function GET(request: NextRequest) {
     )
     if (patch) {
       await supabase.from('stewardship_outreach').update(patch).eq('id', w.id)
+    }
+  }
+
+  // Return a now-callable research-needed item to Available to Call. A customer
+  // sent to Research Needed because of a missing/bad phone (research_reason
+  // 'bad-number' / 'bounce-no-phone' / 'no-contact') who now has a usable phone
+  // is callable again; the stored queue must follow so they actually re-enter
+  // calling work rather than lingering in research. This mirrors the follow-up
+  // promotion above: derivePhoneRouting owns the decision, and we persist its
+  // patch (queue -> ready-to-call, clearing the stale research_reason) WITHOUT
+  // touching any progress — no email_sent_at, no history, no stage past
+  // authorization (only research-needed items are selected). An unresolved item
+  // (still no phone) is skipped, and 'bounce-no-phone' keeps its 'email-bounced'
+  // reason. refused items are excluded.
+  const { data: phoneReturn } = await supabase
+    .from('stewardship_outreach')
+    .select('id, research_reason, refused_at, customer_prereviews!inner ( customers!inner ( phone ) )')
+    .eq('queue', 'research-needed')
+    .in('research_reason', ['bad-number', 'bounce-no-phone', 'no-contact'])
+    .is('refused_at', null)
+  type ResearchRow = {
+    id: string
+    research_reason: string | null
+    refused_at: string | null
+    customer_prereviews: { customers: { phone: string | null } | { phone: string | null }[] } | null
+  }
+  for (const rr of (phoneReturn ?? []) as unknown as ResearchRow[]) {
+    const custRaw = rr.customer_prereviews?.customers
+    const cust = Array.isArray(custRaw) ? custRaw[0] : custRaw
+    const patch = derivePhoneRouting({
+      queue: 'research-needed',
+      research_reason: rr.research_reason as ResearchReason | null,
+      refused_at: rr.refused_at,
+      has_usable_phone: !!cust?.phone?.trim(),
+    })
+    if (patch) {
+      await supabase.from('stewardship_outreach').update(patch).eq('id', rr.id)
     }
   }
 
@@ -277,10 +314,10 @@ export async function GET(request: NextRequest) {
     // untouched opening item whose email became usable after intake is
     // ready-to-email now (deriveEmailRouting), so the board, its counts, and a
     // Ready-to-Email filter all reflect the newly-added email without a stored
-    // backfill. (Follow-up promotion of overdue waiting-for-response items is
-    // already persisted up front, so it is not re-derived here.) Only one of the
-    // two routings can apply to a given item, so the email upgrade is a safe
-    // overlay on the stored queue.
+    // backfill. (Follow-up promotion of overdue waiting-for-response items AND
+    // the return of a now-callable research-needed item to Ready to Call are
+    // both already persisted up front, so neither is re-derived here.) Only the
+    // email upgrade remains as a live overlay on the stored queue.
     const emailRouted = deriveEmailRouting({
       queue: r.queue,
       call_reason: r.call_reason as CallReason | null,

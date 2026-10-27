@@ -28,7 +28,7 @@ import {
   EARLY_CALL_SPACING_DAYS,
   NONRESPONSIVE_ATTEMPT_THRESHOLD,
 } from './call-cadence'
-import { applyAction, callPopulationOf, deriveFollowUpRouting, deriveEmailRouting, isIntroductoryEmail, introNeededForReplacedEmail, normalizeRecipientEmail, type OutreachState } from './queues'
+import { applyAction, callPopulationOf, deriveFollowUpRouting, deriveEmailRouting, derivePhoneRouting, isIntroductoryEmail, introNeededForReplacedEmail, normalizeRecipientEmail, type OutreachState } from './queues'
 import {
   groupIntoAttempts,
   countCallAttempts,
@@ -698,6 +698,95 @@ test('normalizeRecipientEmail: trims, lowercases, and blanks to null', () => {
   assert.equal(normalizeRecipientEmail('  Foo@Bar.COM '), 'foo@bar.com')
   assert.equal(normalizeRecipientEmail('   '), null)
   assert.equal(normalizeRecipientEmail(null), null)
+})
+
+// ── derivePhoneRouting: a replacement number returns the customer to calling ──
+// A customer sent to Research Needed for a missing/bad phone must return to
+// Available to Call once a usable number is on file — the phone analogue of the
+// email re-derivation. This is the second half of the Bad Number correction:
+// the number becomes usable AND the customer re-enters calling work, without
+// restarting onboarding or touching Waiting for Form / Waiting for Carrier.
+
+function researchForBadNumber(partial: Partial<Parameters<typeof derivePhoneRouting>[0]> = {}) {
+  return {
+    queue: 'research-needed' as const,
+    research_reason: 'bad-number' as const,
+    refused_at: null,
+    has_usable_phone: true,
+    ...partial,
+  }
+}
+
+test('derivePhoneRouting: a replacement number returns a bad-number research item to Ready to Call', () => {
+  const patch = derivePhoneRouting(researchForBadNumber())
+  assert.equal(patch?.queue, 'ready-to-call')
+  assert.equal(patch?.research_reason, null)
+  // No due signal, so it lands in Available to Call (not Calls Due).
+  assert.equal(patch?.call_reason, null)
+})
+
+test('derivePhoneRouting: a bounce-no-phone item that gains a phone returns to Ready to Call (email-bounced)', () => {
+  const patch = derivePhoneRouting(researchForBadNumber({ research_reason: 'bounce-no-phone' }))
+  assert.equal(patch?.queue, 'ready-to-call')
+  assert.equal(patch?.research_reason, null)
+  // The email bounced and a phone now exists: the reducer's own bounce+phone
+  // outcome (email-bounced) is preserved.
+  assert.equal(patch?.call_reason, 'email-bounced')
+})
+
+test('derivePhoneRouting: a no-contact item that gains a phone becomes callable', () => {
+  const patch = derivePhoneRouting(researchForBadNumber({ research_reason: 'no-contact' }))
+  assert.equal(patch?.queue, 'ready-to-call')
+  assert.equal(patch?.research_reason, null)
+})
+
+test('derivePhoneRouting: no usable phone leaves the item in research', () => {
+  assert.equal(derivePhoneRouting(researchForBadNumber({ has_usable_phone: false })), null)
+})
+
+test('derivePhoneRouting: a refused item is never rerouted', () => {
+  assert.equal(derivePhoneRouting(researchForBadNumber({ refused_at: '2026-01-01T00:00:00.000Z' })), null)
+})
+
+test('derivePhoneRouting: never touches an authorization/carrier stage (onboarding is not restarted)', () => {
+  for (const queue of ['waiting-for-form', 'waiting-for-carrier', 'ready-to-email', 'waiting-for-response'] as const) {
+    assert.equal(
+      // research_reason is irrelevant off research-needed; the queue gate alone
+      // keeps these stages untouched so completed outreach is preserved.
+      derivePhoneRouting({ queue, research_reason: null, refused_at: null, has_usable_phone: true }),
+      null,
+    )
+  }
+})
+
+test('derivePhoneRouting end-to-end: a replaced bad number actually surfaces as Available to Call', () => {
+  // The requirement is not merely that the number is usable, but that the
+  // customer returns to calling work. Compose the two pure steps the reads use:
+  // the effective queue from the phone re-derivation, then the call population.
+  const eff = derivePhoneRouting(researchForBadNumber())?.queue ?? 'research-needed'
+  const population = callPopulationOf({
+    effectiveQueue: eff,
+    callReason: null,
+    hasUsablePhone: true,
+    callbackDue: false,
+    engaged: false,
+  })
+  assert.equal(eff, 'ready-to-call')
+  assert.equal(population, 'available-to-call')
+})
+
+test('derivePhoneRouting end-to-end: still in research while no replacement exists', () => {
+  // Before a replacement, the customer stays in research and is NOT callable.
+  const eff = derivePhoneRouting(researchForBadNumber({ has_usable_phone: false }))?.queue ?? 'research-needed'
+  const population = callPopulationOf({
+    effectiveQueue: eff,
+    callReason: null,
+    hasUsablePhone: false,
+    callbackDue: false,
+    engaged: false,
+  })
+  assert.equal(eff, 'research-needed')
+  assert.equal(population, null)
 })
 
 // ── Value-scoped unusable: replacement restores eligibility (Fix #1) ─────────
