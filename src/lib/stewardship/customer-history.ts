@@ -1219,3 +1219,101 @@ export function describeIntroEmailSelection(
     note: extraNote,
   }
 }
+
+// ---------------------------------------------------------------------------
+// Customer Interaction — the Next History Entry preview for the conversation
+// working screen. Unlike the guided call flow (one staged interaction), the
+// Customer Interaction column offers several INDEPENDENT actions: recording one
+// incoming/outgoing communication, setting a follow-up commitment, recording
+// receipt of the signed authorization, or recording a refusal. Each is its own
+// history entry, so the preview describes exactly ONE prepared action and NEVER
+// combines them. The screen reports which action the worker is preparing; the
+// phrasing lives here, reusing the same vocabulary the recorded history uses.
+// ---------------------------------------------------------------------------
+
+/** The single action the Customer Interaction worker is currently preparing, as
+ * reported live by the action column. Exactly one kind is previewed at a time;
+ * independent actions are never merged into one entry. Null fields mean the
+ * worker has not supplied that detail yet. */
+export type InteractionSelection =
+  | {
+      kind: 'communication'
+      /** Who initiated it: a genuine incoming response, an inbound automated
+       * reply, or our outgoing reply. */
+      direction: 'incoming' | 'automated' | 'outgoing'
+      /** The channel being recorded. */
+      channel: 'email' | 'call' | 'text'
+      /** The employee-typed note, folded into the preview exactly as it will be
+       * saved with the communication. */
+      note?: string | null
+    }
+  | {
+      kind: 'follow-up'
+      /** The chosen follow-up date (YYYY-MM-DD), or null before one is picked. */
+      date: string | null
+    }
+  | { kind: 'authorization' }
+  | { kind: 'refusal' }
+
+/** Title-case channel noun for an interaction communication heading. */
+const INTERACTION_CHANNEL_NOUN: Record<'email' | 'call' | 'text', string> = {
+  email: 'Email',
+  call: 'Call',
+  text: 'Text',
+}
+
+/**
+ * Build the Next History Entry preview for the Customer Interaction screen from
+ * the single action the worker is preparing. Returns null when there is nothing
+ * to record yet (an empty compose, or a follow-up with no date), so the preview
+ * stays blank until the selected action can generate a history entry. It never
+ * combines independent actions: each call describes exactly one.
+ *
+ * The communication heading matches the recorded event-specific headings:
+ *   email   incoming -> Email Received | outgoing -> Email Sent | automated -> Automated Email Reply
+ *   call    incoming -> Incoming Call  | outgoing -> Call        (a recorded call touch)
+ *   text    incoming -> Text Received  | outgoing -> Text Sent  | automated -> Automated Text Reply
+ * Nothing is claimed as already done; the preview names what completing the
+ * selected action WILL record.
+ */
+export function describeInteractionSelection(
+  selection: InteractionSelection | null,
+): NextHistoryEntryPreview | null {
+  if (!selection) return null
+
+  switch (selection.kind) {
+    case 'communication': {
+      const noun = INTERACTION_CHANNEL_NOUN[selection.channel]
+      const note = selection.note?.trim() || undefined
+      let summary: string
+      if (selection.direction === 'automated') {
+        summary = `Automated ${noun} Reply`
+      } else if (selection.channel === 'call') {
+        summary = selection.direction === 'incoming' ? 'Incoming Call' : 'Call'
+      } else {
+        summary = `${noun} ${selection.direction === 'incoming' ? 'Received' : 'Sent'}`
+      }
+      return { summary, note }
+    }
+    case 'follow-up': {
+      const when = selection.date ? formatCallbackDate(selection.date) : null
+      return {
+        summary: when ? `Follow-up Scheduled ${when}` : 'Follow-up Scheduled',
+        description: when
+          ? `Follow-up scheduled for ${when}.`
+          : 'A follow-up will be scheduled on the date you choose.',
+      }
+    }
+    case 'authorization':
+      return {
+        summary: 'Authorization Received',
+        description: 'Signed servicing-agent authorization recorded. Customer moves to Servicing Access.',
+      }
+    case 'refusal':
+      return {
+        summary: 'Customer Declined',
+        description:
+          'Customer declined servicing-agent authorization. Further outreach stopped unless deliberately reopened.',
+      }
+  }
+}

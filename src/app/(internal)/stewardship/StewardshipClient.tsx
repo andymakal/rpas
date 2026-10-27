@@ -40,10 +40,12 @@ import {
   describeNextHistoryEntry,
   describeCallSelection,
   describeIntroEmailSelection,
+  describeInteractionSelection,
   type HistoryEvent,
   type WorkflowActivity,
   type NextHistoryEntryPreview,
   type CallSelection,
+  type InteractionSelection,
 } from '@/lib/stewardship/customer-history'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { isPermanent } from '@/lib/policies/product-type'
@@ -1287,6 +1289,17 @@ export function StewardshipTask({
     setCallSelection((prev) => (sameCallSelection(prev, next) ? prev : next))
   }, [])
 
+  // The live Customer Interaction selection: the single action the worker is
+  // preparing in the interaction action column (a communication being composed,
+  // a follow-up date, or a staged authorization/refusal). Reported up the SAME
+  // way the guided call flow reports its selection, and gated to real changes so
+  // a fresh object literal on every render never churns the subtree.
+  const [interactionSelection, setInteractionSelection] = useState<InteractionSelection | null>(null)
+  useEffect(() => { setInteractionSelection(null) }, [itemId])
+  const reportInteractionSelection = useCallback((next: InteractionSelection | null) => {
+    setInteractionSelection((prev) => (sameInteractionSelection(prev, next) ? prev : next))
+  }, [])
+
   const load = useCallback(async () => {
     const res = await fetch(`/api/stewardship/${itemId}`, { cache: 'no-store' })
     const json = await res.json()
@@ -1402,6 +1415,7 @@ export function StewardshipTask({
             <CustomerInteractionAction
               detail={detail} busy={busy} note={note} act={act} reload={load}
               onAdvanceToNext={onAdvanceToNext}
+              onSelectionChange={reportInteractionSelection}
             />
           ) : (
             <TaskAction
@@ -1428,6 +1442,7 @@ export function StewardshipTask({
         history={isWorkingScreen
           ? <StewardshipHistoryColumn
               detail={detail} forceCall={forceCall} callSelection={callSelection}
+              interactionSelection={interactionSelection}
               forceServicingAccess={forceServicingAccess}
               forceCustomerInteraction={forceCustomerInteraction}
             />
@@ -1480,8 +1495,28 @@ function sameCallSelection(a: CallSelection | null, b: CallSelection | null): bo
   )
 }
 
+/**
+ * Field-by-field equality for the live Customer Interaction selection, so the
+ * task only re-renders when the prepared action actually changes rather than on
+ * every render-phase report from the interaction action column. Different kinds
+ * never match; within a kind every field is compared.
+ */
+function sameInteractionSelection(a: InteractionSelection | null, b: InteractionSelection | null): boolean {
+  if (a === b) return true
+  if (a == null || b == null) return false
+  if (a.kind !== b.kind) return false
+  if (a.kind === 'communication' && b.kind === 'communication') {
+    return a.direction === b.direction && a.channel === b.channel && (a.note ?? null) === (b.note ?? null)
+  }
+  if (a.kind === 'follow-up' && b.kind === 'follow-up') {
+    return (a.date ?? null) === (b.date ?? null)
+  }
+  // 'authorization' and 'refusal' carry no fields.
+  return true
+}
+
 function StewardshipHistoryColumn({
-  detail, forceCall, callSelection, forceServicingAccess = false, forceCustomerInteraction = false,
+  detail, forceCall, callSelection, interactionSelection = null, forceServicingAccess = false, forceCustomerInteraction = false,
 }: {
   detail: Detail
   forceCall: boolean
@@ -1489,21 +1524,32 @@ function StewardshipHistoryColumn({
    * dynamic preview; null on the other working screens or before a reach
    * decision. */
   callSelection: CallSelection | null
+  /** The live Customer Interaction selection: the single action the worker is
+   * preparing (a communication, a follow-up, or a staged authorization /
+   * refusal). Drives the dynamic Next History Entry preview; null before the
+   * worker prepares anything. */
+  interactionSelection?: InteractionSelection | null
   /** The servicing-access working screen, so the preview names the servicing
    * step this work will record (receipt / submission / confirmation). */
   forceServicingAccess?: boolean
-  /** The Customer Interaction working screen. Each interaction action records
-   * its own history entry directly, so there is no single "next entry" to
-   * preview; the history card below is the live record. */
+  /** The Customer Interaction working screen. It shows the shared Next History
+   * Entry preview (built from the single prepared action) above the one shared
+   * Customer History card. */
   forceCustomerInteraction?: boolean
 }) {
-  // Customer Interaction uses the ONE shared Customer History presentation, the
-  // same card every other working screen uses, over the SAME customer history.
-  // It records each entry directly as the conversation is worked, so it shows no
-  // Next History Entry preview — just the live history. One history presentation,
-  // one history system.
+  // Customer Interaction uses the ONE shared history presentation, the same
+  // Next History Entry preview + Customer History card every other working
+  // screen uses, over the SAME customer history. The preview is built from the
+  // single action the worker is preparing (never a combination); until they
+  // prepare something it is blank. Completing that action records exactly the
+  // previewed entry.
   if (forceCustomerInteraction) {
-    return <CustomerHistoryCard events={detail.customer_history ?? []} />
+    return (
+      <>
+        <NextHistoryEntry preview={describeInteractionSelection(interactionSelection)} />
+        <CustomerHistoryCard events={detail.customer_history ?? []} />
+      </>
+    )
   }
   const activity = resolveWorkflowActivity(detail, forceCall, forceServicingAccess)
   // The preview is built DYNAMICALLY from the live selection where the screen
@@ -3113,7 +3159,7 @@ const INTERACTION_CHANNELS: { id: 'email' | 'call' | 'text'; label: string; icon
 ]
 
 function CustomerInteractionAction({
-  detail, busy, note, act, reload, onAdvanceToNext,
+  detail, busy, note, act, reload, onAdvanceToNext, onSelectionChange,
 }: {
   detail: Detail
   busy: boolean
@@ -3125,6 +3171,9 @@ function CustomerInteractionAction({
   /** Return to the relationship list (Back to Conversations, and after a
    * resolved outcome). Never advances to another customer. */
   onAdvanceToNext?: () => void
+  /** Report the single action the worker is preparing up to the history column,
+   * so the Next History Entry preview shows what completing it will record. */
+  onSelectionChange?: (selection: InteractionSelection | null) => void
 }) {
   const name = fullName(detail.customer)
   const [channel, setChannel] = useState<'email' | 'call' | 'text'>('email')
@@ -3134,6 +3183,11 @@ function CustomerInteractionAction({
   const [followUpDate, setFollowUpDate] = useState('')
   const [recBusy, setRecBusy] = useState(false)
   const [localNote, setLocalNote] = useState<string | null>(null)
+  // Which resolve action, if any, the worker is actively engaging (hovering or
+  // focusing). A transient intent signal so the preview can show what recording
+  // the signed authorization / a refusal WILL log, without staging or changing
+  // the single-click commit. Cleared on leave/blur.
+  const [resolveIntent, setResolveIntent] = useState<'authorization' | 'refusal' | null>(null)
 
   // Awaiting the signed authorization: the form was SENT but not yet returned
   // (waiting-for-form with no recorded receipt). Such a customer is still in
@@ -3184,6 +3238,37 @@ function CustomerInteractionAction({
       setRecBusy(false)
     }
   }, [detail.id, channel, notes, incoming, automated, reload])
+
+  // Report the SINGLE action the worker is preparing up to the history column,
+  // so the Next History Entry preview reflects it. Exactly one action is
+  // previewed; independent actions are never combined. Precedence by genuine
+  // intent: a resolve button being engaged (hover/focus) wins, then a
+  // communication the worker is actively composing (a typed note or a direction/
+  // channel moved from the untouched default), then a follow-up date, otherwise
+  // the default compose action (the panel's primary action). Nothing is ever
+  // described as already recorded.
+  const directionOf = (): 'incoming' | 'automated' | 'outgoing' =>
+    !incoming ? 'outgoing' : automated ? 'automated' : 'incoming'
+  const composeTouched = notes.trim().length > 0 || !incoming || automated || channel !== 'email'
+  useEffect(() => {
+    if (!onSelectionChange) return
+    if (resolveIntent) {
+      onSelectionChange({ kind: resolveIntent })
+      return
+    }
+    if (composeTouched) {
+      onSelectionChange({ kind: 'communication', direction: directionOf(), channel, note: notes.trim() || null })
+      return
+    }
+    if (followUpDate) {
+      onSelectionChange({ kind: 'follow-up', date: followUpDate })
+      return
+    }
+    // Idle default: the panel's primary action is recording a communication, so
+    // preview that default compose selection.
+    onSelectionChange({ kind: 'communication', direction: directionOf(), channel, note: null })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onSelectionChange, resolveIntent, composeTouched, incoming, automated, channel, notes, followUpDate])
 
   const ChannelIcon = INTERACTION_CHANNELS.find(c => c.id === channel)?.icon ?? Mail
   const noteBox = (note || localNote) && (
@@ -3327,7 +3412,13 @@ function CustomerInteractionAction({
             form-returned (the form came back from any conversation stage). Both
             record receipt in history and move the customer into the existing
             Servicing Access workflow. */}
-        <div className="space-y-1.5">
+        <div
+          className="space-y-1.5"
+          onMouseEnter={() => setResolveIntent('authorization')}
+          onMouseLeave={() => setResolveIntent(null)}
+          onFocusCapture={() => setResolveIntent('authorization')}
+          onBlurCapture={() => setResolveIntent(null)}
+        >
           <p className="text-sm text-ink-secondary">
             The signed authorization came back? Record receipt to move {name} into Servicing Access.
           </p>
@@ -3350,7 +3441,13 @@ function CustomerInteractionAction({
         {/* Record an explicit customer refusal → stop outreach (reversible). The
             refuse transition is channel-agnostic, so a refusal by email or text
             is recorded without a placed call. */}
-        <div className="space-y-1.5 border-t border-surface-divider pt-3">
+        <div
+          className="space-y-1.5 border-t border-surface-divider pt-3"
+          onMouseEnter={() => setResolveIntent('refusal')}
+          onMouseLeave={() => setResolveIntent(null)}
+          onFocusCapture={() => setResolveIntent('refusal')}
+          onBlurCapture={() => setResolveIntent(null)}
+        >
           <p className="text-sm text-ink-secondary">
             {name} declined? Stop outreach. This is reversible if they re-engage later.
           </p>

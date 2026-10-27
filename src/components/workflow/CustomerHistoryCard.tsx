@@ -106,6 +106,19 @@ function HistoryEventRow({
   // than only its generic summary.
   const heading = event.timelineHeading ?? event.summary
 
+  // The event-specific heading names only the LEAD communication of a grouped
+  // interaction (e.g. "Customer Reached" for a call recorded together with a
+  // voicemail, text, or email). To ensure the heading never HIDES the other
+  // recorded communications, when the heading is the precise event label AND the
+  // interaction groups more than one communication, show the full grouped
+  // summary — which enumerates every channel, e.g. "No Answer · Voicemail ·
+  // Text" — as a secondary line. Reuses the summary the history model already
+  // builds; no channel is dropped. Suppressed when the summary equals the
+  // heading (a single-communication event) so nothing is shown twice.
+  const groupsMultiple = event.communications.length > 1
+  const channelsLine =
+    groupsMultiple && event.summary && event.summary !== heading ? event.summary : null
+
   const extraDetails = event.communications
     .map((c) => c.detail)
     .filter((d): d is string => !!d && d !== heading && d !== event.summary && d !== event.description)
@@ -147,6 +160,12 @@ function HistoryEventRow({
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-base font-medium text-ink">{heading}</p>
+          {/* Every communication in a grouped interaction, so the precise
+              heading never hides the others (e.g. a voicemail/text/email
+              recorded alongside a reached call). */}
+          {channelsLine && (
+            <p className="mt-0.5 text-sm font-medium text-ink-secondary">{channelsLine}</p>
+          )}
           <p className="mt-0.5 text-sm text-ink-supporting">
             {event.by ? `${event.by} \u00b7 ` : ''}
             {formatHistoryTimestamp(event.at, actorTimeZone)}

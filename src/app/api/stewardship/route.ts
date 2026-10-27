@@ -608,17 +608,32 @@ export async function GET(request: NextRequest) {
       // last interaction happened and WHAT it was — its event-specific heading
       // (timelineHeading, e.g. "Email Received", "Customer Reached"), falling
       // back to the grouped summary. One batched read for the whole list.
-      const { data: touches } = await supabase
-        .from('case_touches')
-        .select('id, touch_type, notes, touched_at, touched_by, customer_id')
-        .in('customer_id', listedCustomerIds)
-        .order('touched_at', { ascending: false })
+      // Collect every listed customer's touches, newest first. PostgREST caps a
+      // single result at ~1000 rows, so a one-shot query would silently truncate
+      // the oldest customers' rows once the combined history crosses that cap —
+      // and then those customers would show a wrong or missing "last
+      // interaction". Page through with .range() until a short page proves the
+      // end is reached, so every customer's full history is represented
+      // regardless of total volume and the grouped latest interaction is never
+      // split across a page boundary. For the realistic conversation list this
+      // is a single page; a very large history simply pages to completion.
+      const PAGE = 1000
       const rowsByCustomer = new Map<string, HistoryTouchRow[]>()
-      for (const t of (touches ?? []) as (HistoryTouchRow & { customer_id: string | null })[]) {
-        if (!t.customer_id) continue
-        const list = rowsByCustomer.get(t.customer_id) ?? []
-        list.push({ id: t.id, touch_type: t.touch_type, notes: t.notes, touched_at: t.touched_at, touched_by: t.touched_by })
-        rowsByCustomer.set(t.customer_id, list)
+      for (let from = 0; ; from += PAGE) {
+        const { data: page } = await supabase
+          .from('case_touches')
+          .select('id, touch_type, notes, touched_at, touched_by, customer_id')
+          .in('customer_id', listedCustomerIds)
+          .order('touched_at', { ascending: false })
+          .range(from, from + PAGE - 1)
+        const rows = (page ?? []) as (HistoryTouchRow & { customer_id: string | null })[]
+        for (const t of rows) {
+          if (!t.customer_id) continue
+          const list = rowsByCustomer.get(t.customer_id) ?? []
+          list.push({ id: t.id, touch_type: t.touch_type, notes: t.notes, touched_at: t.touched_at, touched_by: t.touched_by })
+          rowsByCustomer.set(t.customer_id, list)
+        }
+        if (rows.length < PAGE) break
       }
       // The newest recorded interaction per customer: its timestamp and its
       // event-specific type heading, from the shared history model.
