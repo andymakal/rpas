@@ -98,9 +98,17 @@ function HistoryEventRow({
   event: HistoryEvent
   actorTimeZone: string | null
 }) {
+  // Prefer the precise, event-specific heading the history model already derives
+  // (e.g. "Email Received", "Email Sent", "Customer Reached", "Voicemail Left"),
+  // falling back to the grouped summary for a legacy record whose direction is
+  // unknown. This is the SAME heading the history model exposes; it is read
+  // here so the one shared history presentation names the actual event rather
+  // than only its generic summary.
+  const heading = event.timelineHeading ?? event.summary
+
   const extraDetails = event.communications
     .map((c) => c.detail)
-    .filter((d): d is string => !!d && d !== event.summary && d !== event.description)
+    .filter((d): d is string => !!d && d !== heading && d !== event.summary && d !== event.description)
 
   const isResearch = event.kind === 'research'
   const isEnrollment = event.kind === 'enrollment'
@@ -138,7 +146,7 @@ function HistoryEventRow({
           )}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="text-base font-medium text-ink">{event.summary}</p>
+          <p className="text-base font-medium text-ink">{heading}</p>
           <p className="mt-0.5 text-sm text-ink-supporting">
             {event.by ? `${event.by} \u00b7 ` : ''}
             {formatHistoryTimestamp(event.at, actorTimeZone)}

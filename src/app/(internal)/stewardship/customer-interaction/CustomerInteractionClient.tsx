@@ -18,8 +18,12 @@ type PopulationCustomer = {
 type PopulationItem = {
   id: string
   customer: PopulationCustomer
-  /** Newest recorded interaction (case_touches.touched_at), or null. */
+  /** Timestamp of the newest recorded interaction, or null. */
   last_touch_at?: string | null
+  /** The event-specific type of the newest recorded interaction (e.g. "Email
+   * Received", "Customer Reached"), from the shared history model. Null when no
+   * interaction is recorded yet. */
+  last_interaction_type?: string | null
   /** The promised callback / signature-chase date shown on the list, or null. */
   next_follow_up?: string | null
   /** Whether that follow-up is due on the actor's calendar. */
@@ -350,6 +354,7 @@ export function CustomerInteractionClient({
         <ul className="space-y-3">
           {sortedItems.map(it => {
             const last = formatDateTime(it.last_touch_at)
+            const lastType = it.last_interaction_type?.trim() || null
             const followUp = formatDateOnly(it.next_follow_up)
             return (
               <li key={it.id}>
@@ -362,7 +367,11 @@ export function CustomerInteractionClient({
                     <span className="block text-xl font-semibold text-ink">{fullName(it.customer)}</span>
                     <span className="mt-0.5 flex items-center gap-1.5 text-base text-ink-supporting">
                       <Clock className="size-4 shrink-0" aria-hidden />
-                      {last ? `Last interaction ${last}` : 'No interaction recorded yet'}
+                      {last
+                        ? (lastType
+                            ? `Last interaction: ${lastType} · ${last}`
+                            : `Last interaction ${last}`)
+                        : 'No interaction recorded yet'}
                     </span>
                   </span>
 

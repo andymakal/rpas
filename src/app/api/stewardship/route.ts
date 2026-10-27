@@ -10,6 +10,7 @@ import { getProjectWorkflows, projectContainsWorkflow, onboardingCompleteForPoli
 import { deriveOnboardingPopulation } from '@/lib/stewardship/derived-onboarding'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
+import { buildCustomerHistory, type HistoryTouchRow } from '@/lib/stewardship/customer-history'
 
 /**
  * A derived population a My Work count can open on the board: the two
@@ -600,20 +601,42 @@ export async function GET(request: NextRequest) {
       new Set(visibleItems.map(it => it.customer?.id).filter((v): v is string => !!v)),
     )
     if (listedCustomerIds.length > 0) {
+      // Read the one durable history (case_touches) for the listed customers and
+      // run it through the SAME shared history model the workbench uses
+      // (buildCustomerHistory), so the list's "last interaction" is derived from
+      // recorded history, not re-invented. The newest event gives both WHEN the
+      // last interaction happened and WHAT it was — its event-specific heading
+      // (timelineHeading, e.g. "Email Received", "Customer Reached"), falling
+      // back to the grouped summary. One batched read for the whole list.
       const { data: touches } = await supabase
         .from('case_touches')
-        .select('customer_id, touched_at')
+        .select('id, touch_type, notes, touched_at, touched_by, customer_id')
         .in('customer_id', listedCustomerIds)
         .order('touched_at', { ascending: false })
-      const lastTouchByCustomer = new Map<string, string>()
-      for (const t of (touches ?? []) as { customer_id: string | null; touched_at: string | null }[]) {
-        if (!t.customer_id || !t.touched_at) continue
-        // Rows arrive newest-first, so the FIRST seen per customer is the latest.
-        if (!lastTouchByCustomer.has(t.customer_id)) lastTouchByCustomer.set(t.customer_id, t.touched_at)
+      const rowsByCustomer = new Map<string, HistoryTouchRow[]>()
+      for (const t of (touches ?? []) as (HistoryTouchRow & { customer_id: string | null })[]) {
+        if (!t.customer_id) continue
+        const list = rowsByCustomer.get(t.customer_id) ?? []
+        list.push({ id: t.id, touch_type: t.touch_type, notes: t.notes, touched_at: t.touched_at, touched_by: t.touched_by })
+        rowsByCustomer.set(t.customer_id, list)
+      }
+      // The newest recorded interaction per customer: its timestamp and its
+      // event-specific type heading, from the shared history model.
+      const lastByCustomer = new Map<string, { at: string; type: string }>()
+      for (const [cid, rows] of rowsByCustomer) {
+        // buildCustomerHistory returns events newest-first; the first is the
+        // last recorded interaction.
+        const events = buildCustomerHistory(rows, actorTimeZone)
+        const latest = events[0]
+        if (latest) {
+          lastByCustomer.set(cid, { at: latest.at, type: latest.timelineHeading ?? latest.summary })
+        }
       }
       for (const it of visibleItems) {
         const cid = it.customer?.id
-        const last = cid ? lastTouchByCustomer.get(cid) ?? null : null
+        const lastEvent = cid ? lastByCustomer.get(cid) ?? null : null
+        const last = lastEvent?.at ?? null
+        const lastType = lastEvent?.type ?? null
         // The single next-follow-up date shown on the list: the promised
         // callback (pre-authorization) or the signature chase date
         // (waiting-for-form, form not yet received). callback_date is date-only;
@@ -631,10 +654,12 @@ export async function GET(request: NextRequest) {
           (awaitingSignature && it.follow_up_due_now === true)
         Object.assign(it as typeof it & {
           last_touch_at: string | null
+          last_interaction_type: string | null
           next_follow_up: string | null
           interaction_follow_up_due: boolean
         }, {
           last_touch_at: last,
+          last_interaction_type: lastType,
           next_follow_up: nextFollowUp,
           interaction_follow_up_due: followUpDue,
         })
