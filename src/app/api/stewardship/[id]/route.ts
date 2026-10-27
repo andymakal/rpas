@@ -272,6 +272,12 @@ export async function GET(
       zip: cust.zip,
     },
     history.unusableChannels,
+    // Do Not Text (durable customers.sms_opt_out) disables TEXTING only, never
+    // calling. Passing it here makes the authoritative canText subtract the
+    // opt-out alongside the value-scoped text-unusable fact already carried in
+    // unusableChannels, so the workflow's text action matches the card without a
+    // second client-side availability calculation.
+    cust.sms_opt_out === true,
   )
 
   // Whether a still-missing method has already been researched unsuccessfully

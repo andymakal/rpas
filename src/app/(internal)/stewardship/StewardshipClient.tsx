@@ -31,7 +31,6 @@ import {
   carrierEmailSubject, carrierEmailMessage, uniqueCarriers, resolveCarrierRecipient,
 } from '@/lib/stewardship/carrier-email'
 import { type EmailAvailability } from '@/lib/email-availability'
-import { canTextGivenFacts } from '@/lib/sms-availability'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import {
   QUEUE_META, OUTREACH_QUEUES,
@@ -310,15 +309,6 @@ type Detail = BoardItem & {
    * servicing request (servicing-access working screen). Supplied by the GET
    * route from the shared document repository (policy_documents). */
   authorization_on_file?: boolean
-  /** CLIENT-ONLY snapshot (not from the server): the phone number the server
-   * resolved `contact_options` against — i.e. the number on file at load. The
-   * ZEN contact-options eligibility (canCall/canText) and the recorded
-   * call-unusable/text-unusable marks are all value-scoped to THIS number. When
-   * the self-contained Customer Contact Card later replaces the number, those
-   * load-time, number-scoped restrictions no longer apply to the NEW digits, so
-   * texting availability must be recomputed live rather than read from the stale
-   * eligibility. Captured once when a task loads; see `textingAvailableNow`. */
-  contact_options_phone?: string | null
 }
 
 const QUEUE_ICON: Record<OutreachQueue, typeof Mail> = {
@@ -338,60 +328,6 @@ const QUEUE_GROUPS: { label: string; queues: OutreachQueue[] }[] = [
 
 function fullName(c: Customer) {
   return `${c.first_name} ${c.last_name}`.trim()
-}
-
-/**
- * Whether a Hearsay text may be offered for this customer RIGHT NOW, derived
- * from CURRENT customer facts so it reacts immediately to a Customer Contact
- * Card save in BOTH directions — no page reload.
- *
- * It reuses the established contact-availability relationship rather than
- * duplicating the ZEN decision: texting is "the number is callable" minus the
- * two text-only restrictions, i.e.
- *     canText = callableNow && !Do-Not-Text && !Text-Undeliverable
- * (`canTextGivenFacts` applies the two text-only facts, exactly as the card
- * displays them). Calling never consults the text-only facts, so it is
- * unaffected.
- *
- * The subtlety the earlier version missed: ZEN's load-time `canCall`/`canText`
- * and every recorded call-unusable / text-unusable mark are value-scoped to the
- * NUMBER on file at load. So:
- *   - While the number is unchanged, the load-time `canCall` correctly describes
- *     it (a recorded bad-number "call-unusable" keeps BOTH calling and texting
- *     off), so we respect it.
- *   - Once the card REPLACES the number, those load-time number-scoped marks no
- *     longer apply to the new digits, so callability is simply "a number is on
- *     file now". Any fresh restriction on the new number can only be recorded
- *     through a new attempt, which reloads the detail. This is what restores
- *     texting the instant a missing or failed number is replaced with a usable
- *     one, while still respecting a call-unusable restriction on an UNCHANGED
- *     number.
- * The current Do Not Text / Text Undeliverable facts are the live ones the card
- * keeps on `detail` (the card re-resolves `text_undeliverable` against the new
- * digits on save, so replacing a failed number clears it on its own).
- */
-function textingAvailableNow(detail: Detail): boolean {
-  const currentPhone = detail.customer.phone?.trim() || null
-  if (!currentPhone) return false
-
-  const numberChangedSinceLoad =
-    (detail.contact_options_phone ?? null) !== (detail.customer.phone ?? null)
-
-  // Callability of the CURRENT number. Unchanged number: honor the load-time,
-  // number-scoped ZEN decision (which already subtracted a recorded bad-number
-  // call-unusable). Replaced number: the load-time number-scoped marks are void,
-  // so a usable number present now is callable.
-  const callableNow = numberChangedSinceLoad
-    ? true
-    : (detail.contact_options?.canCall ?? true)
-
-  // Subtract the two LIVE text-only restrictions the card keeps current (Do Not
-  // Text follows the customer; Text Undeliverable is scoped to the number on
-  // file). Neither touches calling.
-  return callableNow && canTextGivenFacts({
-    smsOptOut: detail.customer.sms_opt_out === true,
-    textUndeliverable: detail.customer.text_undeliverable === true,
-  })
 }
 
 /**
@@ -1375,16 +1311,7 @@ export function StewardshipTask({
   const load = useCallback(async () => {
     const res = await fetch(`/api/stewardship/${itemId}`, { cache: 'no-store' })
     const json = await res.json()
-    if (res.ok) {
-      const data = json.data as Detail
-      // Snapshot the number the server resolved contact_options against, so a
-      // later card edit that replaces the number can tell the load-time,
-      // number-scoped texting/calling restrictions no longer apply. Only the
-      // server read (re)establishes the snapshot; the card's onChange preserves
-      // it (it spreads the prior detail), so a card-side number change is
-      // detectable against it until the next full reload.
-      setDetail({ ...data, contact_options_phone: data.customer.phone ?? null })
-    }
+    if (res.ok) setDetail(json.data as Detail)
   }, [itemId])
 
   useEffect(() => { void load() }, [load])
@@ -1510,7 +1437,7 @@ export function StewardshipTask({
         context={
           <StewardshipContextPanel
             detail={detail} request={request} context={context} busy={busy} act={act}
-            setDetail={setDetail} forceCall={forceCall}
+            setDetail={setDetail} reload={load} forceCall={forceCall}
             forceCustomerInteraction={forceCustomerInteraction}
             withHistoryColumn={isWorkingScreen}
             // The guided call's live reach decision, lifted through the SAME
@@ -1724,7 +1651,7 @@ function isIntroductoryEmailActivity(detail: Detail): boolean {
  * both capabilities stay fully available on the call and research activities.
  */
 function StewardshipContextPanel({
-  detail, request, context, busy, act, setDetail, forceCall = false, forceCustomerInteraction = false, withHistoryColumn = false, reached = false,
+  detail, request, context, busy, act, setDetail, reload, forceCall = false, forceCustomerInteraction = false, withHistoryColumn = false, reached = false,
 }: {
   detail: Detail
   request: Holding[]
@@ -1732,6 +1659,12 @@ function StewardshipContextPanel({
   busy: boolean
   act: (action: unknown, successNote?: string) => void
   setDetail: React.Dispatch<React.SetStateAction<Detail | null>>
+  /** Reload the task detail from the server. The Customer Contact Card calls it
+   * after a save so the authoritative contact_options (call / text / email /
+   * postal) are recomputed from the saved facts via the one established
+   * server path, keeping the workflow's available actions in step with the card
+   * without a page refresh and without a second availability calculation. */
+  reload: () => Promise<void> | void
   /** The Call Reachable Customers workbench: show the shared Customer Contact
    * card (verify/correct inline on the Reached path) and hide the separate
    * record-an-attempt panel, because the guided call flow IS the recording. */
@@ -1800,7 +1733,7 @@ function StewardshipContextPanel({
         // the surrounding task in sync through onChange. Approved Overview/Edit
         // presentation; collapsed by default, expanded for Research Needed and
         // for a reached guided call (edit mode during the conversation).
-        <StewardshipCustomerContact detail={detail} setDetail={setDetail} startExpanded={startExpanded} />
+        <StewardshipCustomerContact detail={detail} setDetail={setDetail} reload={reload} startExpanded={startExpanded} />
       ) : (
         <CustomerContext detail={detail} busy={busy} act={act} showVerification />
       )}
@@ -1831,10 +1764,13 @@ function StewardshipContextPanel({
  * /api/customers/[id]/contact route.
  */
 function StewardshipCustomerContact({
-  detail, setDetail, startExpanded = false,
+  detail, setDetail, reload, startExpanded = false,
 }: {
   detail: Detail
   setDetail: React.Dispatch<React.SetStateAction<Detail | null>>
+  /** Reload the task detail so the authoritative contact_options are recomputed
+   * from the saved facts after a card edit (see StewardshipContextPanel). */
+  reload: () => Promise<void> | void
   /** Whether the self-contained card opens EXPANDED (editing). Find Missing
    * Contact Information (Research Needed) and a reached guided call pass true;
    * every other stewardship surface opens COLLAPSED in the compact overview.
@@ -1850,42 +1786,52 @@ function StewardshipCustomerContact({
   // / Text Undeliverable, and the customer alert), so this screen no longer
   // assembles a contact object, a name/age header, or the texting facts.
   //
-  // `onChange` is pure synchronization: the card is authoritative and persists
-  // on its own, but the surrounding stewardship task mirrors the customer's
-  // contact facts (name shown elsewhere, policy summary, record-an-attempt
-  // channel availability), so we fold the authoritative record the card returns
-  // back into Detail. A future change to the card needs no edit here.
+  // `onChange` keeps the surrounding task in step with a card save in two ways:
+  //   1. It folds the authoritative customer facts the card returns back into
+  //      Detail, so the name shown elsewhere and the contact values update
+  //      immediately (no flicker while the reload is in flight).
+  //   2. It reloads the task detail, so the AUTHORITATIVE contact_options
+  //      (call / text / email / postal) are recomputed from the saved facts by
+  //      the one established server path (ZEN over normalized phone identity +
+  //      the value-scoped/legacy unusable history + Do Not Text). That single
+  //      source of truth is what the channel actions read, so reformatting a
+  //      number keeps a value-scoped restriction, replacing a genuinely unusable
+  //      number restores eligible calling AND texting, and Do Not Text / Text
+  //      Undeliverable restrict only texting — all without a page refresh and
+  //      with no second availability calculation on the client.
+  // A future change to the card needs no edit here.
   return (
     <CustomerContactCard
       customerId={detail.customer.id}
       initialMode={startExpanded ? 'expanded' : 'collapsed'}
-      onChange={(u) => setDetail(prev => prev ? {
-        ...prev,
-        email_verified_at: u.email_verified_at,
-        phone_verified_at: u.phone_verified_at,
-        address_verified_at: u.address_verified_at,
-        customer: {
-          ...prev.customer,
-          // A corrected name updates everywhere the detail's customer name is
-          // shown; fall back to the existing value if the record returns null.
-          first_name: u.first_name ?? prev.customer.first_name,
-          last_name: u.last_name ?? prev.customer.last_name,
-          email: u.email,
-          phone: u.phone,
-          street: u.street,
-          address_line1: u.address_line1 ?? prev.customer.address_line1,
-          city: u.city,
-          state: u.state,
-          zip: u.zip,
-          email_availability: u.email_availability,
-          contact_alert: u.contact_alert ?? null,
-          // Keep the texting facts in sync after a Do Not Text / Text
-          // Undeliverable or number change, so channel availability stays
-          // correct without a reload.
-          sms_opt_out: u.sms_opt_out ?? prev.customer.sms_opt_out,
-          text_undeliverable: u.text_undeliverable ?? prev.customer.text_undeliverable,
-        },
-      } : prev)}
+      onChange={(u) => {
+        setDetail(prev => prev ? {
+          ...prev,
+          email_verified_at: u.email_verified_at,
+          phone_verified_at: u.phone_verified_at,
+          address_verified_at: u.address_verified_at,
+          customer: {
+            ...prev.customer,
+            // A corrected name updates everywhere the detail's customer name is
+            // shown; fall back to the existing value if the record returns null.
+            first_name: u.first_name ?? prev.customer.first_name,
+            last_name: u.last_name ?? prev.customer.last_name,
+            email: u.email,
+            phone: u.phone,
+            street: u.street,
+            address_line1: u.address_line1 ?? prev.customer.address_line1,
+            city: u.city,
+            state: u.state,
+            zip: u.zip,
+            email_availability: u.email_availability,
+            contact_alert: u.contact_alert ?? null,
+            sms_opt_out: u.sms_opt_out ?? prev.customer.sms_opt_out,
+            text_undeliverable: u.text_undeliverable ?? prev.customer.text_undeliverable,
+          },
+        } : prev)
+        // Recompute the authoritative available actions from the saved facts.
+        void reload()
+      }}
     />
   )
 }
@@ -2746,10 +2692,7 @@ function CallWorkbenchAction({
   //   - The Hearsay text needs a textable phone AND the callback number is not
   //     required (the text does not state it), but it does identify the caller.
   //   - The follow-up email needs a usable email.
-  // Texting availability honors the same live customer-level restrictions the
-  // card shows (Do Not Text / Text Undeliverable), so a restriction set in the
-  // card removes the Hearsay text action without a reload. Calling is unaffected.
-  const canText = textingAvailableNow(detail)
+  const canText = detail.contact_options?.canText ?? !!phone
   const canEmail = detail.contact_options?.canEmail ?? !!c.email
   const hasCallbackNumber = !!callbackPhone
 
@@ -4218,10 +4161,7 @@ function RecordAttemptPanel({
   const channels: { id: ContactChannelId; label: string; available: boolean }[] = [
     { id: 'call', label: 'Call', available: opts?.canCall ?? !!detail.customer.phone },
     { id: 'voicemail', label: 'Voicemail', available: opts?.canCall ?? !!detail.customer.phone },
-    // Texting honors the live Do Not Text / Text Undeliverable restrictions the
-    // card keeps current, so a restriction set in the card removes the text
-    // channel here without a reload. Calling/voicemail never consult them.
-    { id: 'text', label: 'Text (Hearsay)', available: textingAvailableNow(detail) },
+    { id: 'text', label: 'Text (Hearsay)', available: opts?.canText ?? !!detail.customer.phone },
     { id: 'email', label: 'Email', available: opts?.canEmail ?? !!detail.customer.email },
   ]
   const offered = channels.filter(c => c.available)
