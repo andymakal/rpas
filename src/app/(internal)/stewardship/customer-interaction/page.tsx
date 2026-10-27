@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { WorkflowPage } from '@/components/workflow'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { CustomerInteractionClient } from './CustomerInteractionClient'
+import { CustomerInteractionHeading } from './CustomerInteractionHeading'
 
 export const metadata: Metadata = { title: 'Customer Interaction' }
 export const dynamic = 'force-dynamic'
@@ -53,14 +54,18 @@ export default async function CustomerInteractionPage({
   return (
     <WorkflowPage
       heading={
-        <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
-          <Link
-            href="/my-work"
-            className="-ml-1 inline-flex items-center gap-1.5 text-base font-medium text-brand-hover transition-colors hover:text-brand"
-          >
-            <ArrowLeft className="size-4" aria-hidden />
-            Back to My Work
-          </Link>
+        <div className="space-y-8">
+          <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
+            <Link
+              href="/my-work"
+              className="-ml-1 inline-flex items-center gap-1.5 text-base font-medium text-brand-hover transition-colors hover:text-brand"
+            >
+              <ArrowLeft className="size-4" aria-hidden />
+              Back to My Work
+            </Link>
+          </div>
+
+          <CustomerInteractionHeading />
         </div>
       }
     >

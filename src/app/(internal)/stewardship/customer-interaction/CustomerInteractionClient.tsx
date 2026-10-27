@@ -2,10 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, MessageSquare, RefreshCw, Search, Clock, CalendarClock } from 'lucide-react'
-import { OperationalTag, WorkflowHeader } from '@/components/workflow'
-import {
-  MentorCapButton, MentorCapPanel, useMentorDisclosure,
-} from '@/lib/mentoring/MentorUi'
+import { OperationalTag } from '@/components/workflow'
 import { useWorkReservation } from '@/lib/reservations/useWorkReservation'
 import { StewardshipTask } from '../StewardshipClient'
 
@@ -78,8 +75,6 @@ export function CustomerInteractionClient({
   const [error, setError] = useState<string | null>(null)
   // The conversation open right now. null while on the relationship list.
   const [openId, setOpenId] = useState<string | null>(null)
-
-  const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
 
   // Soft reservation coordination so two employees never land on the same
   // conversation. A self-expiring lease over the stewardship_outreach row; it
@@ -248,39 +243,10 @@ export function CustomerInteractionClient({
   // the "Customer Interaction" page title; clicking it expands the coaching
   // directly beneath the title (before the customer search), and it is present
   // whether viewing the conversation list or an individual conversation.
-  const pageHeader = (
-    <div className="space-y-3">
-      <div className="flex items-center gap-3">
-        <WorkflowHeader primary="Customer Interaction" />
-        {!mentorOpen && (
-          <MentorCapButton
-            onOpen={() => setMentorOpen(true)}
-            label="Show mentoring on customer interaction"
-          />
-        )}
-      </div>
-      {mentorOpen && (
-        <MentorCapPanel
-          className="text-[18px] leading-relaxed"
-          onClose={() => setMentorOpen(false)}
-        >
-          <span className="block space-y-2">
-            <span className="block">Find a customer in the list or search by name.</span>
-            <span className="block">Customers with follow-ups due appear first.</span>
-            <span className="block">Open the customer to record a call, email, or text.</span>
-            <span className="block">Add important conversation notes and set a follow-up date when needed.</span>
-            <span className="block">When finished, return to Conversations.</span>
-          </span>
-        </MentorCapPanel>
-      )}
-    </div>
-  )
-
   // ── Open conversation ───────────────────────────────────────────────────────
   if (openId) {
     return (
       <div className="space-y-4">
-        {pageHeader}
         {/* The established three-column working layout: the dedicated Customer
             Interaction action column (record incoming/outgoing email, phone, or
             text, set a follow-up, resolve the conversation) on the left, the
@@ -305,11 +271,8 @@ export function CustomerInteractionClient({
   // ── Loading ──────────────────────────────────────────────────────────────────
   if (loading) {
     return (
-      <div className="space-y-5">
-        {pageHeader}
-        <div className="flex items-center gap-2 rounded-2xl border border-surface-border bg-surface-card p-6 text-ink-supporting">
-          <Loader2 className="size-4 animate-spin" aria-hidden /> Loading conversations…
-        </div>
+      <div className="flex items-center gap-2 rounded-2xl border border-surface-border bg-surface-card p-6 text-ink-supporting">
+        <Loader2 className="size-4 animate-spin" aria-hidden /> Loading conversations…
       </div>
     )
   }
@@ -320,7 +283,6 @@ export function CustomerInteractionClient({
   if (error) {
     return (
       <div className="space-y-4">
-        {pageHeader}
         {searchBox}
         <div className="space-y-4 rounded-2xl border border-tag-blocked-border bg-tag-blocked-fill p-6 text-tag-blocked-text">
           <p>{error}</p>
@@ -339,8 +301,6 @@ export function CustomerInteractionClient({
   // ── Relationship list ────────────────────────────────────────────────────────
   return (
     <section className="space-y-5">
-      {pageHeader}
-
       {searchBox}
 
       <div className="flex items-center justify-between gap-3">
