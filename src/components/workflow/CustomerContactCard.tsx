@@ -1269,6 +1269,110 @@ function NameEditActions({
 }
 
 /**
+ * A standalone, editable customer-name heading for hosts that render their OWN
+ * name heading beside the shared CustomerContactCard (Contact Research, the
+ * calling workbench, and other stewardship surfaces that pass `showName={false}`
+ * and supply a `header`). It renders the host's existing heading text — with the
+ * host's own className/style, so there is NO duplicate heading and the look is
+ * unchanged — and adds the same "Edit name" control and inline first/last editor
+ * the card heading uses.
+ *
+ * It persists through the SAME shared route the card uses
+ * (`PATCH /api/customers/[id]/contact`, `{ field: 'name' }`), so capitalization
+ * is preserved (McAndrew, DeLuca), multiword surnames stay whole (La Bar), and
+ * the correction is recorded once in Customer History. On success it calls
+ * `onSaved` with the authoritative updated record so the host folds the new name
+ * into its own state and the displayed name updates immediately everywhere in
+ * the active workflow. A host may inject `onPersist` (Storybook/tests) exactly
+ * as the card does.
+ */
+export function CustomerNameHeading({
+  customerId,
+  firstName,
+  lastName,
+  className,
+  style,
+  onPersist,
+  onSaved,
+}: {
+  customerId: string
+  firstName: string | null
+  lastName: string | null
+  /** Applied to the heading text so it matches the host's existing name style. */
+  className?: string
+  style?: React.CSSProperties
+  /** Inject persistence. Omit to PATCH /api/customers/[id]/contact. Must resolve
+   * with the full updated record. */
+  onPersist?: (customerId: string, payload: ContactPersistPayload) => Promise<CustomerContact>
+  /** Notified with the authoritative updated record after a successful save, so
+   * the host can refresh the displayed name throughout the workflow. */
+  onSaved?: (updated: CustomerContact) => void
+}) {
+  const ap = useMemo(() => resolveAppearance(undefined), [])
+  const [editing, setEditing] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const display = `${firstName ?? ''} ${lastName ?? ''}`.trim() || 'Unknown customer'
+
+  const save = useCallback(async (first: string | null, last: string | null) => {
+    setBusy(true); setError(null)
+    try {
+      const payload: ContactPersistPayload = { field: 'name', first_name: first, last_name: last }
+      let updated: CustomerContact
+      if (onPersist) {
+        updated = await onPersist(customerId, payload)
+      } else {
+        const res = await fetch(`/api/customers/${customerId}/contact`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        })
+        const json = await res.json()
+        if (!res.ok) throw new Error(json.error ?? 'Could not save name')
+        updated = json.data as CustomerContact
+      }
+      onSaved?.(updated)
+      setEditing(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save name')
+    } finally {
+      setBusy(false)
+    }
+  }, [customerId, onPersist, onSaved])
+
+  if (editing) {
+    return (
+      <div>
+        <NameEditor
+          appearance={ap}
+          firstName={firstName}
+          lastName={lastName}
+          busy={busy}
+          onCancel={() => { setError(null); setEditing(false) }}
+          onSave={save}
+        />
+        {error && <p className="mt-1.5 text-base text-status-missing-strong">{error}</p>}
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <h2 className={className} style={style}>{display}</h2>
+      <button
+        type="button"
+        onClick={() => { setError(null); setEditing(true) }}
+        aria-label="Edit customer name"
+        className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-2 py-1 text-sm font-medium text-ink-secondary hover:bg-surface-muted"
+      >
+        <Pencil className="size-3.5" aria-hidden /> Edit name
+      </button>
+    </div>
+  )
+}
+
+/**
  * The read-only value for the Email line of the Overview. A usable address
  * shows as-is; otherwise it shows the recorded reason ("No Usable Email",
  * "Undeliverable") or "Missing" — the same wording the editable Email section

@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest } from 'next/server'
 import { normalizeStreet, normalizeCity, normalizeState, normalizePhone, normalizeEmail } from '@/lib/fmt'
+import { normalizeNameInput } from '@/lib/contact-input'
 
 const ALLOWED = new Set([
   'first_name', 'last_name', 'phone', 'email',
@@ -20,9 +21,7 @@ const STREET_FIELDS = new Set(['street'])
 const CITY_FIELDS   = new Set(['city'])
 const STATE_FIELDS  = new Set(['state'])
 
-function toTitleCase(str: string): string {
-  return str.trim().replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
-}
+
 
 export async function PATCH(
   request: NextRequest,
@@ -42,7 +41,10 @@ export async function PATCH(
   for (const [k, v] of Object.entries(body)) {
     if (!ALLOWED.has(k)) continue
     if (typeof v === 'string') {
-      if (NAME_FIELDS.has(k))   { updates[k] = toTitleCase(v);            continue }
+      // Preserve intentional capitalization (McAndrew, McDougal, La Bar): the
+      // shared name normalizer only collapses whitespace and trims. An empty
+      // value clears the field (null). Never title-case.
+      if (NAME_FIELDS.has(k))   { updates[k] = normalizeNameInput(v).value;  continue }
       if (EMAIL_FIELDS.has(k))  { updates[k] = normalizeEmail(v)  ?? v;  continue }
       if (PHONE_FIELDS.has(k))  { updates[k] = normalizePhone(v)  ?? v;  continue }
       if (STREET_FIELDS.has(k)) { updates[k] = normalizeStreet(v) ?? v;  continue }
