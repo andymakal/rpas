@@ -83,6 +83,8 @@ const baseRecord: Omit<
   state: 'PA',
   zip: '19102',
   email_availability: 'available',
+  sms_opt_out: false,
+  text_undeliverable: false,
 }
 
 type ContactState = 'verified' | 'onfile' | 'missing' | 'mixed'
@@ -100,6 +102,9 @@ function recordForState(state: ContactState): CustomerContact {
       email: null, phone: null, street: null, city: null, state: null, zip: null,
       email_verified_at: null, phone_verified_at: null, address_verified_at: null,
       email_availability: null,
+      // No number on file: texting cannot be undeliverable (nothing to fail).
+      // Do Not Text stays off by default; toggle it live to preview the state.
+      sms_opt_out: false, text_undeliverable: false,
     }
   }
   if (state === 'mixed') {
@@ -444,7 +449,25 @@ function makeInteractivePersist(
       next = { ...record, email: payload.email, email_verified_at: changed ? null : record.email_verified_at, email_availability }
     } else if (payload.field === 'phone') {
       const changed = (payload.phone ?? null) !== (record.phone ?? null)
-      next = { ...record, phone: payload.phone, phone_verified_at: changed ? null : record.phone_verified_at }
+      // A changed number restores text availability: the delivery failure was
+      // scoped to the OLD number, so it no longer applies. Mirrors the server's
+      // value-scoped re-resolution. Do Not Text (the customer-level opt-out) is
+      // unaffected by a number change.
+      next = {
+        ...record,
+        phone: payload.phone,
+        phone_verified_at: changed ? null : record.phone_verified_at,
+        text_undeliverable: changed ? false : record.text_undeliverable,
+      }
+    } else if (payload.field === 'sms') {
+      // Do Not Text — the durable customer opt-out. Follows the customer, not the
+      // number. Disables texting only.
+      next = { ...record, sms_opt_out: payload.do_not_text }
+    } else if (payload.field === 'sms_undeliverable') {
+      // Record a text-delivery failure for the number on file (only meaningful
+      // when a number is present). Scoped to that number; a later change clears
+      // it above.
+      next = { ...record, text_undeliverable: !!record.phone?.trim() }
     } else if (payload.field === 'alert') {
       next = { ...record, contact_alert: payload.alert?.trim() ? payload.alert.trim() : null }
     } else if (payload.field === 'name') {

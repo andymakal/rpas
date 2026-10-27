@@ -58,6 +58,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import {
   Mail, Phone, MapPin, Pencil, Check, X, Loader2,
   ShieldQuestion, CheckCircle2, AlertTriangle, Plus, Trash2,
+  Ban, MessageSquareOff,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMentorDisclosure, MentorCapButton, MentorCapPanel } from '@/lib/mentoring/MentorUi'
@@ -77,6 +78,12 @@ import {
   SELECTABLE_EMAIL_AVAILABILITY_VALUES,
   resolveEmailAvailabilityDisplay,
 } from '@/lib/email-availability'
+import {
+  type SmsAvailabilityDisplay,
+  SMS_AVAILABILITY_LABEL,
+  SMS_AVAILABILITY_HELP,
+  resolveSmsAvailabilityDisplay,
+} from '@/lib/sms-availability'
 
 // ── Data shape ───────────────────────────────────────────────────────────────
 
@@ -107,6 +114,21 @@ export interface CustomerContact {
    * editable via the Add / Edit / Clear control when alert editing is enabled.
    * Optional so existing callers that don't select it still satisfy the type. */
   contact_alert?: string | null
+  /** Do Not Text — the durable customer-level texting opt-out
+   * (`customers.sms_opt_out`). True = the customer asked not to be texted (STOP).
+   * Follows the customer even if the phone number changes; cleared only
+   * deliberately. Disables texting only, never calling. Optional so existing
+   * callers that don't select it still satisfy the type (defaults to not opted
+   * out). */
+  sms_opt_out?: boolean
+  /** Text Undeliverable (presentation fact) — whether the NUMBER currently on
+   * file has a recorded text-delivery failure (the value-scoped
+   * `[channel-unusable:<digits>]` text fact, already matched against the current
+   * phone by the attempt-history read). Not a stored customer column: it is the
+   * resolved per-number fact the host supplies so the card can show Text
+   * Undeliverable. Replacing the number clears it on its own. Optional; defaults
+   * to no failure on file. */
+  text_undeliverable?: boolean
 }
 
 type ContactFieldKey = 'email' | 'phone' | 'address'
@@ -546,6 +568,13 @@ export type ContactPersistPayload =
   | { field: ContactFieldKey; verified: boolean }
   | { field: 'email_availability'; availability: SelectableEmailAvailability }
   | { field: 'alert'; alert: string | null }
+  // Do Not Text — set/clear the durable customer opt-out (customers.sms_opt_out).
+  // Disables texting only; follows the customer regardless of the number.
+  | { field: 'sms'; do_not_text: boolean }
+  // Text Undeliverable — record a text-DELIVERY FAILURE for the number on file.
+  // Scoped to that number (restores on replacement). An ordinary unsent text is
+  // not a failure, so this is a deliberate "the text bounced" action.
+  | { field: 'sms_undeliverable' }
 
 type Tone = 'confirmed' | 'known' | 'missing'
 
@@ -759,7 +788,7 @@ export function CustomerContactCard({
     }
   }, [persist, applyUpdate])
 
-  const saveField = useCallback(async (payload: Exclude<ContactPersistPayload, { field: 'name' } | { field: 'email_availability' } | { field: 'alert' }>) => {
+  const saveField = useCallback(async (payload: Exclude<ContactPersistPayload, { field: 'name' } | { field: 'email_availability' } | { field: 'alert' } | { field: 'sms' } | { field: 'sms_undeliverable' }>) => {
     const field = payload.field
     setBusyField(field); setError(null)
     try {
@@ -810,6 +839,41 @@ export function CustomerContactCard({
     },
     [persist, applyUpdate],
   )
+
+  // Set / clear Do Not Text (the durable customers.sms_opt_out opt-out). Part of
+  // the phone editor's single Save/Cancel operation: the server writes the
+  // opt-out and the editor closes, exactly like a field save. Disables texting
+  // only; the opt-out follows the customer regardless of the number.
+  const setDoNotText = useCallback(async (doNotText: boolean) => {
+    setBusyField('phone'); setError(null)
+    try {
+      const updated = await persist({ field: 'sms', do_not_text: doNotText })
+      applyUpdate(updated)
+      setEditing(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not update Do Not Text')
+    } finally {
+      setBusyField(null)
+    }
+  }, [persist, applyUpdate])
+
+  // Record Text Undeliverable for the number on file: a deliberate "the text
+  // failed to deliver" action. The server writes the value-scoped text-failure
+  // fact against the current number (an ordinary unsent text is never this), and
+  // the editor closes. Replacing the number later restores text availability on
+  // its own because the fact is scoped to the failed number.
+  const recordTextUndeliverable = useCallback(async () => {
+    setBusyField('phone'); setError(null)
+    try {
+      const updated = await persist({ field: 'sms_undeliverable' })
+      applyUpdate(updated)
+      setEditing(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not record Text Undeliverable')
+    } finally {
+      setBusyField(null)
+    }
+  }, [persist, applyUpdate])
 
   // Persist the alert through the shared route (or injected onPersist), update
   // the held record, and notify the host. Save with empty text clears it.
@@ -943,6 +1007,8 @@ export function CustomerContactCard({
               present={phonePresent}
               verifiedAt={record.phone_verified_at}
               value={phoneDisplay(record)}
+              smsOptOut={record.sms_opt_out === true}
+              textUndeliverable={record.text_undeliverable === true}
               editing={editing === 'phone'}
               busy={busyField === 'phone'}
               appearance={ap}
@@ -950,6 +1016,8 @@ export function CustomerContactCard({
               onCancel={() => setEditing(null)}
               onSave={(phone) => saveField({ field: 'phone', phone })}
               onVerify={(v) => toggleVerify('phone', v)}
+              onSetDoNotText={(v) => setDoNotText(v)}
+              onRecordTextUndeliverable={() => recordTextUndeliverable()}
             />
 
             <AddressRow
@@ -1013,7 +1081,7 @@ export function CustomerContactCard({
               contactIcon={Phone}
               label="Phone"
               tone={toneFor(phonePresent, record.phone_verified_at)}
-              value={phoneDisplay(record)}
+              value={overviewPhoneText(record)}
               present={phonePresent}
             />
             <OverviewRow
@@ -1383,6 +1451,24 @@ function overviewEmailText(record: CustomerContact): string | null {
   if (display === 'on_file') return emailDisplay(record)
   if (display === 'missing') return null
   return EMAIL_AVAILABILITY_LABEL[display]
+}
+
+/**
+ * The read-only value for the Phone line of the Overview: the formatted number,
+ * with the texting restriction appended on its own line when texting is
+ * restricted (Do Not Text / Text Undeliverable). Calls are unaffected, so the
+ * number still shows; the note only tells the worker texting is off and why.
+ * Keeps Overview and Edit consistent, like overviewEmailText.
+ */
+function overviewPhoneText(record: CustomerContact): string | null {
+  const number = phoneDisplay(record)
+  const display = resolveSmsAvailabilityDisplay({
+    smsOptOut: record.sms_opt_out === true,
+    textUndeliverable: record.text_undeliverable === true && !!number,
+  })
+  if (display === 'available') return number
+  const note = SMS_AVAILABILITY_LABEL[display]
+  return number ? `${number}\n${note}` : note
 }
 
 /**
@@ -2010,11 +2096,17 @@ function EmailRow({
 // ── Phone ──────────────────────────────────────────────────────────────────
 
 function PhoneRow({
-  present, verifiedAt, value, editing, busy, appearance, onEdit, onCancel, onSave, onVerify,
+  present, verifiedAt, value, smsOptOut, textUndeliverable,
+  editing, busy, appearance, onEdit, onCancel, onSave, onVerify,
+  onSetDoNotText, onRecordTextUndeliverable,
 }: {
   present: boolean
   verifiedAt: string | null
   value: string | null
+  /** Do Not Text — the durable customer opt-out (customers.sms_opt_out). */
+  smsOptOut: boolean
+  /** Whether the number on file has a recorded text-delivery failure. */
+  textUndeliverable: boolean
   editing: boolean
   busy: boolean
   appearance: ResolvedAppearance
@@ -2022,10 +2114,22 @@ function PhoneRow({
   onCancel: () => void
   onSave: (phone: string | null) => void
   onVerify: (v: boolean) => void
+  /** Set / clear the Do Not Text opt-out. */
+  onSetDoNotText: (doNotText: boolean) => void
+  /** Record a text-delivery failure for the number on file. */
+  onRecordTextUndeliverable: () => void
 }) {
   const tone = toneFor(present, verifiedAt)
   const [draft, setDraft] = useState(formatPhoneAsTyped(value ?? ''))
   const [result, setResult] = useState<ContactFieldResult | null>(null)
+
+  // The effective texting status from the two facts. Do Not Text outranks a
+  // delivery failure; it holds even with no number on file (it follows the
+  // customer), while Undeliverable is only meaningful when a number is present.
+  const smsDisplay: SmsAvailabilityDisplay = resolveSmsAvailabilityDisplay({
+    smsOptOut,
+    textUndeliverable: textUndeliverable && present,
+  })
 
   const open = useCallback(() => { setDraft(formatPhoneAsTyped(value ?? '')); setResult(null); onEdit() }, [value, onEdit])
 
@@ -2034,6 +2138,7 @@ function PhoneRow({
       <SectionShell contactIcon={Phone} label="Phone" tone={tone} present={present} verifiedAt={verifiedAt}
         busy={busy} appearance={appearance} onEdit={open} onVerify={onVerify}>
         <ValueText value={value} present={present} appearance={appearance} />
+        <SmsStatusLine display={smsDisplay} appearance={appearance} />
       </SectionShell>
     )
   }
@@ -2055,6 +2160,7 @@ function PhoneRow({
         type="tel"
         autoFocus
         value={draft}
+        disabled={busy}
         onChange={(e) => { setDraft(formatPhoneAsTyped(e.target.value)); if (result) setResult(null) }}
         onBlur={() => setResult(normalizePhoneInput(draft))}
         placeholder="(215) 555-0100"
@@ -2064,8 +2170,110 @@ function PhoneRow({
       {result?.status === 'invalid' && result.reason && (
         <p className="mt-1.5 text-base text-status-missing-strong">{result.reason}</p>
       )}
+
+      {/* Text-message availability — the two existing restrictions, controlled
+          here. Each acts immediately on its own (distinct from the typed-number
+          Save): Do Not Text toggles the durable opt-out; Text Undeliverable
+          records a delivery failure for the number on file. Both disable texting
+          only, never calling. */}
+      <SmsAvailabilityControls
+        display={smsDisplay}
+        hasNumber={present}
+        busy={busy}
+        onSetDoNotText={onSetDoNotText}
+        onRecordTextUndeliverable={onRecordTextUndeliverable}
+      />
+
       <div className="mt-2.5"><EditActions busy={busy} onCancel={onCancel} appearance={appearance} /></div>
     </form>
+  )
+}
+
+/** The current texting status beneath the phone value (read view). Shown only
+ * when texting is restricted; an available number needs no line, matching how
+ * the Email section shows an explanatory line only for a non-normal state. The
+ * status is a distinct SHAPE + words, never color alone. */
+function SmsStatusLine({ display, appearance }: { display: SmsAvailabilityDisplay; appearance: ResolvedAppearance }) {
+  if (display === 'available') return null
+  const Icon = display === 'do_not_text' ? Ban : MessageSquareOff
+  return (
+    <p
+      className="mt-0.5 flex items-center gap-1.5 text-sm font-medium text-status-missing-strong"
+      style={fontStyle(appearance, appearance.supportingFontPx)}
+    >
+      <Icon className="size-4 shrink-0" aria-hidden />
+      {SMS_AVAILABILITY_LABEL[display]}
+    </p>
+  )
+}
+
+/** The Text-message availability controls inside the phone editor. Two
+ * restrictions, each acting on its own existing mechanism:
+ *   - Do Not Text toggles the durable customer opt-out (customers.sms_opt_out).
+ *     Available here even with no number on file, since it follows the customer.
+ *   - Text Undeliverable records a delivery failure for the NUMBER on file.
+ *     Needs a number present; an ordinary unsent text is not a failure, so this
+ *     is a deliberate action. Replacing the number later restores availability.
+ * Both disable texting only; telephone calls are never affected. */
+function SmsAvailabilityControls({
+  display, hasNumber, busy, onSetDoNotText, onRecordTextUndeliverable,
+}: {
+  display: SmsAvailabilityDisplay
+  hasNumber: boolean
+  busy: boolean
+  onSetDoNotText: (doNotText: boolean) => void
+  onRecordTextUndeliverable: () => void
+}) {
+  const doNotText = display === 'do_not_text'
+  const undeliverable = display === 'undeliverable'
+  return (
+    <fieldset className="mt-3 border-t border-surface-border-strong pt-3">
+      <legend className="text-sm font-semibold text-ink-secondary">Text-message availability</legend>
+      <p className="mt-0.5 text-sm text-ink-muted">
+        {SMS_AVAILABILITY_HELP[display]}
+      </p>
+      <div className="mt-1.5 flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={busy}
+          aria-pressed={doNotText}
+          onClick={() => onSetDoNotText(!doNotText)}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-sm font-medium disabled:opacity-60',
+            doNotText
+              ? 'border-status-missing-border bg-status-missing-soft text-status-missing-strong'
+              : 'border-surface-border-strong bg-surface-card text-ink-secondary hover:bg-surface-muted',
+          )}
+        >
+          <Ban className="size-3.5 shrink-0" aria-hidden />
+          {doNotText ? 'Do Not Text — on (clear)' : 'Do Not Text'}
+        </button>
+        <button
+          type="button"
+          // A delivery failure is recorded against the number on file, so it
+          // needs a present number and is a no-op once already undeliverable or
+          // opted out. Disabled (not hidden) so the control stays legible.
+          disabled={busy || !hasNumber || undeliverable || doNotText}
+          aria-pressed={undeliverable}
+          onClick={onRecordTextUndeliverable}
+          title={
+            !hasNumber ? 'Add a phone number first.'
+            : doNotText ? 'Do Not Text already disables texting.'
+            : undeliverable ? 'This number is already marked undeliverable.'
+            : 'Record that a text to this number failed to deliver.'
+          }
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-sm font-medium disabled:opacity-60',
+            undeliverable
+              ? 'border-status-missing-border bg-status-missing-soft text-status-missing-strong'
+              : 'border-surface-border-strong bg-surface-card text-ink-secondary hover:bg-surface-muted',
+          )}
+        >
+          <MessageSquareOff className="size-3.5 shrink-0" aria-hidden />
+          {undeliverable ? 'Text Undeliverable — recorded' : 'Text Undeliverable'}
+        </button>
+      </div>
+    </fieldset>
   )
 }
 

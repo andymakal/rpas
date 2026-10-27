@@ -116,7 +116,14 @@ function applyPayload(
         ...prev,
         phone: payload.phone,
         phone_verified_at: payload.phone === prev.phone ? prev.phone_verified_at : null,
+        // A changed number restores text availability (failure was scoped to the
+        // old number). Do Not Text follows the customer, so it is unaffected.
+        text_undeliverable: payload.phone === prev.phone ? prev.text_undeliverable : false,
       }
+    case 'sms':
+      return { ...prev, sms_opt_out: payload.do_not_text }
+    case 'sms_undeliverable':
+      return { ...prev, text_undeliverable: !!prev.phone?.trim() }
     case 'address': {
       // Normalize for display exactly as the overview does.
       const street = normalizeStreet(payload.street)

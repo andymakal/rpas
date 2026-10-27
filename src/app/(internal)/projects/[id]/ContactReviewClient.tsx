@@ -71,6 +71,11 @@ type ContactReviewCustomer = {
   address_verified_at: string | null
   email_availability: EmailAvailability | null
   contact_alert: string | null
+  /** Do Not Text — the durable customer opt-out (customers.sms_opt_out). */
+  sms_opt_out: boolean
+  /** Text Undeliverable — a recorded text-delivery failure for the number on
+   * file (value-scoped; restores on a number change). */
+  text_undeliverable: boolean
   policy_number: string | null
   /** Reachability. 'needs_research' = reachable (missing one method), routine
    * active list. 'no_usable_contact' = no usable email or phone at all, always
@@ -774,6 +779,8 @@ function toCardCustomer(c: ContactReviewCustomer): CustomerContact {
     address_verified_at: c.address_verified_at,
     email_availability: c.email_availability,
     contact_alert: c.contact_alert,
+    sms_opt_out: c.sms_opt_out,
+    text_undeliverable: c.text_undeliverable,
   }
 }
 

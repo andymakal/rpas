@@ -9,6 +9,10 @@ import {
   EMAIL_AVAILABILITY_LABEL,
   isSelectableEmailAvailability,
 } from '@/lib/email-availability'
+import {
+  recordTextUndeliverable,
+  isTextUndeliverableForCurrentNumber,
+} from '@/lib/stewardship/sms-undeliverable'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
@@ -85,11 +89,14 @@ type CustomerContactRow = {
   address_verified_at: string | null
   email_availability: EmailAvailability | null
   contact_alert: string | null
+  /** Do Not Text — the durable customer-level texting opt-out. */
+  sms_opt_out: boolean | null
 }
 
 const SELECT =
   'id, first_name, last_name, email, phone, street, address_line1, city, state, zip, ' +
-  'email_verified_at, phone_verified_at, address_verified_at, email_availability, contact_alert'
+  'email_verified_at, phone_verified_at, address_verified_at, email_availability, contact_alert, ' +
+  'sms_opt_out'
 
 /** The stable machine marker that identifies a case_touches 'workflow' note as
  * an email-availability change, carrying the new status. Bracketed so the
@@ -245,6 +252,21 @@ function addressUsable(street: string | null, city: string | null, state: string
   return !!(street && city && state && zip)
 }
 
+/**
+ * Return the customer-contact row to the card, enriched with the resolved
+ * `text_undeliverable` fact for the number CURRENTLY on file. The card reads
+ * `sms_opt_out` (Do Not Text) straight off the row and `text_undeliverable`
+ * (Text Undeliverable) from this resolved, value-scoped read, so its texting
+ * status is correct the instant any write returns — including a phone change,
+ * which clears a stale delivery-failure because the failed digits no longer
+ * match. Every success path returns through here so the two texting facts are
+ * always present and consistent.
+ */
+async function respondWithContact(admin: AdminClient, row: CustomerContactRow) {
+  const text_undeliverable = await isTextUndeliverableForCurrentNumber(admin, row.id, row.phone)
+  return Response.json({ data: { ...row, text_undeliverable } })
+}
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -265,10 +287,11 @@ export async function PATCH(
   const field = body.field
   if (
     field !== 'name' && field !== 'email' && field !== 'phone' && field !== 'address' &&
-    field !== 'email_availability' && field !== 'alert'
+    field !== 'email_availability' && field !== 'alert' &&
+    field !== 'sms' && field !== 'sms_undeliverable'
   ) {
     return Response.json(
-      { error: 'A field of name, email, phone, address, email_availability, or alert is required.' },
+      { error: 'A field of name, email, phone, address, email_availability, alert, sms, or sms_undeliverable is required.' },
       { status: 400 },
     )
   }
@@ -321,7 +344,7 @@ export async function PATCH(
 
     // Nothing actually changed: return the current record unchanged.
     if (Object.keys(patch).length === 0) {
-      return Response.json({ data: before })
+      return respondWithContact(supabase, before)
     }
 
     const { data: updated, error: nErr } = await supabase
@@ -344,7 +367,7 @@ export async function PATCH(
       { first_name: before.first_name, last_name: before.last_name },
       { first_name: updated.first_name, last_name: updated.last_name },
     )
-    return Response.json({ data: updated })
+    return respondWithContact(supabase, updated)
   }
 
   // ── SET / CLEAR THE CUSTOMER ALERT ────────────────────────────────────────
@@ -363,7 +386,7 @@ export async function PATCH(
 
     // Save-only-changed: a no-op returns the current record unchanged.
     if ((before.contact_alert ?? null) === next) {
-      return Response.json({ data: before })
+      return respondWithContact(supabase, before)
     }
 
     const { data: updated, error: aErr } = await supabase
@@ -378,7 +401,7 @@ export async function PATCH(
       return Response.json({ error: aErr.message }, { status: 500 })
     }
     if (!updated) return Response.json({ error: 'Customer not found.' }, { status: 404 })
-    return Response.json({ data: updated })
+    return respondWithContact(supabase, updated)
   }
 
   // ── SET EMAIL AVAILABILITY ────────────────────────────────────────────────
@@ -419,7 +442,7 @@ export async function PATCH(
     const statusChanged = (before.email_availability ?? null) !== storedValue
     const retiringAddress = !!priorEmail
     if (!statusChanged && !retiringAddress) {
-      return Response.json({ data: before })
+      return respondWithContact(supabase, before)
     }
 
     // The address leaves active use; its value is preserved in the history note
@@ -446,7 +469,61 @@ export async function PATCH(
     // One history entry for the meaningful change, with the acting employee and
     // timestamp. The prior address is named so Undeliverable preserves it.
     await recordEmailAvailabilityHistory(supabase, customerId, status, priorEmail)
-    return Response.json({ data: updated })
+    return respondWithContact(supabase, updated)
+  }
+
+  // ── SET / CLEAR DO NOT TEXT ───────────────────────────────────────────────
+  // Body: { field: 'sms', do_not_text: boolean }
+  // Sets or clears the durable customer-level texting opt-out
+  // (customers.sms_opt_out). Do Not Text disables texting ONLY — telephone calls
+  // are never affected — and follows the CUSTOMER regardless of the phone number
+  // (it is not scoped to a number), so it persists across a number change until
+  // an operator deliberately clears it. Save-only-changed: a no-op returns the
+  // record unchanged. Reuses the existing sms_opt_out field; it is NOT a new
+  // texting system.
+  if (field === 'sms') {
+    const raw = body.do_not_text
+    if (typeof raw !== 'boolean') {
+      return Response.json({ error: 'do_not_text must be a boolean.' }, { status: 400 })
+    }
+    if ((before.sms_opt_out ?? false) === raw) {
+      return respondWithContact(supabase, before)
+    }
+    const { data: updated, error: sErr } = await supabase
+      .from('customers')
+      .update({ sms_opt_out: raw })
+      .eq('id', customerId)
+      .eq('is_test', false)
+      .select(SELECT)
+      .maybeSingle<CustomerContactRow>()
+    if (sErr) {
+      console.error('customer sms_opt_out update error:', sErr)
+      return Response.json({ error: sErr.message }, { status: 500 })
+    }
+    if (!updated) return Response.json({ error: 'Customer not found.' }, { status: 404 })
+    return respondWithContact(supabase, updated)
+  }
+
+  // ── RECORD TEXT UNDELIVERABLE ─────────────────────────────────────────────
+  // Body: { field: 'sms_undeliverable' }
+  // Records a text-DELIVERY FAILURE for the number CURRENTLY on file, reusing
+  // the existing value-scoped unusable mechanism (a case_touches text row
+  // carrying [channel-unusable:<digits>]). Because the failure is scoped to the
+  // failed number's digits, replacing the number restores text availability on
+  // its own; this never touches calling. An ordinary unsent text is NOT a
+  // failure, so this is a deliberate action and requires a number on file. The
+  // customer row is unchanged (the failure lives in history); the response
+  // re-resolves text_undeliverable from the recorded fact.
+  if (field === 'sms_undeliverable') {
+    if (!before.phone?.trim()) {
+      return Response.json({ error: 'There is no phone number on file to mark undeliverable.' }, { status: 400 })
+    }
+    const touchedBy = await resolveEmployeeName(supabase)
+    const ok = await recordTextUndeliverable(supabase, customerId, before.phone, touchedBy)
+    if (!ok) {
+      return Response.json({ error: 'Could not record the text delivery failure.' }, { status: 500 })
+    }
+    return respondWithContact(supabase, before)
   }
 
   // ── VERIFY a field ──────────────────────────────────────────────────────
@@ -481,7 +558,7 @@ export async function PATCH(
       return Response.json({ error: vErr.message }, { status: 500 })
     }
     if (!updated) return Response.json({ error: 'Customer not found.' }, { status: 404 })
-    return Response.json({ data: updated })
+    return respondWithContact(supabase, updated)
   }
 
   // ── SAVE a field (or the address group) ───────────────────────────────────
@@ -560,7 +637,7 @@ export async function PATCH(
   if (!changed) {
     // Nothing actually changed: return the current record unchanged so the UI
     // can refresh from the authoritative row without a special case.
-    return Response.json({ data: before })
+    return respondWithContact(supabase, before)
   }
 
   const { data: updated, error: updErr } = await supabase
@@ -585,5 +662,5 @@ export async function PATCH(
     await recordEmailAvailabilityHistory(supabase, customerId, 'available', updated.email)
   }
 
-  return Response.json({ data: updated })
+  return respondWithContact(supabase, updated)
 }

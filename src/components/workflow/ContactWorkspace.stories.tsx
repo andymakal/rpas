@@ -529,7 +529,18 @@ function makeInteractivePersist(record: CustomerContact, setRecord: (c: Customer
       next = { ...record, email: payload.email, email_verified_at: changed ? null : record.email_verified_at, email_availability }
     } else if (payload.field === 'phone') {
       const changed = (payload.phone ?? null) !== (record.phone ?? null)
-      next = { ...record, phone: payload.phone, phone_verified_at: changed ? null : record.phone_verified_at }
+      // A changed number restores text availability (the failure was scoped to
+      // the old number). Do Not Text is unaffected by a number change.
+      next = {
+        ...record,
+        phone: payload.phone,
+        phone_verified_at: changed ? null : record.phone_verified_at,
+        text_undeliverable: changed ? false : record.text_undeliverable,
+      }
+    } else if (payload.field === 'sms') {
+      next = { ...record, sms_opt_out: payload.do_not_text }
+    } else if (payload.field === 'sms_undeliverable') {
+      next = { ...record, text_undeliverable: !!record.phone?.trim() }
     } else if (payload.field === 'alert') {
       next = { ...record, contact_alert: payload.alert?.trim() ? payload.alert.trim() : null }
     } else if (payload.field === 'name') {

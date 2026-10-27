@@ -118,6 +118,14 @@ export interface ContactReviewCustomer {
    * shared CustomerContactCard shows the same alert banner here. Informational
    * only; no effect on research or routing. */
   contact_alert: string | null
+  /** Do Not Text — the durable customer opt-out (customers.sms_opt_out). Carried
+   * so the shared card shows the texting status on first render. Disables
+   * texting only; never calling. */
+  sms_opt_out: boolean
+  /** Text Undeliverable — whether the NUMBER on file has a recorded text-delivery
+   * failure (the value-scoped text unusable fact, already resolved against the
+   * current number in `unusableByCustomer`). Restores on a number change. */
+  text_undeliverable: boolean
   /** Any one policy number already on file for this customer, shown so the
    * worker can search Gateway by last name + policy number. null when the
    * customer has no policy on file. */
@@ -184,6 +192,7 @@ type CustomerRow = {
   address_verified_at: string | null
   email_availability: EmailAvailability | null
   contact_alert: string | null
+  sms_opt_out: boolean | null
   is_test: boolean
 }
 
@@ -191,7 +200,7 @@ type CustomerRow = {
  * address and verification timestamps the shared CustomerContactCard needs. */
 const CUSTOMER_SELECT =
   'id, first_name, last_name, email, phone, street, address_line1, city, state, zip, ' +
-  'email_verified_at, phone_verified_at, address_verified_at, email_availability, contact_alert, is_test'
+  'email_verified_at, phone_verified_at, address_verified_at, email_availability, contact_alert, sms_opt_out, is_test'
 
 const usable = (v: string | null): boolean => !!v && v.trim().length > 0
 
@@ -358,6 +367,11 @@ export async function buildContactReview(
       address_verified_at: c.address_verified_at,
       email_availability: c.email_availability,
       contact_alert: c.contact_alert,
+      sms_opt_out: c.sms_opt_out === true,
+      // Value-scoped text delivery failure for the number on file (onboarding or
+      // card-recorded). `u` is already resolved against the current phone, so a
+      // replaced number has already dropped out of the set.
+      text_undeliverable: u.has('text'),
       policy_number: policyByCustomer.get(c.id) ?? null,
       // Status is reachability: no usable method at all vs missing one. The
       // No Usable Contact Information section shows every 'no_usable_contact'
@@ -468,6 +482,10 @@ export async function loadContactReviewCustomer(
     address_verified_at: row.address_verified_at,
     email_availability: row.email_availability,
     contact_alert: row.contact_alert,
+    sms_opt_out: row.sms_opt_out === true,
+    // Value-scoped text delivery failure for the number on file (onboarding or
+    // card-recorded), already resolved against the current phone.
+    text_undeliverable: unusable.has('text'),
     policy_number: policyByCustomer.get(row.id) ?? null,
     status: !stillRecommend && noUsableContact ? 'no_usable_contact' : 'needs_research',
     researched_unsuccessfully: !stillRecommend,

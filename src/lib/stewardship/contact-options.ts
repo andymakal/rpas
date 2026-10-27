@@ -100,7 +100,7 @@ type CollectedRow = Partial<Record<'canCall' | 'canText' | 'canEmail' | 'needsRe
  */
 export async function evaluateContactOptions(
   facts: ContactFacts,
-  options?: { unusableChannels?: readonly OutreachChannel[] },
+  options?: { unusableChannels?: readonly OutreachChannel[]; smsOptOut?: boolean },
 ): Promise<ContactOptions> {
   const zen = getEngine()
   const response = await zen.evaluate('contact-options.json', {
@@ -121,7 +121,13 @@ export async function evaluateContactOptions(
   const unusable = new Set(options?.unusableChannels ?? [])
   const phoneUnusable = unusable.has('call') || unusable.has('voicemail')
   const canCall = any('canCall') && !phoneUnusable
-  const canText = any('canText') && !phoneUnusable && !unusable.has('text')
+  // Texting is additionally gated by the durable customer-level Do Not Text
+  // opt-out (customers.sms_opt_out): a STOP/opt-out removes TEXTING only, never
+  // calling, and follows the customer regardless of the number. It stacks with
+  // the per-number text-unusable subtraction (a recorded delivery failure for
+  // the number on file). Either one disables texting; neither touches canCall.
+  const smsOptOut = options?.smsOptOut === true
+  const canText = any('canText') && !phoneUnusable && !unusable.has('text') && !smsOptOut
   const canEmail = any('canEmail') && !unusable.has('email')
   const canPostal = facts.hasUsableAddress && !unusable.has('postal')
 
@@ -135,12 +141,15 @@ export async function evaluateContactOptions(
 }
 
 /** Convenience: resolve contact options straight from a raw customer record,
- * optionally subtracting channels recorded unusable in the attempt history. */
+ * optionally subtracting channels recorded unusable in the attempt history and
+ * honoring the durable Do Not Text opt-out. `smsOptOut` disables texting only
+ * (never calling) and is read from `customers.sms_opt_out` by the caller. */
 export async function resolveContactOptions(
   contact: CustomerContact,
   unusable?: readonly OutreachChannel[],
+  smsOptOut?: boolean,
 ): Promise<ContactOptions> {
-  return evaluateContactOptions(toContactFacts(contact), { unusableChannels: unusable })
+  return evaluateContactOptions(toContactFacts(contact), { unusableChannels: unusable, smsOptOut })
 }
 
 /**
