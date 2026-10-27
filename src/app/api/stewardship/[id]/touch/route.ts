@@ -33,6 +33,7 @@ import { requireInternalAdmin } from '@/lib/stewardship/auth'
 
 import { OUTCOME_MARKERS, INBOUND_MARKER, type ChannelOutcome } from '@/lib/stewardship/outreach-attempts'
 import { ENGAGED_AT_KEY, engagedAtOf } from '@/lib/stewardship/queues'
+import { retireUndeliverableEmail } from '@/lib/stewardship/email-undeliverable'
 
 const ALLOWED_TOUCH_TYPES = ['call', 'voicemail', 'text', 'email', 'postal'] as const
 type TouchType = (typeof ALLOWED_TOUCH_TYPES)[number]
@@ -192,6 +193,28 @@ export async function POST(
   if (touchErr) {
     console.error('stewardship ad-hoc touch log error:', touchErr)
     return Response.json({ error: 'Could not record the history entry.' }, { status: 500 })
+  }
+
+  // Email Undeliverable retires the failed address from active contact info, the
+  // same way the Contact Card does and the guided attempt route now does. The
+  // touch rows above already PRESERVED the outcome in Customer History (the
+  // email touch carries the unusable marker), so we do NOT write a second entry
+  // — that would duplicate the record. An INBOUND or AUTOMATED communication is
+  // never a delivery failure of OUR address, so only an OUTGOING email recorded
+  // unusable retires the address. retireUndeliverableEmail nulls the address and
+  // verification and sets email_availability = 'undeliverable', which the
+  // Contact Card reflects immediately; it is guarded on the still-matching value
+  // so a replacement entered after the failure is never overwritten.
+  const outgoingEmailUndeliverable = channels.some(
+    (c) => c.touchType === 'email' && c.outcome === 'unusable' && !c.inbound,
+  )
+  if (outgoingEmailUndeliverable) {
+    const { data: cust } = await supabase
+      .from('customers')
+      .select('email')
+      .eq('id', customerId)
+      .maybeSingle<{ email: string | null }>()
+    await retireUndeliverableEmail(supabase, customerId, cust?.email ?? null)
   }
 
   // A GENUINE incoming response (not an automated reply) means the customer has
