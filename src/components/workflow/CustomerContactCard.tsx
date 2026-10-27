@@ -129,6 +129,17 @@ export interface CustomerContact {
    * Undeliverable. Replacing the number clears it on its own. Optional; defaults
    * to no failure on file. */
   text_undeliverable?: boolean
+  /** The customer's best-available-precision age for the identity header
+   * (reused project age logic: exact date_of_birth, else the agreed masked
+   * policy DOB, UNKNOWN on conflict). Null/omitted means unknown and the age
+   * line is not shown — never guessed. The day/DOB is never carried here; this
+   * is age only. Supplied by the GET half of /api/customers/[id]/contact when
+   * the card fetches its own data. */
+  age?: number | null
+  /** True when `age` came from the masked policy fallback rather than an exact
+   * date_of_birth, so the identity header labels it approximate ("~N (approx.)").
+   * Optional; defaults to exact. */
+  age_approximate?: boolean
 }
 
 type ContactFieldKey = 'email' | 'phone' | 'address'
@@ -642,9 +653,221 @@ const STATUS_META: Record<Tone, { label: string; icon: typeof ShieldQuestion; co
   missing: { label: 'Missing', icon: AlertTriangle, color: 'text-status-missing' },
 }
 
+// ── Public component (self-contained + legacy invocations) ───────────────────
+
+/** The initial presentation mode of the self-contained card: the compact
+ * read-only Overview, or the per-field editing + verification view. */
+export type ContactCardMode = 'collapsed' | 'expanded'
+
+/**
+ * The props of the self-contained invocation: a page supplies ONLY the customer
+ * identity and the initial display mode. The card fetches, displays, edits, and
+ * saves ALL of the customer's contact information itself — name, calculated age,
+ * email, phone, mailing address, verification, email availability, Do Not Text /
+ * Text Undeliverable, and the customer alert — and owns the complete approved
+ * collapsed and expanded layouts and the name+age identity header. A future
+ * change to the card appears on every screen that uses it without touching the
+ * page.
+ */
+interface SelfContainedProps {
+  /** The ONLY data a page supplies: which customer to show. The card fetches the
+   * rest from the shared /api/customers/[id]/contact endpoint. */
+  customerId: string
+  /** Initial display mode: the compact Overview ('collapsed') or the editing
+   * view ('expanded'). Find Missing Contact Information and a reached guided call
+   * open 'expanded'; every other surface opens 'collapsed'. The worker can
+   * toggle in place afterward. Default 'collapsed'. */
+  initialMode?: ContactCardMode
+  className?: string
+  /** Presentation-only overrides (Design Playground). Omit for the production
+   * appearance. Never affects behavior, data, or persistence. */
+  appearance?: ContactCardAppearance
+  /** Optional: notified with the authoritative record after any successful write
+   * (contact edit, verification, name correction, alert, texting change), so a
+   * host can keep a surrounding view in sync WITHOUT owning the card's data.
+   * Purely additive — the card persists and refreshes on its own regardless. */
+  onChange?: (updated: CustomerContact) => void
+  /** Optional: notified when the card switches between Overview and Edit. */
+  onModeChange?: (mode: ContactCardMode) => void
+  // Mutually exclusive with the legacy `customer` invocation.
+  customer?: never
+}
+
+/** The legacy, host-assembled invocation: the host passes a fully resolved
+ * `customer` record and optionally its own header/appearance. Preserved
+ * unchanged so Storybook, the playgrounds, and any remaining host keep working
+ * exactly as before. */
+interface LegacyProps {
+  customer: CustomerContact
+  onChange?: (updated: CustomerContact) => void
+  onPersist?: (customerId: string, payload: ContactPersistPayload) => Promise<CustomerContact>
+  className?: string
+  appearance?: ContactCardAppearance
+  header?: ReactNode
+  showName?: boolean
+  showMentoring?: boolean
+  collapsible?: boolean
+  defaultExpanded?: boolean
+  onExpandedChange?: (expanded: boolean) => void
+  alert?: string | null
+  onAlertChange?: (next: string | null) => void
+  alertEditable?: boolean
+  customerId?: never
+}
+
+/**
+ * CustomerContactCard — the single reusable customer-contact surface.
+ *
+ * SELF-CONTAINED (the standard for every workflow screen):
+ *
+ *   <CustomerContactCard customerId={id} initialMode="collapsed" />
+ *
+ * A page invokes the card with only a customer id and the initial display mode.
+ * The card retrieves, displays, edits, and saves all of the customer's contact
+ * information itself: name and calculated age; the complete approved collapsed
+ * and expanded layouts; Edit Name (expanded only); email, phone, and mailing
+ * address; all contact editing, normalization, and verification; email
+ * availability and delivery failures; Do Not Text and Text Undeliverable;
+ * customer alerts; and every contact-status indicator — all correct immediately
+ * on open and consistent after each save. Pages no longer construct a heading,
+ * retrieve age, assemble contact fields, or compute texting status, and a future
+ * change to the card appears everywhere it is used without editing those pages.
+ *
+ * LEGACY (host-assembled): passing a resolved `customer` renders the same core
+ * exactly as before. Used by Storybook/playgrounds and injectable persistence.
+ */
+export function CustomerContactCard(props: SelfContainedProps | LegacyProps) {
+  if (props.customerId !== undefined) {
+    return <SelfContainedContactCard {...(props as SelfContainedProps)} />
+  }
+  return <ContactCardView {...(props as LegacyProps)} />
+}
+
+/**
+ * The self-contained card: fetch the customer by id, then render the shared view
+ * with the resolved record and the name+age identity header the card now owns.
+ * It is the ONE place the identity header is assembled, so every workflow screen
+ * gets an identical heading (approved 33px bold teal name, calculated age
+ * beneath it in both modes, Edit Name only in the expanded view) without the
+ * page building one. The card persists through the shared route and refreshes
+ * itself; `onChange` is optional sync for a surrounding view.
+ */
+function SelfContainedContactCard({
+  customerId,
+  initialMode = 'collapsed',
+  className,
+  appearance,
+  onChange,
+  onModeChange,
+}: SelfContainedProps) {
+  const [record, setRecord] = useState<CustomerContact | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  // Mirror the card's Overview/Edit state so the owned heading shows the Edit
+  // Name control only in the expanded Edit view.
+  const [expanded, setExpanded] = useState(initialMode === 'expanded')
+
+  // Fetch the customer's own contact record (contact facts + resolved
+  // text_undeliverable + calculated age) once per customer. The card is the
+  // source of its own data; the page supplied only the id.
+  useEffect(() => {
+    let active = true
+    setRecord(null)
+    setLoadError(null)
+    void (async () => {
+      try {
+        const res = await fetch(`/api/customers/${customerId}/contact`, { cache: 'no-store' })
+        const json = await res.json()
+        if (!res.ok) throw new Error(json.error ?? 'Could not load customer contact')
+        if (active) setRecord(json.data as CustomerContact)
+      } catch (e) {
+        if (active) setLoadError(e instanceof Error ? e.message : 'Could not load customer contact')
+      }
+    })()
+    return () => { active = false }
+  }, [customerId])
+
+  // Re-seed the mode if the page changes the initial mode for the SAME customer
+  // (e.g. the calling workbench opening the card in edit the instant the
+  // customer is reached), mirroring the view's own defaultExpanded behavior.
+  useEffect(() => { setExpanded(initialMode === 'expanded') }, [initialMode])
+
+  const handleChange = useCallback((updated: CustomerContact) => {
+    // Preserve the derived age across writes: the PATCH responses carry the
+    // contact facts and text_undeliverable but not the age, so keep the age the
+    // GET resolved so the heading never drops it after an edit.
+    setRecord((prev) => ({
+      ...updated,
+      age: updated.age ?? prev?.age ?? null,
+      age_approximate: updated.age_approximate ?? prev?.age_approximate ?? false,
+    }))
+    onChange?.(updated)
+  }, [onChange])
+
+  const handleExpandedChange = useCallback((next: boolean) => {
+    setExpanded(next)
+    onModeChange?.(next ? 'expanded' : 'collapsed')
+  }, [onModeChange])
+
+  if (loadError) {
+    return (
+      <section className={cn('rounded-2xl border border-status-missing-border bg-status-missing-soft p-4 font-workflow', className)}>
+        <p className="text-base text-status-missing-strong">{loadError}</p>
+      </section>
+    )
+  }
+
+  if (!record) {
+    return (
+      <section className={cn('flex items-center gap-2 rounded-2xl border border-surface-border bg-surface-card p-4 font-workflow', className)}>
+        <Loader2 className="size-4 animate-spin text-ink-supporting" aria-hidden />
+        <span className="text-base text-ink-supporting">Loading customer contact…</span>
+      </section>
+    )
+  }
+
+  return (
+    <ContactCardView
+      customer={record}
+      className={className}
+      appearance={appearance}
+      // The card owns the identity header now: the uniform name + calculated age
+      // heading with the Edit Name control shown only in the expanded view.
+      showName={false}
+      showMentoring={false}
+      collapsible
+      defaultExpanded={expanded}
+      onExpandedChange={handleExpandedChange}
+      // Customer alerts are a standard part of the self-contained card.
+      alert={record.contact_alert ?? null}
+      alertEditable
+      header={
+        <CustomerNameHeading
+          customerId={record.id}
+          firstName={record.first_name}
+          lastName={record.last_name}
+          className="text-[33px] font-bold leading-tight tracking-tight text-brand"
+          expanded={expanded}
+          age={record.age ?? null}
+          ageApproximate={record.age_approximate === true}
+          onSaved={handleChange}
+        />
+      }
+      onChange={handleChange}
+    />
+  )
+}
+
 // ── Component ──────────────────────────────────────────────────────────────
 
-export function CustomerContactCard({
+/**
+ * The rendering core of the card. It takes a RESOLVED `customer` record and
+ * owns display, editing, saving, verification, email availability, Do Not Text /
+ * Text Undeliverable, and the alert — exactly as before. The public
+ * `CustomerContactCard` below wraps it: in the self-contained mode it fetches
+ * the customer by id and supplies this view with the resolved record plus the
+ * name+age identity header; in the legacy mode it passes through unchanged.
+ */
+function ContactCardView({
   customer,
   onChange,
   onPersist,

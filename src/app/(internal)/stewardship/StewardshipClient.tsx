@@ -23,7 +23,7 @@ import {
   TaskShell, SlimTaskHeader, ContextHeader, type ContextField,
   ActionPanel, PrimaryAction, WorkflowButton, NextNote, OperationalTag,
   ExternalActionConfirm, SpokenScriptCard,
-  CustomerContactCard, CustomerNameHeading, type CustomerContact, GatewayLookup,
+  CustomerContactCard, GatewayLookup,
   PolicySummaryList, type PolicySummary,
   CustomerHistoryCard, NextHistoryEntry,
 } from '@/components/workflow'
@@ -1762,75 +1762,30 @@ function StewardshipCustomerContact({
 }: {
   detail: Detail
   setDetail: React.Dispatch<React.SetStateAction<Detail | null>>
-  /** Whether the Overview/Edit card starts EXPANDED. Find Missing Contact
-   * Information (Research Needed) passes true; every other stewardship surface
-   * starts COLLAPSED in the compact overview. The approved Overview/Edit
-   * presentation (name + Edit/Done toggle, compact overview, expand to the
-   * existing editing + verification) is used on every surface. */
+  /** Whether the self-contained card opens EXPANDED (editing). Find Missing
+   * Contact Information (Research Needed) and a reached guided call pass true;
+   * every other stewardship surface opens COLLAPSED in the compact overview.
+   * This is the ONLY presentation input the screen supplies — the card owns the
+   * heading, the calculated age, the layout, the editing, and the texting
+   * status itself. */
   startExpanded?: boolean
 }) {
-  const c = detail.customer
-  // Mirror the card's Overview/Edit state so the shared heading shows the Edit
-  // name button only in expanded Edit mode. The card opens at `startExpanded`.
-  const [cardExpanded, setCardExpanded] = useState(startExpanded)
-  const customer: CustomerContact = {
-    id: c.id,
-    first_name: c.first_name,
-    last_name: c.last_name,
-    email: c.email,
-    phone: c.phone,
-    street: c.street,
-    address_line1: c.address_line1,
-    city: c.city,
-    state: c.state,
-    zip: c.zip,
-    email_verified_at: detail.email_verified_at,
-    phone_verified_at: detail.phone_verified_at,
-    address_verified_at: detail.address_verified_at,
-    email_availability: c.email_availability,
-    contact_alert: c.contact_alert,
-    // Texting facts for the shared card's status on INITIAL display.
-    sms_opt_out: c.sms_opt_out === true,
-    text_undeliverable: c.text_undeliverable === true,
-  }
+  // The screen invokes the self-contained card with ONLY the customer identity
+  // and the initial display mode. The card fetches, displays, edits, and saves
+  // all of the customer's contact information itself (name, calculated age,
+  // email, phone, mailing address, verification, email availability, Do Not Text
+  // / Text Undeliverable, and the customer alert), so this screen no longer
+  // assembles a contact object, a name/age header, or the texting facts.
+  //
+  // `onChange` is pure synchronization: the card is authoritative and persists
+  // on its own, but the surrounding stewardship task mirrors the customer's
+  // contact facts (name shown elsewhere, policy summary, record-an-attempt
+  // channel availability), so we fold the authoritative record the card returns
+  // back into Detail. A future change to the card needs no edit here.
   return (
     <CustomerContactCard
-      customer={customer}
-      alert={c.contact_alert}
-      alertEditable
-      // The approved Overview/Edit presentation on every stewardship surface:
-      // name + Edit/Done toggle at the top, a compact overview when collapsed,
-      // and the existing editing + verification when expanded. Collapsed by
-      // default; Research Needed passes startExpanded so it opens in edit mode.
-      collapsible
-      defaultExpanded={startExpanded}
-      onExpandedChange={setCardExpanded}
-      showName={false}
-      showMentoring={false}
-      header={
-        <CustomerNameHeading
-          customerId={detail.customer.id}
-          firstName={detail.customer.first_name}
-          lastName={detail.customer.last_name}
-          className="text-[33px] font-bold leading-tight tracking-tight text-brand"
-          // Shared identity rule: Edit name only in expanded Edit mode; age
-          // beneath the name in both modes (reused policy-aware age).
-          expanded={cardExpanded}
-          age={c.customer_age ?? null}
-          ageApproximate={c.customer_age_approximate === true}
-          onSaved={(u) => setDetail(prev => prev ? {
-            ...prev,
-            // A corrected name updates the heading and everywhere the detail's
-            // customer name is shown. Fall back to the existing value if the
-            // authoritative record returns null for either part.
-            customer: {
-              ...prev.customer,
-              first_name: u.first_name ?? prev.customer.first_name,
-              last_name: u.last_name ?? prev.customer.last_name,
-            },
-          } : prev)}
-        />
-      }
+      customerId={detail.customer.id}
+      initialMode={startExpanded ? 'expanded' : 'collapsed'}
       onChange={(u) => setDetail(prev => prev ? {
         ...prev,
         email_verified_at: u.email_verified_at,
@@ -1838,8 +1793,10 @@ function StewardshipCustomerContact({
         address_verified_at: u.address_verified_at,
         customer: {
           ...prev.customer,
-          // Name is corrected via the heading's own save; keep the existing
-          // values here.
+          // A corrected name updates everywhere the detail's customer name is
+          // shown; fall back to the existing value if the record returns null.
+          first_name: u.first_name ?? prev.customer.first_name,
+          last_name: u.last_name ?? prev.customer.last_name,
           email: u.email,
           phone: u.phone,
           street: u.street,
@@ -1850,8 +1807,8 @@ function StewardshipCustomerContact({
           email_availability: u.email_availability,
           contact_alert: u.contact_alert ?? null,
           // Keep the texting facts in sync after a Do Not Text / Text
-          // Undeliverable or number change, so the status stays correct without
-          // a reload.
+          // Undeliverable or number change, so channel availability stays
+          // correct without a reload.
           sms_opt_out: u.sms_opt_out ?? prev.customer.sms_opt_out,
           text_undeliverable: u.text_undeliverable ?? prev.customer.text_undeliverable,
         },

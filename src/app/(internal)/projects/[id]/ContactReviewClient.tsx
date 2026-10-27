@@ -37,7 +37,7 @@ import {
 import {
   TaskShell, ActionPanel, PrimaryAction, WorkflowButton,
   AssistantPanel, GatewayLookup,
-  CustomerContactCard, CustomerNameHeading, type CustomerContact,
+  CustomerContactCard, type CustomerContact,
   PolicySummaryList, type PolicySummary,
   CustomerHistoryCard, NextHistoryEntry,
   QueueListHeader, CustomerQueueCard, QueueEmptyState, OperationalTag,
@@ -766,30 +766,6 @@ function ContactResearchFilters({
 // contact capture and writes straight to the customer record.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Map a Contact Research row onto the shared card's customer shape. Every field
- * already lives on the row; the card reads and corrects the customer record. */
-function toCardCustomer(c: ContactReviewCustomer): CustomerContact {
-  return {
-    id: c.customer_id,
-    first_name: c.first_name,
-    last_name: c.last_name,
-    email: c.email,
-    phone: c.phone,
-    street: c.street,
-    address_line1: c.address_line1,
-    city: c.city,
-    state: c.state,
-    zip: c.zip,
-    email_verified_at: c.email_verified_at,
-    phone_verified_at: c.phone_verified_at,
-    address_verified_at: c.address_verified_at,
-    email_availability: c.email_availability,
-    contact_alert: c.contact_alert,
-    sms_opt_out: c.sms_opt_out,
-    text_undeliverable: c.text_undeliverable,
-  }
-}
-
 function ContactReviewTask({
   projectId, customer, filterBar, onSaved, onSkipped, onContactChange,
 }: {
@@ -811,16 +787,6 @@ function ContactReviewTask({
   const [busy, setBusy] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
-  // Mirror the card's Overview/Edit state so the name heading shows the Edit
-  // name button only in expanded Edit mode. The card opens expanded here
-  // (defaultExpanded), so this starts true and the card notifies us on toggle.
-  const [cardExpanded, setCardExpanded] = useState(true)
-  // Best-available-precision age for the header subline, shown in both views.
-  // Resolved upstream by the reused project age logic (exact DOB, else masked
-  // policy fallback); null (omitted) when it cannot be determined — never
-  // guessed. An approximate age (from an incomplete policy DOB) is marked "~".
-  const age = customer.age
-  const ageApproximate = customer.age_approximate
 
   // The open customer's grouped history and policy summary for the shared
   // three-column working layout: the Customer History (with the Next History
@@ -977,36 +943,22 @@ function ContactReviewTask({
         </ActionPanel>
       }
       context={
-        // Center column: the shared Customer Contact card (unchanged) with the
+        // Center column: the self-contained Customer Contact card with the
         // read-only Policy Summary beneath it, matching the stewardship working
         // screens so the worker sees the customer's policy facts while
-        // researching contact information.
+        // researching contact information. Contact Research is research work, so
+        // the card opens EXPANDED (editing) — the only presentation input this
+        // screen supplies. The card fetches, displays, edits, and saves all of
+        // the customer's contact information itself (name, calculated age,
+        // email, phone, mailing address, verification, email availability, Do
+        // Not Text / Text Undeliverable, and the alert); this screen no longer
+        // assembles a contact object, a name/age header, or the texting facts.
+        // `onContactChange` keeps the Missing Fields counts and the Next History
+        // Entry preview in sync from the authoritative record the card returns.
         <>
           <CustomerContactCard
-            customer={toCardCustomer(customer)}
-            alert={customer.contact_alert}
-            alertEditable
-            collapsible
-            // Contact Research is research work — start expanded in the editing
-            // view so the worker can correct contact information immediately.
-            defaultExpanded
-            onExpandedChange={setCardExpanded}
-            showName={false}
-            showMentoring={false}
-            header={
-              <CustomerNameHeading
-                customerId={customer.customer_id}
-                firstName={customer.first_name}
-                lastName={customer.last_name}
-                className="text-[33px] font-bold leading-tight tracking-tight text-brand"
-                // The shared heading owns the uniform identity rule: Edit name
-                // only in expanded Edit mode, age beneath the name in both.
-                expanded={cardExpanded}
-                age={age}
-                ageApproximate={ageApproximate}
-                onSaved={onContactChange}
-              />
-            }
+            customerId={customer.customer_id}
+            initialMode="expanded"
             onChange={onContactChange}
           />
           {/* The Policies card owns its single "Policies" heading. */}

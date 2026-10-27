@@ -267,6 +267,80 @@ async function respondWithContact(admin: AdminClient, row: CustomerContactRow) {
   return Response.json({ data: { ...row, text_undeliverable } })
 }
 
+/**
+ * Resolve the customer's best-available-precision age for the shared card's
+ * identity header, reusing the project age logic (exact date_of_birth, else the
+ * agreed masked policy DOB, UNKNOWN on conflict — never guessed). Age only; the
+ * day/DOB is never exposed. A read failure yields a null age so the card simply
+ * omits it rather than showing a wrong value.
+ */
+async function resolveCustomerAge(
+  admin: AdminClient,
+  customerId: string,
+): Promise<{ age: number | null; age_approximate: boolean }> {
+  try {
+    const { data } = await admin.rpc('project_customer_ages', { p_customer_ids: [customerId] })
+    const row = (data ?? [])[0] as { age: number | null; is_approximate: boolean } | undefined
+    return { age: row?.age ?? null, age_approximate: row?.is_approximate === true }
+  } catch (e) {
+    console.error('customer contact age resolve error:', e)
+    return { age: null, age_approximate: false }
+  }
+}
+
+/**
+ * GET /api/customers/[id]/contact
+ *
+ * The read half of the single shared contact endpoint behind the self-contained
+ * CustomerContactCard. The card fetches its OWN customer with just an id, so a
+ * host no longer assembles the contact object, the name/age header, or the
+ * texting facts by hand. It returns exactly the shape the card renders and the
+ * PATCH half returns on a write, so initial display and post-write display are
+ * identical:
+ *
+ *   - the durable customer-contact facts (name, email, phone, mailing address,
+ *     the three *_verified_at timestamps, email_availability, contact_alert,
+ *     and the durable Do Not Text opt-out sms_opt_out),
+ *   - the resolved per-number `text_undeliverable` fact (Text Undeliverable),
+ *   - the best-available-precision `age` / `age_approximate` (reused project age
+ *     logic; age only, no DOB exposed).
+ *
+ * Same auth as the write (internal admin via service-role), same single
+ * customers row, no new field, no workflow side effects. Age is derived, not
+ * stored; `text_undeliverable` is resolved, not stored.
+ */
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const auth = await requireInternalAdmin()
+  if (!auth.ok) return Response.json({ error: auth.error }, { status: auth.status })
+
+  const { id: customerId } = await params
+  const supabase = createAdminClient()
+
+  const { data: row, error: readErr } = await supabase
+    .from('customers')
+    .select(SELECT)
+    .eq('id', customerId)
+    .eq('is_test', false)
+    .maybeSingle<CustomerContactRow>()
+  if (readErr) {
+    console.error('customer contact read error:', readErr)
+    return Response.json({ error: readErr.message }, { status: 500 })
+  }
+  if (!row) {
+    return Response.json({ error: 'Customer not found.' }, { status: 404 })
+  }
+
+  const [text_undeliverable, ageInfo] = await Promise.all([
+    isTextUndeliverableForCurrentNumber(supabase, row.id, row.phone),
+    resolveCustomerAge(supabase, row.id),
+  ])
+
+  return Response.json({ data: { ...row, text_undeliverable, ...ageInfo } })
+}
+
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
