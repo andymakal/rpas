@@ -31,7 +31,7 @@ import { requireInternalAdmin } from '@/lib/stewardship/auth'
  *   notes is the free-text outcome for that channel (optional).
  */
 
-import { OUTCOME_MARKERS, INBOUND_MARKER, type ChannelOutcome } from '@/lib/stewardship/outreach-attempts'
+import { OUTCOME_MARKERS, INBOUND_MARKER, buildUnusableMarker, type ChannelOutcome } from '@/lib/stewardship/outreach-attempts'
 import { ENGAGED_AT_KEY, engagedAtOf } from '@/lib/stewardship/queues'
 import { retireUndeliverableEmail } from '@/lib/stewardship/email-undeliverable'
 
@@ -159,6 +159,27 @@ export async function POST(
     call: 'Call', voicemail: 'Voicemail', text: 'Text', email: 'Email', postal: 'Postal',
   }
 
+  // An OUTGOING email recorded unusable is a delivery failure of OUR address, so
+  // the failed address must be captured BEFORE anything is written: it is baked
+  // into the history marker (so the specific address is preserved) and retired
+  // from the customer record afterward. An inbound/automated reply is never a
+  // failure of our address, so only an outgoing email-unusable channel triggers
+  // this. Read once, up front, so the history note and the retire use the exact
+  // same value. (This mirrors the guided record-attempt route, which captures
+  // curEmail and uses buildUnusableMarker('email', curEmail).)
+  const outgoingEmailUndeliverable = channels.some(
+    (c) => c.touchType === 'email' && c.outcome === 'unusable' && !c.inbound,
+  )
+  let failedEmail: string | null = null
+  if (outgoingEmailUndeliverable) {
+    const { data: cust } = await supabase
+      .from('customers')
+      .select('email')
+      .eq('id', customerId)
+      .maybeSingle<{ email: string | null }>()
+    failedEmail = cust?.email ?? null
+  }
+
   // One case_touches row per channel in this attempt. All share one timestamp so
   // the channels of a single attempt read (and group) together as ONE attempt.
   // The per-channel outcome is appended as a stable machine marker so the
@@ -173,7 +194,17 @@ export async function POST(
     const prefix = inbound
       ? (automated ? `Automated ${label} reply received` : `Customer ${label} response received`)
       : `Servicing-agent onboarding ${label}`
-    const outcomeMarker = OUTCOME_MARKERS[outcome]
+    // An OUTGOING email recorded unusable gets the VALUE-SCOPED unusable marker
+    // (`[channel-unusable:<email>]`) so the specific failed address is preserved
+    // in this history entry and a later replacement — which differs from the
+    // recorded value — is no longer counted unusable (email usability restores
+    // on its own). Every other channel/outcome keeps the plain outcome marker;
+    // the bare `[channel-unusable]` stays for a channel with no value to scope.
+    const isEmailUnusableOutgoing =
+      touchType === 'email' && outcome === 'unusable' && !inbound
+    const outcomeMarker = isEmailUnusableOutgoing
+      ? buildUnusableMarker('email', failedEmail)
+      : OUTCOME_MARKERS[outcome]
     // The inbound marker lets the history read a received communication
     // distinctly from an outgoing one; automated inbound is never engagement.
     const inboundMarker = inbound ? INBOUND_MARKER : ''
@@ -197,24 +228,15 @@ export async function POST(
 
   // Email Undeliverable retires the failed address from active contact info, the
   // same way the Contact Card does and the guided attempt route now does. The
-  // touch rows above already PRESERVED the outcome in Customer History (the
-  // email touch carries the unusable marker), so we do NOT write a second entry
-  // — that would duplicate the record. An INBOUND or AUTOMATED communication is
-  // never a delivery failure of OUR address, so only an OUTGOING email recorded
-  // unusable retires the address. retireUndeliverableEmail nulls the address and
-  // verification and sets email_availability = 'undeliverable', which the
+  // email touch row above already PRESERVED the failed address in Customer
+  // History via the value-scoped marker, so we do NOT write a second entry —
+  // that would duplicate the record. retireUndeliverableEmail nulls the address
+  // and verification and sets email_availability = 'undeliverable', which the
   // Contact Card reflects immediately; it is guarded on the still-matching value
-  // so a replacement entered after the failure is never overwritten.
-  const outgoingEmailUndeliverable = channels.some(
-    (c) => c.touchType === 'email' && c.outcome === 'unusable' && !c.inbound,
-  )
+  // (the same address we captured above) so a replacement entered after the
+  // failure is never overwritten.
   if (outgoingEmailUndeliverable) {
-    const { data: cust } = await supabase
-      .from('customers')
-      .select('email')
-      .eq('id', customerId)
-      .maybeSingle<{ email: string | null }>()
-    await retireUndeliverableEmail(supabase, customerId, cust?.email ?? null)
+    await retireUndeliverableEmail(supabase, customerId, failedEmail)
   }
 
   // A GENUINE incoming response (not an automated reply) means the customer has
