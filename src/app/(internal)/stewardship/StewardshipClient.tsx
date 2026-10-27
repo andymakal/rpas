@@ -3188,6 +3188,15 @@ function CustomerInteractionAction({
   // the signed authorization / a refusal WILL log, without staging or changing
   // the single-click commit. Cleared on leave/blur.
   const [resolveIntent, setResolveIntent] = useState<'authorization' | 'refusal' | null>(null)
+  // The action group the employee is CURRENTLY working on, tracked by recency of
+  // interaction (not a fixed priority), so the Next History Entry preview
+  // follows what they are doing right now: it becomes 'communication' when they
+  // touch a direction/channel/note control and 'follow-up' when they engage the
+  // follow-up date, each on the most recent interaction. This is what makes the
+  // preview switch to the follow-up after a communication was composed, and back
+  // to the communication if they return to editing it. Null until the first
+  // interaction, where the default compose preview applies.
+  const [activeGroup, setActiveGroup] = useState<'communication' | 'follow-up' | null>(null)
 
   // Awaiting the signed authorization: the form was SENT but not yet returned
   // (waiting-for-form with no recorded receipt). Such a customer is still in
@@ -3241,34 +3250,42 @@ function CustomerInteractionAction({
 
   // Report the SINGLE action the worker is preparing up to the history column,
   // so the Next History Entry preview reflects it. Exactly one action is
-  // previewed; independent actions are never combined. Precedence by genuine
-  // intent: a resolve button being engaged (hover/focus) wins, then a
-  // communication the worker is actively composing (a typed note or a direction/
-  // channel moved from the untouched default), then a follow-up date, otherwise
-  // the default compose action (the panel's primary action). Nothing is ever
-  // described as already recorded.
+  // previewed; independent actions are never combined, and nothing is ever
+  // described as already recorded. The previewed action FOLLOWS what the worker
+  // is doing right now, chosen by recency of interaction rather than a fixed
+  // priority:
+  //   1. A resolve button being engaged (hover/focus) wins while engaged.
+  //   2. Otherwise the group the worker most recently interacted with
+  //      (activeGroup): the follow-up when they are working the follow-up date,
+  //      the communication when they are composing it.
+  //   3. Before any interaction, the panel's primary action — the default
+  //      compose selection.
+  // So composing a communication, then entering a follow-up date, moves the
+  // preview to the follow-up; returning to the communication moves it back.
   const directionOf = (): 'incoming' | 'automated' | 'outgoing' =>
     !incoming ? 'outgoing' : automated ? 'automated' : 'incoming'
-  const composeTouched = notes.trim().length > 0 || !incoming || automated || channel !== 'email'
+  const communicationPreview = (): InteractionSelection => ({
+    kind: 'communication', direction: directionOf(), channel, note: notes.trim() || null,
+  })
   useEffect(() => {
     if (!onSelectionChange) return
     if (resolveIntent) {
       onSelectionChange({ kind: resolveIntent })
       return
     }
-    if (composeTouched) {
-      onSelectionChange({ kind: 'communication', direction: directionOf(), channel, note: notes.trim() || null })
+    if (activeGroup === 'follow-up') {
+      onSelectionChange({ kind: 'follow-up', date: followUpDate || null })
       return
     }
-    if (followUpDate) {
-      onSelectionChange({ kind: 'follow-up', date: followUpDate })
+    if (activeGroup === 'communication') {
+      onSelectionChange(communicationPreview())
       return
     }
-    // Idle default: the panel's primary action is recording a communication, so
-    // preview that default compose selection.
-    onSelectionChange({ kind: 'communication', direction: directionOf(), channel, note: null })
+    // Before any interaction: the panel's primary action is recording a
+    // communication, so preview that default compose selection.
+    onSelectionChange(communicationPreview())
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onSelectionChange, resolveIntent, composeTouched, incoming, automated, channel, notes, followUpDate])
+  }, [onSelectionChange, resolveIntent, activeGroup, incoming, automated, channel, notes, followUpDate])
 
   const ChannelIcon = INTERACTION_CHANNELS.find(c => c.id === channel)?.icon ?? Mail
   const noteBox = (note || localNote) && (
@@ -3322,8 +3339,15 @@ function CustomerInteractionAction({
       )}
 
       {/* Record the conversation — incoming or outgoing, by email, phone, or
-          text. No guided telephone flow required. */}
-      <div className="space-y-3 rounded-xl border border-surface-border bg-surface-card p-4">
+          text. No guided telephone flow required. Any interaction within this
+          group marks the communication as the action being worked on, so the
+          Next History Entry preview follows it (focus or pointer-down, captured
+          so it also covers the buttons, textarea, and checkbox). */}
+      <div
+        className="space-y-3 rounded-xl border border-surface-border bg-surface-card p-4"
+        onFocusCapture={() => setActiveGroup('communication')}
+        onPointerDownCapture={() => setActiveGroup('communication')}
+      >
         <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">Record the conversation</p>
 
         {/* Direction. */}
@@ -3371,8 +3395,16 @@ function CustomerInteractionAction({
         </WorkflowButton>
       </div>
 
-      {/* Set a follow-up commitment and date — no phone call required. */}
-      <div className="space-y-2 rounded-xl border border-surface-border bg-surface-card p-4">
+      {/* Set a follow-up commitment and date — no phone call required. Engaging
+          this group marks the follow-up as the action being worked on, so the
+          Next History Entry preview follows it even after a communication was
+          composed (and switches back when the worker returns to the
+          communication). */}
+      <div
+        className="space-y-2 rounded-xl border border-surface-border bg-surface-card p-4"
+        onFocusCapture={() => setActiveGroup('follow-up')}
+        onPointerDownCapture={() => setActiveGroup('follow-up')}
+      >
         <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">Set a follow-up</p>
         <p className="text-sm text-ink-secondary">
           Promise to follow up on a date. It surfaces as a due follow-up here when the date arrives.
