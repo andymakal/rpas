@@ -248,7 +248,7 @@ export function ServicingAccessClient({
         A signed authorization just arrived? Find the customer
       </p>
       <CustomerSearch<SearchResult>
-        scope={projectId ? { kind: 'project', projectId } : { kind: 'all' }}
+        scope={projectId ? { kind: 'project', projectId } : { kind: 'myWork' }}
         onSelect={r => { void openCustomer(r.id) }}
         placeholder="Search by name or phone…"
         ariaLabel="Find a customer by name or phone"

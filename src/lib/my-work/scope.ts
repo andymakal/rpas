@@ -199,6 +199,102 @@ export async function getMyWorkCustomerIds(
   return result
 }
 
+/**
+ * The set of PROJECTS in the signed-in employee's My Work context: the projects
+ * whose outreach work this employee can act on, plus the active onboarding
+ * projects they are eligible for. This is the same basis the My Work Project
+ * filter is built from, so "All Projects" means exactly the projects the worker
+ * is actually working — not every project in Right Path.
+ *
+ * Used to scope an "All Projects" search to the COMBINED membership of those
+ * projects (see getMyWorkProjectMemberIds), rather than the whole customer
+ * database.
+ */
+export async function getMyWorkProjectIds(authUserId: string): Promise<Set<string>> {
+  const supabase = createAdminClient()
+
+  const [profile, workFunctions] = await Promise.all([
+    resolveCapabilityProfile(authUserId),
+    loadWorkFunctions(),
+  ])
+  if (!profile) return new Set<string>()
+
+  const outreachRequiredQual =
+    workFunctions.find((w) => w.canonicalKey === 'outreach')?.requiredQualification ?? null
+
+  // Open board customers and their project associations (same reads as the
+  // customer-id scope), to find which projects the worker's actionable outreach
+  // touches.
+  const boardRows = await fetchAllRows<BoardRow>((from, to) =>
+    supabase
+      .from('stewardship_outreach')
+      .select('refused_at, customer_prereviews!inner ( decision, customer_id )')
+      .range(from, to),
+  )
+  const openCustomerIds = Array.from(
+    new Set(
+      boardRows
+        .filter((r) => r.customer_prereviews?.decision == null && r.refused_at == null)
+        .map((r) => r.customer_prereviews!.customer_id),
+    ),
+  )
+
+  const projectsByCustomer = new Map<string, Set<string>>()
+  for (let i = 0; i < openCustomerIds.length; i += 300) {
+    const chunk = openCustomerIds.slice(i, i + 300)
+    const memberships = await fetchAllRows<{ customer_id: string; project_id: string }>((from, to) =>
+      supabase
+        .from('project_customers')
+        .select('customer_id, project_id')
+        .in('customer_id', chunk)
+        .range(from, to),
+    )
+    for (const m of memberships) {
+      const set = projectsByCustomer.get(m.customer_id) ?? new Set<string>()
+      set.add(m.project_id)
+      projectsByCustomer.set(m.customer_id, set)
+    }
+  }
+
+  const projectIds = new Set<string>()
+  for (const cid of openCustomerIds) {
+    const itemProjects = projectsByCustomer.get(cid) ?? new Set<string>()
+    if (itemProjects.size === 0) continue
+    if (!canActOnItem(profile, 'outreach', outreachRequiredQual, itemProjects)) continue
+    for (const pid of itemProjects) projectIds.add(pid)
+  }
+
+  // Active onboarding projects the worker is eligible for also belong to the
+  // context, so their members are searchable even before any board record
+  // exists (parity with getMyWorkCustomerIds' derived-onboarding inclusion).
+  const onboardingProjects = (await activeProjectsWithWorkflow(supabase, 'servicing_agent_onboarding')) ?? []
+  for (const p of onboardingProjects) {
+    if (canActOnItem(profile, 'outreach', outreachRequiredQual, new Set([p.id]))) {
+      projectIds.add(p.id)
+    }
+  }
+
+  return projectIds
+}
+
+/**
+ * The COMBINED customer membership of the projects in the employee's My Work
+ * context — the union of project_customers across getMyWorkProjectIds. This is
+ * the authoritative population an "All Projects" Customer Interaction search is
+ * scoped to: every customer belonging to a project the worker is working, and
+ * no unrelated customers. Empty set when the worker has no context projects.
+ */
+export async function getMyWorkProjectMemberIds(authUserId: string): Promise<Set<string>> {
+  const supabase = createAdminClient()
+  const projectIds = await getMyWorkProjectIds(authUserId)
+  const all = new Set<string>()
+  for (const pid of projectIds) {
+    const members = await fetchProjectMemberIds(supabase, pid)
+    for (const cid of members) all.add(cid)
+  }
+  return all
+}
+
 /** All member customer ids of a project, paged past the default row cap. */
 async function fetchProjectMemberIds(
   supabase: ReturnType<typeof createAdminClient>,

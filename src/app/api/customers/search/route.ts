@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
-import { getMyWorkCustomerIds } from '@/lib/my-work/scope'
+import { getMyWorkCustomerIds, getMyWorkProjectMemberIds } from '@/lib/my-work/scope'
 import { NextRequest } from 'next/server'
 
 /**
@@ -81,14 +81,21 @@ export async function GET(request: NextRequest) {
     }
     projectScopeId = scopeProjectId
   } else if (scope === 'mywork') {
-    // The signed-in employee's My Work population (all projects, or one project
-    // when project_id is present). Resolved from the session, not a param, so a
-    // worker can only scope to their own work.
+    // The signed-in employee's My Work context. Resolved from the session, not
+    // a param, so a worker can only scope to their own work.
     const sessionClient = await createClient()
     const { data: { user } } = await sessionClient.auth.getUser()
     if (!user) return Response.json({ data: [] })
     try {
-      myWorkIds = await getMyWorkCustomerIds({ authUserId: user.id, projectId: scopeProjectId })
+      if (scopeProjectId) {
+        // A single project in the My Work context: that project's membership.
+        myWorkIds = await getMyWorkCustomerIds({ authUserId: user.id, projectId: scopeProjectId })
+      } else {
+        // All Projects: the COMBINED membership of every project in the worker's
+        // My Work context — not the whole customer database. Agency-wide
+        // customer lookup lives on other screens (no scope), unchanged.
+        myWorkIds = await getMyWorkProjectMemberIds(user.id)
+      }
     } catch (e) {
       return Response.json({ error: (e as Error).message }, { status: 500 })
     }
