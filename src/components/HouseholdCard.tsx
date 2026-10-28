@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Users, Search, Link2, Unlink, ExternalLink, X, Loader2, UserPlus } from 'lucide-react'
+import { Users, Link2, Unlink, ExternalLink, X, Loader2, UserPlus } from 'lucide-react'
+import { CustomerSearch, type CustomerSearchHit } from '@/components/CustomerSearch'
 
 export type HouseholdMember = {
   id: string
@@ -60,9 +61,6 @@ export function HouseholdCard({
   const [householdId,  setHouseholdId]  = useState(initialHouseholdId)
   const [members,      setMembers]      = useState<HouseholdMember[]>(initialMembers)
   const [searching,    setSearching]    = useState(false)
-  const [searchQ,      setSearchQ]      = useState('')
-  const [searchResults, setSearchResults] = useState<SearchResult[]>([])
-  const [searchLoading, setSearchLoading] = useState(false)
   const [linking,      setLinking]      = useState<string | null>(null)   // customer id being linked
   const [unlinking,    setUnlinking]    = useState<string | null>(null)   // customer id being unlinked
   const [error,        setError]        = useState<string | null>(null)
@@ -72,21 +70,8 @@ export function HouseholdCard({
   const [newLast,      setNewLast]      = useState('')
   const [newPhone,     setNewPhone]     = useState('')
 
-  const doSearch = useCallback(async (q: string) => {
-    if (q.length < 2) { setSearchResults([]); return }
-    setSearchLoading(true)
-    try {
-      const params = new URLSearchParams({ q, exclude: currentCustomerId })
-      if (agencyId) params.set('agency_id', agencyId)
-      const res = await fetch(`/api/customers/search?${params}`)
-      const { data } = await res.json()
-      setSearchResults(data ?? [])
-    } finally {
-      setSearchLoading(false)
-    }
-  }, [currentCustomerId, agencyId])
-
-  async function handleLink(targetCustomerId: string) {
+  async function handleLink(found: SearchResult) {
+    const targetCustomerId = found.id
     setLinking(targetCustomerId); setError(null)
     try {
       const res = await fetch('/api/customer-groups/link', {
@@ -108,8 +93,7 @@ export function HouseholdCard({
       // Immediately add the linked person to the members list so it shows
       // without waiting for a full page reload. router.refresh() will sync
       // any stale data in the background.
-      const found = searchResults.find(r => r.id === targetCustomerId)
-      if (found) {
+      {
         const lc = found.cases?.[0] ?? null
         setMembers(prev => [...prev, {
           id:               found.id,
@@ -129,8 +113,6 @@ export function HouseholdCard({
       }
 
       setSearching(false)
-      setSearchQ('')
-      setSearchResults([])
       router.refresh()
     } finally {
       setLinking(null)
@@ -302,44 +284,23 @@ export function HouseholdCard({
       {searching && (
         <div className="space-y-3 pt-1">
           <div className="flex items-center gap-2">
-            <div className="relative flex-1">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
-              <input
-                autoFocus
-                type="text"
-                value={searchQ}
-                onChange={e => {
-                  setSearchQ(e.target.value)
-                  doSearch(e.target.value)
-                }}
-                placeholder="Search by last name…"
-                className="w-full bg-slate-800 border border-slate-600 text-slate-200 text-sm rounded-lg pl-8 pr-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
-              />
-            </div>
-            <button
-              onClick={() => { setSearching(false); setSearchQ(''); setSearchResults([]) }}
-              className="p-1.5 text-slate-500 hover:text-slate-300 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          {searchLoading && (
-            <p className="text-xs text-slate-500 flex items-center gap-1.5">
-              <Loader2 className="w-3 h-3 animate-spin" /> Searching…
-            </p>
-          )}
-
-          {!searchLoading && searchResults.length > 0 && (
-            <div className="space-y-1 max-h-48 overflow-y-auto">
-              {searchResults.map(r => {
+            <CustomerSearch<SearchResult>
+              className="flex-1"
+              theme="dark"
+              exclude={currentCustomerId}
+              agencyId={agencyId}
+              autoFocus
+              busyId={linking}
+              placeholder="Search by name or phone…"
+              onSelect={handleLink}
+              renderRow={(r, { busy, select }) => {
                 const latestCase = r.cases?.[0]
                 return (
                   <button
-                    key={r.id}
-                    onClick={() => handleLink(r.id)}
-                    disabled={!!linking}
-                    className="w-full flex items-center justify-between gap-3 rounded-lg border border-slate-700 bg-slate-800/30 px-3 py-2.5 text-left hover:bg-slate-800/70 transition-colors disabled:opacity-50"
+                    type="button"
+                    onClick={select}
+                    disabled={busy}
+                    className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-slate-700/60 transition-colors disabled:opacity-50"
                   >
                     <div className="min-w-0">
                       <p className="text-sm text-slate-200 font-medium">
@@ -353,31 +314,36 @@ export function HouseholdCard({
                           {latestCase.stage_translations.agency_label}
                         </span>
                       )}
-                      {linking === r.id
+                      {busy
                         ? <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-400" />
                         : <Link2 className="w-3.5 h-3.5 text-slate-500" />
                       }
                     </div>
                   </button>
                 )
-              })}
-            </div>
-          )}
-
-          {!searchLoading && searchQ.length >= 2 && searchResults.length === 0 && (
-            <div className="space-y-2">
-              <p className="text-xs text-slate-500">No customers found matching &quot;{searchQ}&quot;</p>
-              <button
-                onClick={() => {
-                  setSearching(false); setSearchQ(''); setSearchResults([])
-                  setNewLast(searchQ.trim()); setCreating(true); setError(null)
-                }}
-                className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors"
-              >
-                <UserPlus className="w-3 h-3" /> Create a new customer record instead
-              </button>
-            </div>
-          )}
+              }}
+              renderEmpty={term => (
+                <div className="space-y-2 pt-1">
+                  <p className="text-xs text-slate-500">No customers found matching &quot;{term}&quot;</p>
+                  <button
+                    onClick={() => {
+                      setSearching(false)
+                      setNewLast(term); setCreating(true); setError(null)
+                    }}
+                    className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors"
+                  >
+                    <UserPlus className="w-3 h-3" /> Create a new customer record instead
+                  </button>
+                </div>
+              )}
+            />
+            <button
+              onClick={() => { setSearching(false) }}
+              className="p-1.5 text-slate-500 hover:text-slate-300 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
         </div>
       )}
 

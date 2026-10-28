@@ -101,6 +101,13 @@ type CustomerSearchProps<T extends CustomerSearchHit> = {
    * is rendered and clicking it calls onSelect.
    */
   renderRow?: (hit: T, args: RenderRowArgs<T>) => React.ReactNode
+  /**
+   * Custom empty-state renderer, shown when the search has run and returned no
+   * matches. Receives the trimmed query so a screen can offer a query-aware
+   * action (e.g. "create a new customer named …"). When omitted, a plain
+   * "No matches." line is shown.
+   */
+  renderEmpty?: (term: string) => React.ReactNode
   /** Extra classes for the outer wrapper. */
   className?: string
 }
@@ -123,6 +130,7 @@ export function CustomerSearch<T extends CustomerSearchHit>({
   autoFocus = false,
   busyId = null,
   renderRow,
+  renderEmpty,
   className,
 }: CustomerSearchProps<T>) {
   const [query, setQuery] = useState('')
@@ -216,16 +224,28 @@ export function CustomerSearch<T extends CustomerSearchHit>({
       </div>
 
       {active && (
-        <div className={styles.panel}>
-          {searching && results.length === 0 ? (
+        searching && results.length === 0 ? (
+          <div className={styles.panel}>
             <p className={styles.note}>
               <Loader2 className="size-3.5 animate-spin" aria-hidden /> Searching…
             </p>
-          ) : error ? (
+          </div>
+        ) : error ? (
+          <div className={styles.panel}>
             <p className={styles.error}>{error}</p>
-          ) : results.length === 0 ? (
-            <p className={styles.note}>No matches.</p>
+          </div>
+        ) : results.length === 0 ? (
+          // A custom empty state (e.g. a "create new customer" CTA) owns its own
+          // chrome; the default "No matches." uses the panel.
+          renderEmpty ? (
+            <div className="mt-2">{renderEmpty(term)}</div>
           ) : (
+            <div className={styles.panel}>
+              <p className={styles.note}>No matches.</p>
+            </div>
+          )
+        ) : (
+          <div className={styles.panel}>
             <ul className={styles.list}>
               {results.map(hit => {
                 const args: RenderRowArgs<T> = {
@@ -239,8 +259,8 @@ export function CustomerSearch<T extends CustomerSearchHit>({
                 )
               })}
             </ul>
-          )}
-        </div>
+          </div>
+        )
       )}
     </div>
   )

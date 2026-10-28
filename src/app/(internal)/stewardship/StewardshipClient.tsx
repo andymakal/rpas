@@ -27,6 +27,7 @@ import {
   PolicySummaryList, type PolicySummary,
   CustomerHistoryCard, NextHistoryEntry,
 } from '@/components/workflow'
+import { CustomerSearch } from '@/components/CustomerSearch'
 import {
   carrierEmailSubject, carrierEmailMessage, uniqueCarriers, resolveCarrierRecipient,
 } from '@/lib/stewardship/carrier-email'
@@ -1113,29 +1114,8 @@ function StartCapture({ agencies, onStarted }: { agencies: AgencyOption[]; onSta
  * /api/stewardship/start.
  */
 function StartSingleCustomer({ onStarted }: { onStarted: () => void }) {
-  const [q, setQ] = useState('')
-  const [results, setResults] = useState<CustomerSearchResult[]>([])
-  const [searching, setSearching] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [result, setResult] = useState<string | null>(null)
-
-  // Debounced name/phone search once the query is at least 2 characters.
-  useEffect(() => {
-    const term = q.trim()
-    if (term.length < 2) { setResults([]); return }
-    let cancelled = false
-    setSearching(true)
-    const t = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/customers/search?q=${encodeURIComponent(term)}`, { cache: 'no-store' })
-        const json = await res.json()
-        if (!cancelled && res.ok) setResults((json.data ?? []) as CustomerSearchResult[])
-      } finally {
-        if (!cancelled) setSearching(false)
-      }
-    }, 250)
-    return () => { cancelled = true; clearTimeout(t) }
-  }, [q])
 
   async function startOne(c: CustomerSearchResult) {
     setBusyId(c.id); setResult(null)
@@ -1155,7 +1135,6 @@ function StartSingleCustomer({ onStarted }: { onStarted: () => void }) {
         } else {
           setResult(`${name} has no known policy to onboard.`)
         }
-        setQ(''); setResults([])
         onStarted()
       } else {
         setResult(json.error ?? 'Could not start onboarding.')
@@ -1175,39 +1154,25 @@ function StartSingleCustomer({ onStarted }: { onStarted: () => void }) {
         goes into the servicing-agent request.
       </p>
       <div className="mt-3 max-w-md">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted" aria-hidden />
-          <input
-            value={q}
-            onChange={e => setQ(e.target.value)}
-            placeholder="Search customer…"
-            className="w-full rounded-lg border border-surface-border-strong bg-surface-card py-2 pl-9 pr-3 text-sm text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-ring/40"
-          />
-        </div>
-        {q.trim().length >= 2 && (
-          <div className="mt-2 overflow-hidden rounded-lg border border-surface-border">
-            {searching && results.length === 0 ? (
-              <p className="px-3 py-2 text-sm text-ink-muted">Searching…</p>
-            ) : results.length === 0 ? (
-              <p className="px-3 py-2 text-sm text-ink-muted">No matches.</p>
-            ) : (
-              results.map(c => (
-                <button
-                  key={c.id}
-                  type="button"
-                  disabled={busyId === c.id}
-                  onClick={() => startOne(c)}
-                  className="flex w-full items-center justify-between gap-3 border-b border-surface-border px-3 py-2 text-left last:border-b-0 hover:bg-surface-muted disabled:opacity-50"
-                >
-                  <span className="text-sm font-medium text-ink">{c.first_name} {c.last_name}</span>
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-hover">
-                    <Play className="size-3.5" aria-hidden /> {busyId === c.id ? 'Starting…' : 'Start'}
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
-        )}
+        <CustomerSearch<CustomerSearchResult>
+          placeholder="Search customer…"
+          ariaLabel="Search a customer to start onboarding"
+          busyId={busyId}
+          onSelect={startOne}
+          renderRow={(c, { busy, select }) => (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={select}
+              className="flex w-full items-center justify-between gap-3 border-b border-surface-border px-3 py-2 text-left last:border-b-0 hover:bg-surface-muted disabled:opacity-50"
+            >
+              <span className="text-sm font-medium text-ink">{c.first_name} {c.last_name}</span>
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-hover">
+                <Play className="size-3.5" aria-hidden /> {busy ? 'Starting…' : 'Start'}
+              </span>
+            </button>
+          )}
+        />
         {result && <p className="mt-2 text-sm font-medium text-ink-secondary">{result}</p>}
       </div>
     </div>
