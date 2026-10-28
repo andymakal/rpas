@@ -31,6 +31,7 @@ import {
   carrierEmailSubject, carrierEmailMessage, uniqueCarriers, resolveCarrierRecipient,
 } from '@/lib/stewardship/carrier-email'
 import { type EmailAvailability } from '@/lib/email-availability'
+import { canTextGivenFacts } from '@/lib/sms-availability'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import {
   QUEUE_META, OUTREACH_QUEUES,
@@ -328,6 +329,33 @@ const QUEUE_GROUPS: { label: string; queues: OutreachQueue[] }[] = [
 
 function fullName(c: Customer) {
   return `${c.first_name} ${c.last_name}`.trim()
+}
+
+/**
+ * Whether the Hearsay text / text channel may be offered for this customer.
+ *
+ * The AUTHORITATIVE answer is `detail.contact_options.canText`, recomputed
+ * server-side from the customer's current saved facts and customer-wide,
+ * value-scoped recorded failures (and Do Not Text), and refreshed after every
+ * card save. This is the single source of truth and is used whenever it is
+ * present.
+ *
+ * The `?? ` branch is ONLY a conservative fallback for the brief window before
+ * the task detail has loaded (contact_options null). In that window we must
+ * never offer texting to a customer the card shows as restricted, so the
+ * fallback subtracts the two customer-level text restrictions the card itself
+ * displays (Do Not Text + Text Undeliverable for the number on file) via the
+ * SAME `canTextGivenFacts` resolver the card uses. It is a fallback, not a
+ * second availability decision: once contact_options arrives it governs.
+ */
+function textActionAvailable(detail: Detail): boolean {
+  if (detail.contact_options) return detail.contact_options.canText
+  const phone = detail.customer.phone?.trim()
+  if (!phone) return false
+  return canTextGivenFacts({
+    smsOptOut: detail.customer.sms_opt_out === true,
+    textUndeliverable: detail.customer.text_undeliverable === true,
+  })
 }
 
 /**
@@ -2692,7 +2720,7 @@ function CallWorkbenchAction({
   //   - The Hearsay text needs a textable phone AND the callback number is not
   //     required (the text does not state it), but it does identify the caller.
   //   - The follow-up email needs a usable email.
-  const canText = detail.contact_options?.canText ?? !!phone
+  const canText = textActionAvailable(detail)
   const canEmail = detail.contact_options?.canEmail ?? !!c.email
   const hasCallbackNumber = !!callbackPhone
 
@@ -4161,7 +4189,7 @@ function RecordAttemptPanel({
   const channels: { id: ContactChannelId; label: string; available: boolean }[] = [
     { id: 'call', label: 'Call', available: opts?.canCall ?? !!detail.customer.phone },
     { id: 'voicemail', label: 'Voicemail', available: opts?.canCall ?? !!detail.customer.phone },
-    { id: 'text', label: 'Text (Hearsay)', available: opts?.canText ?? !!detail.customer.phone },
+    { id: 'text', label: 'Text (Hearsay)', available: textActionAvailable(detail) },
     { id: 'email', label: 'Email', available: opts?.canEmail ?? !!detail.customer.email },
   ]
   const offered = channels.filter(c => c.available)

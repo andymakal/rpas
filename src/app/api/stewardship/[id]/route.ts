@@ -4,12 +4,12 @@ import { createClient } from '@/lib/supabase/server'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { handoffToInitialAnalysis } from '@/lib/stewardship/analysis-handoff'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
-import { getAttemptHistory } from '@/lib/stewardship/attempt-history'
+import { getAttemptHistory, readUnusableChannelsByCustomer } from '@/lib/stewardship/attempt-history'
 import { buildCustomerHistory, type HistoryTouchRow } from '@/lib/stewardship/customer-history'
 import { resolveNextCallDate } from '@/lib/stewardship/call-cadence'
 import { resolveContactOptions } from '@/lib/stewardship/contact-options'
 import { type EmailAvailability } from '@/lib/email-availability'
-import { OUTCOME_MARKERS, REACHED_MARKER, buildUnusableMarker } from '@/lib/stewardship/outreach-attempts'
+import { OUTCOME_MARKERS, REACHED_MARKER, buildUnusableMarker, type OutreachChannel } from '@/lib/stewardship/outreach-attempts'
 import { retireUndeliverableEmail } from '@/lib/stewardship/email-undeliverable'
 import {
   buildResearchTouchRows,
@@ -232,6 +232,28 @@ export async function GET(
     current: { email: cust.email, phone: cust.phone },
   })
 
+  // The CUSTOMER-WIDE channel-usability authority for AVAILABILITY. The
+  // run-scoped `history.unusableChannels` above is the correct basis for cadence
+  // and attempt COUNTS (onboarding touches at/after this run's start), but it is
+  // the WRONG source for whether a channel can be used right now: a Text
+  // Undeliverable or a bad-number failure is a property of the CUSTOMER and the
+  // VALUE, not of one onboarding run, and the shared Customer Contact Card reads
+  // it customer-wide. Using the same customer-wide, value-scoped read here
+  // (which also honors a Text Undeliverable recorded through the card as a plain
+  // [sms-undeliverable] text row, and legacy value-less marks) makes the
+  // workflow's available actions agree with what the card displays — the single
+  // authoritative interpretation of contact availability — regardless of where
+  // or when the failure was recorded. A replacement value self-heals because the
+  // mark is matched against the current digits/address. Attempt counts and
+  // cadence are unaffected: they still come from `history` above.
+  const customerWideUnusable = Array.from(
+    (await readUnusableChannelsByCustomer(
+      supabase,
+      [customerId],
+      new Map([[customerId, { email: cust.email, phone: cust.phone }]]),
+    )).get(customerId) ?? new Set<OutreachChannel>(),
+  )
+
   // The DISPLAY customer history for the working-screen Customer History card.
   // It reads the one durable history (case_touches) and groups the several
   // communications of a single interaction into one readable event, newest
@@ -271,12 +293,15 @@ export async function GET(
       state: cust.state,
       zip: cust.zip,
     },
-    history.unusableChannels,
+    // Customer-wide, value-scoped unusable channels (not the run-scoped count
+    // basis), so the offered actions match the card and honor failures recorded
+    // in any run or through the card.
+    customerWideUnusable,
     // Do Not Text (durable customers.sms_opt_out) disables TEXTING only, never
     // calling. Passing it here makes the authoritative canText subtract the
     // opt-out alongside the value-scoped text-unusable fact already carried in
-    // unusableChannels, so the workflow's text action matches the card without a
-    // second client-side availability calculation.
+    // the customer-wide unusable list, so the workflow's text action matches the
+    // card without a second client-side availability calculation.
     cust.sms_opt_out === true,
   )
 
@@ -419,7 +444,11 @@ export async function GET(
   const customerForCard = {
     ...cust,
     sms_opt_out: cust.sms_opt_out === true,
-    text_undeliverable: history.unusableChannels.includes('text'),
+    // Seed Text Undeliverable from the SAME customer-wide, value-scoped read the
+    // card's own endpoint uses, so the initial render matches what the
+    // self-contained card shows after it re-fetches (no flicker, no contradiction
+    // with the offered text action).
+    text_undeliverable: customerWideUnusable.includes('text'),
     customer_age: customerAge,
     customer_age_approximate: customerAgeApproximate,
   }

@@ -91,3 +91,38 @@ test('contact-options: opt-out and delivery failure stack; email is untouched', 
   assert.equal(opts.canCall, true)
   assert.equal(opts.canEmail, true, 'texting restrictions never affect emailing')
 })
+
+// ── Invariant: the card's DISPLAYED texting status can never contradict the
+// authoritative workflow decision ───────────────────────────────────────────
+// The card shows status via resolveSmsAvailabilityDisplay(smsOptOut,
+// textUndeliverable); the workflow offers the text action via
+// evaluateContactOptions.canText over the SAME two facts (plus the per-number
+// text-unusable fact passed as unusableChannels). For a customer WITH a usable
+// number, the card showing any restriction (do_not_text / undeliverable) must
+// coincide exactly with the workflow disabling texting, and the card showing
+// 'available' must coincide with the workflow offering it. This is the
+// "displayed restriction cannot contradict an offered action" guarantee.
+test('invariant: displayed texting status agrees with the authoritative canText for every fact combination', async () => {
+  const facts = toContactFacts({ phone: '(215) 555-0100', email: null })
+  for (const smsOptOut of [false, true]) {
+    for (const textUndeliverable of [false, true]) {
+      const display = resolveSmsAvailabilityDisplay({ smsOptOut, textUndeliverable })
+      const cardShowsRestricted = display !== 'available'
+      // The workflow applies the two facts as the stewardship route now does:
+      // Do Not Text via smsOptOut, Text Undeliverable via the value-scoped
+      // 'text' unusable channel.
+      const opts = await evaluateContactOptions(facts, {
+        smsOptOut,
+        unusableChannels: textUndeliverable ? ['text'] : [],
+      })
+      const workflowOffersText = opts.canText
+      assert.equal(
+        cardShowsRestricted, !workflowOffersText,
+        `contradiction at smsOptOut=${smsOptOut} textUndeliverable=${textUndeliverable}: ` +
+        `card display='${display}' but canText=${workflowOffersText}`,
+      )
+      // Calling is never removed by a text-only restriction.
+      assert.equal(opts.canCall, true, 'calling stays available regardless of text restrictions')
+    }
+  }
+})
