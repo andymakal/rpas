@@ -48,6 +48,16 @@ export async function GET(request: NextRequest) {
   const scope     = searchParams.get('scope')?.trim() ?? ''
   const scopeProjectId = searchParams.get('project_id')?.trim() || null
 
+  // Pagination + ranking (default/household mode only; opt-in so the specialized
+  // pickers keep their existing fixed-size, unranked behavior). A work-oriented
+  // search screen passes rank=lastname and a page size/offset; a picker passes
+  // neither and gets the historical top-10.
+  const rankByLastName = searchParams.get('rank') === 'lastname'
+  const rawLimit  = parseInt(searchParams.get('limit') ?? '', 10)
+  const rawOffset = parseInt(searchParams.get('offset') ?? '', 10)
+  const pageLimit  = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 100) : 10
+  const pageOffset = Number.isFinite(rawOffset) && rawOffset >= 0 ? rawOffset : 0
+
   if (q.length < 2) {
     return Response.json({ data: [] })
   }
@@ -261,8 +271,15 @@ export async function GET(request: NextRequest) {
     return Response.json({ data: results })
   }
 
-  // ── Household link mode ───────────────────────────────────────────────────
+  // ── Household / default mode ──────────────────────────────────────────────
   void agencyId  // received but not used; kept in signature for future use
+
+  // The candidate cap when ranking: ranking (exact-last-name first) must be
+  // computed over the WHOLE match set before paging, so we read enough rows to
+  // rank correctly. Name-search match sets are small (the most common last name
+  // has <100 customers; a partial like "smith" ~80), so a generous cap never
+  // truncates a real name search while bounding a pathological 2-letter query.
+  const RANK_CANDIDATE_CAP = 500
 
   let query = applyScopeFilters(
     supabase
@@ -272,7 +289,9 @@ export async function GET(request: NextRequest) {
   )
     .order('last_name')
     .order('first_name')
-    .limit(10)
+    // Ranked mode reads up to the candidate cap (then ranks + pages in TS);
+    // unranked picker mode keeps the historical top-10.
+    .limit(rankByLastName ? RANK_CANDIDATE_CAP : 10)
 
   if (isPhoneSearch) {
     // Phone search: resolve matching ids digit-to-digit, then constrain.
@@ -305,5 +324,28 @@ export async function GET(request: NextRequest) {
     return rest
   })
 
-  return Response.json({ data: rows })
+  // Unranked picker path: preserve the exact historical response (top-10 by
+  // last/first name, no pagination envelope).
+  if (!rankByLastName) {
+    return Response.json({ data: rows })
+  }
+
+  // Ranked path: exact last-name matches first, then partial. "smith" shows
+  // Smith before Blacksmith/Goldsmith. A phone search has no meaningful
+  // last-name rank, so it keeps name order. Ties fall back to last/first name
+  // (the rows already arrive in that order, and the sort is stable).
+  const lastToken = q.split(/\s+/).filter(Boolean).pop()?.toLowerCase() ?? ''
+  const exactRank = (r: Record<string, unknown>): number =>
+    !isPhoneSearch && typeof r.last_name === 'string' && r.last_name.toLowerCase() === lastToken ? 0 : 1
+  const ranked = rows
+    .map((r, i) => ({ r, i }))
+    .sort((a, b) => exactRank(a.r) - exactRank(b.r) || a.i - b.i)
+    .map(x => x.r)
+
+  // Page the ranked list. has_more tells the client a Show More fetch will
+  // return additional matches, so results are never silently truncated.
+  const page = ranked.slice(pageOffset, pageOffset + pageLimit)
+  const hasMore = ranked.length > pageOffset + pageLimit
+
+  return Response.json({ data: page, has_more: hasMore })
 }

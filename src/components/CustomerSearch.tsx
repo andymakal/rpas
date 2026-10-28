@@ -66,6 +66,28 @@ export type CustomerSearchScope =
   | { kind: 'project'; projectId: string }
   | { kind: 'myWork'; projectId?: string | null }
 
+/**
+ * Opt-in compact scope picker for WORK-ORIENTED search screens (Customer
+ * Interaction, Servicing Access). When provided, the component renders a small
+ * dropdown letting the worker choose where to search and manages the selected
+ * scope itself; the `scope` prop is then ignored. Specialized pickers do NOT
+ * pass this — they keep a single fixed scope and no control.
+ *
+ *   - Current Project — the project in context (shown only when projectId is
+ *     set); scopes to that project's membership.
+ *   - All Projects — the combined membership of the worker's My Work projects.
+ *   - All Customers — the whole customer database (general lookup).
+ *
+ * `defaultChoice` selects the initial option: 'project' when working within a
+ * project, 'myWork' when working across projects, 'all' for general lookup.
+ */
+export type CustomerSearchScopePicker = {
+  projectId?: string | null
+  defaultChoice: 'project' | 'myWork' | 'all'
+}
+
+type ScopeChoice = 'project' | 'myWork' | 'all'
+
 type CustomerSearchProps<T extends CustomerSearchHit> = {
   /**
    * Which shared search mode to use. 'default' is the household-link / general
@@ -73,8 +95,13 @@ type CustomerSearchProps<T extends CustomerSearchHit> = {
    * state, case count) used for identity confirmation. Both match name + phone.
    */
   mode?: 'default' | 'dedup'
-  /** The population to restrict results to. Omit for a database-wide search. */
+  /** The population to restrict results to. Omit for a database-wide search.
+   *  Ignored when `scopePicker` is provided (the dropdown owns the scope). */
   scope?: CustomerSearchScope
+  /** Opt-in compact scope dropdown for work-oriented screens. Pickers omit it. */
+  scopePicker?: CustomerSearchScopePicker
+  /** Results per page (ranked mode). Default 25. Show More fetches the next page. */
+  pageSize?: number
   /** Customer id to exclude from results (e.g. the current customer). */
   exclude?: string | null
   /** Optional agency scope passed through to the endpoint (default mode). */
@@ -126,6 +153,8 @@ export function fullName(hit: CustomerSearchHit): string {
 export function CustomerSearch<T extends CustomerSearchHit>({
   mode = 'default',
   scope,
+  scopePicker,
+  pageSize = 25,
   exclude,
   agencyId,
   onSelect,
@@ -144,54 +173,90 @@ export function CustomerSearch<T extends CustomerSearchHit>({
   const [query, setQuery] = useState(initialQuery)
   const [results, setResults] = useState<T[]>([])
   const [searching, setSearching] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [hasMore, setHasMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  // Selected scope choice when the dropdown is in use. Defaults per the caller:
+  // Current Project in a project, All Projects across projects, All Customers
+  // for general lookup. Falls back off 'project' when no projectId exists.
+  const pickerProjectId = scopePicker?.projectId ?? null
+  const initialChoice: ScopeChoice =
+    scopePicker
+      ? scopePicker.defaultChoice === 'project' && !pickerProjectId
+        ? 'myWork'
+        : scopePicker.defaultChoice
+      : 'all'
+  const [scopeChoice, setScopeChoice] = useState<ScopeChoice>(initialChoice)
 
   const term = query.trim()
   const active = term.length >= minChars
 
-  // Flatten the scope object into stable primitives: the fetch and the effect
-  // deps depend on these, so the search re-runs when the scope kind or its
-  // project changes (e.g. the worker selects a different project) and results
-  // track the active context.
-  const scopeKind = scope?.kind ?? 'all'
+  // Ranked, paginated behavior is used whenever a scope picker is present (the
+  // work-oriented screens). Specialized pickers use neither and keep their
+  // historical fixed top-10, unranked response.
+  const ranked = !!scopePicker
+
+  // Resolve the effective scope: the dropdown choice when present, else the
+  // fixed `scope` prop. Flattened to primitives so the effect re-runs when the
+  // worker switches scope or project and results track the active context.
+  const effectiveScope: CustomerSearchScope = scopePicker
+    ? scopeChoice === 'project' && pickerProjectId
+      ? { kind: 'project', projectId: pickerProjectId }
+      : scopeChoice === 'myWork'
+        ? { kind: 'myWork', projectId: pickerProjectId }
+        : { kind: 'all' }
+    : scope ?? { kind: 'all' }
+
+  const scopeKind = effectiveScope.kind
   const scopeProjectId =
-    scope?.kind === 'project'
-      ? scope.projectId
-      : scope?.kind === 'myWork'
-        ? scope.projectId ?? null
+    effectiveScope.kind === 'project'
+      ? effectiveScope.projectId
+      : effectiveScope.kind === 'myWork'
+        ? effectiveScope.projectId ?? null
         : null
 
+  // Build the request params for a given page offset. Centralizes scope +
+  // ranking + pagination; pages never construct their own query.
+  const buildParams = (offset: number): URLSearchParams => {
+    const params = new URLSearchParams({ q: term })
+    if (mode === 'dedup') params.set('dedup', 'true')
+    if (exclude) params.set('exclude', exclude)
+    if (agencyId) params.set('agency_id', agencyId)
+    if (scopeKind === 'project') {
+      params.set('scope', 'project')
+      if (scopeProjectId) params.set('project_id', scopeProjectId)
+    } else if (scopeKind === 'myWork') {
+      params.set('scope', 'mywork')
+      if (scopeProjectId) params.set('project_id', scopeProjectId)
+    }
+    if (ranked) {
+      params.set('rank', 'lastname')
+      params.set('limit', String(pageSize))
+      params.set('offset', String(offset))
+    }
+    return params
+  }
+
   useEffect(() => {
-    if (!active) { setResults([]); setError(null); setSearching(false); return }
+    if (!active) { setResults([]); setError(null); setSearching(false); setHasMore(false); return }
     let cancelled = false
     setSearching(true)
     const t = setTimeout(async () => {
       try {
-        const params = new URLSearchParams({ q: term })
-        if (mode === 'dedup') params.set('dedup', 'true')
-        if (exclude) params.set('exclude', exclude)
-        if (agencyId) params.set('agency_id', agencyId)
-        // Context scope. 'all' adds nothing (database-wide). project/myWork set
-        // the scope the shared route enforces; pages never filter themselves.
-        if (scopeKind === 'project') {
-          params.set('scope', 'project')
-          if (scopeProjectId) params.set('project_id', scopeProjectId)
-        } else if (scopeKind === 'myWork') {
-          params.set('scope', 'mywork')
-          if (scopeProjectId) params.set('project_id', scopeProjectId)
-        }
-        const res = await fetch(`/api/customers/search?${params.toString()}`, { cache: 'no-store' })
+        const res = await fetch(`/api/customers/search?${buildParams(0).toString()}`, { cache: 'no-store' })
         const json = await res.json().catch(() => null)
         if (cancelled) return
         if (!res.ok) {
           setError(json?.error ?? 'Search failed.')
-          setResults([])
+          setResults([]); setHasMore(false)
           return
         }
         setError(null)
         setResults((json?.data ?? []) as T[])
+        setHasMore(json?.has_more === true)
       } catch {
-        if (!cancelled) { setError('Network error during search.'); setResults([]) }
+        if (!cancelled) { setError('Network error during search.'); setResults([]); setHasMore(false) }
       } finally {
         if (!cancelled) setSearching(false)
       }
@@ -199,7 +264,25 @@ export function CustomerSearch<T extends CustomerSearchHit>({
     return () => { cancelled = true; clearTimeout(t) }
     // term drives the effect; scope kind/project re-run it so results track the
     // active context; exclude/agencyId/mode are stable per usage.
-  }, [term, active, mode, exclude, agencyId, debounceMs, scopeKind, scopeProjectId])
+  }, [term, active, mode, exclude, agencyId, debounceMs, scopeKind, scopeProjectId, ranked, pageSize])
+
+  // Show More: fetch the next page and append, so results are never silently
+  // truncated. Uses the current result count as the offset.
+  async function showMore() {
+    if (loadingMore) return
+    setLoadingMore(true)
+    try {
+      const res = await fetch(`/api/customers/search?${buildParams(results.length).toString()}`, { cache: 'no-store' })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) { setError(json?.error ?? 'Search failed.'); return }
+      setResults(prev => [...prev, ...((json?.data ?? []) as T[])])
+      setHasMore(json?.has_more === true)
+    } catch {
+      setError('Network error loading more results.')
+    } finally {
+      setLoadingMore(false)
+    }
+  }
 
   const styles = useMemo(() => themeStyles(theme), [theme])
 
@@ -219,16 +302,30 @@ export function CustomerSearch<T extends CustomerSearchHit>({
 
   return (
     <div className={className}>
-      <div className="relative">
-        <Search className={styles.searchIcon} aria-hidden />
-        <input
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          placeholder={placeholder}
-          aria-label={ariaLabel}
-          autoFocus={autoFocus}
-          className={styles.input}
-        />
+      <div className="flex items-center gap-2">
+        <div className="relative flex-1">
+          <Search className={styles.searchIcon} aria-hidden />
+          <input
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder={placeholder}
+            aria-label={ariaLabel}
+            autoFocus={autoFocus}
+            className={styles.input}
+          />
+        </div>
+        {scopePicker && (
+          <select
+            value={scopeChoice}
+            onChange={e => setScopeChoice(e.target.value as ScopeChoice)}
+            aria-label="Search scope"
+            className={styles.scopeSelect}
+          >
+            {pickerProjectId && <option value="project">Current Project</option>}
+            <option value="myWork">All Projects</option>
+            <option value="all">All Customers</option>
+          </select>
+        )}
       </div>
 
       {active && (
@@ -267,6 +364,18 @@ export function CustomerSearch<T extends CustomerSearchHit>({
                 )
               })}
             </ul>
+            {hasMore && (
+              <button
+                type="button"
+                onClick={showMore}
+                disabled={loadingMore}
+                className={styles.showMore}
+              >
+                {loadingMore
+                  ? <><Loader2 className="size-3.5 animate-spin" aria-hidden /> Loading…</>
+                  : 'Show more'}
+              </button>
+            )}
           </div>
         )
       )}
@@ -288,6 +397,8 @@ function themeStyles(theme: Theme) {
       row: 'flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm text-slate-100 transition-colors hover:bg-slate-700/60 disabled:opacity-50',
       rowName: 'font-medium',
       rowMeta: 'text-xs text-slate-400',
+      scopeSelect: 'shrink-0 rounded-lg border border-slate-600 bg-slate-800 py-2 pl-2 pr-7 text-sm text-slate-200 focus:border-blue-500 focus:outline-none',
+      showMore: 'flex w-full items-center justify-center gap-1.5 border-t border-slate-700 px-3 py-2 text-sm font-medium text-blue-400 transition-colors hover:bg-slate-700/60 disabled:opacity-50',
     }
   }
   return {
@@ -302,5 +413,7 @@ function themeStyles(theme: Theme) {
     row: 'flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-base text-ink transition-colors hover:bg-surface-muted disabled:opacity-50',
     rowName: 'font-medium',
     rowMeta: 'text-sm text-ink-supporting',
+    scopeSelect: 'shrink-0 rounded-lg border border-surface-border-strong bg-surface-card py-2 pl-3 pr-8 text-sm text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-ring/40',
+    showMore: 'flex w-full items-center justify-center gap-1.5 border-t border-surface-border px-3 py-2 text-sm font-medium text-brand-hover transition-colors hover:bg-surface-muted disabled:opacity-50',
   }
 }
