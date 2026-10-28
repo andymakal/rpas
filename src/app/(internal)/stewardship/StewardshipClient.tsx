@@ -302,6 +302,10 @@ type Detail = BoardItem & {
    * correction screen, so contact research is one surface. Null when not in an
    * active 1035 project. */
   contact_research_project_id?: string | null
+  /** Every distinct policy number on file for the customer (service policies +
+   * associated cases, de-duplicated), for the shared Search Gateway look-up.
+   * Supplied by the GET route; empty when the customer has none. */
+  gateway_policy_numbers?: string[]
   /** The display customer history (grouped interactions, newest first) for the
    * working-screen Customer History card. Display only; supplied by the GET
    * route from the durable case_touches log. */
@@ -3842,10 +3846,22 @@ function ResearchAction({
   noteBox: React.ReactNode
   act: (action: unknown, successNote?: string) => void
 }) {
-  // One policy number from the servicing request pairs with the last name for
-  // the shared Gateway look-up, exactly like the consolidated Contact Research
-  // task the worker is sent to.
-  const policyNumber = request.map(h => h.policy_number).find(p => p && p.trim().length > 0) ?? null
+  // Every distinct policy number on file for the customer pairs with the last
+  // name for the shared Search Gateway look-up, exactly like the consolidated
+  // Contact Research task the worker is sent to. The GET route gathers these
+  // customer-wide (service policies + associated cases, de-duplicated); if that
+  // field is unavailable, fall back to the request holdings' numbers so the
+  // look-up still works.
+  const policyNumbers =
+    detail.gateway_policy_numbers && detail.gateway_policy_numbers.length > 0
+      ? detail.gateway_policy_numbers
+      : Array.from(
+          new Set(
+            request
+              .map(h => (h.policy_number ?? '').trim())
+              .filter(p => p.length > 0),
+          ),
+        )
 
   // Research Needed is no longer a separate correction screen. Contact research
   // is ONE consolidated surface: the project Contact Research task. From the
@@ -3859,27 +3875,17 @@ function ResearchAction({
 
   return (
     <ActionPanel heading={`Find contact for ${fullName(detail.customer)}`}>
-      {/* Mentoring (HOW) sits immediately ABOVE the instructions it explains —
-          the Gateway look-up and the hand-off below — never at the bottom. Its
-          own purple control is always shown; the global toggle only sets its
-          default open/closed state. */}
-      <MentorGuidance label="How to find a match">
-        Search Gateway with the customer&apos;s last name and policy number together — the policy
-        number is the surest way to land on the right record. If the policy number finds nothing,
-        try the last name alone, then confirm the date of birth before you save any email or phone.
-        One usable method is enough to move forward; you do not need both.
-      </MentorGuidance>
-
       <div className="flex items-center gap-2 rounded-xl border border-status-missing-border bg-status-missing-soft p-4 text-base text-status-missing-strong">
         <Search className="size-5" aria-hidden /> Usable contact information is missing or has failed.
       </div>
 
-      {/* The shared Gateway look-up — last name + policy number with Copy
-          buttons, identical to the consolidated Contact Research task. */}
+      {/* The shared Search Gateway look-up — last name + every policy number on
+          file, each with its own Copy button; identical to the consolidated
+          Contact Research task. */}
       <GatewayLookup
         lastName={detail.customer.last_name}
         fallbackName={fullName(detail.customer)}
-        policyNumber={policyNumber}
+        policyNumbers={policyNumbers}
       />
 
       {/* Hand off to the ONE consolidated Contact Research task. The capture,

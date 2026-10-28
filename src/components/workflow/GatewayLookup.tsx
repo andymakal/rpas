@@ -1,19 +1,22 @@
 'use client'
 
 /**
- * GatewayLookup — the shared "search Gateway by last name + policy number"
- * block used by the 1035 contact-gathering activities (project Contact Review
- * and Stewardship Research Needed).
+ * GatewayLookup — the self-contained "Search Gateway" block shared by every
+ * Contact Research surface (project Contact Review and Stewardship Research
+ * Needed today, any future surface the same way).
  *
- * It is the single, reusable version of the look-up step both activities share:
- * the customer's last name and one existing policy number, each with a Copy
- * button that writes the value to the clipboard and briefly confirms the copy.
+ * It renders the manual-search information a worker copies into Gateway: the
+ * customer's last name, and EVERY distinct Allstate policy number reliably on
+ * file for that customer, each on its own compact row with its own Copy button.
  * The policy number is the surest key to the right Gateway record; when none is
  * on file the control says so and the worker searches by last name alone.
  *
- * Behavior only — copy to clipboard and the transient "copied" confirmation.
- * It never reads or writes the customer record; the surrounding task owns the
- * contact capture and progression.
+ * It is behavior only — copy to clipboard and a transient "copied"
+ * confirmation. It never reads or writes the customer record and runs no
+ * Gateway integration; searching Gateway stays manual. The caller supplies the
+ * already-gathered, de-duplicated policy numbers (see
+ * `loadGatewayPolicyNumbers`), so the component carries no page-specific data
+ * wiring.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -23,75 +26,79 @@ import { WorkflowButton } from './primitives'
 export function GatewayLookup({
   lastName,
   fallbackName,
-  policyNumber,
-  stepLabel = '1. Search Gateway',
+  policyNumbers,
 }: {
   /** The customer's last name — the primary search term. */
   lastName: string | null
   /** Shown in place of an empty last name (e.g. the full name) so there is
    * always something to copy and search. */
   fallbackName?: string
-  /** One policy number on file, or null/empty when the customer has none. */
-  policyNumber: string | null
-  /** The step heading. Defaults to the Contact Review wording; callers can pass
-   * their own (e.g. a different step number) without changing the look. */
-  stepLabel?: string
+  /** Every distinct policy number on file for the customer, already
+   * de-duplicated and ordered by the caller. Empty when the customer has none. */
+  policyNumbers: readonly string[]
 }) {
   const last = (lastName ?? '').trim()
-  const policy = (policyNumber ?? '').trim()
-  const hasPolicy = policy.length > 0
   const lastDisplay = last || (fallbackName ?? '').trim()
+  const policies = (policyNumbers ?? [])
+    .map((p) => (p ?? '').trim())
+    .filter((p) => p.length > 0)
+  const hasPolicy = policies.length > 0
 
-  // Which copy button last fired, so only that one shows its confirmed state.
-  const [copiedField, setCopiedField] = useState<'last' | 'policy' | null>(null)
+  // Which copy control last fired (the last name, or a specific policy by
+  // index), so only that one shows its confirmed state.
+  const [copied, setCopied] = useState<'last' | `policy-${number}` | null>(null)
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current) }, [])
 
-  const copyValue = useCallback((field: 'last' | 'policy', value: string) => {
+  const copyValue = useCallback((field: 'last' | `policy-${number}`, value: string) => {
     void navigator.clipboard.writeText(value)
-    setCopiedField(field)
+    setCopied(field)
     if (copyTimer.current) clearTimeout(copyTimer.current)
-    copyTimer.current = setTimeout(() => setCopiedField(null), 2000)
+    copyTimer.current = setTimeout(() => setCopied(null), 2000)
   }, [])
 
   return (
-    <div className="space-y-3 rounded-xl border border-surface-border bg-surface-muted/40 p-4">
-      <p className="text-base font-semibold text-ink-secondary">{stepLabel}</p>
+    <div className="space-y-2 rounded-xl border border-surface-border bg-surface-muted/40 p-4">
+      <p className="text-base font-semibold text-ink-secondary">Search Gateway</p>
+      <p className="text-sm text-ink-supporting">
+        Select Other locations, then search by last name and policy number.
+      </p>
 
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="flex flex-wrap items-center gap-3 pt-1">
         <span className="text-xl font-semibold text-ink">{lastDisplay || 'Unknown'}</span>
         <WorkflowButton
-          icon={copiedField === 'last' ? Check : Copy}
-          selected={copiedField === 'last'}
+          icon={copied === 'last' ? Check : Copy}
+          selected={copied === 'last'}
           onClick={() => copyValue('last', lastDisplay)}
           disabled={!lastDisplay}
         >
-          {copiedField === 'last' ? 'Last name copied' : 'Copy Last Name'}
+          {copied === 'last' ? 'Last name copied' : 'Copy Last Name'}
         </WorkflowButton>
       </div>
 
-      <div className="flex flex-wrap items-center gap-3">
-        {hasPolicy ? (
-          <>
-            <span className="font-mono text-xl font-semibold text-ink">{policy}</span>
-            <WorkflowButton
-              icon={copiedField === 'policy' ? Check : Copy}
-              selected={copiedField === 'policy'}
-              onClick={() => copyValue('policy', policy)}
-            >
-              {copiedField === 'policy' ? 'Policy number copied' : 'Copy Policy Number'}
-            </WorkflowButton>
-          </>
-        ) : (
-          <span className="inline-flex items-center gap-2 rounded-lg border border-surface-border bg-surface-card px-3 py-1.5 text-base text-ink-supporting">
-            <FileText className="size-4 shrink-0" aria-hidden /> No policy number on file — search by last name
-          </span>
-        )}
-      </div>
-
-      <p className="text-base text-ink-supporting">
-        Search Gateway with the last name and policy number, then enter what you find.
-      </p>
+      {hasPolicy ? (
+        <div className="space-y-1.5">
+          <p className="text-sm font-medium text-ink-supporting">
+            Available policy number{policies.length > 1 ? 's' : ''}
+          </p>
+          {policies.map((policy, i) => (
+            <div key={`${policy}-${i}`} className="flex flex-wrap items-center gap-3">
+              <span className="font-mono text-xl font-semibold text-ink">{policy}</span>
+              <WorkflowButton
+                icon={copied === `policy-${i}` ? Check : Copy}
+                selected={copied === `policy-${i}`}
+                onClick={() => copyValue(`policy-${i}`, policy)}
+              >
+                {copied === `policy-${i}` ? 'Policy number copied' : 'Copy Policy Number'}
+              </WorkflowButton>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <span className="inline-flex items-center gap-2 rounded-lg border border-surface-border bg-surface-card px-3 py-1.5 text-base text-ink-supporting">
+          <FileText className="size-4 shrink-0" aria-hidden /> No policy number on file — search by last name
+        </span>
+      )}
     </div>
   )
 }
