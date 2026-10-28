@@ -8,13 +8,13 @@ import {
   Mail, PhoneCall, PhoneOff, MessageCircle,
   ChevronDown, ChevronUp, ChevronLeft, ChevronRight, DollarSign, Pencil, Check, X, MapPin,
   CalendarClock, History, Flame, Circle, AlertCircle, CheckCircle2,
-  Plus, GitMerge, ExternalLink, Send,
+  Plus, GitMerge, ExternalLink, Send, ArrowRight,
 } from 'lucide-react'
 import type {
   CaseDetail, StageLookup, AgencyLookup, AgentOption, ProducerOption, ProductLookup,
   RateClassLookup, PremiumModeLookup, LostReasonLookup, SnoozeReasonLookup,
   PendingRequirementLookup, TouchLog, StatusHistoryEntry, SiblingCase, HouseholdMember,
-  CaseNote,
+  CaseNote, LinkedCase,
 } from './page'
 import { HouseholdCard } from '@/components/HouseholdCard'
 import { NotesLog } from '@/components/NotesLog'
@@ -143,6 +143,8 @@ type Props = {
   touchLog:            TouchLog[]
   statusHistory:       StatusHistoryEntry[]
   siblingCases:        SiblingCase[]
+  replacedByCase:      LinkedCase | null
+  replacesCase:        LinkedCase | null
   householdId:         string | null
   householdMembers:    HouseholdMember[]
   initialNotes:        CaseNote[]
@@ -154,7 +156,7 @@ export default function CaseEditClient({
   caseData, stages, agencies, agentsList, producersList, products, rateClasses, premiumModes,
   lostReasons, snoozeReasons, pendingRequirements,
   touchLog: initialTouchLog, statusHistory,
-  siblingCases: initialSiblings, householdId, householdMembers,
+  siblingCases: initialSiblings, replacedByCase, replacesCase, householdId, householdMembers,
   initialNotes,
 }: Props) {
   const router = useRouter()
@@ -352,6 +354,8 @@ export default function CaseEditClient({
   const [sibPremium,   setSibPremium]   = useState('')
   const [sibSaving,    setSibSaving]    = useState(false)
   const [sibError,     setSibError]     = useState<string | null>(null)
+  const [resubmitting, setResubmitting] = useState(false)
+  const [resubmitError, setResubmitError] = useState<string | null>(null)
 
   // ── Derived ────────────────────────────────────────────────────
   const tier2Stages = stages.filter(s => s.tier >= 2)
@@ -668,6 +672,21 @@ export default function CaseEditClient({
       }
     } catch { setSibError('Network error') }
     finally   { setSibSaving(false) }
+  }
+
+  async function handleResubmit() {
+    setResubmitting(true); setResubmitError(null)
+    try {
+      const res = await fetch(`/api/cases/${caseData.id}/resubmit`, { method: 'POST' })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        setResubmitError((err as { error?: string }).error ?? 'Failed to create replacement')
+      } else {
+        const { data } = await res.json()
+        router.push(`/cases/${data.new_case_id}`)
+      }
+    } catch { setResubmitError('Network error') }
+    finally   { setResubmitting(false) }
   }
 
   // ── Render ─────────────────────────────────────────────────────
@@ -1990,6 +2009,67 @@ export default function CaseEditClient({
                 <Plus className="w-3 h-3" /> Add Policy
               </button>
             </div>
+
+            {/* Re-paper banner — this case was replaced by a new one */}
+            {replacedByCase && (
+              <button
+                onClick={() => router.push(`/cases/${replacedByCase.id}`)}
+                className="w-full flex items-center justify-between gap-3 rounded-lg border border-amber-800/60 bg-amber-900/20 px-3 py-2.5 text-left hover:bg-amber-900/30 transition-colors group"
+              >
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-amber-400 uppercase tracking-wide mb-0.5">Re-submitted →</p>
+                  <p className="text-sm text-slate-300 truncate group-hover:text-white transition-colors">
+                    {replacedByCase.products
+                      ? replacedByCase.products.carriers?.short_name
+                        ? `${replacedByCase.products.carriers.short_name} · ${replacedByCase.products.name}`
+                        : replacedByCase.products.name
+                      : 'New carrier case (product TBD)'}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {replacedByCase.stage_translations?.agency_label ?? replacedByCase.internal_status}
+                  </p>
+                </div>
+                <ExternalLink className="w-3.5 h-3.5 text-amber-600 group-hover:text-amber-400 flex-shrink-0" />
+              </button>
+            )}
+
+            {/* Re-paper banner — this case replaces an earlier withdrawn one */}
+            {replacesCase && (
+              <button
+                onClick={() => router.push(`/cases/${replacesCase.id}`)}
+                className="w-full flex items-center justify-between gap-3 rounded-lg border border-slate-700 bg-slate-800/40 px-3 py-2.5 text-left hover:bg-slate-800/70 transition-colors group"
+              >
+                <div className="min-w-0">
+                  <p className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-0.5">Re-paper from →</p>
+                  <p className="text-sm text-slate-400 truncate group-hover:text-slate-300 transition-colors">
+                    {replacesCase.products
+                      ? replacesCase.products.carriers?.short_name
+                        ? `${replacesCase.products.carriers.short_name} · ${replacesCase.products.name}`
+                        : replacesCase.products.name
+                      : 'Prior carrier case'}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {replacesCase.stage_translations?.agency_label ?? replacesCase.internal_status}
+                  </p>
+                </div>
+                <ExternalLink className="w-3.5 h-3.5 text-slate-600 group-hover:text-slate-400 flex-shrink-0" />
+              </button>
+            )}
+
+            {/* Re-submit button — only on lost/withdrawn cases not yet re-submitted */}
+            {isLost && !replacedByCase && (
+              <div className="space-y-2">
+                <button
+                  onClick={handleResubmit}
+                  disabled={resubmitting}
+                  className="inline-flex items-center gap-2 rounded-lg border border-amber-800/50 bg-amber-900/20 px-3 py-2 text-xs font-medium text-amber-400 hover:bg-amber-900/40 transition-colors disabled:opacity-50"
+                >
+                  <ArrowRight className="w-3.5 h-3.5" />
+                  {resubmitting ? 'Creating…' : 'Re-submit to new carrier'}
+                </button>
+                {resubmitError && <p className="text-xs text-red-400">{resubmitError}</p>}
+              </div>
+            )}
 
             {addingPolicy && (
               <div className="space-y-3 rounded-lg border border-slate-700 bg-slate-800/40 p-4">

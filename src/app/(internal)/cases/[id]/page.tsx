@@ -93,6 +93,8 @@ export type CaseDetail = {
   premium_modes: { id: string; name: string } | null
   lost_reasons: { id: string; agency_label: string } | null
   snooze_reasons: { id: string; agency_label: string } | null
+  replaced_by_case_id: string | null
+  replaces_case_id: string | null
   case_pending_requirements: {
     id: string
     pending_requirement_id: string
@@ -142,6 +144,15 @@ export type SiblingCase = {
   stage_translations: { agency_label: string; is_won: boolean; is_lost: boolean } | null
 }
 
+export type LinkedCase = {
+  id: string
+  internal_status: string
+  face_amount: number | null
+  annual_premium: number | null
+  products: { name: string; carriers: { short_name: string } | null } | null
+  stage_translations: { agency_label: string; is_won: boolean; is_lost: boolean } | null
+}
+
 export type CaseNote = {
   id:          string
   section:     'triage' | 'producer' | 'underwriting'
@@ -181,6 +192,7 @@ export default async function CaseDetailPage({
         is_1035, exchange_carrier, exchange_policy_number, exchange_product_type,
         exchange_cash_value, exchange_cost_basis, exchange_surrender_charges, exchange_net_transfer,
         agency_id, customer_id, agent_id, producer_id,
+        replaced_by_case_id, replaces_case_id,
         customers!customer_id ( first_name, last_name, email, phone, street, city, state, zip, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, preferred_language, customer_group_id ),
         agencies ( id, name, display_name, slug ),
         agents ( first_name, last_name, email ),
@@ -251,6 +263,21 @@ export default async function CaseDetailPage({
   }
 
   const cd = caseData as unknown as CaseDetail
+
+  // Fetch linked replacement cases (replaced_by and replaces)
+  const linkedCaseSelect = `
+    id, internal_status, face_amount, annual_premium,
+    products ( name, carriers ( short_name ) ),
+    stage_translations ( agency_label, is_won, is_lost )
+  `
+  const [{ data: replacedByRaw }, { data: replacesRaw }] = await Promise.all([
+    cd.replaced_by_case_id
+      ? supabase.from('cases').select(linkedCaseSelect).eq('id', cd.replaced_by_case_id).single()
+      : Promise.resolve({ data: null }),
+    cd.replaces_case_id
+      ? supabase.from('cases').select(linkedCaseSelect).eq('id', cd.replaces_case_id).single()
+      : Promise.resolve({ data: null }),
+  ])
 
   // Fetch sibling cases (same customer, different case)
   const { data: siblings } = cd.customer_id
@@ -334,6 +361,8 @@ export default async function CaseDetailPage({
       touchLog={(touchLog as unknown as TouchLog[]) ?? []}
       statusHistory={(statusHistory as unknown as StatusHistoryEntry[]) ?? []}
       siblingCases={(siblings as unknown as SiblingCase[]) ?? []}
+      replacedByCase={(replacedByRaw as unknown as LinkedCase) ?? null}
+      replacesCase={(replacesRaw as unknown as LinkedCase) ?? null}
       householdId={householdId}
       householdMembers={householdMembers}
       initialNotes={caseNotes}

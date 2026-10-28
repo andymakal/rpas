@@ -458,7 +458,7 @@ const CARRIERS = [
   'Pacific Life', 'Protective Life', 'Prudential', 'Sammons Financial', 'Other',
 ]
 
-const POLICY_TYPES = ['Term', 'UL', 'VUL', 'WL', 'IUL', 'GUL', 'LTC', 'Annuity', 'FA', 'MVA', 'Other']
+const POLICY_TYPES = ['Term', 'UL', 'VUL', 'Whole Life', 'IUL', 'GUL', 'LTC', 'Annuity', 'FA', 'MVA', 'Other']
 
 const PREMIUM_MODES = ['Annual', 'Semi-Annual', 'Quarterly', 'Monthly', 'EFT Monthly', 'Single']
 const PAY_PERIODS   = ['Full Pay', '10-Pay', '20-Pay', 'Single Premium']
