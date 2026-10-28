@@ -2,7 +2,8 @@
 
 import { useState, useCallback } from 'react'
 import Link from 'next/link'
-import { Search, X, ArrowLeft, Loader2, Check, AlertCircle, MailPlus } from 'lucide-react'
+import { X, ArrowLeft, Loader2, Check, AlertCircle, MailPlus } from 'lucide-react'
+import { CustomerSearch } from '@/components/CustomerSearch'
 import {
   servicingAgentEmailMessage,
   servicingAgentEmailSubject,
@@ -51,9 +52,6 @@ export function ServicingAgentChangeClient({
   // ── Customer selection ─────────────────────────────────────────────────
   const [customer, setCustomer]     = useState<SacCustomer | null>(initialCustomer)
   const [contracts, setContracts]   = useState<SacContract[]>(initialContracts)
-  const [query, setQuery]           = useState('')
-  const [results, setResults]       = useState<CustomerHit[]>([])
-  const [searching, setSearching]   = useState(false)
   const [loadingContracts, setLoadingContracts] = useState(false)
 
   // ── Selection + editable values ────────────────────────────────────────
@@ -66,18 +64,6 @@ export function ServicingAgentChangeClient({
 
   const [generating, setGenerating] = useState(false)
   const [error, setError]           = useState<string | null>(null)
-
-  const searchCustomers = useCallback(async (q: string) => {
-    if (q.trim().length < 2) { setResults([]); return }
-    setSearching(true)
-    try {
-      const res = await fetch(`/api/customers/search?q=${encodeURIComponent(q)}`)
-      const json = await res.json()
-      setResults(json.data ?? [])
-    } finally {
-      setSearching(false)
-    }
-  }, [])
 
   const loadContracts = useCallback(async (customerId: string) => {
     setLoadingContracts(true)
@@ -99,8 +85,6 @@ export function ServicingAgentChangeClient({
     }
     setCustomer(picked)
     setOwnerName(fullName(picked))
-    setQuery('')
-    setResults([])
     setError(null)
     loadContracts(c.id)
   }
@@ -222,36 +206,23 @@ export function ServicingAgentChangeClient({
               </button>
             </div>
           ) : (
-            <div className="relative">
-              <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
-                {searching
-                  ? <Loader2 className="w-4 h-4 text-slate-500 animate-spin" />
-                  : <Search className="w-4 h-4 text-slate-500" />}
-              </div>
-              <input
-                type="text"
-                value={query}
-                onChange={e => { setQuery(e.target.value); searchCustomers(e.target.value) }}
-                placeholder="Search by name or phone..."
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-10 pr-4 py-2.5 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-blue-500"
-              />
-              {results.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-10 max-h-64 overflow-y-auto">
-                  {results.map(c => (
-                    <button
-                      key={c.id}
-                      onClick={() => pickCustomer(c)}
-                      className="w-full text-left px-4 py-2.5 hover:bg-slate-700 transition-colors"
-                    >
-                      <p className="text-white text-sm">{fullName(c) || 'Unnamed customer'}</p>
-                      {(c.city || c.state) && (
-                        <p className="text-slate-400 text-xs">{[c.city, c.state].filter(Boolean).join(', ')}</p>
-                      )}
-                    </button>
-                  ))}
-                </div>
+            <CustomerSearch<CustomerHit>
+              theme="dark"
+              placeholder="Search by name or phone..."
+              onSelect={pickCustomer}
+              renderRow={(c, { select }) => (
+                <button
+                  type="button"
+                  onClick={select}
+                  className="w-full text-left px-4 py-2.5 hover:bg-slate-700 transition-colors"
+                >
+                  <p className="text-white text-sm">{fullName(c) || 'Unnamed customer'}</p>
+                  {(c.city || c.state) && (
+                    <p className="text-slate-400 text-xs">{[c.city, c.state].filter(Boolean).join(', ')}</p>
+                  )}
+                </button>
               )}
-            </div>
+            />
           )}
         </div>
 
