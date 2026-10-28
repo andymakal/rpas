@@ -204,7 +204,10 @@ export function CustomerSearch<T extends CustomerSearchHit>({
     ? scopeChoice === 'project' && pickerProjectId
       ? { kind: 'project', projectId: pickerProjectId }
       : scopeChoice === 'myWork'
-        ? { kind: 'myWork', projectId: pickerProjectId }
+        // "All Projects" is the COMBINED membership of the worker's My Work
+        // projects — never narrowed to the project they entered from. So it
+        // carries NO projectId, regardless of pickerProjectId.
+        ? { kind: 'myWork' }
         : { kind: 'all' }
     : scope ?? { kind: 'all' }
 

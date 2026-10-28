@@ -274,78 +274,141 @@ export async function GET(request: NextRequest) {
   // ── Household / default mode ──────────────────────────────────────────────
   void agencyId  // received but not used; kept in signature for future use
 
-  // The candidate cap when ranking: ranking (exact-last-name first) must be
-  // computed over the WHOLE match set before paging, so we read enough rows to
-  // rank correctly. Name-search match sets are small (the most common last name
-  // has <100 customers; a partial like "smith" ~80), so a generous cap never
-  // truncates a real name search while bounding a pathological 2-letter query.
-  const RANK_CANDIDATE_CAP = 500
+  const householdSelect = 'id, first_name, last_name, phone, customer_group_id'
+  const stripRow = (c: Record<string, unknown>) => {
+    // Drop the scope-only embedded membership join; not part of the result shape.
+    const { project_customers: _pc, ...rest } = c
+    return rest
+  }
 
-  let query = applyScopeFilters(
-    supabase
-      .from('customers')
-      .select(scopedSelect('id, first_name, last_name, phone, customer_group_id'))
-      .eq('is_test', false),
-  )
-    .order('last_name')
-    .order('first_name')
-    // Ranked mode reads up to the candidate cap (then ranks + pages in TS);
-    // unranked picker mode keeps the historical top-10.
-    .limit(rankByLastName ? RANK_CANDIDATE_CAP : 10)
+  // A scoped base query over customers, with the standard filters (is_test,
+  // scope, exclude). Each variant below adds its own name/phone match and
+  // ordering. Centralizes scope so every path enforces it identically.
+  const scopedBase = () => {
+    let b = applyScopeFilters(
+      supabase
+        .from('customers')
+        .select(scopedSelect(householdSelect))
+        .eq('is_test', false),
+    )
+    if (excludeId) b = b.neq('id', excludeId)
+    return b
+  }
 
+  // ── Phone search (single bucket) ──────────────────────────────────────────
+  // Digit-to-digit match ids, then page in SQL. No last-name ranking applies.
   if (isPhoneSearch) {
-    // Phone search: resolve matching ids digit-to-digit, then constrain.
     let ids: string[]
     try { ids = await phoneMatchIds() } catch (e) {
       return Response.json({ error: (e as Error).message }, { status: 500 })
     }
-    if (ids.length === 0) return Response.json({ data: [] })
-    query = query.in('id', ids)
-  } else {
-    // Split on whitespace; each word must appear in first_name OR last_name.
-    // This allows searching "Miller", "Kathleen", "James Miller", etc.
-    const words = q.split(/\s+/).filter(Boolean).slice(0, 3)
-    for (const word of words) {
-      query = query.or(`first_name.ilike.%${word}%,last_name.ilike.%${word}%`)
+    if (ids.length === 0) {
+      return Response.json(rankByLastName ? { data: [], has_more: false } : { data: [] })
     }
+    // Unranked picker: historical top-10. Ranked: page in SQL (limit+1 probe
+    // for has_more so there is no cap and no mis-report).
+    const end = rankByLastName ? pageOffset + pageLimit : 10
+    let pq = scopedBase().in('id', ids).order('last_name').order('first_name')
+    pq = rankByLastName ? pq.range(pageOffset, end) : pq.limit(10) // range end is inclusive; +1 probe
+    const { data, error } = await pq
+    if (error) return Response.json({ error: error.message }, { status: 500 })
+    const all = ((data ?? []) as unknown as Record<string, unknown>[]).map(stripRow)
+    if (!rankByLastName) return Response.json({ data: all })
+    const page = all.slice(0, pageLimit)
+    return Response.json({ data: page, has_more: all.length > pageLimit })
   }
 
-  if (excludeId) query = query.neq('id', excludeId)
+  const words = q.split(/\s+/).filter(Boolean).slice(0, 3)
+  const applyNameOr = <Q extends { or: (f: string) => Q }>(b: Q): Q => {
+    // Each word must appear in first OR last name (chained .or ⇒ AND across words).
+    for (const word of words) b = b.or(`first_name.ilike.%${word}%,last_name.ilike.%${word}%`)
+    return b
+  }
 
-  const { data, error } = await query
-  if (error) return Response.json({ error: error.message }, { status: 500 })
-
-  // Drop the scope-only embedded membership join before returning; it is not
-  // part of the household-link result shape. The select is composed dynamically
-  // (scopedSelect), so type the rows here.
-  const householdRows = (data ?? []) as unknown as Record<string, unknown>[]
-  const rows = householdRows.map((c) => {
-    const { project_customers: _pc, ...rest } = c
-    return rest
-  })
-
-  // Unranked picker path: preserve the exact historical response (top-10 by
-  // last/first name, no pagination envelope).
+  // ── Unranked picker path (historical top-10 by name, no ranking/paging) ────
   if (!rankByLastName) {
+    const { data, error } = await applyNameOr(
+      scopedBase().order('last_name').order('first_name').limit(10),
+    )
+    if (error) return Response.json({ error: error.message }, { status: 500 })
+    const rows = ((data ?? []) as unknown as Record<string, unknown>[]).map(stripRow)
     return Response.json({ data: rows })
   }
 
-  // Ranked path: exact last-name matches first, then partial. "smith" shows
-  // Smith before Blacksmith/Goldsmith. A phone search has no meaningful
-  // last-name rank, so it keeps name order. Ties fall back to last/first name
-  // (the rows already arrive in that order, and the sort is stable).
-  const lastToken = q.split(/\s+/).filter(Boolean).pop()?.toLowerCase() ?? ''
-  const exactRank = (r: Record<string, unknown>): number =>
-    !isPhoneSearch && typeof r.last_name === 'string' && r.last_name.toLowerCase() === lastToken ? 0 : 1
-  const ranked = rows
-    .map((r, i) => ({ r, i }))
-    .sort((a, b) => exactRank(a.r) - exactRank(b.r) || a.i - b.i)
-    .map(x => x.r)
+  // ── Ranked name search: exact last-name first, then partial ───────────────
+  // Two SQL buckets paged independently, composed in order — exact matches
+  // (last_name = the query's last token) before partial matches. Ranking and
+  // pagination are done in the DATABASE over the complete matching population,
+  // so broad searches are never silently truncated and has_more is exact (no
+  // candidate cap). "smith" shows every Smith before Blacksmith/Goldsmith.
+  const lastToken = words[words.length - 1] ?? q
 
-  // Page the ranked list. has_more tells the client a Show More fetch will
-  // return additional matches, so results are never silently truncated.
-  const page = ranked.slice(pageOffset, pageOffset + pageLimit)
-  const hasMore = ranked.length > pageOffset + pageLimit
+  // A scoped count base (head request, exact count) mirroring scopedBase, so the
+  // bucket sizes are read without fetching rows.
+  const scopedCountBase = () => {
+    let b = applyScopeFilters(
+      supabase
+        .from('customers')
+        .select(scopedSelect(householdSelect), { count: 'exact', head: true })
+        .eq('is_test', false),
+    )
+    if (excludeId) b = b.neq('id', excludeId)
+    return b
+  }
 
-  return Response.json({ data: page, has_more: hasMore })
+  try {
+    // Bucket sizes over the COMPLETE match set (no candidate cap).
+    //   exactCount  = customers whose last_name equals the query's last token.
+    //   totalCount  = the full name match (first OR last contains each word).
+    //   partial     = total − exact (disjoint; PostgREST ilike with no %/_ is a
+    //                 case-insensitive equality, safe because a name has no
+    //                 wildcard characters).
+    const { count: exactCountRaw, error: exactErr } =
+      await scopedCountBase().ilike('last_name', lastToken)
+    if (exactErr) return Response.json({ error: exactErr.message }, { status: 500 })
+    const exactCount = exactCountRaw ?? 0
+
+    const { count: totalCountRaw, error: totalErr } =
+      await applyNameOr(scopedCountBase())
+    if (totalErr) return Response.json({ error: totalErr.message }, { status: 500 })
+    const totalCount = totalCountRaw ?? 0
+
+    const windowStart = pageOffset
+    const windowEnd = pageOffset + pageLimit // exclusive
+    const out: Record<string, unknown>[] = []
+
+    // The slice of the EXACT bucket that falls in this window (ordered by first
+    // name within the exact last name).
+    const exactFrom = Math.min(windowStart, exactCount)
+    const exactTo = Math.min(windowEnd, exactCount)
+    if (exactTo > exactFrom) {
+      const { data, error } = await scopedBase()
+        .ilike('last_name', lastToken)
+        .order('first_name')
+        .range(exactFrom, exactTo - 1)
+      if (error) return Response.json({ error: error.message }, { status: 500 })
+      out.push(...((data ?? []) as unknown as Record<string, unknown>[]).map(stripRow))
+    }
+
+    // Then the PARTIAL bucket (full match, excluding exact last-name) for the
+    // remaining window beneath the exact bucket.
+    const remaining = pageLimit - out.length
+    if (remaining > 0) {
+      const partialWindowStart = Math.max(0, windowStart - exactCount)
+      const { data, error } = await applyNameOr(scopedBase())
+        .not('last_name', 'ilike', lastToken)
+        .order('last_name')
+        .order('first_name')
+        .range(partialWindowStart, partialWindowStart + remaining - 1)
+      if (error) return Response.json({ error: error.message }, { status: 500 })
+      out.push(...((data ?? []) as unknown as Record<string, unknown>[]).map(stripRow))
+    }
+
+    // has_more from the complete population (exact + partial), so Show More is
+    // offered exactly when more matches exist and never silently truncates.
+    const hasMore = windowEnd < totalCount
+    return Response.json({ data: out, has_more: hasMore })
+  } catch (e) {
+    return Response.json({ error: (e as Error).message }, { status: 500 })
+  }
 }
