@@ -363,8 +363,12 @@ export async function GET(request: NextRequest) {
     //   partial     = total − exact (disjoint; PostgREST ilike with no %/_ is a
     //                 case-insensitive equality, safe because a name has no
     //                 wildcard characters).
+    // Exact bucket = the FULL query match AND an exact last name. Applying the
+    // whole name criteria here is what keeps "James Smith" from matching every
+    // Smith: the exact-surname group only reorders results that already satisfy
+    // the complete multiword query.
     const { count: exactCountRaw, error: exactErr } =
-      await scopedCountBase().ilike('last_name', lastToken)
+      await applyNameOr(scopedCountBase()).ilike('last_name', lastToken)
     if (exactErr) return Response.json({ error: exactErr.message }, { status: 500 })
     const exactCount = exactCountRaw ?? 0
 
@@ -382,7 +386,7 @@ export async function GET(request: NextRequest) {
     const exactFrom = Math.min(windowStart, exactCount)
     const exactTo = Math.min(windowEnd, exactCount)
     if (exactTo > exactFrom) {
-      const { data, error } = await scopedBase()
+      const { data, error } = await applyNameOr(scopedBase())
         .ilike('last_name', lastToken)
         .order('first_name')
         .range(exactFrom, exactTo - 1)
@@ -395,8 +399,12 @@ export async function GET(request: NextRequest) {
     const remaining = pageLimit - out.length
     if (remaining > 0) {
       const partialWindowStart = Math.max(0, windowStart - exactCount)
+      // The complement of the exact bucket: everything in the full match whose
+      // last name is NOT the exact token — INCLUDING a null last name (a
+      // first-name-only match). `NOT (last_name ILIKE token)` is NULL for a null
+      // last name and would drop it, so keep nulls explicitly.
       const { data, error } = await applyNameOr(scopedBase())
-        .not('last_name', 'ilike', lastToken)
+        .or(`last_name.not.ilike.${lastToken},last_name.is.null`)
         .order('last_name')
         .order('first_name')
         .range(partialWindowStart, partialWindowStart + remaining - 1)
