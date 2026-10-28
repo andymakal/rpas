@@ -1,8 +1,9 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { User, Search, Link2, Plus, CheckCircle, ChevronRight, Loader2, X } from 'lucide-react'
+import { User, Link2, Plus, CheckCircle, ChevronRight, Loader2, X } from 'lucide-react'
+import { CustomerSearch } from '@/components/CustomerSearch'
 
 const supabase = createClient()
 
@@ -38,9 +39,6 @@ export default function LinkCustomersPage() {
   const [policies,   setPolicies]   = useState<UnlinkedPolicy[]>([])
   const [loading,    setLoading]    = useState(true)
   const [activeId,   setActiveId]   = useState<string | null>(null)
-  const [query,      setQuery]      = useState('')
-  const [matches,    setMatches]    = useState<CustomerMatch[]>([])
-  const [searching,  setSearching]  = useState(false)
   const [saving,     setSaving]     = useState(false)
   const [linked,     setLinked]     = useState<Set<string>>(new Set())
   const [error,      setError]      = useState<string | null>(null)
@@ -59,28 +57,9 @@ export default function LinkCustomersPage() {
     load()
   }, [])
 
-  const search = useCallback(async (q: string) => {
-    if (q.trim().length < 2) { setMatches([]); return }
-    setSearching(true)
-    try {
-      const res  = await fetch(`/api/customers/search?dedup=true&q=${encodeURIComponent(q.trim())}`)
-      const json = await res.json()
-      setMatches((json.data ?? []) as CustomerMatch[])
-    } catch { setMatches([]) }
-    finally   { setSearching(false) }
-  }, [])
-
-  useEffect(() => {
-    const t = setTimeout(() => search(query), 350)
-    return () => clearTimeout(t)
-  }, [query, search])
-
   function openPanel(policy: UnlinkedPolicy) {
     setActiveId(policy.id)
     setError(null)
-    setMatches([])
-    setQuery(policy.client_name)
-    setTimeout(() => search(policy.client_name), 0)
   }
 
   async function linkTo(policyId: string, customerId: string) {
@@ -164,27 +143,26 @@ export default function LinkCustomersPage() {
               {activeId === policy.id && (
                 <div className="mx-1 bg-slate-900/60 border border-slate-800 border-t-0 rounded-b-xl px-5 py-4 space-y-4">
 
-                  {/* Search */}
+                  {/* Search — shared component, dedup mode, seeded with the
+                      policy's client name so the match is pre-run. */}
                   <div>
                     <label className="block text-xs text-slate-500 mb-1.5">Search for existing customer</label>
-                    <div className="relative">
-                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
-                      <input
-                        value={query}
-                        onChange={e => setQuery(e.target.value)}
-                        placeholder="Name…"
-                        className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg pl-8 pr-3 py-2 focus:outline-none focus:border-blue-500"
-                        autoFocus
-                      />
-                      {searching && <Loader2 className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 animate-spin" />}
-                    </div>
-                  </div>
-
-                  {/* Results */}
-                  {matches.length > 0 && (
-                    <div className="space-y-1">
-                      {matches.map(m => (
-                        <div key={m.id} className="flex items-center justify-between gap-3 bg-slate-800/60 rounded-lg px-3 py-2.5">
+                    <CustomerSearch<CustomerMatch>
+                      key={policy.id}
+                      mode="dedup"
+                      theme="dark"
+                      autoFocus
+                      initialQuery={policy.client_name}
+                      busyId={saving ? '__saving__' : null}
+                      placeholder="Name or phone…"
+                      onSelect={m => linkTo(policy.id, m.id)}
+                      renderRow={(m, { select }) => (
+                        <button
+                          type="button"
+                          onClick={select}
+                          disabled={saving}
+                          className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-slate-700/60 disabled:opacity-50 transition-colors"
+                        >
                           <div>
                             <p className="text-sm font-medium text-slate-200">{m.first_name} {m.last_name}</p>
                             {(m.phone || m.date_of_birth) && (
@@ -193,21 +171,13 @@ export default function LinkCustomersPage() {
                               </p>
                             )}
                           </div>
-                          <button
-                            onClick={() => linkTo(policy.id, m.id)}
-                            disabled={saving}
-                            className="shrink-0 inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-600 text-white disabled:opacity-50 transition-colors"
-                          >
+                          <span className="shrink-0 inline-flex items-center gap-1.5 text-xs font-medium text-blue-400">
                             <Link2 className="w-3 h-3" /> Link
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {matches.length === 0 && !searching && query.trim().length >= 2 && (
-                    <p className="text-xs text-slate-500">No existing customers found for "{query}"</p>
-                  )}
+                          </span>
+                        </button>
+                      )}
+                    />
+                  </div>
 
                   {error && <p className="text-xs text-red-400">{error}</p>}
 

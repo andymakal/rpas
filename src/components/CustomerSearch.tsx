@@ -87,6 +87,13 @@ type CustomerSearchProps<T extends CustomerSearchHit> = {
   ariaLabel?: string
   /** Light (workflow tokens) or dark (slate) presentation. Default 'light'. */
   theme?: Theme
+  /**
+   * Seed the input with an initial query (e.g. a policy's client name to find
+   * the matching customer). Applied as the starting value; the component still
+   * owns the query state afterward. To re-seed for a different context, remount
+   * with a changed `key`.
+   */
+  initialQuery?: string
   /** Minimum characters before searching. Default 2 (matches the endpoint). */
   minChars?: number
   /** Debounce before firing the search, ms. Default 250. */
@@ -125,6 +132,7 @@ export function CustomerSearch<T extends CustomerSearchHit>({
   placeholder = 'Search by name or phone…',
   ariaLabel = 'Search customers by name or phone',
   theme = 'light',
+  initialQuery = '',
   minChars = 2,
   debounceMs = 250,
   autoFocus = false,
@@ -133,7 +141,7 @@ export function CustomerSearch<T extends CustomerSearchHit>({
   renderEmpty,
   className,
 }: CustomerSearchProps<T>) {
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(initialQuery)
   const [results, setResults] = useState<T[]>([])
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState<string | null>(null)
