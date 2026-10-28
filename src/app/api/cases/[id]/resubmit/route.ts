@@ -46,6 +46,7 @@ export async function POST(
     .from('stage_translations')
     .select('internal_status')
     .eq('is_active_case', true)
+    .gte('tier', 2)
     .order('tier')
     .order('stage_order')
     .limit(1)
