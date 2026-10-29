@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import {
   WorkflowPage,
-  WorkflowHeader,
+  WorkflowPageHeader,
   QueueSection,
   OperationalTag,
   WorkflowButton,
@@ -84,9 +84,9 @@ export function ProjectsClient({
   return (
     <WorkflowPage
       heading={
-        <WorkflowHeader
-          primary="Projects"
-          trailing={
+        <WorkflowPageHeader
+          title="Projects"
+          actions={
             <WorkflowButton
               icon={Plus}
               selected

@@ -1,12 +1,13 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowLeft, Users, FolderPlus, Play } from 'lucide-react'
+import { Users, FolderPlus, Play } from 'lucide-react'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { projectHasWorkflow, isPermanentPolicyReviewTypeName } from '@/lib/projects/workflows'
 import {
   WorkflowPage,
-  WorkflowHeader,
+  WorkflowPageHeader,
+  WorkflowBackLink,
   OperationalTag,
 } from '@/components/workflow'
 import { fmtDate } from '@/lib/fmt'
@@ -81,58 +82,53 @@ export default async function ProjectDetailPage({
   return (
     <WorkflowPage
       heading={
-        <div className="space-y-8">
-          <Link
-            href="/projects"
-            className="-ml-1 inline-flex items-center gap-1.5 text-sm font-medium text-ink-supporting transition-colors hover:text-ink"
-          >
-            <ArrowLeft className="size-4" aria-hidden />
-            All projects
-          </Link>
-
-          <WorkflowHeader
-            primary={project.name}
-            secondary={project.project_type}
-            trailing={
-              <>
-                <OperationalTag tone={isArchived ? 'blocked' : isCompleted ? 'info' : 'reason'}>
-                  {statusLabel}
-                </OperationalTag>
-                {/* An archived project is kept for viewing but takes no new
-                    activity until it is restored, so its activity actions are
-                    withheld. */}
-                {!isArchived && (
-                  <>
-                    {/* Work Project — opens the existing 1035 working interface
-                        (Steps 2 & 3: Stewardship servicing access, policy
-                        documents, and Bob's determinations) on its own route,
-                        keeping the project overview uncluttered. 1035 projects
-                        only. */}
-                    {hasReviewWorkflow && (
-                      <Link
-                        href={`/projects/${project.id}/review`}
-                        className="inline-flex h-10 items-center gap-2 rounded-xl bg-teal-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-teal-700"
-                      >
-                        <Play className="size-4" aria-hidden />
-                        Work Project
-                      </Link>
-                    )}
-                    {/* Add Population — administrative action, authorized internal
-                        staff only. Available on an existing project to add another
-                        run. */}
+        <WorkflowPageHeader
+          title={project.name}
+          secondary={project.project_type}
+          back={
+            <WorkflowBackLink href="/projects" tone="muted">
+              All projects
+            </WorkflowBackLink>
+          }
+          actions={
+            <>
+              <OperationalTag tone={isArchived ? 'blocked' : isCompleted ? 'info' : 'reason'}>
+                {statusLabel}
+              </OperationalTag>
+              {/* An archived project is kept for viewing but takes no new
+                  activity until it is restored, so its activity actions are
+                  withheld. */}
+              {!isArchived && (
+                <>
+                  {/* Work Project — opens the existing 1035 working interface
+                      (Steps 2 & 3: Stewardship servicing access, policy
+                      documents, and Bob's determinations) on its own route,
+                      keeping the project overview uncluttered. 1035 projects
+                      only. */}
+                  {hasReviewWorkflow && (
                     <Link
-                      href={`/projects/${project.id}/population`}
-                      className="inline-flex h-10 items-center gap-2 rounded-xl border border-surface-border bg-surface-card px-4 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted"
+                      href={`/projects/${project.id}/review`}
+                      className="inline-flex h-10 items-center gap-2 rounded-xl bg-teal-600 px-4 text-sm font-semibold text-white transition-colors hover:bg-teal-700"
                     >
-                      <FolderPlus className="size-4" aria-hidden />
-                      Add Population
+                      <Play className="size-4" aria-hidden />
+                      Work Project
                     </Link>
-                  </>
-                )}
-              </>
-            }
-          />
-        </div>
+                  )}
+                  {/* Add Population — administrative action, authorized internal
+                      staff only. Available on an existing project to add another
+                      run. */}
+                  <Link
+                    href={`/projects/${project.id}/population`}
+                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-surface-border bg-surface-card px-4 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted"
+                  >
+                    <FolderPlus className="size-4" aria-hidden />
+                    Add Population
+                  </Link>
+                </>
+              )}
+            </>
+          }
+        />
       }
     >
         {/* Archived notice — explains why the activity actions are absent and

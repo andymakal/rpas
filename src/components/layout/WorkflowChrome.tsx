@@ -9,7 +9,7 @@ import { MentoringProvider } from '@/lib/mentoring/MentoringProvider'
  *
  * The shared top header was removed to reclaim vertical space. The Mentoring
  * toggle it used to carry now lives on the right side of each page's shared
- * title: the shared WorkflowHeader renders it by default, and QueueListHeader
+ * title: the shared WorkflowPageHeader renders it by default, and QueueListHeader
  * (an opened queue list's title) carries it too. Sign Out stays in the sidebar,
  * and the sidebar-collapse control is gone (sidebar navigation is unchanged).
  * The sidebar collapse state is still owned by SidebarCollapseProvider in the
