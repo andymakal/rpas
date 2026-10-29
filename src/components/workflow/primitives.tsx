@@ -19,6 +19,7 @@ import type { ComponentType, ReactNode } from 'react'
 import { ExternalLink, MessageSquareQuote } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { MentorToggle } from '@/lib/mentoring/MentorUi'
 import { TaskColumns } from './TaskColumns'
 
 type IconType = ComponentType<{ className?: string }>
@@ -159,13 +160,25 @@ export function WorkflowPage({
 export function WorkflowHeader({
   primary,
   secondary,
+  trailing,
+  showMentorToggle = true,
 }: {
   primary: ReactNode
   secondary?: ReactNode
+  /** Optional page-level controls shown to the right of the title, before the
+   * Mentoring toggle. Pages that used to render their own control row beside the
+   * title pass those controls here so they stay grouped with the toggle. */
+  trailing?: ReactNode
+  /** Render the global Mentoring on/off toggle on the right of the title.
+   * Default true: the shared top header was removed, and the toggle now lives on
+   * the right of the shared page title everywhere WorkflowHeader is used. Set
+   * false only where the same page already shows the toggle through another
+   * title component, so it is never duplicated. */
+  showMentorToggle?: boolean
 }) {
   return (
-    <header>
-      <h1 className="text-3xl font-extrabold tracking-tight text-ink-heading sm:text-4xl">
+    <header className="flex flex-wrap items-start justify-between gap-4">
+      <h1 className="min-w-0 text-3xl font-extrabold tracking-tight text-ink-heading sm:text-4xl">
         {primary}
         {secondary != null && (
           <>
@@ -174,6 +187,12 @@ export function WorkflowHeader({
           </>
         )}
       </h1>
+      {(trailing != null || showMentorToggle) && (
+        <div className="flex shrink-0 items-center gap-3">
+          {trailing}
+          {showMentorToggle && <MentorToggle variant="pill" />}
+        </div>
+      )}
     </header>
   )
 }
