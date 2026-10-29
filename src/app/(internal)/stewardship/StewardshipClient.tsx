@@ -1703,10 +1703,10 @@ function StewardshipContextPanel({
    * Summary beneath it (replacing the raw holdings list). Every other caller
    * keeps the original holdings context. */
   withHistoryColumn?: boolean
-  /** The guided call reached the customer. On the calling workbench this opens
-   * the contact card in edit mode and shows a prominent verify-contact
-   * instruction above it, so the caller corrects/verifies phone, email, and
-   * mailing address during the live conversation. */
+  /** The guided call reached the customer. On the calling workbench this shows
+   * a prominent verify-contact instruction above the contact card, so the
+   * caller corrects/verifies phone, email, and mailing address during the live
+   * conversation. (The card itself starts collapsed; the worker clicks Edit.) */
   reached?: boolean
 }) {
   const introEmail = isIntroductoryEmailActivity(detail)
@@ -1723,15 +1723,10 @@ function StewardshipContextPanel({
   // Needed). It is always the card now — the legacy read-only CustomerContext is
   // no longer used — so contact information looks and behaves identically
   // everywhere. The card runs in the approved Overview/Edit presentation and
-  // starts COLLAPSED (compact overview) on every surface EXCEPT Find Missing
-  // Contact Information (Research Needed), which starts EXPANDED for immediate
-  // contact research and editing.
+  // starts COLLAPSED (the compact Overview) on EVERY surface, matching the rest
+  // of Right Path. The worker clicks Edit to open the fields; Save and Cancel
+  // return it to the Overview. No surface forces it open.
   const useCard = true
-  // The card starts EXPANDED (edit mode) for Research Needed as before, and now
-  // also the instant the guided call reaches the customer: the caller must be
-  // able to correct or verify phone, email, and mailing address immediately,
-  // without clicking Edit first. Every other surface still starts collapsed.
-  const startExpanded = research || (forceCall && reached)
 
   // Policy Summary on the working screens replaces the raw holdings list in the
   // center column. Summarize the servicing-request policies when the request
@@ -1755,9 +1750,9 @@ function StewardshipContextPanel({
       {useCard ? (
         // Writes straight to the customer record via the shared route and keeps
         // the surrounding task in sync through onChange. Approved Overview/Edit
-        // presentation; collapsed by default, expanded for Research Needed and
-        // for a reached guided call (edit mode during the conversation).
-        <StewardshipCustomerContact detail={detail} setDetail={setDetail} reload={reload} startExpanded={startExpanded} onContactPreviewChange={onContactPreviewChange} />
+        // presentation; collapsed by default on every surface — the worker
+        // clicks Edit to open the fields.
+        <StewardshipCustomerContact detail={detail} setDetail={setDetail} reload={reload} onContactPreviewChange={onContactPreviewChange} />
       ) : (
         <CustomerContext detail={detail} busy={busy} act={act} showVerification />
       )}
@@ -1788,7 +1783,7 @@ function StewardshipContextPanel({
  * /api/customers/[id]/contact route.
  */
 function StewardshipCustomerContact({
-  detail, setDetail, reload, startExpanded = false, onContactPreviewChange,
+  detail, setDetail, reload, onContactPreviewChange,
 }: {
   detail: Detail
   setDetail: React.Dispatch<React.SetStateAction<Detail | null>>
@@ -1798,16 +1793,11 @@ function StewardshipCustomerContact({
   /** Forward the card's live unified-edit preview up so the history column can
    * show what its single Save will record. */
   onContactPreviewChange?: (preview: NextHistoryEntryPreview | null) => void
-  /** Whether the self-contained card opens EXPANDED (editing). Find Missing
-   * Contact Information (Research Needed) and a reached guided call pass true;
-   * every other stewardship surface opens COLLAPSED in the compact overview.
-   * This is the ONLY presentation input the screen supplies — the card owns the
-   * heading, the calculated age, the layout, the editing, and the texting
-   * status itself. */
-  startExpanded?: boolean
 }) {
-  // The screen invokes the self-contained card with ONLY the customer identity
-  // and the initial display mode. The card fetches, displays, edits, and saves
+  // The screen invokes the self-contained card with ONLY the customer identity.
+  // The card opens COLLAPSED (the compact Overview) on every surface, matching
+  // the rest of Right Path; the worker clicks Edit to open the fields. The card
+  // fetches, displays, edits, and saves
   // all of the customer's contact information itself (name, calculated age,
   // email, phone, mailing address, verification, email availability, Do Not Text
   // / Text Undeliverable, and the customer alert), so this screen no longer
@@ -1830,7 +1820,6 @@ function StewardshipCustomerContact({
   return (
     <CustomerContactCard
       customerId={detail.customer.id}
-      initialMode={startExpanded ? 'expanded' : 'collapsed'}
       onPendingChange={onContactPreviewChange}
       onChange={(u) => {
         setDetail(prev => prev ? {
