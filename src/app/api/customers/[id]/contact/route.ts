@@ -13,6 +13,10 @@ import {
   recordTextUndeliverable,
   isTextUndeliverableForCurrentNumber,
 } from '@/lib/stewardship/sms-undeliverable'
+import {
+  buildContactUpdateHistoryNote,
+  type ContactSnapshot,
+} from '@/lib/stewardship/customer-history'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
@@ -362,10 +366,10 @@ export async function PATCH(
   if (
     field !== 'name' && field !== 'email' && field !== 'phone' && field !== 'address' &&
     field !== 'email_availability' && field !== 'alert' &&
-    field !== 'sms' && field !== 'sms_undeliverable'
+    field !== 'sms' && field !== 'sms_undeliverable' && field !== 'contact'
   ) {
     return Response.json(
-      { error: 'A field of name, email, phone, address, email_availability, alert, sms, or sms_undeliverable is required.' },
+      { error: 'A field of contact, name, email, phone, address, email_availability, alert, sms, or sms_undeliverable is required.' },
       { status: 400 },
     )
   }
@@ -384,6 +388,287 @@ export async function PATCH(
   }
   if (!before) {
     return Response.json({ error: 'Customer not found.' }, { status: 404 })
+  }
+
+  // ── UNIFIED CONTACT UPDATE (one save, one history entry) ──────────────────
+  // Body: { field: 'contact', ...only the changed facts }
+  //   first_name?, last_name?        name components (string | null)
+  //   email?                          active email (string | null)
+  //   phone?                          phone number (string | null)
+  //   street?, city?, state?, zip?    mailing address group (string | null)
+  //   email_verified?, phone_verified?, address_verified?   verification (bool)
+  //   email_availability?             'missing' | 'no_address' | 'undeliverable'
+  //   do_not_text?                    Do Not Text opt-out (bool)
+  //   mark_undeliverable?             record a text-delivery failure (bool)
+  //   alert?                          customer alert (string | null)
+  //
+  // This is the shared card's ONE save. It applies every changed durable contact
+  // fact in a SINGLE customers-row update, reusing the exact same normalization,
+  // validation, and verification-clearing the per-field branches apply (so
+  // invalid formatting cannot bypass the UI and an edited value still clears its
+  // own verification), and records EXACTLY ONE "Customer Contact Updated"
+  // case_touches 'workflow' history row naming each changed fact's prior -> new
+  // value. A no-op (nothing changed) writes nothing and records no history. It
+  // never touches workflow status — same as every other branch here.
+  if (field === 'contact') {
+    const str = (v: unknown): v is string => typeof v === 'string'
+    const has = (k: string) => Object.prototype.hasOwnProperty.call(body, k)
+
+    const patch: Partial<CustomerContactRow> = {}
+    let changed = false
+
+    // ── Name ──
+    if (has('first_name') || has('last_name')) {
+      const rawFirst = has('first_name') ? body.first_name : before.first_name
+      const rawLast = has('last_name') ? body.last_name : before.last_name
+      if ((rawFirst != null && !str(rawFirst)) || (rawLast != null && !str(rawLast))) {
+        return Response.json({ error: 'first_name and last_name must be strings or null.' }, { status: 400 })
+      }
+      const nextFirst = normalizeNameInput(str(rawFirst) ? rawFirst : null).value
+      const nextLast = normalizeNameInput(str(rawLast) ? rawLast : null).value
+      if (!nextFirst && !nextLast) {
+        return Response.json({ error: 'A first or last name is required.' }, { status: 400 })
+      }
+      if ((nextFirst ?? null) !== (before.first_name ?? null)) { patch.first_name = nextFirst; changed = true }
+      if ((nextLast ?? null) !== (before.last_name ?? null)) { patch.last_name = nextLast; changed = true }
+    }
+
+    // ── Email value + availability ──
+    // Track the running email state so a usable email flips availability to
+    // 'available' and a selected reason clears the address, exactly as the
+    // single-field branches do.
+    let nextEmail: string | null = before.email
+    let emailVerifyCleared = false
+    if (has('email')) {
+      const r = normalizeEmailInput(str(body.email) ? (body.email as string) : null)
+      if (r.status === 'invalid') {
+        return Response.json({ error: r.reason ?? 'Invalid email address.' }, { status: 400 })
+      }
+      if ((r.value ?? null) !== (before.email ?? null)) {
+        patch.email = r.value
+        patch.email_verified_at = null
+        emailVerifyCleared = true
+        nextEmail = r.value ?? null
+        changed = true
+      }
+      // Entering a usable email returns to the on-file state and clears a prior
+      // No Usable Email / Undeliverable reason.
+      if (r.value) {
+        const clearable = before.email_availability === 'no_address' || before.email_availability === 'undeliverable'
+        if ((clearable || before.email_availability == null) && before.email_availability !== 'available') {
+          patch.email_availability = 'available'
+          changed = true
+        }
+      }
+    }
+    // An explicit availability reason selection clears the active email and its
+    // verification; 'missing' resets the fact to unknown (NULL).
+    if (has('email_availability')) {
+      const status = body.email_availability
+      if (!isSelectableEmailAvailability(status)) {
+        return Response.json(
+          { error: 'email_availability must be one of: missing, no_address, undeliverable.' },
+          { status: 400 },
+        )
+      }
+      const storedValue: EmailAvailability | null = status === 'missing' ? null : status
+      // The reason removes any active address from use.
+      if ((before.email_availability ?? null) !== storedValue || before.email?.trim()) {
+        patch.email_availability = storedValue
+        patch.email = null
+        patch.email_verified_at = null
+        nextEmail = null
+        emailVerifyCleared = true
+        changed = true
+      }
+    }
+
+    // ── Phone ──
+    let nextPhone: string | null = before.phone
+    let phoneVerifyCleared = false
+    if (has('phone')) {
+      const r = normalizePhoneInput(str(body.phone) ? (body.phone as string) : null)
+      if (r.status === 'invalid') {
+        return Response.json({ error: r.reason ?? 'Invalid phone number.' }, { status: 400 })
+      }
+      if ((r.value ?? null) !== (before.phone ?? null)) {
+        patch.phone = r.value
+        patch.phone_verified_at = null
+        phoneVerifyCleared = true
+        nextPhone = r.value ?? null
+        changed = true
+      }
+    }
+
+    // ── Mailing address (edited as one group) ──
+    let addrVerifyCleared = false
+    if (has('street') || has('city') || has('state') || has('zip')) {
+      const beforeStreet = storedStreet(before)
+      const street = has('street') ? cleanLine(body.street) : beforeStreet
+      const city = has('city') ? cleanLine(body.city) : before.city
+      const state = has('state') ? cleanState(body.state) : before.state
+      const zip = has('zip') ? cleanLine(body.zip) : before.zip
+      const addrChanged =
+        (street ?? null) !== (beforeStreet ?? null) ||
+        (city ?? null) !== (before.city ?? null) ||
+        (state ?? null) !== (before.state ?? null) ||
+        (zip ?? null) !== (before.zip ?? null)
+      if (addrChanged) {
+        patch.street = street
+        patch.city = city
+        patch.state = state
+        patch.zip = zip
+        patch.address_verified_at = null
+        addrVerifyCleared = true
+        changed = true
+      }
+    }
+
+    // ── Verification (per field) ──
+    // Verified reflects the value that will be on file after this save. A field
+    // whose value changed in THIS request has its verification auto-cleared
+    // above; an explicit verify request can still re-affirm it against the new
+    // value. A missing/unusable value cannot be verified.
+    const verifyOne = (
+      key: 'email_verified' | 'phone_verified' | 'address_verified',
+      col: 'email_verified_at' | 'phone_verified_at' | 'address_verified_at',
+      usable: boolean,
+      currentAt: string | null,
+      autoCleared: boolean,
+    ): Response | null => {
+      if (!has(key)) return null
+      const want = body[key]
+      if (typeof want !== 'boolean') {
+        return Response.json({ error: `${key} must be a boolean.` }, { status: 400 })
+      }
+      if (want && !usable) {
+        return Response.json(
+          { error: `There is no usable ${key.replace('_verified', '')} on file to mark as customer verified.` },
+          { status: 400 },
+        )
+      }
+      // The effective current timestamp after any auto-clear from a value edit.
+      const effectiveAt = autoCleared ? null : currentAt
+      const isVerified = !!effectiveAt
+      if (want === isVerified) return null
+      patch[col] = want ? new Date().toISOString() : null
+      changed = true
+      return null
+    }
+    const emailUsable = !!(nextEmail && nextEmail.trim())
+    const phoneUsable = !!(nextPhone && nextPhone.trim())
+    const nextStreet = patch.street !== undefined ? patch.street : storedStreet(before)
+    const nextCity = patch.city !== undefined ? patch.city : before.city
+    const nextState = patch.state !== undefined ? patch.state : before.state
+    const nextZip = patch.zip !== undefined ? patch.zip : before.zip
+    const addrUsable = addressUsable(nextStreet, nextCity, nextState, nextZip)
+    const vEmail = verifyOne('email_verified', 'email_verified_at', emailUsable, before.email_verified_at, emailVerifyCleared)
+    if (vEmail) return vEmail
+    const vPhone = verifyOne('phone_verified', 'phone_verified_at', phoneUsable, before.phone_verified_at, phoneVerifyCleared)
+    if (vPhone) return vPhone
+    const vAddr = verifyOne('address_verified', 'address_verified_at', addrUsable, before.address_verified_at, addrVerifyCleared)
+    if (vAddr) return vAddr
+
+    // ── Do Not Text ──
+    if (has('do_not_text')) {
+      const want = body.do_not_text
+      if (typeof want !== 'boolean') {
+        return Response.json({ error: 'do_not_text must be a boolean.' }, { status: 400 })
+      }
+      if ((before.sms_opt_out ?? false) !== want) { patch.sms_opt_out = want; changed = true }
+    }
+
+    // ── Customer alert ──
+    if (has('alert')) {
+      const raw = body.alert
+      if (raw != null && !str(raw)) {
+        return Response.json({ error: 'alert must be a string or null.' }, { status: 400 })
+      }
+      const trimmed = str(raw) ? raw.trim() : ''
+      const next: string | null = trimmed.length > 0 ? trimmed : null
+      if ((before.contact_alert ?? null) !== next) { patch.contact_alert = next; changed = true }
+    }
+
+    // Resolve Text Undeliverable intent against the number that WILL be on file.
+    // A delivery failure is recorded (never cleared here — replacing the number
+    // clears it on its own), only when staged AND the resulting number is not
+    // already undeliverable, matching the per-field semantics.
+    const markUndeliverable = has('mark_undeliverable') && body.mark_undeliverable === true
+
+    // The before/after text_undeliverable facts for the audit note. Before is the
+    // current number's state; after accounts for a number change (which clears a
+    // stale failure) and a newly staged failure.
+    const beforeUndeliverable = await isTextUndeliverableForCurrentNumber(supabase, customerId, before.phone)
+    const phoneChanged = (nextPhone ?? null) !== (before.phone ?? null)
+    const undeliverableAfterPhone = phoneChanged ? false : beforeUndeliverable
+    const willRecordUndeliverable = markUndeliverable && !undeliverableAfterPhone && !!nextPhone?.trim()
+    const afterUndeliverable = undeliverableAfterPhone || willRecordUndeliverable
+
+    // Nothing changed on the row, no new failure to record: a true no-op. Return
+    // the current record unchanged and record NO history.
+    if (!changed && !willRecordUndeliverable) {
+      return respondWithContact(supabase, before)
+    }
+
+    let updated: CustomerContactRow = before
+    if (changed) {
+      const { data, error: updErr } = await supabase
+        .from('customers')
+        .update(patch)
+        .eq('id', customerId)
+        .eq('is_test', false)
+        .select(SELECT)
+        .maybeSingle<CustomerContactRow>()
+      if (updErr) {
+        console.error('customer contact unified update error:', updErr)
+        return Response.json({ error: updErr.message }, { status: 500 })
+      }
+      if (!data) return Response.json({ error: 'Customer not found.' }, { status: 404 })
+      updated = data
+    }
+
+    // Record a newly staged text-delivery failure for the number now on file.
+    if (willRecordUndeliverable) {
+      const touchedBy = await resolveEmployeeName(supabase)
+      await recordTextUndeliverable(supabase, customerId, updated.phone, touchedBy)
+    }
+
+    // ── ONE history entry for the whole change, prior -> new preserved ──
+    const snapshot = (row: CustomerContactRow, undeliverable: boolean): ContactSnapshot => ({
+      first_name: row.first_name,
+      last_name: row.last_name,
+      email: row.email,
+      phone: row.phone,
+      street: storedStreet(row),
+      city: row.city,
+      state: row.state,
+      zip: row.zip,
+      email_verified_at: row.email_verified_at,
+      phone_verified_at: row.phone_verified_at,
+      address_verified_at: row.address_verified_at,
+      email_availability: row.email_availability,
+      sms_opt_out: row.sms_opt_out ?? false,
+      text_undeliverable: undeliverable,
+      contact_alert: row.contact_alert,
+    })
+    const note = buildContactUpdateHistoryNote(
+      snapshot(before, beforeUndeliverable),
+      snapshot(updated, afterUndeliverable),
+    )
+    if (note) {
+      const touchedBy = await resolveEmployeeName(supabase)
+      const { error: hErr } = await supabase.from('case_touches').insert({
+        customer_id: customerId,
+        case_id: null,
+        touch_type: 'workflow',
+        notes: note,
+        touched_at: new Date().toISOString(),
+        touched_by: touchedBy,
+      })
+      if (hErr) console.error('contact-update history record error:', hErr)
+    }
+
+    return respondWithContact(supabase, updated)
   }
 
   // ── CORRECT THE CUSTOMER NAME ─────────────────────────────────────────────

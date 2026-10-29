@@ -422,7 +422,43 @@ function makeInteractivePersist(
   return async (_id: string, payload: ContactPersistPayload): Promise<CustomerContact> => {
     const now = new Date().toISOString()
     let next = record
-    if ('verified' in payload) {
+    if (payload.field === 'contact') {
+      // The unified save: apply every present key in one go, mirroring the app's
+      // combined `field: 'contact'` route branch (minimal, only-changed keys).
+      next = { ...record }
+      if (payload.first_name !== undefined) next.first_name = payload.first_name
+      if (payload.last_name !== undefined) next.last_name = payload.last_name
+      if (payload.email !== undefined) {
+        const changed = (payload.email ?? null) !== (record.email ?? null)
+        next.email = payload.email
+        if (changed) next.email_verified_at = null
+        if (payload.email) {
+          const clearable = record.email_availability === 'no_address' || record.email_availability === 'undeliverable'
+          if (clearable || record.email_availability == null) next.email_availability = 'available'
+        }
+      }
+      if (payload.email_availability !== undefined) {
+        next.email_availability = payload.email_availability === 'missing' ? null : payload.email_availability
+        next.email = null
+        next.email_verified_at = null
+      }
+      if (payload.phone !== undefined) {
+        const changed = (payload.phone ?? null) !== (record.phone ?? null)
+        next.phone = payload.phone
+        if (changed) { next.phone_verified_at = null; next.text_undeliverable = false }
+      }
+      if (payload.street !== undefined) {
+        next.street = payload.street; next.city = payload.city ?? null
+        next.state = payload.state ?? null; next.zip = payload.zip ?? null
+        next.address_verified_at = null
+      }
+      if (payload.do_not_text !== undefined) next.sms_opt_out = payload.do_not_text
+      if (payload.mark_undeliverable) next.text_undeliverable = !!next.phone?.trim()
+      if (payload.alert !== undefined) next.contact_alert = payload.alert?.trim() ? payload.alert.trim() : null
+      if (payload.email_verified !== undefined) next.email_verified_at = payload.email_verified ? now : null
+      if (payload.phone_verified !== undefined) next.phone_verified_at = payload.phone_verified ? now : null
+      if (payload.address_verified !== undefined) next.address_verified_at = payload.address_verified ? now : null
+    } else if ('verified' in payload) {
       const colKey =
         payload.field === 'email' ? 'email_verified_at'
         : payload.field === 'phone' ? 'phone_verified_at'
@@ -474,7 +510,7 @@ function makeInteractivePersist(
       // First/last corrected independently, capitalization preserved. Mirrors
       // the app route (no title-casing, no splitting).
       next = { ...record, first_name: payload.first_name, last_name: payload.last_name }
-    } else {
+    } else if (payload.field === 'address') {
       next = {
         ...record,
         street: payload.street, city: payload.city, state: payload.state, zip: payload.zip,

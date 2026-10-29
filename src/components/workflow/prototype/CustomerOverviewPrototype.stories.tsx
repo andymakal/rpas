@@ -160,6 +160,44 @@ function applyPayload(
         ...prev,
         contact_alert: payload.alert?.trim() ? payload.alert.trim() : null,
       }
+    case 'contact': {
+      // The unified save: apply every present key in one go, mirroring the app's
+      // combined `field: 'contact'` route branch (minimal, only-changed keys).
+      const now = new Date().toISOString()
+      const next: CustomerContact = { ...prev }
+      if (payload.first_name !== undefined) next.first_name = payload.first_name
+      if (payload.last_name !== undefined) next.last_name = payload.last_name
+      if (payload.email !== undefined) {
+        const changed = (payload.email ?? null) !== (prev.email ?? null)
+        next.email = payload.email
+        if (changed) next.email_verified_at = null
+        if (payload.email) next.email_availability = 'available'
+      }
+      if (payload.email_availability !== undefined) {
+        next.email_availability = payload.email_availability === 'missing' ? null : payload.email_availability
+        next.email = null
+        next.email_verified_at = null
+      }
+      if (payload.phone !== undefined) {
+        const changed = (payload.phone ?? null) !== (prev.phone ?? null)
+        next.phone = payload.phone
+        if (changed) { next.phone_verified_at = null; next.text_undeliverable = false }
+      }
+      if (payload.street !== undefined) {
+        next.street = normalizeStreet(payload.street)
+        next.city = normalizeCity(payload.city ?? null)
+        next.state = normalizeState(payload.state ?? null)
+        next.zip = payload.zip ?? null
+        next.address_verified_at = null
+      }
+      if (payload.do_not_text !== undefined) next.sms_opt_out = payload.do_not_text
+      if (payload.mark_undeliverable) next.text_undeliverable = !!next.phone?.trim()
+      if (payload.alert !== undefined) next.contact_alert = payload.alert?.trim() ? payload.alert.trim() : null
+      if (payload.email_verified !== undefined) next.email_verified_at = payload.email_verified ? now : null
+      if (payload.phone_verified !== undefined) next.phone_verified_at = payload.phone_verified ? now : null
+      if (payload.address_verified !== undefined) next.address_verified_at = payload.address_verified ? now : null
+      return next
+    }
     default:
       return prev
   }

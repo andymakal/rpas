@@ -45,6 +45,7 @@ import {
 import {
   describeContactResearchSelection,
   type HistoryEvent,
+  type NextHistoryEntryPreview,
 } from '@/lib/stewardship/customer-history'
 import { type EmailAvailability } from '@/lib/email-availability'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
@@ -796,6 +797,11 @@ function ContactReviewTask({
   const [history, setHistory] = useState<HistoryEvent[]>([])
   const [policies, setPolicies] = useState<PolicySummary[]>([])
   const [historyTz, setHistoryTz] = useState<string | null>(null)
+  // The live Next History Entry preview the shared contact card reports while
+  // its unified editor is open: what the single Save will record. The card owns
+  // the diff, so this screen carries no contact-change logic — it just shows the
+  // card's preview when editing, falling back to the research preview otherwise.
+  const [cardPreview, setCardPreview] = useState<NextHistoryEntryPreview | null>(null)
 
   // The method presence when this customer opened, captured once via a lazy
   // state initializer (so it is the first-render baseline and is safe to read
@@ -936,6 +942,7 @@ function ContactReviewTask({
             customerId={customer.customer_id}
             initialMode="expanded"
             onChange={onContactChange}
+            onPendingChange={setCardPreview}
           />
           {/* The Policies card owns its single "Policies" heading. */}
           <PolicySummaryList policies={policies} />
@@ -953,7 +960,10 @@ function ContactReviewTask({
               previously-missing method is filled; blank until there is something
               to record (a filled value, or the deliberate Nothing Usable action
               which records the research outcome). */}
-          <NextHistoryEntry preview={researchPreview} />
+          {/* While the contact card's unified editor has pending changes, show
+              exactly what its single Save will record (the card owns that diff);
+              otherwise fall back to the research-outcome preview. */}
+          <NextHistoryEntry preview={cardPreview ?? researchPreview} />
           <CustomerHistoryCard events={history} actorTimeZone={historyTz} />
         </>
       }
