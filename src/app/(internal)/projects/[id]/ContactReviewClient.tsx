@@ -938,21 +938,21 @@ function ContactReviewTask({
         </ActionPanel>
       }
       context={
-        // Center column: the self-contained Customer Contact card. Contact
-        // Research is research work, so the card opens EXPANDED (editing) — the
-        // only presentation input this screen supplies. The card fetches,
-        // displays, edits, and saves all of the customer's contact information
-        // itself (name, calculated age, email, phone, mailing address,
-        // verification, email availability, Do Not Text / Text Undeliverable,
-        // and the alert); this screen no longer assembles a contact object, a
-        // name/age header, or the texting facts. `onContactChange` keeps the
-        // Missing Fields counts and the Next History Entry preview in sync from
-        // the authoritative record the card returns. The customer's available
-        // policy numbers are shown by Search Gateway in the left panel, so this
-        // surface deliberately renders no separate Policies box.
+        // Center column: the self-contained Customer Contact card. It opens
+        // collapsed (the Overview) like everywhere else in Right Path; the
+        // worker clicks Edit to open the fields, and Save or Cancel returns it
+        // to the Overview. The card fetches, displays, edits, and saves all of
+        // the customer's contact information itself (name, calculated age,
+        // email, phone, mailing address, verification, email availability, Do
+        // Not Text / Text Undeliverable, and the alert); this screen no longer
+        // assembles a contact object, a name/age header, or the texting facts.
+        // `onContactChange` keeps the Missing Fields counts and the Next History
+        // Entry preview in sync from the authoritative record the card returns.
+        // The customer's available policy numbers are shown by Search Gateway in
+        // the left panel, so this surface deliberately renders no separate
+        // Policies box.
         <CustomerContactCard
           customerId={customer.customer_id}
-          initialMode="expanded"
           onChange={onContactChange}
           onPendingChange={setCardPreview}
           onPendingStateChange={setCardPending}
