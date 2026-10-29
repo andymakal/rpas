@@ -725,6 +725,11 @@ interface SelfContainedProps {
    * while the editor is open (null when collapsed or nothing changed). Lets a
    * host render exactly what Save will record WITHOUT re-deriving any diff. */
   onPendingChange?: (preview: NextHistoryEntryPreview | null) => void
+  /** Optional: notified whenever the card has work in flight that a host should
+   * wait on before advancing — true while the editor holds unsaved changes OR a
+   * save is in progress, false once Save or Cancel completes. The card owns this
+   * determination (dirty-draft + busy) so hosts never re-derive it. */
+  onPendingStateChange?: (pending: boolean) => void
   // Mutually exclusive with the legacy `customer` invocation.
   customer?: never
 }
@@ -796,6 +801,7 @@ function SelfContainedContactCard({
   onChange,
   onModeChange,
   onPendingChange,
+  onPendingStateChange,
 }: SelfContainedProps) {
   const [record, setRecord] = useState<CustomerContact | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -878,6 +884,7 @@ function SelfContainedContactCard({
       alert={record.contact_alert ?? null}
       alertEditable
       onPendingChange={onPendingChange}
+      onPendingStateChange={onPendingStateChange}
       header={
         <CustomerNameHeading
           customerId={record.id}
@@ -923,6 +930,7 @@ function ContactCardView({
   onAlertChange,
   alertEditable = false,
   onPendingChange,
+  onPendingStateChange,
 }: {
   customer: CustomerContact
   /** Called with the authoritative updated record after any successful write,
@@ -967,6 +975,11 @@ function ContactCardView({
    * editor is open (null when collapsed or when nothing has changed), so a host
    * can show what the single Save will record WITHOUT re-deriving the diff. */
   onPendingChange?: (preview: NextHistoryEntryPreview | null) => void
+  /** Report whether the card currently has work a host should wait on before
+   * advancing: true while the editor holds unsaved changes OR a save is running,
+   * false once Save or Cancel settles. Combines the editor's own dirty-draft
+   * signal with the card's busy flag, so a host never re-derives either. */
+  onPendingStateChange?: (pending: boolean) => void
 }) {
   const ap = useMemo(() => resolveAppearance(appearance), [appearance])
   // The card holds the current record locally so the display updates the instant
@@ -974,6 +987,11 @@ function ContactCardView({
   const [record, setRecord] = useState<CustomerContact>(customer)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Whether the open editor currently holds a non-empty pending change. Reported
+  // up from the editor (which already builds the minimal changed-fact payload),
+  // so the card does not re-derive dirtiness. False whenever the editor is not
+  // open. Combined with `busy` into the single onPendingStateChange signal.
+  const [editorDirty, setEditorDirty] = useState(false)
   // Bumped to force the unified editor to remount with fresh drafts after a save
   // or a legacy (non-collapsible) Cancel.
   const [editorKey, setEditorKey] = useState(0)
@@ -989,6 +1007,17 @@ function ContactCardView({
   // can still toggle Overview/Edit in between; only a new default re-seeds it.
   useEffect(() => { setExpanded(defaultExpanded) }, [defaultExpanded])
   const isExpanded = !collapsible || expanded
+
+  // When the editor is not open there can be no pending draft; keep the dirty
+  // flag honest so a collapsed Overview never reports unsaved changes.
+  useEffect(() => { if (!isExpanded) setEditorDirty(false) }, [isExpanded])
+
+  // The single pending signal a host waits on: unsaved draft OR a save in
+  // flight. Emitted whenever either input changes, so buttons re-enable the
+  // moment Save or Cancel settles.
+  useEffect(() => {
+    onPendingStateChange?.(editorDirty || busy)
+  }, [editorDirty, busy, onPendingStateChange])
   // The current alert value: the controlled `alert` prop when a host manages it,
   // else the durable customers.contact_alert on the record. Shown as a banner in
   // Overview; edited inside the one unified editor.
@@ -1111,10 +1140,12 @@ function ContactCardView({
           onSave={saveUnified}
           onCancel={() => {
             onPendingChange?.(null)
+            setEditorDirty(false)
             if (collapsible) setExpandedState(false)
             else { setError(null); setEditorKey((k) => k + 1) }
           }}
           onPendingChange={onPendingChange}
+          onDirtyChange={setEditorDirty}
         />
       ) : (
         <>
@@ -1185,7 +1216,7 @@ function ContactCardView({
  * `onPendingChange`, so the history column shows exactly what Save will record.
  */
 function UnifiedContactEditor({
-  record, busy, alertEditable, onSave, onCancel, onPendingChange,
+  record, busy, alertEditable, onSave, onCancel, onPendingChange, onDirtyChange,
 }: {
   record: CustomerContact
   busy: boolean
@@ -1193,6 +1224,11 @@ function UnifiedContactEditor({
   onSave: (payload: ContactUpdatePayload) => void
   onCancel: () => void
   onPendingChange?: (preview: NextHistoryEntryPreview | null) => void
+  /** Report whether the current drafts differ from the record — true when the
+   * minimal changed-fact payload is non-empty. The host card lifts this into the
+   * single pending signal it exposes; the editor already builds this payload for
+   * the live preview, so dirtiness is reported from the same place. */
+  onDirtyChange?: (dirty: boolean) => void
 }) {
   // ── Drafts, seeded from the current record (display-normalized where the
   // read view shows a normalized value, so the operator edits what they saw). ──
@@ -1352,12 +1388,20 @@ function UnifiedContactEditor({
     alertDraft, willHaveNumber, lockedUndeliverable, numberUnchanged, record,
   ])
 
-  // Report the live preview of the pending change up as drafts change.
+  // Report the live preview of the pending change AND whether the drafts are
+  // dirty (a non-empty changed-fact payload) up as drafts change. Both come from
+  // the one buildChange() the editor already runs, so neither the preview nor
+  // dirtiness is derived twice.
   useEffect(() => {
-    if (!onPendingChange) return
-    const { before, after } = buildChange()
-    onPendingChange(describeContactUpdate(before, after))
-  }, [buildChange, onPendingChange])
+    const { payload, before, after } = buildChange()
+    onPendingChange?.(describeContactUpdate(before, after))
+    onDirtyChange?.(Object.keys(payload).length > 0)
+  }, [buildChange, onPendingChange, onDirtyChange])
+
+  // On unmount (Save collapses the editor, or the customer changes), the editor
+  // no longer holds a draft; make sure the host's dirty flag does not stay stuck
+  // on from the last render.
+  useEffect(() => () => { onDirtyChange?.(false) }, [onDirtyChange])
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()

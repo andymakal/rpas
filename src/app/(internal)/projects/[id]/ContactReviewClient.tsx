@@ -792,6 +792,12 @@ function ContactReviewTask({
   const name = fullName(customer)
   const [busy, setBusy] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
+  // Whether the Customer Contact Card has unsaved edits or a save in flight.
+  // The card owns this determination and reports it; the advancing actions are
+  // disabled while it is true so the worker cannot leave the customer with
+  // unsaved contact changes, and both re-enable the moment Save or Cancel
+  // settles.
+  const [cardPending, setCardPending] = useState(false)
 
   // The open customer's grouped history for the right column: the Customer
   // History (with the Next History Entry preview). Loaded when the customer
@@ -914,7 +920,7 @@ function ContactReviewTask({
               selected
               size="lg"
               onClick={doneAndNext}
-              disabled={busy}
+              disabled={busy || cardPending}
               className="h-auto min-h-14 justify-center whitespace-normal rounded-xl px-5 py-3 text-center text-lg font-semibold leading-tight"
             >
               Done &amp; Next
@@ -923,7 +929,7 @@ function ContactReviewTask({
               icon={SkipForward}
               size="lg"
               onClick={onSkipped}
-              disabled={busy}
+              disabled={busy || cardPending}
               className="h-auto min-h-14 justify-center whitespace-normal rounded-xl px-5 py-3 text-center text-lg font-semibold leading-tight"
             >
               Skip This Customer
@@ -949,6 +955,7 @@ function ContactReviewTask({
           initialMode="expanded"
           onChange={onContactChange}
           onPendingChange={setCardPreview}
+          onPendingStateChange={setCardPending}
         />
       }
       history={
