@@ -1307,6 +1307,14 @@ export function StewardshipTask({
     setInteractionSelection((prev) => (sameInteractionSelection(prev, next) ? prev : next))
   }, [])
 
+  // The live Next History Entry preview the shared contact card reports from its
+  // unified editor (what its single Save will record). Lifted here so the center
+  // column's card can drive the right column's history preview WITHOUT this
+  // screen re-deriving any contact-change logic. null when the card is collapsed
+  // or nothing has changed, in which case the column shows its workflow preview.
+  const [contactPreview, setContactPreview] = useState<NextHistoryEntryPreview | null>(null)
+  useEffect(() => { setContactPreview(null) }, [itemId])
+
   const load = useCallback(async () => {
     const res = await fetch(`/api/stewardship/${itemId}`, { cache: 'no-store' })
     const json = await res.json()
@@ -1444,6 +1452,9 @@ export function StewardshipTask({
             // center column's Reached behavior: open the contact card in edit
             // mode and show the yellow verify-contact instruction above it.
             reached={callSelection?.reach === 'reached'}
+            // The contact card reports its live unified-edit preview up here, so
+            // the history column can show what its single Save will record.
+            onContactPreviewChange={setContactPreview}
           />
         }
         history={isWorkingScreen
@@ -1452,6 +1463,7 @@ export function StewardshipTask({
               interactionSelection={interactionSelection}
               forceServicingAccess={forceServicingAccess}
               forceCustomerInteraction={forceCustomerInteraction}
+              contactPreview={contactPreview}
             />
           : undefined}
       />
@@ -1524,9 +1536,14 @@ function sameInteractionSelection(a: InteractionSelection | null, b: Interaction
 
 function StewardshipHistoryColumn({
   detail, forceCall, callSelection, interactionSelection = null, forceServicingAccess = false, forceCustomerInteraction = false,
+  contactPreview = null,
 }: {
   detail: Detail
   forceCall: boolean
+  /** The live preview the shared contact card reports from its unified editor.
+   * When present it is what the card's single Save will record, so it takes
+   * precedence over the workflow preview; null when the card is not editing. */
+  contactPreview?: NextHistoryEntryPreview | null
   /** The live call-flow selection, when a guided call is in progress. Drives the
    * dynamic preview; null on the other working screens or before a reach
    * decision. */
@@ -1553,7 +1570,9 @@ function StewardshipHistoryColumn({
   if (forceCustomerInteraction) {
     return (
       <>
-        <NextHistoryEntry preview={describeInteractionSelection(interactionSelection)} />
+        {/* The contact card's live unified-edit preview wins while it is open;
+            otherwise the prepared interaction preview. */}
+        <NextHistoryEntry preview={contactPreview ?? describeInteractionSelection(interactionSelection)} />
         <CustomerHistoryCard events={detail.customer_history ?? []} />
       </>
     )
@@ -1577,8 +1596,10 @@ function StewardshipHistoryColumn({
   return (
     <>
       {/* The card owns its single heading; blank until there is something to
-          record (the calling flow before a reach decision passes null). */}
-      <NextHistoryEntry preview={preview} />
+          record (the calling flow before a reach decision passes null). The
+          contact card's live unified-edit preview takes precedence while it is
+          open, so editing contact facts previews exactly what Save will log. */}
+      <NextHistoryEntry preview={contactPreview ?? preview} />
       <CustomerHistoryCard events={detail.customer_history ?? []} />
     </>
   )
@@ -1651,6 +1672,7 @@ function isIntroductoryEmailActivity(detail: Detail): boolean {
  */
 function StewardshipContextPanel({
   detail, request, context, busy, act, setDetail, reload, forceCall = false, forceCustomerInteraction = false, withHistoryColumn = false, reached = false,
+  onContactPreviewChange,
 }: {
   detail: Detail
   request: Holding[]
@@ -1658,6 +1680,9 @@ function StewardshipContextPanel({
   busy: boolean
   act: (action: unknown, successNote?: string) => void
   setDetail: React.Dispatch<React.SetStateAction<Detail | null>>
+  /** Forward the shared contact card's live unified-edit preview up to the task
+   * so the history column can show what the card's single Save will record. */
+  onContactPreviewChange?: (preview: NextHistoryEntryPreview | null) => void
   /** Reload the task detail from the server. The Customer Contact Card calls it
    * after a save so the authoritative contact_options (call / text / email /
    * postal) are recomputed from the saved facts via the one established
@@ -1732,7 +1757,7 @@ function StewardshipContextPanel({
         // the surrounding task in sync through onChange. Approved Overview/Edit
         // presentation; collapsed by default, expanded for Research Needed and
         // for a reached guided call (edit mode during the conversation).
-        <StewardshipCustomerContact detail={detail} setDetail={setDetail} reload={reload} startExpanded={startExpanded} />
+        <StewardshipCustomerContact detail={detail} setDetail={setDetail} reload={reload} startExpanded={startExpanded} onContactPreviewChange={onContactPreviewChange} />
       ) : (
         <CustomerContext detail={detail} busy={busy} act={act} showVerification />
       )}
@@ -1763,13 +1788,16 @@ function StewardshipContextPanel({
  * /api/customers/[id]/contact route.
  */
 function StewardshipCustomerContact({
-  detail, setDetail, reload, startExpanded = false,
+  detail, setDetail, reload, startExpanded = false, onContactPreviewChange,
 }: {
   detail: Detail
   setDetail: React.Dispatch<React.SetStateAction<Detail | null>>
   /** Reload the task detail so the authoritative contact_options are recomputed
    * from the saved facts after a card edit (see StewardshipContextPanel). */
   reload: () => Promise<void> | void
+  /** Forward the card's live unified-edit preview up so the history column can
+   * show what its single Save will record. */
+  onContactPreviewChange?: (preview: NextHistoryEntryPreview | null) => void
   /** Whether the self-contained card opens EXPANDED (editing). Find Missing
    * Contact Information (Research Needed) and a reached guided call pass true;
    * every other stewardship surface opens COLLAPSED in the compact overview.
@@ -1803,6 +1831,7 @@ function StewardshipCustomerContact({
     <CustomerContactCard
       customerId={detail.customer.id}
       initialMode={startExpanded ? 'expanded' : 'collapsed'}
+      onPendingChange={onContactPreviewChange}
       onChange={(u) => {
         setDetail(prev => prev ? {
           ...prev,

@@ -184,6 +184,7 @@ function milestoneHeading(summary: string): string {
   if (/completed/i.test(summary)) return 'Follow-up Completed'
   if (/follow-up/i.test(summary)) return 'Follow-up Scheduled'
   if (/refus/i.test(summary)) return 'Customer Declined'
+  if (/contact updated/i.test(summary)) return 'Customer Contact Updated'
   return summary
 }
 
@@ -417,6 +418,7 @@ export function cleanHistoryNote(note: string | null): string | null {
     .replace(/\[inbound\]/gi, '')
     .replace(/\[email-availability:[^\]]*\]/gi, '')
     .replace(/\[name-change\]/gi, '')
+    .replace(/\[contact-update\]/gi, '')
     // The outgoing "Servicing-agent onboarding <channel>" boilerplate prefix,
     // and the inbound "Customer <channel> response received" / "Automated
     // <channel> reply received" prefixes the touch route prepends — with or
@@ -460,6 +462,7 @@ function stripMarkersAndPrefix(note: string): string {
     .replace(/\[inbound\]/gi, '')
     .replace(/\[email-availability:[^\]]*\]/gi, '')
     .replace(/\[name-change\]/gi, '')
+    .replace(/\[contact-update\]/gi, '')
     .replace(/^Servicing-agent onboarding\s+(?:call|voicemail|text|email|postal)\s*[:.]?\s*/i, '')
     .replace(/^Customer\s+(?:call|voicemail|text|email|postal)\s+response received\s*[:.]?\s*/i, '')
     .replace(/^Automated\s+(?:call|voicemail|text|email|postal)\s+reply received\s*[:.]?\s*/i, '')
@@ -740,6 +743,7 @@ function buildWorkflowEvents(rows: HistoryTouchRow[]): HistoryEvent[] {
     const summary =
       /follow-up completed/i.test(note) ? 'Follow-up completed'
       : /follow-up/i.test(note) ? 'Follow-up scheduled'
+      : /\[contact-update\]/i.test(note) || /^Customer name corrected/i.test(note) || /\[name-change\]/i.test(note) ? 'Customer Contact Updated'
       : /\[email-availability:/i.test(note) || /^Email (availability|marked)/i.test(note) ? 'Email availability updated'
       : /declined|refus/i.test(note) ? 'Customer refusal'
       : 'Workflow update'
@@ -1053,6 +1057,293 @@ export function describeContactResearchSelection(
   if (!before.hasAddress && now.hasAddress) filled.push('mailing address')
   if (filled.length === 0) return null
   return { summary: `Contact Updated (${filled.join(', ')})` }
+}
+
+// ---------------------------------------------------------------------------
+// Unified contact edit — one combined change set, one history entry.
+//
+// The shared CustomerContactCard edits every durable contact fact together
+// (name, email, phone, mailing address, the three verifications, email
+// availability, Do Not Text, Text Undeliverable, and the customer alert) and
+// commits them in ONE save that records exactly ONE "Customer Contact Updated"
+// history entry preserving the prior and new values for audit.
+//
+// Both halves live here as shared logic so neither the card nor any host screen
+// re-derives the diff or the recorded prose:
+//   - `describeContactUpdate(before, after)` builds the live Next History Entry
+//     preview of the pending change (null when nothing changed), so the preview
+//     component renders the combined pending change without page-specific logic.
+//   - `buildContactUpdateHistoryNote(before, after)` builds the single
+//     case_touches 'workflow' note the route records, naming each changed fact's
+//     prior -> new value so the previous value is preserved in history.
+// Both read the same `ContactSnapshot` shape, so the preview and the recorded
+// entry describe the identical set of changes in the identical order.
+// ---------------------------------------------------------------------------
+
+/** The stable machine marker identifying a case_touches 'workflow' note as a
+ * unified contact update, so the Customer History display titles it "Customer
+ * Contact Updated" while hiding the marker. */
+export const CONTACT_UPDATE_MARKER = '[contact-update]'
+
+/** The durable contact facts a unified edit can change, in one flat shape read
+ * by both the preview and the recorded-note builder. Values are the stored
+ * values (name components, the active email/phone, the four address parts, the
+ * three verification timestamps, the durable email-availability fact, the two
+ * texting restrictions, and the single customer alert). This mirrors the subset
+ * of the customers row the card and the contact route already read/write; it
+ * introduces no new field. */
+export interface ContactSnapshot {
+  first_name: string | null
+  last_name: string | null
+  email: string | null
+  phone: string | null
+  street: string | null
+  city: string | null
+  state: string | null
+  zip: string | null
+  email_verified_at: string | null
+  phone_verified_at: string | null
+  address_verified_at: string | null
+  email_availability: EmailAvailabilitySnapshot
+  sms_opt_out: boolean
+  text_undeliverable: boolean
+  contact_alert: string | null
+}
+
+/** The email-availability values the snapshot carries. Kept as a local string
+ * union (not an import) so this display module stays dependency-free; it mirrors
+ * the stored `customers.email_availability` domain (null = unknown). */
+export type EmailAvailabilitySnapshot =
+  | 'available'
+  | 'no_address'
+  | 'undeliverable'
+  | null
+
+/** Human label for an email-availability value in the history prose. */
+const EMAIL_AVAILABILITY_PROSE: Record<Exclude<EmailAvailabilitySnapshot, null>, string> = {
+  available: 'on file',
+  no_address: 'No Usable Email',
+  undeliverable: 'Undeliverable',
+}
+
+/** Collapse whitespace and trim; empty becomes null, so "present" is consistent
+ * between the preview, the note, and the card. */
+function trimOrNull(v: string | null): string | null {
+  if (v == null) return null
+  const t = v.replace(/\s+/g, ' ').trim()
+  return t.length ? t : null
+}
+
+function fullNameOf(s: Pick<ContactSnapshot, 'first_name' | 'last_name'>): string {
+  const n = `${trimOrNull(s.first_name) ?? ''} ${trimOrNull(s.last_name) ?? ''}`.trim()
+  return n || '(none)'
+}
+
+function addressOf(s: ContactSnapshot): string {
+  const street = trimOrNull(s.street)
+  const city = trimOrNull(s.city)
+  const state = trimOrNull(s.state)
+  const zip = trimOrNull(s.zip)
+  const cityStateZip = [[city, state].filter(Boolean).join(', '), zip].filter(Boolean).join(' ').trim()
+  const full = [street, cityStateZip].filter(Boolean).join(', ')
+  return full || '(none)'
+}
+
+/** A value shown in prose, or "(none)" when empty, so prior -> new reads clearly
+ * even when one side is blank. */
+function valueOrNone(v: string | null): string {
+  return trimOrNull(v) ?? '(none)'
+}
+
+/** One described difference between two snapshots: a short label for the
+ * combined preview summary, and a full prior -> new sentence for the recorded
+ * audit note. `order` is a stable sort key so the preview and the note list the
+ * same changes in the same order. */
+interface ContactChange {
+  order: number
+  /** Short label for the combined preview summary (e.g. "email", "phone"). */
+  label: string
+  /** The audit sentence naming the prior and new value. */
+  sentence: string
+}
+
+/**
+ * Diff two contact snapshots into the ordered list of changes. This is the ONE
+ * place the unified edit decides what counts as a change, shared by the live
+ * preview and the recorded note so they never disagree. Returns an empty array
+ * when nothing changed (so no history entry is recorded and the preview stays
+ * blank). Verification is reported as checked/unchecked; an edited value that
+ * also clears its own verification reports the value change only, since the
+ * cleared verification is an automatic consequence, not a separate operator act.
+ */
+function diffContact(before: ContactSnapshot, after: ContactSnapshot): ContactChange[] {
+  const changes: ContactChange[] = []
+
+  // Name (first/last considered together as the displayed full name).
+  if (
+    (trimOrNull(before.first_name) ?? null) !== (trimOrNull(after.first_name) ?? null) ||
+    (trimOrNull(before.last_name) ?? null) !== (trimOrNull(after.last_name) ?? null)
+  ) {
+    changes.push({
+      order: 0,
+      label: 'name',
+      sentence: `Name changed from "${fullNameOf(before)}" to "${fullNameOf(after)}".`,
+    })
+  }
+
+  // Email value.
+  const emailChanged = (trimOrNull(before.email) ?? null) !== (trimOrNull(after.email) ?? null)
+  if (emailChanged) {
+    changes.push({
+      order: 1,
+      label: 'email',
+      sentence: `Email changed from "${valueOrNone(before.email)}" to "${valueOrNone(after.email)}".`,
+    })
+  }
+
+  // Email availability (the durable fact), reported when it moved and is not
+  // merely the automatic "available" that accompanies saving a usable email.
+  if ((before.email_availability ?? null) !== (after.email_availability ?? null)) {
+    const fromLabel = before.email_availability ? EMAIL_AVAILABILITY_PROSE[before.email_availability] : 'unknown'
+    const toLabel = after.email_availability ? EMAIL_AVAILABILITY_PROSE[after.email_availability] : 'unknown'
+    // Skip the purely-automatic transition to "available" that always rides with
+    // a saved usable email — the email change sentence already conveys it.
+    const automaticAvailable = after.email_availability === 'available' && emailChanged
+    if (!automaticAvailable) {
+      changes.push({
+        order: 2,
+        label: 'email availability',
+        sentence: `Email availability changed from ${fromLabel} to ${toLabel}.`,
+      })
+    }
+  }
+
+  // Phone value.
+  if ((trimOrNull(before.phone) ?? null) !== (trimOrNull(after.phone) ?? null)) {
+    changes.push({
+      order: 3,
+      label: 'phone',
+      sentence: `Phone changed from "${valueOrNone(before.phone)}" to "${valueOrNone(after.phone)}".`,
+    })
+  }
+
+  // Do Not Text.
+  if (before.sms_opt_out !== after.sms_opt_out) {
+    changes.push({
+      order: 4,
+      label: after.sms_opt_out ? 'Do Not Text set' : 'Do Not Text cleared',
+      sentence: after.sms_opt_out
+        ? 'Do Not Text was set (texting disabled; calling unaffected).'
+        : 'Do Not Text was cleared.',
+    })
+  }
+
+  // Text Undeliverable (recorded against the number on file).
+  if (before.text_undeliverable !== after.text_undeliverable) {
+    changes.push({
+      order: 5,
+      label: after.text_undeliverable ? 'Text Undeliverable recorded' : 'Text Undeliverable cleared',
+      sentence: after.text_undeliverable
+        ? 'Text Undeliverable was recorded for the number on file.'
+        : 'Text Undeliverable was cleared.',
+    })
+  }
+
+  // Mailing address (edited as one group).
+  const addrChanged =
+    (trimOrNull(before.street) ?? null) !== (trimOrNull(after.street) ?? null) ||
+    (trimOrNull(before.city) ?? null) !== (trimOrNull(after.city) ?? null) ||
+    (trimOrNull(before.state) ?? null) !== (trimOrNull(after.state) ?? null) ||
+    (trimOrNull(before.zip) ?? null) !== (trimOrNull(after.zip) ?? null)
+  if (addrChanged) {
+    changes.push({
+      order: 6,
+      label: 'mailing address',
+      sentence: `Mailing address changed from "${addressOf(before)}" to "${addressOf(after)}".`,
+    })
+  }
+
+  // Verification changes, reported only when NOT the automatic clear that
+  // accompanies editing that field's value (an edited value always resets its
+  // own verification; that is a consequence, not a separate act).
+  const verifyField = (
+    order: number,
+    label: string,
+    beforeAt: string | null,
+    afterAt: string | null,
+    valueEdited: boolean,
+  ) => {
+    const wasVerified = !!beforeAt
+    const isVerified = !!afterAt
+    if (wasVerified === isVerified) return
+    // An edit that cleared verification is already implied by the value change.
+    if (valueEdited && wasVerified && !isVerified) return
+    changes.push({
+      order,
+      label: isVerified ? `${label} verified` : `${label} verification cleared`,
+      sentence: isVerified
+        ? `${label} marked customer verified.`
+        : `${label} verification cleared.`,
+    })
+  }
+  verifyField(7, 'Email', before.email_verified_at, after.email_verified_at, emailChanged)
+  verifyField(
+    8, 'Phone', before.phone_verified_at, after.phone_verified_at,
+    (trimOrNull(before.phone) ?? null) !== (trimOrNull(after.phone) ?? null),
+  )
+  verifyField(9, 'Address', before.address_verified_at, after.address_verified_at, addrChanged)
+
+  // Customer alert.
+  if ((trimOrNull(before.contact_alert) ?? null) !== (trimOrNull(after.contact_alert) ?? null)) {
+    const had = !!trimOrNull(before.contact_alert)
+    const has = !!trimOrNull(after.contact_alert)
+    changes.push({
+      order: 10,
+      label: !had && has ? 'alert added' : !has ? 'alert cleared' : 'alert updated',
+      sentence: !has
+        ? 'Customer alert was cleared.'
+        : `Customer alert ${had ? 'updated' : 'added'}: "${valueOrNone(after.contact_alert)}".`,
+    })
+  }
+
+  return changes.sort((a, b) => a.order - b.order)
+}
+
+/**
+ * The live Next History Entry preview for a unified contact edit: what the one
+ * Save will record. Returns null when nothing has changed, so the preview stays
+ * blank until there is something to record (and "no changes means no history"
+ * reads the same in the preview as in the recorded result). The summary lists
+ * the changed facts; the description previews the exact audit sentences the
+ * recorded entry will carry, so the preview matches the logged entry.
+ */
+export function describeContactUpdate(
+  before: ContactSnapshot,
+  after: ContactSnapshot,
+): NextHistoryEntryPreview | null {
+  const changes = diffContact(before, after)
+  if (changes.length === 0) return null
+  return {
+    summary: `Customer Contact Updated (${changes.map((c) => c.label).join(', ')})`,
+    description: changes.map((c) => c.sentence).join(' '),
+  }
+}
+
+/**
+ * The single case_touches 'workflow' note the contact route records for a
+ * unified edit, naming each changed fact's prior -> new value so the previous
+ * value is preserved for audit. Returns null when nothing changed, so the route
+ * records no entry for a no-op. The hidden `CONTACT_UPDATE_MARKER` lets the
+ * Customer History display title the event "Customer Contact Updated" while the
+ * sentences read as plain prose.
+ */
+export function buildContactUpdateHistoryNote(
+  before: ContactSnapshot,
+  after: ContactSnapshot,
+): string | null {
+  const changes = diffContact(before, after)
+  if (changes.length === 0) return null
+  return `${changes.map((c) => c.sentence).join(' ')} ${CONTACT_UPDATE_MARKER}`
 }
 
 // ---------------------------------------------------------------------------
