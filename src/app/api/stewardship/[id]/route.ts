@@ -28,6 +28,7 @@ import { OFFICE_CALLBACK_PHONE } from '@/lib/constants/office-callback'
 import { resolveProducerForUser } from '@/lib/capabilities/resolve'
 import { SERVICING_AUTHORIZATION_TYPE } from '@/lib/stewardship/authorization-document'
 import { activeContactResearchProjectForCustomer } from '@/lib/projects/contact-review'
+import { loadGatewayPolicyNumbersForCustomer } from '@/lib/stewardship/gateway-policy-numbers'
 import { getCustomerEnrollmentEvents } from '@/lib/projects/customer-enrollments'
 import {
   applyAction,
@@ -453,10 +454,20 @@ export async function GET(
     customer_age_approximate: customerAgeApproximate,
   }
 
+  // Every distinct policy number reliably on file for the customer (their
+  // service policies plus associated cases, de-duplicated), for the shared
+  // Search Gateway look-up. Gathered customer-wide rather than from only this
+  // request's holdings, so the research surface shows the same complete set the
+  // consolidated Contact Research task does.
+  const gatewayPolicyNumbers = await loadGatewayPolicyNumbersForCustomer(supabase, customerId)
+
   // requires that confirmation.
   return Response.json({
     data: {
       id: o.id,
+      // Every distinct policy number on file for the customer (service policies
+      // + associated cases, de-duplicated) for the shared Search Gateway block.
+      gateway_policy_numbers: gatewayPolicyNumbers,
       // Whether the signed servicing-agent authorization is uploaded/saved for
       // this servicing request (servicing-access working screen).
       authorization_on_file: authorizationOnFile,

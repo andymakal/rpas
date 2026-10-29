@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import type { ReferralDetail, Tier1Stage, TouchLog, AgentOption, AgencyOption, StatusHistoryEntry, ProducerOption, HouseholdMember, SuspectedDuplicate, NameDuplicate, NotInterestedReason, ReferralNote, OpenReview, CustomerPolicy } from './page'
 import { HouseholdCard } from '@/components/HouseholdCard'
+import { CustomerSearch } from '@/components/CustomerSearch'
 import { NotesLog } from '@/components/NotesLog'
 import type { NoteEntry } from '@/components/NotesLog'
 import { fmtDate as fmt } from '@/lib/fmt'
@@ -329,9 +330,7 @@ export function ReferralEditClient({
 
   // ── Manual merge state ────────────────────────────────────────
   const [mergeOpen,      setMergeOpen]      = useState(false)
-  const [mergeQuery,     setMergeQuery]     = useState('')
-  const [mergeResults,   setMergeResults]   = useState<MergeCandidate[]>([])
-  const [mergeSearching, setMergeSearching] = useState(false)
+
   const [mergeTarget,    setMergeTarget]    = useState<MergeCandidate | null>(null)
   const [mergeWorking,   setMergeWorking]   = useState(false)
   const [mergeError,     setMergeError]     = useState<string | null>(null)
@@ -380,22 +379,6 @@ export function ReferralEditClient({
     finally { setDupWorking(false) }
   }
 
-  async function handleMergeSearch(q: string) {
-    setMergeQuery(q)
-    setMergeTarget(null)
-    setMergeError(null)
-    if (q.trim().length < 2) { setMergeResults([]); return }
-    setMergeSearching(true)
-    try {
-      const res = await fetch(`/api/customers/search?q=${encodeURIComponent(q.trim())}&dedup=true`)
-      const json = await res.json()
-      if (!res.ok) { setMergeError(json.error ?? `Search error (${res.status})`); setMergeResults([]); return }
-      const results = (json.data ?? []).filter((c: MergeCandidate) => c.id !== referral.customer_id)
-      setMergeResults(results)
-      if (results.length === 0) setMergeError('No matching customers found.')
-    } catch (e) { setMergeError(`Network error: ${e instanceof Error ? e.message : String(e)}`); setMergeResults([]) }
-    finally { setMergeSearching(false) }
-  }
 
   async function loadSameCases() {
     setSameCasesLoading(true)
@@ -2057,7 +2040,7 @@ export function ReferralEditClient({
                 onClick={() => {
                 const opening = !mergeOpen
                 setMergeOpen(opening)
-                setMergeQuery(''); setMergeResults([]); setMergeTarget(null); setMergeError(null)
+                setMergeTarget(null); setMergeError(null)
                 setCaseMergeError(null); setSameCases([])
                 setDeleteConfirm(false)
                 if (opening) loadSameCases()
@@ -2147,24 +2130,18 @@ export function ReferralEditClient({
                     <span className="text-slate-300">{cFirstName} {cLastName}</span>{' '}
                     will move to the selected record, then this record will be deleted.
                   </p>
-                <input
-                  type="text"
-                  value={mergeQuery}
-                  onChange={e => handleMergeSearch(e.target.value)}
-                  placeholder="Search by name or phone…"
-                  className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
-                />
-                {mergeSearching && <p className="text-xs text-slate-500">Searching…</p>}
-                {!mergeSearching && mergeError && !mergeTarget && (
-                  <p className="text-xs text-amber-400">{mergeError}</p>
-                )}
-                {mergeResults.length > 0 && !mergeTarget && (
-                  <div className="divide-y divide-slate-800 rounded-lg border border-slate-700 overflow-hidden">
-                    {mergeResults.map(c => (
+                {!mergeTarget && (
+                  <CustomerSearch<MergeCandidate>
+                    mode="dedup"
+                    theme="dark"
+                    exclude={referral.customer_id ?? undefined}
+                    placeholder="Search by name or phone…"
+                    onSelect={c => setMergeTarget(c)}
+                    renderRow={(c, { select }) => (
                       <button
-                        key={c.id}
-                        onClick={() => setMergeTarget(c)}
-                        className="w-full flex items-start justify-between gap-2 px-3 py-2.5 text-left hover:bg-slate-800 transition-colors"
+                        type="button"
+                        onClick={select}
+                        className="w-full flex items-start justify-between gap-2 px-3 py-2.5 text-left hover:bg-slate-700/60 transition-colors"
                       >
                         <div>
                           <p className="text-sm text-slate-200 font-medium">{c.first_name} {c.last_name}</p>
@@ -2177,8 +2154,8 @@ export function ReferralEditClient({
                           {c.case_count} case{c.case_count !== 1 ? 's' : ''}
                         </span>
                       </button>
-                    ))}
-                  </div>
+                    )}
+                  />
                 )}
                 {mergeTarget && (
                   <div className="rounded-lg border border-amber-700/50 bg-amber-950/20 p-3 space-y-3">

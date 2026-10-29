@@ -47,9 +47,7 @@ import {
   type HistoryEvent,
 } from '@/lib/stewardship/customer-history'
 import { type EmailAvailability } from '@/lib/email-availability'
-import {
-  MentorGuidance, useMentorDisclosure, MentorCapButton, MentorCapPanel,
-} from '@/lib/mentoring/MentorUi'
+import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import { useWorkReservation } from '@/lib/reservations/useWorkReservation'
 
 type ContactReviewCustomer = {
@@ -82,7 +80,9 @@ type ContactReviewCustomer = {
   /** Text Undeliverable — a recorded text-delivery failure for the number on
    * file (value-scoped; restores on a number change). */
   text_undeliverable: boolean
-  policy_number: string | null
+  /** Every distinct policy number on file for the customer (service policies +
+   * associated cases, de-duplicated), for the Search Gateway look-up. */
+  policy_numbers: string[]
   /** Reachability. 'needs_research' = reachable (missing one method), routine
    * active list. 'no_usable_contact' = no usable email or phone at all, always
    * shown in the No Usable Contact Information section. researched_unsuccessfully
@@ -786,7 +786,6 @@ function ContactReviewTask({
   const name = fullName(customer)
   const [busy, setBusy] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
 
   // The open customer's grouped history and policy summary for the shared
   // three-column working layout: the Customer History (with the Next History
@@ -861,30 +860,6 @@ function ContactReviewTask({
       header={filterBar}
       action={
         <ActionPanel>
-          {/* Mentoring (HOW): the inline graduation-cap, the same large purple
-              control used in My Work. Clicking it expands the coaching beneath —
-              a brief explanation of the Missing Fields filters and how to research
-              contact information. Its default open/closed follows the global
-              Mentoring toggle. */}
-          <div className="flex items-center gap-2">
-            <p className="text-base font-semibold text-ink">How to research contact information</p>
-            {!mentorOpen && (
-              <MentorCapButton onOpen={() => setMentorOpen(true)} label="Show mentoring on researching contact information" />
-            )}
-          </div>
-          {mentorOpen && (
-            <MentorCapPanel onClose={() => setMentorOpen(false)}>
-              The Missing Fields filters above choose which gaps you work and drive the Next
-              Customer order; a customer appears while they are missing any checked field. To research,
-              search Gateway with the last name and policy number together — the policy number lands
-              you on the right record fastest; if it finds nothing, try the last name alone and
-              confirm the date of birth before you copy anything back. Enter what Gateway shows on the
-              Customer Contact card to the right; each field saves on its own, so a phone with no
-              email is still progress. Enter one usable method and move on, and only overwrite a value
-              when you are confident Gateway is right.
-            </MentorCapPanel>
-          )}
-
           {/* No Usable Contact Information exception opened deliberately: say
               plainly that earlier research came up empty, so the worker knows
               this is a re-check, not fresh outstanding work. */}
@@ -895,12 +870,13 @@ function ContactReviewTask({
             </OperationalTag>
           )}
 
-          {/* The shared Gateway look-up — last name + policy number with Copy
-              buttons, identical to the Stewardship research task. */}
+          {/* The shared Search Gateway look-up — last name + every policy number
+              on file, each with its own Copy button; identical to the
+              Stewardship research task. */}
           <GatewayLookup
             lastName={customer.last_name}
             fallbackName={name}
-            policyNumber={customer.policy_number}
+            policyNumbers={customer.policy_numbers}
           />
 
           {saveError && (

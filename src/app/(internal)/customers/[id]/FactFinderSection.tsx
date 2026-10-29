@@ -5,6 +5,7 @@ import {
   ClipboardList, ChevronDown, ChevronUp,
   Check, AlertTriangle, Plus, Trash2, ShieldCheck, Printer,
 } from 'lucide-react'
+import { CustomerSearch } from '@/components/CustomerSearch'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -293,24 +294,11 @@ function RelatedPersonPicker({
   label: string
   relType: 'spouse' | 'joint_owner' | 'custodian'
 }) {
-  const [query,    setQuery]    = useState('')
-  const [results,  setResults]  = useState<CustomerMatch[]>([])
-  const [loading,  setLoading]  = useState(false)
   const [showAdd,  setShowAdd]  = useState(false)
   const [newFirst, setNewFirst] = useState('')
   const [newLast,  setNewLast]  = useState('')
   const [newPhone, setNewPhone] = useState('')
   const [adding,   setAdding]   = useState(false)
-
-  async function search(q: string) {
-    if (q.length < 2) { setResults([]); return }
-    setLoading(true)
-    try {
-      const res = await fetch(`/api/customers/search?q=${encodeURIComponent(q)}&exclude=${customerId}`)
-      const json = await res.json()
-      setResults(json.data ?? [])
-    } finally { setLoading(false) }
-  }
 
   function linkInDb(relatedId: string) {
     fetch(`/api/customers/${customerId}/relationships`, {
@@ -324,7 +312,6 @@ function RelatedPersonPicker({
     const name = [c.first_name, c.last_name].filter(Boolean).join(' ')
     onChange({ id: c.id, name })
     linkInDb(c.id)
-    setQuery(''); setResults([])
   }
 
   async function addNew() {
@@ -366,29 +353,22 @@ function RelatedPersonPicker({
 
   return (
     <div className="space-y-2">
-      <div className="relative">
-        <input
-          value={query}
-          onChange={e => { setQuery(e.target.value); search(e.target.value) }}
-          placeholder={`Search for ${label.toLowerCase()}…`}
-          className={inpSm}
-        />
-        {(results.length > 0 || (loading && query.length >= 2)) && (
-          <div className="absolute z-10 mt-1 w-full bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden">
-            {loading && <div className="px-3 py-2 text-xs text-slate-500">Searching…</div>}
-            {results.map(c => (
-              <button
-                key={c.id}
-                onClick={() => select(c)}
-                className="w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 transition-colors border-b border-slate-700/50 last:border-0"
-              >
-                {[c.first_name, c.last_name].filter(Boolean).join(' ')}
-                {c.phone && <span className="text-slate-500 text-xs ml-2">{c.phone}</span>}
-              </button>
-            ))}
-          </div>
+      <CustomerSearch<CustomerMatch>
+        theme="dark"
+        exclude={customerId}
+        placeholder={`Search for ${label.toLowerCase()} by name or phone…`}
+        onSelect={select}
+        renderRow={(c, { select: pick }) => (
+          <button
+            type="button"
+            onClick={pick}
+            className="w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 transition-colors"
+          >
+            {[c.first_name, c.last_name].filter(Boolean).join(' ')}
+            {c.phone && <span className="text-slate-500 text-xs ml-2">{c.phone}</span>}
+          </button>
         )}
-      </div>
+      />
       {!showAdd ? (
         <button
           onClick={() => setShowAdd(true)}

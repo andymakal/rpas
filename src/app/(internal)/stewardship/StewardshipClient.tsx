@@ -27,6 +27,7 @@ import {
   PolicySummaryList, type PolicySummary,
   CustomerHistoryCard, NextHistoryEntry,
 } from '@/components/workflow'
+import { CustomerSearch } from '@/components/CustomerSearch'
 import {
   carrierEmailSubject, carrierEmailMessage, uniqueCarriers, resolveCarrierRecipient,
 } from '@/lib/stewardship/carrier-email'
@@ -302,6 +303,10 @@ type Detail = BoardItem & {
    * correction screen, so contact research is one surface. Null when not in an
    * active 1035 project. */
   contact_research_project_id?: string | null
+  /** Every distinct policy number on file for the customer (service policies +
+   * associated cases, de-duplicated), for the shared Search Gateway look-up.
+   * Supplied by the GET route; empty when the customer has none. */
+  gateway_policy_numbers?: string[]
   /** The display customer history (grouped interactions, newest first) for the
    * working-screen Customer History card. Display only; supplied by the GET
    * route from the durable case_touches log. */
@@ -1109,29 +1114,8 @@ function StartCapture({ agencies, onStarted }: { agencies: AgencyOption[]; onSta
  * /api/stewardship/start.
  */
 function StartSingleCustomer({ onStarted }: { onStarted: () => void }) {
-  const [q, setQ] = useState('')
-  const [results, setResults] = useState<CustomerSearchResult[]>([])
-  const [searching, setSearching] = useState(false)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [result, setResult] = useState<string | null>(null)
-
-  // Debounced name/phone search once the query is at least 2 characters.
-  useEffect(() => {
-    const term = q.trim()
-    if (term.length < 2) { setResults([]); return }
-    let cancelled = false
-    setSearching(true)
-    const t = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/customers/search?q=${encodeURIComponent(term)}`, { cache: 'no-store' })
-        const json = await res.json()
-        if (!cancelled && res.ok) setResults((json.data ?? []) as CustomerSearchResult[])
-      } finally {
-        if (!cancelled) setSearching(false)
-      }
-    }, 250)
-    return () => { cancelled = true; clearTimeout(t) }
-  }, [q])
 
   async function startOne(c: CustomerSearchResult) {
     setBusyId(c.id); setResult(null)
@@ -1151,7 +1135,6 @@ function StartSingleCustomer({ onStarted }: { onStarted: () => void }) {
         } else {
           setResult(`${name} has no known policy to onboard.`)
         }
-        setQ(''); setResults([])
         onStarted()
       } else {
         setResult(json.error ?? 'Could not start onboarding.')
@@ -1171,39 +1154,25 @@ function StartSingleCustomer({ onStarted }: { onStarted: () => void }) {
         goes into the servicing-agent request.
       </p>
       <div className="mt-3 max-w-md">
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted" aria-hidden />
-          <input
-            value={q}
-            onChange={e => setQ(e.target.value)}
-            placeholder="Search customer…"
-            className="w-full rounded-lg border border-surface-border-strong bg-surface-card py-2 pl-9 pr-3 text-sm text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-ring/40"
-          />
-        </div>
-        {q.trim().length >= 2 && (
-          <div className="mt-2 overflow-hidden rounded-lg border border-surface-border">
-            {searching && results.length === 0 ? (
-              <p className="px-3 py-2 text-sm text-ink-muted">Searching…</p>
-            ) : results.length === 0 ? (
-              <p className="px-3 py-2 text-sm text-ink-muted">No matches.</p>
-            ) : (
-              results.map(c => (
-                <button
-                  key={c.id}
-                  type="button"
-                  disabled={busyId === c.id}
-                  onClick={() => startOne(c)}
-                  className="flex w-full items-center justify-between gap-3 border-b border-surface-border px-3 py-2 text-left last:border-b-0 hover:bg-surface-muted disabled:opacity-50"
-                >
-                  <span className="text-sm font-medium text-ink">{c.first_name} {c.last_name}</span>
-                  <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-hover">
-                    <Play className="size-3.5" aria-hidden /> {busyId === c.id ? 'Starting…' : 'Start'}
-                  </span>
-                </button>
-              ))
-            )}
-          </div>
-        )}
+        <CustomerSearch<CustomerSearchResult>
+          placeholder="Search customer…"
+          ariaLabel="Search a customer to start onboarding"
+          busyId={busyId}
+          onSelect={startOne}
+          renderRow={(c, { busy, select }) => (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={select}
+              className="flex w-full items-center justify-between gap-3 border-b border-surface-border px-3 py-2 text-left last:border-b-0 hover:bg-surface-muted disabled:opacity-50"
+            >
+              <span className="text-sm font-medium text-ink">{c.first_name} {c.last_name}</span>
+              <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-brand-hover">
+                <Play className="size-3.5" aria-hidden /> {busy ? 'Starting…' : 'Start'}
+              </span>
+            </button>
+          )}
+        />
         {result && <p className="mt-2 text-sm font-medium text-ink-secondary">{result}</p>}
       </div>
     </div>
@@ -3842,10 +3811,22 @@ function ResearchAction({
   noteBox: React.ReactNode
   act: (action: unknown, successNote?: string) => void
 }) {
-  // One policy number from the servicing request pairs with the last name for
-  // the shared Gateway look-up, exactly like the consolidated Contact Research
-  // task the worker is sent to.
-  const policyNumber = request.map(h => h.policy_number).find(p => p && p.trim().length > 0) ?? null
+  // Every distinct policy number on file for the customer pairs with the last
+  // name for the shared Search Gateway look-up, exactly like the consolidated
+  // Contact Research task the worker is sent to. The GET route gathers these
+  // customer-wide (service policies + associated cases, de-duplicated); if that
+  // field is unavailable, fall back to the request holdings' numbers so the
+  // look-up still works.
+  const policyNumbers =
+    detail.gateway_policy_numbers && detail.gateway_policy_numbers.length > 0
+      ? detail.gateway_policy_numbers
+      : Array.from(
+          new Set(
+            request
+              .map(h => (h.policy_number ?? '').trim())
+              .filter(p => p.length > 0),
+          ),
+        )
 
   // Research Needed is no longer a separate correction screen. Contact research
   // is ONE consolidated surface: the project Contact Research task. From the
@@ -3859,27 +3840,17 @@ function ResearchAction({
 
   return (
     <ActionPanel heading={`Find contact for ${fullName(detail.customer)}`}>
-      {/* Mentoring (HOW) sits immediately ABOVE the instructions it explains —
-          the Gateway look-up and the hand-off below — never at the bottom. Its
-          own purple control is always shown; the global toggle only sets its
-          default open/closed state. */}
-      <MentorGuidance label="How to find a match">
-        Search Gateway with the customer&apos;s last name and policy number together — the policy
-        number is the surest way to land on the right record. If the policy number finds nothing,
-        try the last name alone, then confirm the date of birth before you save any email or phone.
-        One usable method is enough to move forward; you do not need both.
-      </MentorGuidance>
-
       <div className="flex items-center gap-2 rounded-xl border border-status-missing-border bg-status-missing-soft p-4 text-base text-status-missing-strong">
         <Search className="size-5" aria-hidden /> Usable contact information is missing or has failed.
       </div>
 
-      {/* The shared Gateway look-up — last name + policy number with Copy
-          buttons, identical to the consolidated Contact Research task. */}
+      {/* The shared Search Gateway look-up — last name + every policy number on
+          file, each with its own Copy button; identical to the consolidated
+          Contact Research task. */}
       <GatewayLookup
         lastName={detail.customer.last_name}
         fallbackName={fullName(detail.customer)}
-        policyNumber={policyNumber}
+        policyNumbers={policyNumbers}
       />
 
       {/* Hand off to the ONE consolidated Contact Research task. The capture,

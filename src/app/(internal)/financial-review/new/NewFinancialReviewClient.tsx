@@ -1,9 +1,10 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { Upload, Search, X, FileText, ArrowLeft, Loader2 } from 'lucide-react'
+import { Upload, X, FileText, ArrowLeft, Loader2 } from 'lucide-react'
+import { CustomerSearch } from '@/components/CustomerSearch'
 
 type CustomerHit = {
   id: string
@@ -18,10 +19,7 @@ type CustomerHit = {
 export function NewFinancialReviewClient({ initialCustomer }: { initialCustomer?: CustomerHit | null }) {
   const router = useRouter()
 
-  const [customerQuery, setCustomerQuery]     = useState('')
-  const [customerResults, setCustomerResults] = useState<CustomerHit[]>([])
   const [selectedCustomer, setSelectedCustomer] = useState<CustomerHit | null>(initialCustomer ?? null)
-  const [searching, setSearching]             = useState(false)
 
   const [pdfFile, setPdfFile]   = useState<File | null>(null)
   const [factFile, setFactFile] = useState<File | null>(null)
@@ -33,29 +31,6 @@ export function NewFinancialReviewClient({ initialCustomer }: { initialCustomer?
 
   const pdfInput  = useRef<HTMLInputElement>(null)
   const factInput = useRef<HTMLInputElement>(null)
-
-  const searchCustomers = useCallback(async (q: string) => {
-    if (q.length < 2) { setCustomerResults([]); return }
-    setSearching(true)
-    try {
-      const res = await fetch(`/api/customers/search?q=${encodeURIComponent(q)}`)
-      const json = await res.json()
-      setCustomerResults(json.data ?? [])
-    } finally {
-      setSearching(false)
-    }
-  }, [])
-
-  const handleCustomerInput = (val: string) => {
-    setCustomerQuery(val)
-    searchCustomers(val)
-  }
-
-  const pickCustomer = (c: CustomerHit) => {
-    setSelectedCustomer(c)
-    setCustomerQuery('')
-    setCustomerResults([])
-  }
 
   const handleDrop = (zone: 'pdf' | 'fact') => (e: React.DragEvent) => {
     e.preventDefault()
@@ -185,38 +160,23 @@ export function NewFinancialReviewClient({ initialCustomer }: { initialCustomer?
               </button>
             </div>
           ) : (
-            <div className="relative">
-              <div className="absolute inset-y-0 left-3 flex items-center pointer-events-none">
-                {searching ? (
-                  <Loader2 className="w-4 h-4 text-slate-500 animate-spin" />
-                ) : (
-                  <Search className="w-4 h-4 text-slate-500" />
-                )}
-              </div>
-              <input
-                type="text"
-                value={customerQuery}
-                onChange={e => handleCustomerInput(e.target.value)}
-                placeholder="Search by name..."
-                className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-10 pr-4 py-2.5 text-white placeholder-slate-500 text-sm focus:outline-none focus:border-blue-500"
-              />
-              {customerResults.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-10 max-h-64 overflow-y-auto">
-                  {customerResults.map(c => (
-                    <button
-                      key={c.id}
-                      onClick={() => pickCustomer(c)}
-                      className="w-full text-left px-4 py-2.5 hover:bg-slate-700 transition-colors"
-                    >
-                      <p className="text-white text-sm">{c.first_name} {c.last_name}</p>
-                      {(c.city || c.state) && (
-                        <p className="text-slate-400 text-xs">{[c.city, c.state].filter(Boolean).join(', ')}</p>
-                      )}
-                    </button>
-                  ))}
-                </div>
+            <CustomerSearch<CustomerHit>
+              theme="dark"
+              placeholder="Search by name or phone..."
+              onSelect={c => setSelectedCustomer(c)}
+              renderRow={(c, { select }) => (
+                <button
+                  type="button"
+                  onClick={select}
+                  className="w-full text-left px-4 py-2.5 hover:bg-slate-700 transition-colors"
+                >
+                  <p className="text-white text-sm">{c.first_name} {c.last_name}</p>
+                  {(c.city || c.state) && (
+                    <p className="text-slate-400 text-xs">{[c.city, c.state].filter(Boolean).join(', ')}</p>
+                  )}
+                </button>
               )}
-            </div>
+            />
           )}
         </div>
 

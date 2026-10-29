@@ -4,6 +4,7 @@ import {
   stillNeedsResearchRecommendation,
 } from '@/lib/stewardship/research-record'
 import { readUnusableChannelsByCustomer } from '@/lib/stewardship/attempt-history'
+import { loadGatewayPolicyNumbers } from '@/lib/stewardship/gateway-policy-numbers'
 import type { OutreachChannel } from '@/lib/stewardship/outreach-attempts'
 import { activeProjectsWithWorkflow, isPermanentPolicyReviewTypeName } from '@/lib/projects/workflows'
 import { type EmailAvailability } from '@/lib/email-availability'
@@ -134,10 +135,11 @@ export interface ContactReviewCustomer {
    * failure (the value-scoped text unusable fact, already resolved against the
    * current number in `unusableByCustomer`). Restores on a number change. */
   text_undeliverable: boolean
-  /** Any one policy number already on file for this customer, shown so the
-   * worker can search Gateway by last name + policy number. null when the
+  /** Every distinct policy number reliably on file for this customer (from the
+   * customer's service policies and associated cases, de-duplicated), shown so
+   * the worker can search Gateway by last name + policy number. Empty when the
    * customer has no policy on file. */
-  policy_number: string | null
+  policy_numbers: string[]
   /**
    * REACHABILITY, which keys the two surfaces (research state sub-labels within,
    * via researched_unsuccessfully):
@@ -245,35 +247,6 @@ async function chunked<T>(
   }
 }
 
-type ServicePolicyRow = { customer_id: string | null; policy_number: string | null }
-
-/**
- * Map each given customer to ANY ONE policy number on file, read in a batched
- * pass over service_policies (non-test). Gateway look-up only needs a single
- * policy number to pair with the last name, so the first usable one wins and
- * additional policies are ignored. Customers with no policy are simply absent
- * from the map (surfaced as "no policy number" in the UI).
- */
-async function loadOnePolicyNumberPerCustomer(
-  supabase: SupabaseClient,
-  customerIds: string[],
-): Promise<Map<string, string>> {
-  const byCustomer = new Map<string, string>()
-  if (customerIds.length === 0) return byCustomer
-  await chunked(customerIds, 300, async chunk => {
-    const { data } = await supabase
-      .from('service_policies')
-      .select('customer_id, policy_number')
-      .in('customer_id', chunk)
-      .eq('is_test', false)
-    for (const p of (data ?? []) as ServicePolicyRow[]) {
-      if (!p.customer_id || !usable(p.policy_number)) continue
-      if (!byCustomer.has(p.customer_id)) byCustomer.set(p.customer_id, p.policy_number!.trim())
-    }
-  })
-  return byCustomer
-}
-
 /**
  * Build the Contact Review list for a project: project members whose customer
  * record is missing a usable email or a usable phone. One batched pass over
@@ -343,8 +316,9 @@ export async function buildContactReview(
     incomplete.map((c) => c.id),
   )
 
-  // One policy number per customer for the Gateway look-up (last name + policy).
-  const policyByCustomer = await loadOnePolicyNumberPerCustomer(
+  // All distinct policy numbers per customer for the Gateway look-up (last name
+  // + policy), gathered from service policies and associated cases.
+  const policiesByCustomer = await loadGatewayPolicyNumbers(
     supabase,
     incomplete.map((c) => c.id),
   )
@@ -408,7 +382,7 @@ export async function buildContactReview(
       // card-recorded). `u` is already resolved against the current phone, so a
       // replaced number has already dropped out of the set.
       text_undeliverable: u.has('text'),
-      policy_number: policyByCustomer.get(c.id) ?? null,
+      policy_numbers: policiesByCustomer.get(c.id) ?? [],
       // Status is reachability: no usable method at all vs missing one. The
       // No Usable Contact Information section shows every 'no_usable_contact'
       // row; researched_unsuccessfully sub-labels outstanding vs previously
@@ -487,7 +461,7 @@ export async function loadContactReviewCustomer(
   // Every method usable: there is nothing to review or research.
   if (hasEmail && hasPhone && hasAddress) return null
 
-  const policyByCustomer = await loadOnePolicyNumberPerCustomer(supabase, [row.id])
+  const policiesByCustomer = await loadGatewayPolicyNumbers(supabase, [row.id])
 
   // A deliberately-reopened customer: report the same status the active list
   // would, read from the durable research record, so the task screen can label a
@@ -526,7 +500,7 @@ export async function loadContactReviewCustomer(
     // Value-scoped text delivery failure for the number on file (onboarding or
     // card-recorded), already resolved against the current phone.
     text_undeliverable: unusable.has('text'),
-    policy_number: policyByCustomer.get(row.id) ?? null,
+    policy_numbers: policiesByCustomer.get(row.id) ?? [],
     status: !stillRecommend && noUsableContact ? 'no_usable_contact' : 'needs_research',
     researched_unsuccessfully: !stillRecommend,
   }

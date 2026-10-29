@@ -1,13 +1,14 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   ArrowLeft, CheckCircle, ShieldOff, FileQuestion, Send,
-  AlertTriangle, ChevronRight, Search, X, Building2, User,
+  AlertTriangle, ChevronRight, X, Building2, User,
   Link2, Link2Off, ClipboardList, Pencil, Save,
 } from 'lucide-react'
+import { CustomerSearch } from '@/components/CustomerSearch'
 import type { PolicyDetail, PolicyReviewRow, RateClassOption } from './page'
 import type { ReviewFlag } from '@/lib/reviews/prep'
 import {
@@ -478,25 +479,6 @@ export function PolicyDetailClient({
   const [err,           setErr]           = useState<string | null>(null)
   const [queuingReview, setQueuingReview] = useState(false)
 
-  // Customer search
-  const [custSearch,    setCustSearch]    = useState('')
-  const [custResults,   setCustResults]   = useState<CustomerResult[]>([])
-  const [custSearching, setCustSearching] = useState(false)
-  const [showCustDrop,  setShowCustDrop]  = useState(false)
-  const searchRef = useRef<HTMLInputElement>(null)
-  const dropRef   = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (
-        dropRef.current && !dropRef.current.contains(e.target as Node) &&
-        searchRef.current && !searchRef.current.contains(e.target as Node)
-      ) setShowCustDrop(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
-
   // ── PATCH helper ──────────────────────────────────────────────────────────────
   async function patchPolicy(fields: Record<string, unknown>) {
     const res  = await fetch(`/api/service-policies/${initial.id}`, {
@@ -547,28 +529,11 @@ export function PolicyDetailClient({
   }
 
   // ── Customer link ─────────────────────────────────────────────────────────────
-  const searchCustomers = useCallback(async (q: string) => {
-    if (q.length < 2) { setCustResults([]); return }
-    setCustSearching(true)
-    try {
-      const res  = await fetch(`/api/customers/search?q=${encodeURIComponent(q)}`)
-      const json = await res.json()
-      setCustResults(json.data ?? [])
-      setShowCustDrop(true)
-    } catch { /* silent */ }
-    finally { setCustSearching(false) }
-  }, [])
-
-  useEffect(() => {
-    const t = setTimeout(() => searchCustomers(custSearch), 300)
-    return () => clearTimeout(t)
-  }, [custSearch, searchCustomers])
-
   async function handleCustomerLink(cid: string, name: string) {
-    setSaving(true); setErr(null); setShowCustDrop(false)
+    setSaving(true); setErr(null)
     try {
       await patchPolicy({ customer_id: cid })
-      setCustomerId(cid); setCustomerName(name); setCustSearch('')
+      setCustomerId(cid); setCustomerName(name)
       router.refresh()
     } catch (e) { setErr(e instanceof Error ? e.message : 'Save failed') }
     finally { setSaving(false) }
@@ -981,37 +946,21 @@ export function PolicyDetailClient({
                   <p className="text-xs text-slate-500">No customer linked</p>
                 )}
 
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
-                  <input
-                    ref={searchRef}
-                    value={custSearch}
-                    onChange={e => { setCustSearch(e.target.value); setShowCustDrop(true) }}
-                    onFocus={() => custResults.length && setShowCustDrop(true)}
-                    placeholder="Search by last name…"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-3 py-1.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-slate-500"
-                  />
-                  {custSearching && (
-                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 text-xs animate-pulse">…</span>
-                  )}
-                  {showCustDrop && custResults.length > 0 && (
-                    <div
-                      ref={dropRef}
-                      className="absolute z-20 top-full mt-1 left-0 right-0 bg-slate-800 border border-slate-700 rounded-lg shadow-xl overflow-hidden"
+                <CustomerSearch<CustomerResult>
+                  theme="dark"
+                  placeholder="Search by name or phone…"
+                  onSelect={c => handleCustomerLink(c.id, `${c.first_name} ${c.last_name}`)}
+                  renderRow={(c, { select }) => (
+                    <button
+                      type="button"
+                      onClick={select}
+                      className="w-full text-left px-3 py-2 hover:bg-slate-700 text-sm text-slate-200 transition-colors"
                     >
-                      {custResults.map(c => (
-                        <button
-                          key={c.id}
-                          onClick={() => handleCustomerLink(c.id, `${c.first_name} ${c.last_name}`)}
-                          className="w-full text-left px-3 py-2 hover:bg-slate-700 text-sm text-slate-200 transition-colors"
-                        >
-                          <span className="font-medium">{c.last_name}</span>, {c.first_name}
-                          {c.phone && <span className="text-slate-500 text-xs ml-2">{c.phone}</span>}
-                        </button>
-                      ))}
-                    </div>
+                      <span className="font-medium">{c.last_name}</span>, {c.first_name}
+                      {c.phone && <span className="text-slate-500 text-xs ml-2">{c.phone}</span>}
+                    </button>
                   )}
-                </div>
+                />
               </div>
             </Card>
 

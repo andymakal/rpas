@@ -1168,8 +1168,27 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
           agencyWideEligible('outreach') || scopedProjectsFor('outreach').size > 0
         if (customerInteraction > 0 || ciEligibleAnywhere) {
           const ciScopes = ((): Record<string, WorkSourceProjectScope> | undefined => {
-            if (customerInteractionByProject.size === 0) return undefined
             const out: Record<string, WorkSourceProjectScope> = {}
+            // A STANDING project-scoped entry point for every project the worker
+            // has outreach work in — even at zero current engaged customers.
+            // Customer Interaction is a standing entry (its search opens a
+            // customer the moment they respond), so working within a selected
+            // project must always reach it WITH that project's id. Without a
+            // scope entry, the Project filter would drop the source and the only
+            // link would be the unscoped route, which lands the project-scoped
+            // search back on database-wide results (the acceptance-test bug).
+            for (const pid of outreach.projectIds) {
+              out[pid] = {
+                count: 0,
+                ownedByMe: 0,
+                availableToMe: 0,
+                claimedByOthers: 0,
+                notEligible: 0,
+                dueToMe: 0,
+                route: customerInteractionRoute(pid),
+              }
+            }
+            // Override with the real engaged counts where they exist.
             for (const [pid, n] of customerInteractionByProject) {
               if (n <= 0) continue
               out[pid] = {

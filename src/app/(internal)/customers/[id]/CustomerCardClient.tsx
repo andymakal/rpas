@@ -19,6 +19,7 @@ import type {
 } from './page'
 import { fmtDate } from '@/lib/fmt'
 import { formatPhone } from '@/lib/format-phone'
+import { CustomerSearch } from '@/components/CustomerSearch'
 import { FactFinderSection } from './FactFinderSection'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -616,9 +617,6 @@ export function CustomerCardClient({
 
   // Household link
   const [showHouseholdLink,   setShowHouseholdLink]   = useState(false)
-  const [householdQuery,      setHouseholdQuery]      = useState('')
-  const [householdResults,    setHouseholdResults]    = useState<{ id: string; first_name: string; last_name: string; phone: string | null }[]>([])
-  const [householdSearching,  setHouseholdSearching]  = useState(false)
   const [householdConfirm,    setHouseholdConfirm]    = useState<{ id: string; first_name: string; last_name: string } | null>(null)
   const [householdLinking,    setHouseholdLinking]    = useState(false)
   const [householdErr,        setHouseholdErr]        = useState<string | null>(null)
@@ -972,19 +970,6 @@ export function CustomerCardClient({
     }
   }
 
-  useEffect(() => {
-    if (householdQuery.length < 2) { setHouseholdResults([]); return }
-    setHouseholdSearching(true)
-    const t = setTimeout(async () => {
-      try {
-        const res  = await fetch(`/api/customers/search?q=${encodeURIComponent(householdQuery)}&exclude=${customer.id}`)
-        const json = await res.json()
-        setHouseholdResults(json.data ?? [])
-      } catch { /* silent */ } finally { setHouseholdSearching(false) }
-    }, 300)
-    return () => clearTimeout(t)
-  }, [householdQuery, customer.id])
-
   async function handleLinkHousehold() {
     if (!householdConfirm) return
     setHouseholdLinking(true)
@@ -998,8 +983,6 @@ export function CustomerCardClient({
       const json = await res.json()
       if (!res.ok) { setHouseholdErr(json.error ?? 'Link failed'); return }
       setShowHouseholdLink(false)
-      setHouseholdQuery('')
-      setHouseholdResults([])
       setHouseholdConfirm(null)
       router.refresh()
     } catch { setHouseholdErr('Network error') }
@@ -2110,7 +2093,7 @@ export function CustomerCardClient({
           count={householdMembers.length}
           action={
             <button
-              onClick={() => { setShowHouseholdLink(v => !v); setHouseholdQuery(''); setHouseholdResults([]); setHouseholdConfirm(null); setHouseholdErr(null) }}
+              onClick={() => { setShowHouseholdLink(v => !v); setHouseholdConfirm(null); setHouseholdErr(null) }}
               className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-500 rounded-lg px-2.5 py-1 transition-colors"
             >
               <Plus className="w-3 h-3" /> Link
@@ -2143,35 +2126,13 @@ export function CustomerCardClient({
                   </div>
                 </div>
               ) : (
-                <div className="relative">
-                  <input
-                    autoFocus
-                    value={householdQuery}
-                    onChange={e => setHouseholdQuery(e.target.value)}
-                    placeholder="Search by name…"
-                    className="w-full bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-slate-500 placeholder-slate-600"
-                  />
-                  {householdSearching && (
-                    <p className="text-xs text-slate-500 mt-1">Searching…</p>
-                  )}
-                  {!householdSearching && householdQuery.length >= 2 && householdResults.length === 0 && (
-                    <p className="text-xs text-slate-500 mt-1">No customers found.</p>
-                  )}
-                  {householdResults.length > 0 && (
-                    <div className="mt-1 bg-slate-800 border border-slate-700 rounded-lg divide-y divide-slate-700 overflow-hidden">
-                      {householdResults.map(r => (
-                        <button
-                          key={r.id}
-                          onClick={() => { setHouseholdConfirm(r); setHouseholdQuery(''); setHouseholdResults([]) }}
-                          className="w-full text-left px-3 py-2 hover:bg-slate-700 transition-colors"
-                        >
-                          <p className="text-sm text-slate-200">{r.first_name} {r.last_name}</p>
-                          {r.phone && <p className="text-xs text-slate-500">{r.phone}</p>}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                <CustomerSearch<{ id: string; first_name: string; last_name: string; phone: string | null }>
+                  theme="dark"
+                  autoFocus
+                  exclude={customer.id}
+                  placeholder="Search by name or phone…"
+                  onSelect={r => setHouseholdConfirm(r)}
+                />
               )}
             </div>
           )}
