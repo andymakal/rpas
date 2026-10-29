@@ -14,7 +14,7 @@
  * Fit first, constrain only when needed (durable, offset-free):
  *   The internal shell scrolls inside a `<main>` whose height is the viewport
  *   (its ancestor is fixed inset:0). Everything above this row — the surface
- *   gutter, the Back link, the WorkflowHeader, and any client-specific chrome —
+ *   gutter, the WorkflowPageHeader, and any client-specific chrome —
  *   is ordinary flow of varying height per screen, so a hardcoded "100vh minus N"
  *   is always a guess. Instead we MEASURE this row's own distance from the top of
  *   the viewport and the real available space below it.
