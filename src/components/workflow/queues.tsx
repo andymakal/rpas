@@ -12,6 +12,7 @@
 import type { ComponentType, ReactNode } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { WorkflowPageHeader } from './primitives'
 
 type IconType = ComponentType<{ className?: string }>
 
@@ -113,26 +114,38 @@ export function QueueListHeader({
   onBack?: () => void
   backLabel?: string
 }) {
+  // An opened queue list is a page view, so it uses the ONE shared page header
+  // (title first, back navigation immediately after, Mentoring toggle far
+  // right). The queue icon + count ride in the header's leading slot so they
+  // stay on the title row; the descriptive blurb reads as supporting text below.
   return (
     <div className="space-y-3">
-      {onBack && (
-        <button
-          type="button"
-          onClick={onBack}
-          className="-ml-1 text-base font-medium text-ink-supporting hover:text-ink"
-        >
-          {'\u2190'} {backLabel}
-        </button>
-      )}
-      <div className="flex items-center gap-3">
-        <span className="flex size-12 items-center justify-center rounded-xl bg-brand-subtle text-brand-icon">
-          <Icon className="size-6" />
-        </span>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">{label}</h1>
-        <span className="inline-flex min-w-9 items-center justify-center rounded-full bg-brand-subtle px-4 py-1 text-xl font-bold tabular-nums text-brand-subtle-foreground">
-          {count}
-        </span>
-      </div>
+      <WorkflowPageHeader
+        leading={
+          <span className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-brand-subtle text-brand-icon">
+            <Icon className="size-6" />
+          </span>
+        }
+        title={
+          <span className="inline-flex items-center gap-3">
+            {label}
+            <span className="inline-flex min-w-9 items-center justify-center rounded-full bg-brand-subtle px-4 py-1 text-xl font-bold tabular-nums text-brand-subtle-foreground">
+              {count}
+            </span>
+          </span>
+        }
+        back={
+          onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              className="-ml-1 inline-flex items-center gap-1.5 text-base font-medium text-ink-supporting transition-colors hover:text-ink"
+            >
+              {'\u2190'} {backLabel}
+            </button>
+          )
+        }
+      />
       <p className="max-w-3xl text-xl leading-relaxed text-ink-supporting">{blurb}</p>
     </div>
   )

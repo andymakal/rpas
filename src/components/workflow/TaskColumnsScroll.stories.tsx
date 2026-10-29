@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import type { ReactNode } from 'react'
 
-import { WorkflowPage, WorkflowHeader, TaskShell, ActionPanel } from './index'
+import { WorkflowPage, WorkflowPageHeader, WorkflowBackLink, TaskShell, ActionPanel } from './index'
 
 /**
  * Verification harness for the shared workflow scroll model. It reproduces the
@@ -69,9 +69,11 @@ function ShortBlock({ label }: { label: string }) {
 
 function HeadingBand({ title }: { title: string }) {
   return (
-    <div className="space-y-8" data-testid="page-heading">
-      <span className="text-base font-medium text-brand-hover">Back to My Work</span>
-      <WorkflowHeader primary={title} />
+    <div data-testid="page-heading">
+      <WorkflowPageHeader
+        title={title}
+        back={<WorkflowBackLink href="#">Back to My Work</WorkflowBackLink>}
+      />
     </div>
   )
 }

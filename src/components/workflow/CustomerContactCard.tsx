@@ -57,7 +57,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Mail, Phone, MapPin, Pencil, Check, X, Loader2,
-  ShieldQuestion, CheckCircle2, AlertTriangle, Plus, Trash2,
+  ShieldQuestion, CheckCircle2, AlertTriangle,
   Ban, MessageSquareOff,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -71,10 +71,8 @@ import {
 } from '@/lib/fmt'
 import {
   type EmailAvailability,
-  type EmailAvailabilityDisplay,
   type SelectableEmailAvailability,
   EMAIL_AVAILABILITY_LABEL,
-  EMAIL_AVAILABILITY_HELP,
   SELECTABLE_EMAIL_AVAILABILITY_VALUES,
   resolveEmailAvailabilityDisplay,
 } from '@/lib/email-availability'
@@ -84,6 +82,11 @@ import {
   SMS_AVAILABILITY_HELP,
   resolveSmsAvailabilityDisplay,
 } from '@/lib/sms-availability'
+import {
+  describeContactUpdate,
+  type ContactSnapshot,
+  type NextHistoryEntryPreview,
+} from '@/lib/stewardship/customer-history'
 
 // ── Data shape ───────────────────────────────────────────────────────────────
 
@@ -569,9 +572,38 @@ function colorClass(choice: ColorChoice, statusColor: string): string {
   return choice === 'black' ? 'text-black' : statusColor
 }
 
+/** The changed fields of a unified contact save. Every key is optional: the
+ * card includes ONLY the facts the operator actually changed, so the route
+ * applies a minimal update and the one recorded history entry names only real
+ * changes. `email_availability` carries a selected "no usable email" reason;
+ * `mark_undeliverable` requests recording a text-delivery failure for the number
+ * on file (it is never cleared here — replacing the number clears it). */
+export interface ContactUpdatePayload {
+  first_name?: string | null
+  last_name?: string | null
+  email?: string | null
+  phone?: string | null
+  street?: string | null
+  city?: string | null
+  state?: string | null
+  zip?: string | null
+  email_verified?: boolean
+  phone_verified?: boolean
+  address_verified?: boolean
+  email_availability?: SelectableEmailAvailability
+  do_not_text?: boolean
+  mark_undeliverable?: boolean
+  alert?: string | null
+}
+
 /** The request the card would send. Exposed so a host (or Storybook) can supply
  * its own persistence and still exercise the exact same payloads. */
 export type ContactPersistPayload =
+  // The unified save: every changed contact fact in one request. Only the keys
+  // that changed are sent; the route applies them in one update and records one
+  // "Customer Contact Updated" history entry. This is what the single Save on
+  // the card sends.
+  | ({ field: 'contact' } & ContactUpdatePayload)
   | { field: 'name'; first_name: string | null; last_name: string | null }
   | { field: 'email'; email: string | null }
   | { field: 'phone'; phone: string | null }
@@ -689,6 +721,15 @@ interface SelfContainedProps {
   onChange?: (updated: CustomerContact) => void
   /** Optional: notified when the card switches between Overview and Edit. */
   onModeChange?: (mode: ContactCardMode) => void
+  /** Optional: the live Next History Entry preview of the pending unified edit
+   * while the editor is open (null when collapsed or nothing changed). Lets a
+   * host render exactly what Save will record WITHOUT re-deriving any diff. */
+  onPendingChange?: (preview: NextHistoryEntryPreview | null) => void
+  /** Optional: notified whenever the card has work in flight that a host should
+   * wait on before advancing — true while the editor holds unsaved changes OR a
+   * save is in progress, false once Save or Cancel completes. The card owns this
+   * determination (dirty-draft + busy) so hosts never re-derive it. */
+  onPendingStateChange?: (pending: boolean) => void
   // Mutually exclusive with the legacy `customer` invocation.
   customer?: never
 }
@@ -759,6 +800,8 @@ function SelfContainedContactCard({
   appearance,
   onChange,
   onModeChange,
+  onPendingChange,
+  onPendingStateChange,
 }: SelfContainedProps) {
   const [record, setRecord] = useState<CustomerContact | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -840,13 +883,17 @@ function SelfContainedContactCard({
       // Customer alerts are a standard part of the self-contained card.
       alert={record.contact_alert ?? null}
       alertEditable
+      onPendingChange={onPendingChange}
+      onPendingStateChange={onPendingStateChange}
       header={
         <CustomerNameHeading
           customerId={record.id}
           firstName={record.first_name}
           lastName={record.last_name}
           className="text-[33px] font-bold leading-tight tracking-tight text-brand"
-          expanded={expanded}
+          // Name is corrected inside the one unified editor now, so the heading
+          // never shows its own Edit name control (expanded=false hides it).
+          expanded={false}
           age={record.age ?? null}
           ageApproximate={record.age_approximate === true}
           onSaved={handleChange}
@@ -882,6 +929,8 @@ function ContactCardView({
   alert,
   onAlertChange,
   alertEditable = false,
+  onPendingChange,
+  onPendingStateChange,
 }: {
   customer: CustomerContact
   /** Called with the authoritative updated record after any successful write,
@@ -898,20 +947,17 @@ function ContactCardView({
   /** Optional content rendered across the TOP of the card, with the single
    * Overview/Edit toggle at its right end (when `collapsible`). A host uses this
    * to place the customer identity (name, age, status, classification) inside
-   * the card header. Omit it and the card has no header slot, exactly as today. */
+   * the card header. Omit it and the card has no header slot. */
   header?: ReactNode
-  /** Render the customer name as the card heading. Default true (the existing
-   * behavior). Set false so a host can own a single name heading elsewhere. */
+  /** Render the customer name as the card heading. Default true. Set false so a
+   * host can own a single name heading elsewhere. */
   showName?: boolean
-  /** Render the inline mentoring control beside the name. Default true (the
-   * existing behavior). Set false to suppress mentoring for this instance only;
-   * every other call site is unaffected. */
+  /** Render the inline mentoring control beside the name. Default true. */
   showMentoring?: boolean
-  /** Opt into the two-mode Overview/Edit presentation. Default false, so every
-   * existing call site (including Contact Research) keeps rendering the single
-   * always-expanded card with per-field controls exactly as before. When true,
+  /** Opt into the two-mode Overview/Edit presentation. Default false. When true,
    * the card shows a compact READ-ONLY overview with a single Edit button that
-   * expands to the existing per-field editing + verification controls. */
+   * opens the one unified editor. When false the unified editor is always open
+   * (the legacy always-editing surface). */
   collapsible?: boolean
   /** When `collapsible`, whether the card starts expanded (Edit) or collapsed
    * (Overview). Default true. Ignored when not collapsible. */
@@ -919,34 +965,39 @@ function ContactCardView({
   /** Notified when the collapsible card switches between Overview and Edit. */
   onExpandedChange?: (expanded: boolean) => void
   /** The customer's single current alert text, or null/empty when there is no
-   * alert. This is an optional, reusable card capability: a prominent banner
-   * near the top plus an Add / Edit / Clear control beside the status key. It is
-   * opt-in — omit `onAlertChange` and the card shows no alert affordance at all,
-   * so every existing call site is unchanged. One alert per customer; no
-   * categories, priorities, expiration, or workflow rules. */
+   * alert. Opt-in — omit `alertEditable` and the card shows no alert affordance. */
   alert?: string | null
-  /** Optional notification after the alert is saved/cleared, with the new text
-   * (or null). Persistence is handled by the card through the shared route; this
-   * just lets a host sync its own copy if needed. */
+  /** Optional notification after the alert is saved/cleared, with the new text. */
   onAlertChange?: (next: string | null) => void
-  /** Enable the alert feature (banner + Add / Edit / Clear control + editor).
-   * Default false, so every existing call site shows no alert affordance and is
-   * unchanged. The alert value is the durable `customer.contact_alert`. */
+  /** Enable the alert feature (banner in Overview + Add Alert inside the editor). */
   alertEditable?: boolean
+  /** Report the live Next History Entry preview of the pending edit while the
+   * editor is open (null when collapsed or when nothing has changed), so a host
+   * can show what the single Save will record WITHOUT re-deriving the diff. */
+  onPendingChange?: (preview: NextHistoryEntryPreview | null) => void
+  /** Report whether the card currently has work a host should wait on before
+   * advancing: true while the editor holds unsaved changes OR a save is running,
+   * false once Save or Cancel settles. Combines the editor's own dirty-draft
+   * signal with the card's busy flag, so a host never re-derives either. */
+  onPendingStateChange?: (pending: boolean) => void
 }) {
   const ap = useMemo(() => resolveAppearance(appearance), [appearance])
   // The card holds the current record locally so the display updates the instant
   // a write returns, without the host round-tripping a reload.
   const [record, setRecord] = useState<CustomerContact>(customer)
-  const [editing, setEditing] = useState<ContactFieldKey | null>(null)
-  const [busyField, setBusyField] = useState<ContactFieldKey | null>(null)
+  const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // The name heading has its own in-place editor (first + last), independent of
-  // the per-field `editing`/`busyField` which are typed to the contact fields.
-  const [nameEditing, setNameEditing] = useState(false)
-  const [nameBusy, setNameBusy] = useState(false)
-  // Overview (collapsed) vs Edit (expanded). Only meaningful when `collapsible`;
-  // a non-collapsible card is always "expanded", preserving today's behavior.
+  // Whether the open editor currently holds a non-empty pending change. Reported
+  // up from the editor (which already builds the minimal changed-fact payload),
+  // so the card does not re-derive dirtiness. False whenever the editor is not
+  // open. Combined with `busy` into the single onPendingStateChange signal.
+  const [editorDirty, setEditorDirty] = useState(false)
+  // Bumped to force the unified editor to remount with fresh drafts after a save
+  // or a legacy (non-collapsible) Cancel.
+  const [editorKey, setEditorKey] = useState(0)
+  // Overview (collapsed) vs the one unified Editor (expanded). Only meaningful
+  // when `collapsible`; a non-collapsible card is always "expanded" (the legacy
+  // always-editing surface).
   const [expanded, setExpanded] = useState(defaultExpanded)
   // Re-seed the Overview/Edit state when the host's default changes, mirroring
   // MentorGuidance: a host that drives `defaultExpanded` from live state (e.g.
@@ -956,26 +1007,31 @@ function ContactCardView({
   // can still toggle Overview/Edit in between; only a new default re-seeds it.
   useEffect(() => { setExpanded(defaultExpanded) }, [defaultExpanded])
   const isExpanded = !collapsible || expanded
-  // Alert editor. Enabled with `alertEditable`. The alert VALUE is the durable
-  // customers.contact_alert carried on the record (with the controlled `alert`
-  // prop as an override for hosts that manage it externally). Save/Clear persist
-  // through the SAME shared route the card uses for contact (so Add/Edit/Clear
-  // survive refresh), update the held record, and notify `onChange`/`onAlertChange`.
+
+  // When the editor is not open there can be no pending draft; keep the dirty
+  // flag honest so a collapsed Overview never reports unsaved changes.
+  useEffect(() => { if (!isExpanded) setEditorDirty(false) }, [isExpanded])
+
+  // The single pending signal a host waits on: unsaved draft OR a save in
+  // flight. Emitted whenever either input changes, so buttons re-enable the
+  // moment Save or Cancel settles.
+  useEffect(() => {
+    onPendingStateChange?.(editorDirty || busy)
+  }, [editorDirty, busy, onPendingStateChange])
+  // The current alert value: the controlled `alert` prop when a host manages it,
+  // else the durable customers.contact_alert on the record. Shown as a banner in
+  // Overview; edited inside the one unified editor.
   const alertText = (alert !== undefined ? alert : record.contact_alert)?.trim()
     ? (alert !== undefined ? alert : record.contact_alert)
     : null
-  const [alertEditing, setAlertEditing] = useState(false)
-  const [alertDraft, setAlertDraft] = useState('')
-  const [alertBusy, setAlertBusy] = useState(false)
-  const openAlertEditor = useCallback(() => {
-    setAlertDraft(alertText ?? '')
-    setAlertEditing(true)
-  }, [alertText])
+
   const setExpandedState = useCallback((next: boolean) => {
-    setEditing(null); setError(null)
+    setError(null)
     setExpanded(next)
+    // Leaving the editor clears any live pending-change preview.
+    if (!next) onPendingChange?.(null)
     onExpandedChange?.(next)
-  }, [onExpandedChange])
+  }, [onExpandedChange, onPendingChange])
 
   const persist = useCallback(
     async (payload: ContactPersistPayload): Promise<CustomerContact> => {
@@ -992,144 +1048,32 @@ function ContactCardView({
     [onPersist, record.id],
   )
 
-  const applyUpdate = useCallback((updated: CustomerContact) => {
-    setRecord(updated)
-    onChange?.(updated)
-  }, [onChange])
-
-  // Verification: toggle a field's customer-verified flag. Independent of
-  // editing; disabled when the value is not usable.
-  const toggleVerify = useCallback(async (field: ContactFieldKey, verified: boolean) => {
-    setBusyField(field); setError(null)
-    try {
-      const updated = await persist({ field, verified })
-      applyUpdate(updated)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not update verification')
-    } finally {
-      setBusyField(null)
+  // The ONE save. The unified editor hands up every changed fact in a single
+  // payload; this persists it in one request (the combined `field: 'contact'`
+  // route branch, or the injected onPersist) that records exactly one "Customer
+  // Contact Updated" history entry, applies the authoritative returned record,
+  // notifies the host, and returns the card to the compact Overview. An empty
+  // payload (nothing changed) short-circuits to collapsed with no write, so no
+  // history is recorded for a no-op. Cancel never reaches here.
+  const saveUnified = useCallback(async (payload: ContactUpdatePayload) => {
+    if (Object.keys(payload).length === 0) {
+      setExpandedState(false)
+      return
     }
-  }, [persist, applyUpdate])
-
-  const saveField = useCallback(async (payload: Exclude<ContactPersistPayload, { field: 'name' } | { field: 'email_availability' } | { field: 'alert' } | { field: 'sms' } | { field: 'sms_undeliverable' }>) => {
-    const field = payload.field
-    setBusyField(field); setError(null)
+    setBusy(true); setError(null)
     try {
-      const updated = await persist(payload)
-      applyUpdate(updated)
-      setEditing(null)
+      const updated = await persist({ field: 'contact', ...payload })
+      setRecord(updated)
+      setEditorKey((k) => k + 1)
+      onChange?.(updated)
+      onAlertChange?.(updated.contact_alert ?? null)
+      setExpandedState(false)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not save')
     } finally {
-      setBusyField(null)
+      setBusy(false)
     }
-  }, [persist, applyUpdate])
-
-  // Persist a corrected first/last name through the shared route (or injected
-  // onPersist), update the held record so the heading changes instantly, and
-  // notify the host. The server preserves capitalization and records the
-  // correction in Customer History.
-  const saveName = useCallback(async (first_name: string | null, last_name: string | null) => {
-    setNameBusy(true); setError(null)
-    try {
-      const updated = await persist({ field: 'name', first_name, last_name })
-      applyUpdate(updated)
-      setNameEditing(false)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save name')
-    } finally {
-      setNameBusy(false)
-    }
-  }, [persist, applyUpdate])
-
-  // Commit a selected "no usable email" reason (No Usable Email / Undeliverable)
-  // as a durable customer fact. This is the Save action of the email editor's
-  // single Save/Cancel operation: the server clears the active email and its
-  // verification, and the editor closes — exactly like saveField, so a stale
-  // email draft can never follow and overwrite the just-saved status.
-  const setEmailAvailability = useCallback(
-    async (status: SelectableEmailAvailability) => {
-      setBusyField('email'); setError(null)
-      try {
-        const updated = await persist({ field: 'email_availability', availability: status })
-        applyUpdate(updated)
-        setEditing(null)
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Could not update email availability')
-      } finally {
-        setBusyField(null)
-      }
-    },
-    [persist, applyUpdate],
-  )
-
-  // Set / clear Do Not Text (the durable customers.sms_opt_out opt-out). Part of
-  // Commit the phone editor as ONE Save/Cancel operation: the typed number plus
-  // the two STAGED texting-availability intents (Do Not Text and Text
-  // Undeliverable). Nothing is written while the operator toggles the controls;
-  // Save applies only what actually changed, in order, and the editor closes
-  // once. Each underlying write is still a single-field route call (one op per
-  // request), so this sequences them:
-  //   1. Phone value, when it changed. The server clears the value-scoped text
-  //      delivery failure on a number change, so saving a NEW number first means
-  //      a stale "undeliverable" is already gone before we re-evaluate step 3.
-  //   2. Do Not Text, when the staged opt-out differs from the current one.
-  //   3. Text Undeliverable, when the operator staged it on and the number on
-  //      file (after step 1) is not already undeliverable. An ordinary unsent
-  //      text is never this; it is a deliberate "the text bounced" record.
-  // Cancel writes nothing, so toggling back and forth leaves the record
-  // untouched until Save.
-  const savePhone = useCallback(
-    async (intents: { phone: string | null; doNotText: boolean; markUndeliverable: boolean }) => {
-      setBusyField('phone'); setError(null)
-      try {
-        let current = record
-        const phoneChanged = (intents.phone ?? null) !== (current.phone ?? null)
-        if (phoneChanged) {
-          current = await persist({ field: 'phone', phone: intents.phone })
-        }
-        if ((current.sms_opt_out === true) !== intents.doNotText) {
-          current = await persist({ field: 'sms', do_not_text: intents.doNotText })
-        }
-        // Only record a failure when the operator staged it AND the number now on
-        // file is not already marked undeliverable (a changed number cleared any
-        // prior mark in step 1, so this re-fails the new number only on request).
-        if (intents.markUndeliverable && current.text_undeliverable !== true && !!current.phone?.trim()) {
-          current = await persist({ field: 'sms_undeliverable' })
-        }
-        applyUpdate(current)
-        setEditing(null)
-      } catch (e) {
-        setError(e instanceof Error ? e.message : 'Could not save')
-      } finally {
-        setBusyField(null)
-      }
-    },
-    [persist, applyUpdate, record],
-  )
-
-  // Persist the alert through the shared route (or injected onPersist), update
-  // the held record, and notify the host. Save with empty text clears it.
-  const commitAlert = useCallback(async (next: string | null) => {
-    setAlertBusy(true); setError(null)
-    try {
-      const updated = await persist({ field: 'alert', alert: next })
-      applyUpdate(updated)
-      onAlertChange?.(updated.contact_alert ?? null)
-      setAlertEditing(false)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not save alert')
-    } finally {
-      setAlertBusy(false)
-    }
-  }, [persist, applyUpdate, onAlertChange])
-
-  const saveAlert = useCallback(() => {
-    const t = alertDraft.trim()
-    void commitAlert(t.length ? t : null)
-  }, [alertDraft, commitAlert])
-
-  const clearAlert = useCallback(() => { void commitAlert(null) }, [commitAlert])
+  }, [persist, onChange, onAlertChange, setExpandedState])
 
   const emailPresent = !!record.email?.trim()
   const phonePresent = !!record.phone?.trim()
@@ -1152,55 +1096,26 @@ function ContactCardView({
       }}
     >
       {/* Optional header slot across the top of the card: the host's identity
-          content on the left, the single Overview/Edit toggle at the right end.
-          Rendered only when a host supplies `header`; otherwise the card has no
-          header row, exactly as before. */}
+          content (the name + age heading). The single Edit affordance lives in
+          the Overview's bottom bar and the Save / Cancel in the editor, so the
+          header is pure identity with no control. */}
       {header != null && (
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 flex-1">{header}</div>
-          {collapsible && (
-            <ModeToggleButton
-              label={isExpanded ? 'Done' : 'Edit'}
-              icon={isExpanded ? Check : Pencil}
-              onClick={() => setExpandedState(!isExpanded)}
-            />
-          )}
-        </div>
+        <div className="min-w-0">{header}</div>
       )}
 
-      {/* Prominent customer alert near the top. Shown only when an alert exists
-          and the feature is enabled; no banner when empty. The editor (opened
-          from the Add/Edit control below) replaces the banner while editing. */}
-      {alertEditable && alertEditing ? (
-        <AlertEditor
-          draft={alertDraft}
-          busy={alertBusy}
-          onDraftChange={setAlertDraft}
-          onSave={saveAlert}
-          onCancel={() => setAlertEditing(false)}
-        />
-      ) : (
-        alertText && <AlertBanner text={alertText} />
-      )}
+      {/* The customer alert banner near the top, shown in the compact Overview
+          whenever an alert exists. In the editor the alert is one of the fields,
+          so the banner is not shown there. */}
+      {alertText && !isExpanded && <AlertBanner text={alertText} />}
 
-      {/* The customer's name IS the card heading, with the inline graduation-cap
-          mentoring control beside it. The approved default renders the name at
-          150% (33px), bold, in the teal brand token; the Playground can override
-          any of those. `showName` / `showMentoring` let a host suppress either
-          for one instance; both default to true so every existing call site is
-          unchanged. */}
+      {/* The customer's name heading (read-only here). Name is corrected inside
+          the one unified editor, so the heading never carries its own Edit name
+          control. `showName` / `showMentoring` let a host suppress either. */}
       {showName && (
         <ContactMentoring
           appearance={ap}
           name={fullName(record)}
           showMentoring={showMentoring}
-          firstName={record.first_name}
-          lastName={record.last_name}
-          nameEditing={nameEditing}
-          nameBusy={nameBusy}
-          onEditName={() => { setError(null); setNameEditing(true) }}
-          onCancelName={() => setNameEditing(false)}
-          onSaveName={saveName}
         />
       )}
 
@@ -1211,94 +1126,32 @@ function ContactCardView({
       )}
 
       {isExpanded ? (
-        <>
-          {/* Edit mode — the existing per-field editing + verification controls,
-              byte-identical to today when not collapsible. */}
-          <div
-            className={cn('mt-3', ap.isDefault && 'divide-y divide-surface-border-strong')}
-            style={ap.isDefault ? undefined : {
-              borderColor: ap.dividerColor ?? 'var(--surface-border-strong)',
-            }}
-          >
-            <EmailRow
-              present={emailPresent}
-              verifiedAt={record.email_verified_at}
-              value={emailDisplay(record)}
-              availability={record.email_availability}
-              onSetAvailability={(status) => setEmailAvailability(status)}
-              editing={editing === 'email'}
-              busy={busyField === 'email'}
-              appearance={ap}
-              first
-              onEdit={() => { setError(null); setEditing('email') }}
-              onCancel={() => setEditing(null)}
-              onSave={(email) => saveField({ field: 'email', email })}
-              onVerify={(v) => toggleVerify('email', v)}
-            />
-
-            <PhoneRow
-              present={phonePresent}
-              verifiedAt={record.phone_verified_at}
-              value={phoneDisplay(record)}
-              smsOptOut={record.sms_opt_out === true}
-              textUndeliverable={record.text_undeliverable === true}
-              editing={editing === 'phone'}
-              busy={busyField === 'phone'}
-              appearance={ap}
-              onEdit={() => { setError(null); setEditing('phone') }}
-              onCancel={() => setEditing(null)}
-              onSave={(intents) => savePhone(intents)}
-              onVerify={(v) => toggleVerify('phone', v)}
-            />
-
-            <AddressRow
-              present={addrPresent}
-              verifiedAt={record.address_verified_at}
-              record={record}
-              editing={editing === 'address'}
-              busy={busyField === 'address'}
-              appearance={ap}
-              last
-              onEdit={() => { setError(null); setEditing('address') }}
-              onCancel={() => setEditing(null)}
-              onSave={(a) => saveField({ field: 'address', ...a })}
-              onVerify={(v) => toggleVerify('address', v)}
-            />
-          </div>
-
-          {/* Bottom bar in the editable view. The status key is hidden while a
-              collapsible card is editing (it belongs to the compact Overview); a
-              non-collapsible card keeps the existing `showStatusKey` behavior.
-              The alert control stays available here in expanded mode. */}
-          {((!collapsible && ap.showStatusKey) || (alertEditable && !alertEditing)) && (
-            <div className="mt-3 flex items-center justify-between gap-3 border-t border-surface-border-strong pt-2.5">
-              {!collapsible && ap.showStatusKey
-                ? <ContactStatusKey appearance={ap} inline />
-                : <span />}
-              {alertEditable && !alertEditing && (
-                <AlertControl hasAlert={!!alertText} onEdit={openAlertEditor} onClear={clearAlert} />
-              )}
-            </div>
-          )}
-
-          {/* The control that returns to the compact Overview. When a header is
-              present the toggle lives in the header, so the bottom control is
-              only a fallback for a collapsible card with no header slot. */}
-          {collapsible && header == null && (
-            <div className="mt-3 flex justify-end border-t border-surface-border-strong pt-3">
-              <ModeToggleButton
-                label="Done"
-                icon={Check}
-                onClick={() => setExpandedState(false)}
-              />
-            </div>
-          )}
-        </>
+        /* The ONE unified editor: every contact fact edited together, with a
+           single Save and a single Cancel at the bottom. All edits are pending
+           until Save; Cancel discards everything. */
+        <UnifiedContactEditor
+          // Remount (fresh drafts seeded from the record) whenever the record
+          // changes after a save, or when Cancel is used on a non-collapsible
+          // card that has no Overview to fall back to.
+          key={`${record.id}:${editorKey}`}
+          record={record}
+          busy={busy}
+          alertEditable={alertEditable}
+          onSave={saveUnified}
+          onCancel={() => {
+            onPendingChange?.(null)
+            setEditorDirty(false)
+            if (collapsible) setExpandedState(false)
+            else { setError(null); setEditorKey((k) => k + 1) }
+          }}
+          onPendingChange={onPendingChange}
+          onDirtyChange={setEditorDirty}
+        />
       ) : (
         <>
           {/* Overview mode — a compact, read-only summary of the same three
               fields, reusing the status tones and value rendering. One Edit
-              button expands to the controls above. */}
+              button opens the unified editor. */}
           <div className="mt-3 divide-y divide-surface-border-strong">
             <OverviewRow
               contactIcon={Mail}
@@ -1326,29 +1179,453 @@ function ContactCardView({
           </div>
 
           {/* Bottom bar of the compact Overview: the status key on the left so
-              the green/amber/red icons above read clearly, and the Add/Edit
-              alert control at the bottom right alongside it. */}
+              the green/amber/red icons above read clearly, and the single Edit
+              button on the right that opens the unified editor. */}
           <div className="mt-3 flex items-center justify-between gap-3 border-t border-surface-border-strong pt-2.5">
             <ContactStatusKey appearance={ap} inline />
-            {alertEditable && !alertEditing && (
-              <AlertControl hasAlert={!!alertText} onEdit={openAlertEditor} onClear={clearAlert} />
-            )}
-          </div>
-
-          {/* Fallback Edit control for a collapsible card with no header slot.
-              When a header is present the single Edit button lives in it. */}
-          {header == null && (
-            <div className="mt-3 flex justify-end border-t border-surface-border-strong pt-3">
+            {collapsible && (
               <ModeToggleButton
                 label="Edit"
                 icon={Pencil}
                 onClick={() => setExpandedState(true)}
               />
-            </div>
-          )}
+            )}
+          </div>
         </>
       )}
     </section>
+  )
+}
+
+// ── The one unified editor ───────────────────────────────────────────────────
+
+/**
+ * The single editing experience for the whole card. It opens with every durable
+ * contact fact — name, email (+ availability reason), phone (+ Do Not Text /
+ * Text Undeliverable), mailing address, the three Customer Verified checkboxes,
+ * and the customer alert — all editable together, with compact, consistently
+ * divided sections and ONE Save + ONE Cancel at the bottom. There are no
+ * per-field Edit/Save/Cancel controls.
+ *
+ * Every change is LOCAL pending state until Save. Save builds a minimal payload
+ * of only the facts that actually changed and hands it up (`onSave`); Cancel
+ * discards everything. Normalization and validation reuse the shared
+ * contact-input utilities, so the same rules the server enforces are enforced
+ * here and an invalid changed value blocks Save. While the editor is open it
+ * reports a live Next History Entry preview of the pending change up through
+ * `onPendingChange`, so the history column shows exactly what Save will record.
+ */
+function UnifiedContactEditor({
+  record, busy, alertEditable, onSave, onCancel, onPendingChange, onDirtyChange,
+}: {
+  record: CustomerContact
+  busy: boolean
+  alertEditable: boolean
+  onSave: (payload: ContactUpdatePayload) => void
+  onCancel: () => void
+  onPendingChange?: (preview: NextHistoryEntryPreview | null) => void
+  /** Report whether the current drafts differ from the record — true when the
+   * minimal changed-fact payload is non-empty. The host card lifts this into the
+   * single pending signal it exposes; the editor already builds this payload for
+   * the live preview, so dirtiness is reported from the same place. */
+  onDirtyChange?: (dirty: boolean) => void
+}) {
+  // ── Drafts, seeded from the current record (display-normalized where the
+  // read view shows a normalized value, so the operator edits what they saw). ──
+  const [first, setFirst] = useState(record.first_name ?? '')
+  const [last, setLast] = useState(record.last_name ?? '')
+  const [email, setEmail] = useState(record.email ?? '')
+  const [emailResult, setEmailResult] = useState<ContactFieldResult | null>(null)
+  // A staged "no usable email" reason selected in this session; mutually
+  // exclusive with a typed email, exactly like the former per-field editor.
+  const [emailReason, setEmailReason] = useState<SelectableEmailAvailability | null>(null)
+  const [phone, setPhone] = useState(formatPhoneAsTyped(record.phone ?? ''))
+  const [phoneResult, setPhoneResult] = useState<ContactFieldResult | null>(null)
+  const [doNotText, setDoNotText] = useState(record.sms_opt_out === true)
+  const [markUndeliverable, setMarkUndeliverable] = useState(
+    record.text_undeliverable === true && !!record.phone?.trim(),
+  )
+  const [street, setStreet] = useState(streetDisplay(record))
+  const [city, setCity] = useState(normalizeCity(record.city) ?? '')
+  const [stateVal, setStateVal] = useState(normalizeState(record.state) ?? '')
+  const [zip, setZip] = useState(record.zip ?? '')
+  // Verified reflects the value that will be on file. An edited value clears its
+  // own verification; the checkbox follows that below.
+  const [emailVerified, setEmailVerified] = useState(!!record.email_verified_at)
+  const [phoneVerified, setPhoneVerified] = useState(!!record.phone_verified_at)
+  const [addressVerified, setAddressVerified] = useState(!!record.address_verified_at)
+  const [alertDraft, setAlertDraft] = useState(record.contact_alert ?? '')
+
+  // The number that WILL be on file after Save, so the texting controls and the
+  // address verifiability reflect the pending state, not the stored one.
+  const stagedPhone = normalizePhoneInput(phone)
+  const willHaveNumber = stagedPhone.status !== 'empty' && stagedPhone.status !== 'invalid'
+  const numberUnchanged =
+    (stagedPhone.value ?? null) === (record.phone ? (normalizePhoneInput(record.phone).value ?? null) : null)
+  // Text Undeliverable clears only by replacing the number, so when the number
+  // is unchanged and already undeliverable the control is locked on.
+  const lockedUndeliverable = record.text_undeliverable === true && !!record.phone?.trim() && numberUnchanged && willHaveNumber
+
+  // Build the minimal payload of ONLY changed facts, plus the before/after
+  // snapshots for the live preview. Verification reflects the value that will be
+  // on file: an edited value clears its own verification first, then an explicit
+  // check re-affirms it. A staged email reason clears the active email.
+  const buildChange = useCallback((): { payload: ContactUpdatePayload; after: ContactSnapshot; before: ContactSnapshot } => {
+    const payload: ContactUpdatePayload = {}
+
+    const nf = normalizeNameInput(first).value
+    const nl = normalizeNameInput(last).value
+    if ((nf ?? null) !== (record.first_name ?? null)) payload.first_name = nf
+    if ((nl ?? null) !== (record.last_name ?? null)) payload.last_name = nl
+
+    // Email: a staged reason wins (clears the email); else the typed value.
+    let nextEmail: string | null = record.email
+    let nextAvailability = (record.email_availability ?? null)
+    if (emailReason) {
+      payload.email_availability = emailReason
+      nextEmail = null
+      nextAvailability = emailReason === 'missing' ? null : emailReason
+    } else {
+      const er = normalizeEmailInput(email)
+      if (er.status !== 'invalid' && (er.value ?? null) !== (record.email ?? null)) {
+        payload.email = er.value
+        nextEmail = er.value ?? null
+        if (er.value) nextAvailability = 'available'
+      }
+    }
+
+    const pr = normalizePhoneInput(phone)
+    let nextPhone: string | null = record.phone
+    if (pr.status !== 'invalid' && (pr.value ?? null) !== (record.phone ?? null)) {
+      payload.phone = pr.value
+      nextPhone = pr.value ?? null
+    }
+
+    const ns = normalizeStreet(street)
+    const nc = normalizeCity(city)
+    const nst = normalizeState(stateVal)
+    const nz = ((): string | null => { const t = zip.replace(/\s+/g, ' ').trim(); return t.length ? t : null })()
+    const beforeStreet = (record.street ?? record.address_line1 ?? '').trim() || null
+    const addrChanged =
+      (ns ?? null) !== (beforeStreet ?? null) ||
+      (nc ?? null) !== (record.city ?? null) ||
+      (nst ?? null) !== (record.state ?? null) ||
+      (nz ?? null) !== (record.zip ?? null)
+    if (addrChanged) {
+      payload.street = ns; payload.city = nc; payload.state = nst; payload.zip = nz
+    }
+
+    // Do Not Text / Text Undeliverable.
+    if (doNotText !== (record.sms_opt_out === true)) payload.do_not_text = doNotText
+    const willMarkUndeliverable =
+      markUndeliverable && willHaveNumber && !lockedUndeliverable &&
+      !((numberUnchanged) && record.text_undeliverable === true)
+    if (willMarkUndeliverable) payload.mark_undeliverable = true
+
+    // Alert.
+    const nextAlert = alertDraft.trim().length ? alertDraft.trim() : null
+    if ((nextAlert ?? null) !== ((record.contact_alert ?? '').trim() ? record.contact_alert : null)) {
+      payload.alert = nextAlert
+    }
+
+    // Verification: compare the desired state against the value that will be on
+    // file, accounting for the auto-clear a changed value triggers.
+    const emailEdited = payload.email !== undefined || payload.email_availability !== undefined
+    const phoneEdited = payload.phone !== undefined
+    const addrEdited = payload.street !== undefined
+    const emailUsableAfter = !!(nextEmail && nextEmail.trim())
+    const phoneUsableAfter = !!(nextPhone && nextPhone.trim())
+    const addrUsableAfter = !!(ns && nc && nst && nz)
+    const emailVerifiedAfter = emailEdited ? false : !!record.email_verified_at
+    const phoneVerifiedAfter = phoneEdited ? false : !!record.phone_verified_at
+    const addrVerifiedAfter = addrEdited ? false : !!record.address_verified_at
+    const wantEmailVerified = emailVerified && emailUsableAfter
+    const wantPhoneVerified = phoneVerified && phoneUsableAfter
+    const wantAddrVerified = addressVerified && addrUsableAfter
+    if (wantEmailVerified !== emailVerifiedAfter) payload.email_verified = wantEmailVerified
+    if (wantPhoneVerified !== phoneVerifiedAfter) payload.phone_verified = wantPhoneVerified
+    if (wantAddrVerified !== addrVerifiedAfter) payload.address_verified = wantAddrVerified
+
+    const toSnapshot = (): ContactSnapshot => ({
+      first_name: record.first_name,
+      last_name: record.last_name,
+      email: record.email,
+      phone: record.phone,
+      street: beforeStreet,
+      city: record.city,
+      state: record.state,
+      zip: record.zip,
+      email_verified_at: record.email_verified_at,
+      phone_verified_at: record.phone_verified_at,
+      address_verified_at: record.address_verified_at,
+      email_availability: record.email_availability ?? null,
+      sms_opt_out: record.sms_opt_out === true,
+      text_undeliverable: record.text_undeliverable === true && !!record.phone?.trim(),
+      contact_alert: record.contact_alert ?? null,
+    })
+    const before = toSnapshot()
+    const after: ContactSnapshot = {
+      first_name: nf,
+      last_name: nl,
+      email: nextEmail,
+      phone: nextPhone,
+      street: ns,
+      city: nc,
+      state: nst,
+      zip: nz,
+      email_verified_at: wantEmailVerified ? (record.email_verified_at ?? 'pending') : null,
+      phone_verified_at: wantPhoneVerified ? (record.phone_verified_at ?? 'pending') : null,
+      address_verified_at: wantAddrVerified ? (record.address_verified_at ?? 'pending') : null,
+      email_availability: nextAvailability,
+      sms_opt_out: doNotText,
+      text_undeliverable: willMarkUndeliverable || (numberUnchanged && record.text_undeliverable === true && willHaveNumber),
+      contact_alert: nextAlert,
+    }
+    return { payload, before, after }
+  }, [
+    first, last, email, emailReason, phone, doNotText, markUndeliverable,
+    street, city, stateVal, zip, emailVerified, phoneVerified, addressVerified,
+    alertDraft, willHaveNumber, lockedUndeliverable, numberUnchanged, record,
+  ])
+
+  // Report the live preview of the pending change AND whether the drafts are
+  // dirty (a non-empty changed-fact payload) up as drafts change. Both come from
+  // the one buildChange() the editor already runs, so neither the preview nor
+  // dirtiness is derived twice.
+  useEffect(() => {
+    const { payload, before, after } = buildChange()
+    onPendingChange?.(describeContactUpdate(before, after))
+    onDirtyChange?.(Object.keys(payload).length > 0)
+  }, [buildChange, onPendingChange, onDirtyChange])
+
+  // On unmount (Save collapses the editor, or the customer changes), the editor
+  // no longer holds a draft; make sure the host's dirty flag does not stay stuck
+  // on from the last render.
+  useEffect(() => () => { onDirtyChange?.(false) }, [onDirtyChange])
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault()
+    // Block Save on an invalid typed value (unless the email is being replaced
+    // by a staged reason). Validation mirrors the server, so bad formatting
+    // cannot slip through.
+    if (!emailReason) {
+      const er = normalizeEmailInput(email)
+      if (er.status === 'invalid') { setEmailResult(er); return }
+    }
+    const pr = normalizePhoneInput(phone)
+    if (pr.status === 'invalid') { setPhoneResult(pr); return }
+    const nf = normalizeNameInput(first)
+    const nl = normalizeNameInput(last)
+    if (nf.status === 'empty' && nl.status === 'empty') { return }
+    onSave(buildChange().payload)
+  }
+
+  const selectReason = (choice: SelectableEmailAvailability) => {
+    setEmailResult(null)
+    setEmailReason((prev) => {
+      const next = prev === choice ? null : choice
+      setEmail(next ? '' : (record.email ?? ''))
+      if (next) setEmailVerified(false)
+      return next
+    })
+  }
+
+  const nameInvalid =
+    normalizeNameInput(first).status === 'empty' && normalizeNameInput(last).status === 'empty'
+
+  const draftSmsDisplay: SmsAvailabilityDisplay = resolveSmsAvailabilityDisplay({
+    smsOptOut: doNotText,
+    textUndeliverable: markUndeliverable && willHaveNumber,
+  })
+
+  return (
+    <form onSubmit={submit} className="mt-3">
+      <div className="divide-y divide-surface-border-strong">
+        {/* Name */}
+        <div className="py-3 first:pt-0">
+          <p className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
+            <Pencil className="size-4" aria-hidden /> Name
+          </p>
+          <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div>
+              <label htmlFor="uc-first" className="text-sm font-medium text-ink-secondary">First name</label>
+              <input id="uc-first" type="text" value={first} disabled={busy}
+                onChange={(e) => setFirst(e.target.value)}
+                onBlur={() => setFirst((v) => normalizeNameInput(v).value ?? '')}
+                placeholder="First name" className={cn('mt-1', inputCls(false))} />
+            </div>
+            <div>
+              <label htmlFor="uc-last" className="text-sm font-medium text-ink-secondary">Last name</label>
+              <input id="uc-last" type="text" value={last} disabled={busy}
+                onChange={(e) => setLast(e.target.value)}
+                onBlur={() => setLast((v) => normalizeNameInput(v).value ?? '')}
+                placeholder="Last name" className={cn('mt-1', inputCls(false))} />
+            </div>
+          </div>
+          {nameInvalid && (
+            <p className="mt-1.5 text-base text-status-missing-strong">Enter at least a first or last name.</p>
+          )}
+        </div>
+
+        {/* Email + availability + verification */}
+        <div className="py-3">
+          <label htmlFor="uc-email" className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
+            <Mail className="size-4" aria-hidden /> Email
+          </label>
+          <input id="uc-email" type="email" value={email} disabled={busy || !!emailReason}
+            onChange={(e) => { setEmail(e.target.value); if (emailResult) setEmailResult(null) }}
+            onBlur={() => { if (!emailReason) setEmailResult(normalizeEmailInput(email)) }}
+            placeholder={emailReason ? EMAIL_AVAILABILITY_LABEL[emailReason] : 'name@example.com'}
+            aria-invalid={emailResult?.status === 'invalid' || undefined}
+            className={cn('mt-1.5', inputCls(emailResult?.status === 'invalid'), emailReason && 'opacity-50')} />
+          {emailResult?.status === 'invalid' && emailResult.reason && (
+            <p className="mt-1.5 text-base text-status-missing-strong">{emailResult.reason}</p>
+          )}
+          <div className="mt-2 flex flex-wrap gap-2">
+            {SELECTABLE_EMAIL_AVAILABILITY_VALUES.map((choice) => {
+              const selected = emailReason === choice
+              return (
+                <button key={choice} type="button" disabled={busy} aria-pressed={selected}
+                  onClick={() => selectReason(choice)}
+                  className={cn(
+                    'inline-flex items-center rounded-lg border px-2.5 py-1 text-sm font-medium disabled:opacity-60',
+                    selected
+                      ? 'border-status-missing-border bg-status-missing-soft text-status-missing-strong'
+                      : 'border-surface-border-strong bg-surface-card text-ink-secondary hover:bg-surface-muted',
+                  )}>
+                  {EMAIL_AVAILABILITY_LABEL[choice]}
+                </button>
+              )
+            })}
+          </div>
+          <div className="mt-2">
+            <VerifiedToggle label="Email verified" checked={emailVerified}
+              disabled={busy || !!emailReason || !normalizeEmailInput(email).value}
+              onChange={setEmailVerified} />
+          </div>
+        </div>
+
+        {/* Phone + texting restrictions + verification */}
+        <div className="py-3">
+          <label htmlFor="uc-phone" className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
+            <Phone className="size-4" aria-hidden /> Phone
+          </label>
+          <input id="uc-phone" type="tel" value={phone} disabled={busy}
+            onChange={(e) => { setPhone(formatPhoneAsTyped(e.target.value)); if (phoneResult) setPhoneResult(null) }}
+            onBlur={() => setPhoneResult(normalizePhoneInput(phone))}
+            placeholder="(215) 555-0100" aria-invalid={phoneResult?.status === 'invalid' || undefined}
+            className={cn('mt-1.5', inputCls(phoneResult?.status === 'invalid'))} />
+          {phoneResult?.status === 'invalid' && phoneResult.reason && (
+            <p className="mt-1.5 text-base text-status-missing-strong">{phoneResult.reason}</p>
+          )}
+          <SmsAvailabilityControls
+            display={draftSmsDisplay}
+            hasNumber={willHaveNumber}
+            doNotText={doNotText}
+            undeliverable={markUndeliverable && willHaveNumber}
+            lockedUndeliverable={lockedUndeliverable}
+            busy={busy}
+            onToggleDoNotText={() => setDoNotText((v) => !v)}
+            onToggleUndeliverable={() => { if (!lockedUndeliverable) setMarkUndeliverable((v) => !v) }}
+          />
+          <div className="mt-2">
+            <VerifiedToggle label="Phone verified" checked={phoneVerified}
+              disabled={busy || !normalizePhoneInput(phone).value}
+              onChange={setPhoneVerified} />
+          </div>
+        </div>
+
+        {/* Mailing address + verification */}
+        <div className="py-3 last:pb-0">
+          <p className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
+            <MapPin className="size-4" aria-hidden /> Mailing Address
+          </p>
+          <div className="mt-1.5 space-y-2">
+            <div>
+              <label htmlFor="uc-street" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">Street</label>
+              <input id="uc-street" value={street} disabled={busy} onChange={(e) => setStreet(e.target.value)}
+                onBlur={() => setStreet((v) => normalizeStreet(v) ?? '')}
+                placeholder="123 Main St" className={cn('mt-1', inputCls(false))} />
+            </div>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label htmlFor="uc-city" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">City</label>
+                <input id="uc-city" value={city} disabled={busy} onChange={(e) => setCity(e.target.value)}
+                  onBlur={() => setCity((v) => normalizeCity(v) ?? '')}
+                  placeholder="Philadelphia" className={cn('mt-1', inputCls(false))} />
+              </div>
+              <div className="w-16">
+                <label htmlFor="uc-state" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">State</label>
+                <input id="uc-state" value={stateVal} disabled={busy} onChange={(e) => setStateVal(e.target.value.toUpperCase())}
+                  maxLength={2} placeholder="PA" className={cn('mt-1 uppercase', inputCls(false))} />
+              </div>
+              <div className="w-24">
+                <label htmlFor="uc-zip" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">ZIP</label>
+                <input id="uc-zip" value={zip} disabled={busy} onChange={(e) => setZip(e.target.value)}
+                  placeholder="19103" className={cn('mt-1', inputCls(false))} />
+              </div>
+            </div>
+          </div>
+          <div className="mt-2">
+            <VerifiedToggle label="Address verified"
+              checked={addressVerified}
+              disabled={busy || !(normalizeStreet(street) && normalizeCity(city) && normalizeState(stateVal) && zip.trim())}
+              onChange={setAddressVerified} />
+          </div>
+        </div>
+
+        {/* Customer alert — part of the one editing area. */}
+        {alertEditable && (
+          <div className="py-3">
+            <label htmlFor="uc-alert" className="flex items-center gap-1.5 text-base font-semibold text-status-known-strong">
+              <AlertTriangle className="size-4" aria-hidden /> Customer alert
+            </label>
+            <textarea id="uc-alert" rows={2} value={alertDraft} disabled={busy}
+              onChange={(e) => setAlertDraft(e.target.value)}
+              placeholder="Add a short alert shown at the top of this customer's card."
+              className="mt-1.5 w-full rounded-lg border border-surface-border-strong px-3 py-2 text-base text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-wash disabled:opacity-50" />
+          </div>
+        )}
+      </div>
+
+      {/* One Save and one Cancel at the bottom of the whole editor. */}
+      <div className="mt-3 flex items-center gap-2 border-t border-surface-border-strong pt-3">
+        <button type="submit" disabled={busy || nameInvalid}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-base font-semibold text-brand-foreground hover:bg-brand-hover disabled:opacity-50">
+          {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
+          Save
+        </button>
+        <button type="button" onClick={onCancel} disabled={busy}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-3 py-1.5 text-base font-medium text-ink-secondary hover:bg-surface-muted disabled:opacity-40">
+          <X className="size-3.5" aria-hidden /> Cancel
+        </button>
+      </div>
+    </form>
+  )
+}
+
+/** A compact Customer Verified checkbox used inside the unified editor. */
+function VerifiedToggle({
+  label, checked, disabled, onChange,
+}: {
+  label: string
+  checked: boolean
+  disabled: boolean
+  onChange: (v: boolean) => void
+}) {
+  return (
+    <label
+      className={cn(
+        'flex w-fit items-center gap-2 text-base font-medium',
+        disabled ? 'cursor-not-allowed text-ink-muted' : 'cursor-pointer text-ink-secondary',
+      )}
+      title={disabled ? 'A missing or unusable value cannot be marked verified.' : undefined}
+    >
+      <input type="checkbox" checked={checked} disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+        className="size-4 rounded border-slate-400 text-teal-600 focus:ring-teal-500 disabled:opacity-40" />
+      <span>{label}</span>
+    </label>
   )
 }
 
@@ -1814,84 +2091,8 @@ function AlertBanner({ text }: { text: string }) {
  * button chrome (the same tokens as the field editors) so it feels native to
  * the card. Empty text on Save clears the alert.
  */
-function AlertEditor({
-  draft, busy = false, onDraftChange, onSave, onCancel,
-}: {
-  draft: string
-  busy?: boolean
-  onDraftChange: (v: string) => void
-  onSave: () => void
-  onCancel: () => void
-}) {
-  return (
-    <div className="mt-3 rounded-xl border border-status-known-border bg-status-known-soft p-3">
-      <label htmlFor="cc-alert" className="flex items-center gap-1.5 text-base font-semibold text-status-known-strong">
-        <AlertTriangle className="size-4" aria-hidden /> Customer alert
-      </label>
-      <textarea
-        id="cc-alert"
-        autoFocus
-        rows={3}
-        value={draft}
-        disabled={busy}
-        onChange={(e) => onDraftChange(e.target.value)}
-        placeholder="Add a short alert shown at the top of this customer's card."
-        className="mt-1.5 w-full rounded-lg border border-surface-border-strong px-3 py-2 text-base text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-wash disabled:opacity-50"
-      />
-      <div className="mt-2.5 flex items-center gap-2">
-        <button
-          type="button"
-          onClick={onSave}
-          disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-base font-semibold text-brand-foreground hover:bg-brand-hover disabled:opacity-50"
-        >
-          {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />} Save
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={busy}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-3 py-1.5 text-base font-medium text-ink-secondary hover:bg-surface-muted disabled:opacity-40"
-        >
-          <X className="size-3.5" aria-hidden /> Cancel
-        </button>
-      </div>
-    </div>
-  )
-}
-
 /**
- * The Add / Edit + Clear alert control, shown in the card's bottom bar in both
- * modes. "Add Alert" when none exists; "Edit alert" + "Clear" when one does.
- */
-function AlertControl({
-  hasAlert, onEdit, onClear,
-}: {
-  hasAlert: boolean
-  onEdit: () => void
-  onClear: () => void
-}) {
-  const btn =
-    'inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-2.5 py-1 text-sm font-medium text-ink-secondary hover:bg-surface-muted'
-  return (
-    <div className="flex shrink-0 items-center gap-2">
-      <button type="button" onClick={onEdit} className={btn}>
-        {hasAlert ? <Pencil className="size-3.5" aria-hidden /> : <Plus className="size-3.5" aria-hidden />}
-        {hasAlert ? 'Edit alert' : 'Add Alert'}
-      </button>
-      {hasAlert && (
-        <button type="button" onClick={onClear} className={btn}>
-          <Trash2 className="size-3.5" aria-hidden /> Clear
-        </button>
-      )}
-    </div>
-  )
-}
-
-/**
- * The single control that switches the collapsible card between Overview and
- * Edit. It reuses the same neutral button chrome as the per-field Edit button
- * so the two modes feel like one card, not two components.
+ * The single control that opens the unified editor from the compact Overview.
  */
 function ModeToggleButton({
   label, icon: Icon, onClick,
@@ -1945,235 +2146,6 @@ function ContactStatusKey({ appearance, inline = false }: { appearance: Resolved
   )
 }
 
-// ── Shared section chrome ─────────────────────────────────────────────────────
-
-function VerifyCheckbox({
-  checked, disabled, busy, onChange, appearance,
-}: {
-  checked: boolean
-  disabled: boolean
-  busy: boolean
-  onChange: (v: boolean) => void
-  appearance: ResolvedAppearance
-}) {
-  return (
-    <label
-      className={cn(
-        'flex shrink-0 items-center gap-2 text-base font-medium',
-        disabled ? 'cursor-not-allowed text-ink-muted' : 'cursor-pointer text-ink-secondary',
-      )}
-      style={textStyle(appearance, appearance.verifyFontPx, appearance.verifyColor)}
-      title={disabled ? 'A missing or unusable value cannot be marked verified.' : undefined}
-    >
-      <input
-        type="checkbox"
-        checked={checked}
-        disabled={disabled || busy}
-        onChange={(e) => onChange(e.target.checked)}
-        className="size-4 rounded border-slate-400 text-teal-600 focus:ring-teal-500 disabled:opacity-40"
-        style={iconStyle(appearance, appearance.verifyBoxPx)}
-      />
-      <span>Verified</span>
-      {busy && <Loader2 className="size-3.5 animate-spin text-ink-muted" aria-hidden />}
-    </label>
-  )
-}
-
-function EditButton({
-  busy, onEdit, appearance,
-}: {
-  busy: boolean
-  onEdit: () => void
-  appearance: ResolvedAppearance
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onEdit}
-      disabled={busy}
-      style={{
-        ...(textStyle(appearance, appearance.controlFontPx) ?? {}),
-        ...(appearance.isDefault ? {} : {
-          borderWidth: `${appearance.controlBorderPx}px`,
-          borderRadius: `${appearance.controlRadiusPx}px`,
-        }),
-      }}
-      className={cn(
-        'inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-2.5 py-1 text-base font-medium text-ink-secondary hover:bg-surface-muted disabled:opacity-40',
-        weightClass(appearance.controlWeight),
-      )}
-    >
-      <Pencil className="size-3.5" style={iconStyle(appearance, appearance.editIconPx)} aria-hidden /> Edit
-    </button>
-  )
-}
-
-/**
- * One contact section inside the shared card. The heading line pairs the large
- * status icon and the contact icon with the field label. The Verified checkbox
- * and Edit button are placed per the appearance's layout choices: Verified on
- * the heading / beneath the value / on a bottom row; Edit beside the value / on
- * its own row / on a bottom row.
- */
-function SectionShell({
-  contactIcon: ContactIcon, label, tone, present, verifiedAt, busy, appearance, first, last,
-  onEdit, onVerify, children,
-}: {
-  contactIcon: typeof Mail
-  label: string
-  tone: Tone
-  present: boolean
-  verifiedAt: string | null
-  busy: boolean
-  appearance: ResolvedAppearance
-  first?: boolean
-  last?: boolean
-  onEdit: () => void
-  onVerify: (v: boolean) => void
-  children: React.ReactNode
-}) {
-  const status = STATUS_META[tone]
-  const StatusIcon = status.icon
-  // Black = dark text; Status = the field's actual green/amber/red status color
-  // (the same token the icons use), so the two choices visibly differ.
-  const labelColor =
-    appearance.fieldLabelColor === 'black' ? 'text-black' : status.color
-  const ap = appearance
-
-  const verify = ap.showVerifiedCheckbox ? (
-    <VerifyCheckbox
-      checked={!!verifiedAt}
-      disabled={!present}
-      busy={busy}
-      appearance={ap}
-      onChange={onVerify}
-    />
-  ) : null
-
-  const edit = ap.showEditButton ? (
-    <EditButton busy={busy} onEdit={onEdit} appearance={ap} />
-  ) : null
-
-  const verifyOnHeading = ap.verifiedPlacement === 'heading'
-  const verifyOnValue = ap.verifiedPlacement === 'value'
-  const verifyOnBottom = ap.verifiedPlacement === 'bottom'
-  const editOnValue = ap.editPlacement === 'value'
-  const editOnRow = ap.editPlacement === 'row'
-  const editOnBottom = ap.editPlacement === 'bottom'
-
-  // Container style carries field-section padding, inner spacing, divider.
-  const containerStyle: React.CSSProperties | undefined = ap.isDefault
-    ? undefined
-    : {
-        paddingTop: first ? 0 : `${ap.sectionPaddingPx}px`,
-        paddingBottom: last ? 0 : `${ap.sectionPaddingPx}px`,
-        ...(ap.showDividers && !first
-          ? { borderTopWidth: '1px', borderTopStyle: 'solid', borderTopColor: ap.dividerColor ?? 'var(--surface-border-strong)' }
-          : {}),
-      }
-
-  const gap = ap.isDefault ? undefined : { marginTop: `${ap.fieldSpacingPx}px` }
-  const headingLabel = ap.showFieldLabel ? label : null
-
-  // Alignment: left (default) keeps the full-width justify-between rows. Center
-  // and right turn the section into a flex column aligned to that edge, with the
-  // rows sized to content so they visibly shift. Only diverges when non-default.
-  const aligned = !ap.isDefault && ap.fieldAlign !== 'left'
-  const rootCls = aligned
-    ? cn('flex flex-col py-3 first:pt-0 last:pb-0', ap.fieldAlign === 'center' ? 'items-center text-center' : 'items-end text-right')
-    : 'py-3 first:pt-0 last:pb-0'
-  // When aligned, rows hug their content; when not, they span full width.
-  const rowCls = aligned ? 'flex items-center gap-3' : 'flex items-center justify-between gap-3'
-  const valueRowCls = aligned ? 'flex flex-col gap-1.5' : 'flex items-start justify-between gap-3'
-
-  return (
-    <div className={rootCls} style={containerStyle}>
-      {/* Heading row: status + contact icons + label on the left; Verified at
-          the right only when its placement is `heading`. */}
-      <div className={rowCls}>
-        <p
-          className={cn('flex items-center gap-2 text-base font-semibold', labelColor, weightClass(ap.labelWeight))}
-          style={textStyle(ap, ap.labelFontPx)}
-        >
-          {ap.showStatusIndicator && (
-            <StatusIcon
-              className={cn('size-5 shrink-0', colorClass(ap.statusIndicatorColor, status.color))}
-              style={iconStyle(ap, ap.statusIconPx)}
-              aria-label={status.label}
-              role="img"
-            />
-          )}
-          {ap.showContactIcon && (
-            <ContactIcon
-              className={cn('size-5 shrink-0', colorClass(ap.contactIconColor, status.color))}
-              style={iconStyle(ap, ap.contactIconPx)}
-              aria-hidden
-            />
-          )}
-          {headingLabel}
-        </p>
-        {verifyOnHeading && verify}
-      </div>
-
-      {/* Value row: the value; Edit at the right only when its placement is
-          `value`; Verified beneath the value when its placement is `value`. */}
-      <div className={valueRowCls} style={gap}>
-        <div className="min-w-0">
-          {children}
-          {verifyOnValue && <div className="mt-1.5">{verify}</div>}
-        </div>
-        {editOnValue && edit}
-      </div>
-
-      {/* Edit on its own row. */}
-      {editOnRow && edit && <div style={gap}>{edit}</div>}
-
-      {/* Shared bottom row for whichever of Verified / Edit chose `bottom`. */}
-      {(verifyOnBottom || editOnBottom) && (
-        <div className="flex items-center justify-between gap-3" style={gap}>
-          {verifyOnBottom ? verify : <span />}
-          {editOnBottom ? edit : <span />}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/** The value line (~18px): full value, or an explicit "Missing". Never truncated. */
-function ValueText({ value, present, appearance }: { value: string | null; present: boolean; appearance: ResolvedAppearance }) {
-  const style = textStyle(appearance, appearance.valueFontPx, appearance.valueColor)
-  if (!present) {
-    return <p className={cn('text-lg font-medium text-status-missing-strong', weightClass(appearance.valueWeight))} style={fontStyle(appearance, appearance.valueFontPx)}>Missing</p>
-  }
-  return <p className={cn('break-words text-lg text-ink', weightClass(appearance.valueWeight))} style={style}>{value}</p>
-}
-
-function EditActions({ busy, onCancel, appearance }: { busy: boolean; onCancel: () => void; appearance: ResolvedAppearance }) {
-  const style = fontStyle(appearance, appearance.controlFontPx)
-  return (
-    <div className="flex items-center gap-2">
-      <button
-        type="submit"
-        disabled={busy}
-        style={style}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-base font-semibold text-brand-foreground hover:bg-brand-hover disabled:opacity-50"
-      >
-        {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
-        Save
-      </button>
-      <button
-        type="button"
-        onClick={onCancel}
-        disabled={busy}
-        style={style}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-3 py-1.5 text-base font-medium text-ink-secondary hover:bg-surface-muted disabled:opacity-40"
-      >
-        <X className="size-3.5" aria-hidden /> Cancel
-      </button>
-    </div>
-  )
-}
-
 const inputCls = (invalid: boolean) =>
   cn(
     'w-full rounded-lg border px-3 py-2 text-lg text-ink focus:outline-none focus:ring-2',
@@ -2182,344 +2154,9 @@ const inputCls = (invalid: boolean) =>
       : 'border-surface-border-strong focus:border-brand-ring focus:ring-brand-wash',
   )
 
-// ── Email ──────────────────────────────────────────────────────────────────
+// ── Phone texting-availability controls (used by the unified editor) ─────────
 
-/** The email-availability states the operator can select directly in the Email
- * section: Missing (reset to unknown), No Usable Email, and Undeliverable.
- * 'available' is never selected here — it is set by the system when a usable
- * address is saved. */
-const EMAIL_REASON_CHOICES: readonly SelectableEmailAvailability[] =
-  SELECTABLE_EMAIL_AVAILABILITY_VALUES
-
-/**
- * The read-only value line for the Email section. A usable address shows
- * normally; otherwise it shows the recorded reason ("No Usable Email",
- * "Undeliverable") or plain "Missing" when the reason is unknown — so the card
- * explains WHY there is no email, not merely that it is absent.
- */
-function EmailValue({
-  value, display, appearance,
-}: {
-  value: string | null
-  display: EmailAvailabilityDisplay
-  appearance: ResolvedAppearance
-}) {
-  if (display === 'on_file') {
-    return <ValueText value={value} present appearance={appearance} />
-  }
-  const label = display === 'missing' ? 'Missing' : EMAIL_AVAILABILITY_LABEL[display]
-  return (
-    <p
-      className={cn('text-lg font-medium text-status-missing-strong', weightClass(appearance.valueWeight))}
-      style={fontStyle(appearance, appearance.valueFontPx)}
-    >
-      {label}
-    </p>
-  )
-}
-
-function EmailRow({
-  present, verifiedAt, value, availability, editing, busy, appearance, first,
-  onEdit, onCancel, onSave, onSetAvailability, onVerify,
-}: {
-  present: boolean
-  verifiedAt: string | null
-  value: string | null
-  availability: EmailAvailability | null
-  editing: boolean
-  busy: boolean
-  appearance: ResolvedAppearance
-  first?: boolean
-  onEdit: () => void
-  onCancel: () => void
-  onSave: (email: string | null) => void
-  onSetAvailability: (status: SelectableEmailAvailability) => void
-  onVerify: (v: boolean) => void
-}) {
-  const tone = toneFor(present, verifiedAt)
-  const display = resolveEmailAvailabilityDisplay(availability, value)
-  const [draft, setDraft] = useState(value ?? '')
-  const [result, setResult] = useState<ContactFieldResult | null>(null)
-  // A state selected in THIS editing session but not yet committed. The editor
-  // is one Save/Cancel operation: picking Missing / No Usable Email /
-  // Undeliverable only PREPARES the selection (it is not persisted on click);
-  // Save commits either the pending selection or the typed email, and Cancel
-  // discards both. This is what prevents a lingering email draft from
-  // overwriting a newly selected status.
-  const [pendingReason, setPendingReason] =
-    useState<SelectableEmailAvailability | null>(null)
-
-  // Reset the draft and any pending selection whenever the editor opens, so
-  // Cancel-then-Edit starts clean.
-  const open = useCallback(() => {
-    setDraft(value ?? ''); setResult(null); setPendingReason(null); onEdit()
-  }, [value, onEdit])
-
-  if (!editing) {
-    // A recorded reason (No Usable Email / Undeliverable) explains WHY email is
-    // absent. 'on_file' needs no help, and 'missing' shows only "Missing" with
-    // no explanatory line. Verification stays bound to an actual address
-    // (SectionShell disables Verified when !present).
-    const helpText = display === 'on_file' || display === 'missing'
-      ? null
-      : EMAIL_AVAILABILITY_HELP[display]
-    return (
-      <SectionShell contactIcon={Mail} label="Email" tone={tone} present={present} verifiedAt={verifiedAt}
-        busy={busy} appearance={appearance} first={first} onEdit={open} onVerify={onVerify}>
-        <EmailValue value={value} display={display} appearance={appearance} />
-        {helpText && (
-          <p className="mt-0.5 text-sm text-ink-muted" style={fontStyle(appearance, appearance.supportingFontPx)}>
-            {helpText}
-          </p>
-        )}
-      </SectionShell>
-    )
-  }
-
-  // Save commits exactly one outcome: a pending "no usable email" reason when
-  // one is selected, otherwise the typed email. The two are mutually exclusive,
-  // so a stale email draft can never ride along with — and overwrite — a chosen
-  // status. An email is validated only when it is the thing being saved.
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (pendingReason) {
-      onSetAvailability(pendingReason)
-      return
-    }
-    const r = normalizeEmailInput(draft)
-    if (r.status === 'invalid') { setResult(r); return }
-    onSave(r.value) // valid canonical value, or null when empty (a valid clear)
-  }
-
-  // Selecting a reason only PREPARES it. It clears the email draft so the editor
-  // reflects that saving will remove the address, and clears any stale
-  // validation. Re-clicking the selected reason toggles it back off, returning
-  // to editing the email.
-  const selectReason = (choice: SelectableEmailAvailability) => {
-    setResult(null)
-    setPendingReason((prev) => {
-      const next = prev === choice ? null : choice
-      setDraft(next ? '' : (value ?? ''))
-      return next
-    })
-  }
-
-  return (
-    <form onSubmit={submit} className="py-3 first:pt-0 last:pb-0">
-      <label htmlFor="cc-email" className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
-        <Mail className="size-4" aria-hidden /> Edit email
-      </label>
-      <input
-        id="cc-email"
-        type="email"
-        autoFocus
-        value={draft}
-        disabled={busy || !!pendingReason}
-        onChange={(e) => { setDraft(e.target.value); if (result) setResult(null) }}
-        onBlur={() => { if (!pendingReason) setResult(normalizeEmailInput(draft)) }}
-        placeholder={pendingReason ? EMAIL_AVAILABILITY_LABEL[pendingReason] : 'name@example.com'}
-        aria-invalid={result?.status === 'invalid' || undefined}
-        className={cn('mt-1.5', inputCls(result?.status === 'invalid'), pendingReason && 'opacity-50')}
-      />
-      {result?.status === 'invalid' && result.reason && (
-        <p className="mt-1.5 text-base text-status-missing-strong">{result.reason}</p>
-      )}
-
-      {/* Email availability — an informational customer fact chosen here as part
-          of the SAME Save/Cancel operation. Picking a selection only prepares it
-          (shown highlighted); Save commits it and clears the active email +
-          verification, Cancel discards it. Entering and saving an email returns
-          to Email on file. It changes no research or workflow. */}
-      <fieldset className="mt-3 border-t border-surface-border-strong pt-3">
-        <legend className="text-sm font-semibold text-ink-secondary">Set email availability</legend>
-        <div className="mt-1.5 flex flex-wrap gap-2">
-          {EMAIL_REASON_CHOICES.map((choice) => {
-            const selected = pendingReason === choice
-            return (
-              <button
-                key={choice}
-                type="button"
-                disabled={busy}
-                aria-pressed={selected}
-                onClick={() => selectReason(choice)}
-                className={cn(
-                  'inline-flex items-center rounded-lg border px-2.5 py-1 text-sm font-medium disabled:opacity-60',
-                  selected
-                    ? 'border-status-missing-border bg-status-missing-soft text-status-missing-strong'
-                    : 'border-surface-border-strong bg-surface-card text-ink-secondary hover:bg-surface-muted',
-                )}
-              >
-                {EMAIL_AVAILABILITY_LABEL[choice]}
-              </button>
-            )
-          })}
-        </div>
-      </fieldset>
-
-      {/* Save / Cancel sits beneath the availability selections so the editor
-          reads: email input, then the availability choices, then the single
-          Save/Cancel for the whole operation. */}
-      <div className="mt-3"><EditActions busy={busy} onCancel={onCancel} appearance={appearance} /></div>
-    </form>
-  )
-}
-
-// ── Phone ──────────────────────────────────────────────────────────────────
-
-function PhoneRow({
-  present, verifiedAt, value, smsOptOut, textUndeliverable,
-  editing, busy, appearance, onEdit, onCancel, onSave, onVerify,
-}: {
-  present: boolean
-  verifiedAt: string | null
-  value: string | null
-  /** Do Not Text — the durable customer opt-out (customers.sms_opt_out). */
-  smsOptOut: boolean
-  /** Whether the number on file has a recorded text-delivery failure. */
-  textUndeliverable: boolean
-  editing: boolean
-  busy: boolean
-  appearance: ResolvedAppearance
-  onEdit: () => void
-  onCancel: () => void
-  /** Commit the whole phone editor at once: the typed number plus the STAGED
-   * texting intents. Called only on Save. */
-  onSave: (intents: { phone: string | null; doNotText: boolean; markUndeliverable: boolean }) => void
-  onVerify: (v: boolean) => void
-}) {
-  const tone = toneFor(present, verifiedAt)
-  const [draft, setDraft] = useState(formatPhoneAsTyped(value ?? ''))
-  const [result, setResult] = useState<ContactFieldResult | null>(null)
-  // Staged texting intents, local to this editing session. They mirror the
-  // current facts when the editor opens and change ONLY in local state as the
-  // operator clicks; nothing persists until Save. `markUndeliverable` tracks the
-  // operator's intent to record a NEW delivery failure for the number on file —
-  // it starts true only when the number is already undeliverable (so toggling it
-  // off then on is a no-op against an existing mark, and on a clean number it is
-  // a deliberate opt-in).
-  const [draftDoNotText, setDraftDoNotText] = useState(smsOptOut)
-  const [draftUndeliverable, setDraftUndeliverable] = useState(textUndeliverable && present)
-
-  // The effective texting status from the two facts. Do Not Text outranks a
-  // delivery failure; it holds even with no number on file (it follows the
-  // customer), while Undeliverable is only meaningful when a number is present.
-  const smsDisplay: SmsAvailabilityDisplay = resolveSmsAvailabilityDisplay({
-    smsOptOut,
-    textUndeliverable: textUndeliverable && present,
-  })
-
-  const open = useCallback(() => {
-    setDraft(formatPhoneAsTyped(value ?? '')); setResult(null)
-    setDraftDoNotText(smsOptOut)
-    setDraftUndeliverable(textUndeliverable && present)
-    onEdit()
-  }, [value, smsOptOut, textUndeliverable, present, onEdit])
-
-  if (!editing) {
-    return (
-      <SectionShell contactIcon={Phone} label="Phone" tone={tone} present={present} verifiedAt={verifiedAt}
-        busy={busy} appearance={appearance} onEdit={open} onVerify={onVerify}>
-        <ValueText value={value} present={present} appearance={appearance} />
-        <SmsStatusLine display={smsDisplay} appearance={appearance} />
-      </SectionShell>
-    )
-  }
-
-  // The number the operator is about to save (used so the texting controls
-  // reflect whether a usable number will be on file after Save).
-  const stagedPhone = normalizePhoneInput(draft)
-  const willHaveNumber = stagedPhone.status !== 'empty' && stagedPhone.status !== 'invalid'
-  // The number has NOT changed from the one already on file (compare canonical
-  // values). When it is unchanged AND already undeliverable, that mark cannot be
-  // cleared here — a delivery failure clears only by REPLACING the number — so
-  // the Undeliverable control is locked on. Typing a different (or empty) number
-  // means the stale mark will clear on Save, which re-enables the toggle.
-  const numberUnchanged = (stagedPhone.value ?? null) === (value ? (normalizePhoneInput(value).value ?? null) : null)
-  const lockedUndeliverable = textUndeliverable && present && numberUnchanged && willHaveNumber
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault()
-    const r = normalizePhoneInput(draft)
-    if (r.status === 'invalid') { setResult(r); return }
-    onSave({
-      phone: r.value,
-      doNotText: draftDoNotText,
-      // Only a number that will actually be on file can be marked undeliverable.
-      markUndeliverable: draftUndeliverable && willHaveNumber,
-    })
-  }
-
-  // The staged texting status, from the pending toggles, so the editor previews
-  // exactly what Save will produce. A number being removed makes Undeliverable
-  // moot; Do Not Text still holds (it follows the customer).
-  const draftSmsDisplay: SmsAvailabilityDisplay = resolveSmsAvailabilityDisplay({
-    smsOptOut: draftDoNotText,
-    textUndeliverable: draftUndeliverable && willHaveNumber,
-  })
-
-  return (
-    <form onSubmit={submit} className="py-3 first:pt-0 last:pb-0">
-      <label htmlFor="cc-phone" className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
-        <Phone className="size-4" aria-hidden /> Edit phone
-      </label>
-      <input
-        id="cc-phone"
-        type="tel"
-        autoFocus
-        value={draft}
-        disabled={busy}
-        onChange={(e) => { setDraft(formatPhoneAsTyped(e.target.value)); if (result) setResult(null) }}
-        onBlur={() => setResult(normalizePhoneInput(draft))}
-        placeholder="(215) 555-0100"
-        aria-invalid={result?.status === 'invalid' || undefined}
-        className={cn('mt-1.5', inputCls(result?.status === 'invalid'))}
-      />
-      {result?.status === 'invalid' && result.reason && (
-        <p className="mt-1.5 text-base text-status-missing-strong">{result.reason}</p>
-      )}
-
-      {/* Text-message availability — the two existing restrictions, STAGED here
-          as part of the single Save/Cancel operation. Clicking a control only
-          toggles the pending selection (shown highlighted); nothing persists
-          until Save, and Cancel discards it. Both disable texting only, never
-          calling. */}
-      <SmsAvailabilityControls
-        display={draftSmsDisplay}
-        hasNumber={willHaveNumber}
-        doNotText={draftDoNotText}
-        undeliverable={draftUndeliverable && willHaveNumber}
-        lockedUndeliverable={lockedUndeliverable}
-        busy={busy}
-        onToggleDoNotText={() => setDraftDoNotText((v) => !v)}
-        // When the mark is locked (same number, already undeliverable) the toggle
-        // is a no-op: it clears only by replacing the number.
-        onToggleUndeliverable={() => { if (!lockedUndeliverable) setDraftUndeliverable((v) => !v) }}
-      />
-
-      <div className="mt-2.5"><EditActions busy={busy} onCancel={onCancel} appearance={appearance} /></div>
-    </form>
-  )
-}
-
-/** The current texting status beneath the phone value (read view). Shown only
- * when texting is restricted; an available number needs no line, matching how
- * the Email section shows an explanatory line only for a non-normal state. The
- * status is a distinct SHAPE + words, never color alone. */
-function SmsStatusLine({ display, appearance }: { display: SmsAvailabilityDisplay; appearance: ResolvedAppearance }) {
-  if (display === 'available') return null
-  const Icon = display === 'do_not_text' ? Ban : MessageSquareOff
-  return (
-    <p
-      className="mt-0.5 flex items-center gap-1.5 text-sm font-medium text-status-missing-strong"
-      style={fontStyle(appearance, appearance.supportingFontPx)}
-    >
-      <Icon className="size-4 shrink-0" aria-hidden />
-      {SMS_AVAILABILITY_LABEL[display]}
-    </p>
-  )
-}
-
-/** The Text-message availability controls inside the phone editor. Two
+/** The Text-message availability controls inside the phone section. Two
  * restrictions, each a STAGED toggle that is part of the phone editor's single
  * Save/Cancel operation — clicking only flips the pending selection, nothing
  * persists until Save, and Cancel discards it. The parent owns the staged state:
@@ -2602,109 +2239,4 @@ function SmsAvailabilityControls({
   )
 }
 
-// ── Mailing address (edited as one group) ─────────────────────────────────────
 
-function AddressRow({
-  present, verifiedAt, record, editing, busy, appearance, last, onEdit, onCancel, onSave, onVerify,
-}: {
-  present: boolean
-  verifiedAt: string | null
-  record: CustomerContact
-  editing: boolean
-  busy: boolean
-  appearance: ResolvedAppearance
-  last?: boolean
-  onEdit: () => void
-  onCancel: () => void
-  onSave: (a: { street: string | null; city: string | null; state: string | null; zip: string | null }) => void
-  onVerify: (v: boolean) => void
-}) {
-  const tone = toneFor(present, verifiedAt)
-  // Seed the editable drafts with the shared display normalization so the
-  // operator edits (and can copy) properly-formatted values: street in normal
-  // capitalization with directionals preserved, city normal-cased, state
-  // uppercased. The stored record is never rewritten by seeding a draft.
-  const [street, setStreet] = useState(streetDisplay(record))
-  const [city, setCity] = useState(normalizeCity(record.city) ?? '')
-  const [stateVal, setStateVal] = useState(normalizeState(record.state) ?? '')
-  const [zip, setZip] = useState(record.zip ?? '')
-
-  const open = useCallback(() => {
-    setStreet(streetDisplay(record)); setCity(normalizeCity(record.city) ?? '')
-    setStateVal(normalizeState(record.state) ?? ''); setZip(record.zip ?? '')
-    onEdit()
-  }, [record, onEdit])
-
-  const lines = useMemo(() => addressLines(record), [record])
-
-  if (!editing) {
-    return (
-      <SectionShell contactIcon={MapPin} label="Mailing Address" tone={tone} present={present} verifiedAt={verifiedAt}
-        busy={busy} appearance={appearance} last={last} onEdit={open} onVerify={onVerify}>
-        {present ? (
-          // The complete mailing address on two lines: street, then city/state/ZIP.
-          <address className={cn('not-italic text-lg leading-snug text-ink', weightClass(appearance.valueWeight))} style={textStyle(appearance, appearance.valueFontPx, appearance.valueColor)}>
-            {lines.map((line, i) => <span key={i} className="block break-words">{line}</span>)}
-          </address>
-        ) : (
-          <p className={cn('text-lg font-medium text-status-missing-strong', weightClass(appearance.valueWeight))} style={fontStyle(appearance, appearance.valueFontPx)}>Missing</p>
-        )}
-      </SectionShell>
-    )
-  }
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault()
-    const clean = (v: string) => { const t = v.replace(/\s+/g, ' ').trim(); return t.length ? t : null }
-    // Save the same normalized forms the operator sees, so a Save before an
-    // onBlur fires still stores the display standard: street normal-cased with
-    // directionals preserved, city normal-cased, state uppercased. This only
-    // normalizes the value being actively edited; it rewrites no other record.
-    onSave({
-      street: normalizeStreet(street),
-      city: normalizeCity(city),
-      state: normalizeState(stateVal),
-      zip: clean(zip),
-    })
-  }
-
-  return (
-    <form onSubmit={submit} className="py-3 first:pt-0 last:pb-0">
-      <p className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
-        <MapPin className="size-4" aria-hidden /> Edit mailing address
-      </p>
-      <div className="mt-1.5 space-y-2">
-        <div>
-          <label htmlFor="cc-street" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">Street</label>
-          <input id="cc-street" autoFocus value={street} onChange={(e) => setStreet(e.target.value)}
-            onBlur={() => setStreet((v) => normalizeStreet(v) ?? '')}
-            placeholder="123 Main St" className={cn('mt-1', inputCls(false))} />
-        </div>
-        {/* City, State, and ZIP share one row: City takes most of the width,
-            State and ZIP stay narrow. Street keeps its own row above. */}
-        <div className="flex gap-2">
-          <div className="flex-1">
-            <label htmlFor="cc-city" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">City</label>
-            <input id="cc-city" value={city} onChange={(e) => setCity(e.target.value)}
-              onBlur={() => setCity((v) => normalizeCity(v) ?? '')}
-              placeholder="Philadelphia" className={cn('mt-1', inputCls(false))} />
-          </div>
-          <div className="w-16">
-            <label htmlFor="cc-state" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">State</label>
-            <input id="cc-state" value={stateVal} onChange={(e) => setStateVal(e.target.value.toUpperCase())}
-              maxLength={2} placeholder="PA" className={cn('mt-1 uppercase', inputCls(false))} />
-          </div>
-          <div className="w-24">
-            <label htmlFor="cc-zip" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">ZIP</label>
-            <input id="cc-zip" value={zip} onChange={(e) => setZip(e.target.value)}
-              placeholder="19103" className={cn('mt-1', inputCls(false))} />
-          </div>
-        </div>
-      </div>
-      <p className="mt-1.5 text-sm text-ink-supporting">
-        A mailing address needs street, city, state, and ZIP to be usable and verifiable.
-      </p>
-      <div className="mt-2.5"><EditActions busy={busy} onCancel={onCancel} appearance={appearance} /></div>
-    </form>
-  )
-}

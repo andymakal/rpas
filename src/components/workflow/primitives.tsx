@@ -16,9 +16,11 @@
  */
 
 import type { ComponentType, ReactNode } from 'react'
-import { ExternalLink, MessageSquareQuote } from 'lucide-react'
+import Link from 'next/link'
+import { ArrowLeft, ExternalLink, MessageSquareQuote } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
+import { MentorToggle } from '@/lib/mentoring/MentorUi'
 import { TaskColumns } from './TaskColumns'
 
 type IconType = ComponentType<{ className?: string }>
@@ -59,7 +61,7 @@ export function WorkflowSurface({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// WorkflowPage / WorkflowHeader — page shell and prominent page heading.
+// WorkflowPage / WorkflowPageHeader — page shell and the one shared page header.
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
@@ -100,7 +102,7 @@ export function WorkflowPage({
   contentWidthClassName = WORKFLOW_MAX_WIDTH,
 }: {
   children: ReactNode
-  /** Optional fixed heading band (e.g. a Back link + WorkflowHeader). When
+  /** Optional fixed heading band (normally a WorkflowPageHeader). When
    * provided, the page fills the available height: this band stays visible and
    * only `children` (the work area) scrolls. The behavior is pure flex — it
    * needs no viewport offset and adapts to any app-header height — and it
@@ -150,13 +152,20 @@ export function WorkflowPage({
 }
 
 /**
- * The prominent page heading. Renders in the clean sans workflow font (inherited
- * from WorkflowSurface) with the dark bold teal heading treatment
- * (`text-ink-heading`, extrabold), matching the IPF page-title style. Renders
- * "Primary — secondary" when a secondary part is supplied (e.g. "1035 Workflow —
- * Today's work"); the secondary reads as muted supporting text beside it.
+ * WorkflowTitle — the prominent page-title TEXT only (no row, no chrome).
+ *
+ * Renders in the clean sans workflow font (inherited from WorkflowSurface) with
+ * the dark bold teal heading treatment (`text-ink-heading`, extrabold), matching
+ * the IPF page-title style. Renders "Primary — secondary" when a secondary part
+ * is supplied (e.g. "1035 Workflow — Today's work"); the secondary reads as
+ * muted supporting text beside it.
+ *
+ * This is the single source of truth for what a Right Path PAGE title looks
+ * like. It is composed by WorkflowPageHeader (the one shared page header) and is
+ * deliberately distinct from task headings (ActionPanel's h3) and section
+ * headings (QueueSection's h2), so page / task / section stay visually tiered.
  */
-export function WorkflowHeader({
+export function WorkflowTitle({
   primary,
   secondary,
 }: {
@@ -164,16 +173,114 @@ export function WorkflowHeader({
   secondary?: ReactNode
 }) {
   return (
-    <header>
-      <h1 className="text-3xl font-extrabold tracking-tight text-ink-heading sm:text-4xl">
-        {primary}
-        {secondary != null && (
-          <>
-            {' '}<span className="font-normal text-surface-border-strong">{'\u2014'}</span>{' '}
-            <span className="font-normal text-ink-supporting">{secondary}</span>
-          </>
-        )}
-      </h1>
+    <h1 className="min-w-0 text-3xl font-extrabold tracking-tight text-ink-heading sm:text-4xl">
+      {primary}
+      {secondary != null && (
+        <>
+          {' '}<span className="font-normal text-surface-border-strong">{'\u2014'}</span>{' '}
+          <span className="font-normal text-ink-supporting">{secondary}</span>
+        </>
+      )}
+    </h1>
+  )
+}
+
+/**
+ * WorkflowBackLink — the one shared back-navigation link for a page header.
+ *
+ * A single consistent treatment for the "Back to …" links that used to be
+ * hand-rolled on every working screen (the teal brand-hover link with a leading
+ * arrow). Rendered inside WorkflowPageHeader's `back` slot. `tone="muted"`
+ * gives the secondary, lower-emphasis variant used for a second back link (e.g.
+ * "Back to project" beside "Back to My Work").
+ */
+export function WorkflowBackLink({
+  href,
+  children,
+  tone = 'brand',
+  withArrow = true,
+}: {
+  href: string
+  children: ReactNode
+  tone?: 'brand' | 'muted'
+  /** Show the leading ← arrow. Default true; a secondary link omits it. */
+  withArrow?: boolean
+}) {
+  return (
+    <Link
+      href={href}
+      className={cn(
+        '-ml-1 inline-flex items-center gap-1.5 text-base font-medium transition-colors',
+        tone === 'brand'
+          ? 'text-brand-hover hover:text-brand'
+          : 'text-ink-supporting hover:text-ink',
+      )}
+    >
+      {withArrow && <ArrowLeft className="size-4" aria-hidden />}
+      {children}
+    </Link>
+  )
+}
+
+/**
+ * WorkflowPageHeader — the ONE shared page header for every light-theme workflow
+ * page. It replaces the per-page "back-link row stacked above a WorkflowHeader"
+ * blocks and the bare WorkflowHeader usages with a single compact horizontal
+ * row:
+ *
+ *   [leading?] [title (+secondary)]  [back nav]  ·········  [actions] [Mentoring]
+ *
+ * Order and alignment match the standard: the page TITLE comes first, the back
+ * navigation immediately follows it (when applicable), and the global Mentoring
+ * toggle is pinned to the far right (after any page-specific actions). The row
+ * wraps gracefully on narrow screens.
+ *
+ * It owns the page-title treatment via WorkflowTitle, and the Mentoring toggle
+ * behavior is unchanged (same shared MentorToggle / MentoringProvider). Pass
+ * `showMentorToggle={false}` only when the same page shows the toggle through
+ * another header instance, so it is never duplicated.
+ *
+ * This is a PAGE header. Task headings (ActionPanel) and section headings
+ * (QueueSection) are intentionally separate and lower in the type hierarchy.
+ */
+export function WorkflowPageHeader({
+  title,
+  secondary,
+  back,
+  actions,
+  leading,
+  showMentorToggle = true,
+}: {
+  /** The page title text. */
+  title: ReactNode
+  /** Optional muted secondary part shown beside the title. */
+  secondary?: ReactNode
+  /** Back navigation shown immediately after the title (e.g. one or more
+   * WorkflowBackLink). Omit when the page has no back navigation. */
+  back?: ReactNode
+  /** Page-specific actions, shown on the right before the Mentoring toggle. */
+  actions?: ReactNode
+  /** Optional leading element before the title (e.g. a queue icon + count on an
+   * opened queue list). */
+  leading?: ReactNode
+  /** Render the global Mentoring on/off toggle at the far right. Default true. */
+  showMentorToggle?: boolean
+}) {
+  return (
+    <header className="flex flex-wrap items-center gap-x-5 gap-y-2">
+      {leading}
+      <WorkflowTitle primary={title} secondary={secondary} />
+      {/* Back navigation immediately follows the title. */}
+      {back != null && (
+        <span className="flex flex-wrap items-center gap-x-5 gap-y-1">{back}</span>
+      )}
+      {/* Push actions + the Mentoring toggle to the far right. */}
+      {(actions != null || showMentorToggle) && (
+        <div className="ml-auto flex shrink-0 items-center gap-3">
+          {actions}
+          {showMentorToggle && <MentorToggle variant="pill" />}
+        </div>
+      )}
     </header>
   )
 }

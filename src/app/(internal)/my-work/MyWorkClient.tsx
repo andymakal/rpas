@@ -64,7 +64,7 @@ import {
 } from '@/lib/mentoring/MentorUi'
 import {
   WorkflowSurface,
-  WorkflowHeader,
+  WorkflowPageHeader,
   WORKFLOW_MAX_WIDTH,
   OperationalTag,
   type OperationalTone,
@@ -213,7 +213,7 @@ export function MyWorkClient({
       // and rhythm so its appearance is unchanged.
       <WorkflowSurface className="flex h-full min-h-0 flex-col !px-0 !py-0">
         <div className={`${WORKFLOW_MAX_WIDTH} shrink-0 px-6 pt-8 sm:px-8`}>
-          <WorkflowHeader primary="My Work" />
+          <WorkflowPageHeader title="My Work" />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8 pt-6 sm:px-8">
           <div className={`${WORKFLOW_MAX_WIDTH} space-y-6`}>
@@ -263,7 +263,7 @@ export function MyWorkClient({
       {/* The board fills the shared workflow width (the centralized recipe),
           capped so it does not sprawl on an ultrawide monitor. */}
       <div className={`${WORKFLOW_MAX_WIDTH} shrink-0 px-6 pt-8 sm:px-8`}>
-        <WorkflowHeader primary="My Work" />
+        <WorkflowPageHeader title="My Work" />
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8 pt-6 sm:px-8">
         <div className={`${WORKFLOW_MAX_WIDTH} space-y-6`}>

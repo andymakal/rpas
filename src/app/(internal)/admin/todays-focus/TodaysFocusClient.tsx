@@ -15,7 +15,7 @@
 import { useState, useTransition } from 'react'
 import { useRouter } from 'next/navigation'
 import { Sparkles, Trash2, Clock } from 'lucide-react'
-import { WorkflowPage, WorkflowHeader, WorkflowButton } from '@/components/workflow'
+import { WorkflowPage, WorkflowPageHeader, WorkflowButton } from '@/components/workflow'
 
 export type FocusFormOption = { id: string; label: string }
 export type ActiveFocusRow = {
@@ -106,7 +106,7 @@ export function TodaysFocusClient({
   }
 
   return (
-    <WorkflowPage heading={<WorkflowHeader primary="Today's Focus" secondary="Temporary management direction" />}>
+    <WorkflowPage heading={<WorkflowPageHeader title="Today's Focus" secondary="Temporary management direction" />}>
       <p className="max-w-prose text-sm leading-relaxed text-ink-secondary">
         Elevate a project or a single activity so it is recommended more
         prominently. Focus influences recommendations for a limited time; it does

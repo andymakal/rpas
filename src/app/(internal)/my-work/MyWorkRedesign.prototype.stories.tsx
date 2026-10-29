@@ -17,7 +17,7 @@ import {
 
 import { MentoringProvider } from '@/lib/mentoring/MentoringProvider'
 import { WorkflowSurface } from '@/components/workflow/primitives'
-import { WorkflowHeader } from '@/components/workflow'
+import { WorkflowPageHeader } from '@/components/workflow'
 import { cn } from '@/lib/utils'
 
 /**
@@ -731,7 +731,7 @@ function PracticeDirectionColumn() {
 function ThreeColumnLayout() {
   return (
     <div className="space-y-6">
-      <WorkflowHeader primary="My Work" />
+      <WorkflowPageHeader title="My Work" />
       <div className="grid gap-6 lg:grid-cols-3 xl:gap-8">
         <PrioritiesColumn />
         <AvailableWorkColumn />

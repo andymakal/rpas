@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
-import { WorkflowSurface, WorkflowHeader, ContextLabel, PrimaryAction, WorkflowButton, OperationalTag } from './index'
+import { WorkflowSurface, WorkflowPageHeader, ContextLabel, PrimaryAction, WorkflowButton, OperationalTag } from './index'
 import { ArrowRight } from 'lucide-react'
 
 /**
@@ -63,7 +63,7 @@ export const Tokens: Story = {
   render: () => (
     <WorkflowSurface>
       <div className="mx-auto w-full max-w-[1360px] space-y-10">
-        <WorkflowHeader primary="Right Path Design Tokens" secondary="the shared visual foundation" />
+        <WorkflowPageHeader title="Right Path Design Tokens" secondary="the shared visual foundation" />
 
         <section className="space-y-4">
           <ContextLabel>Brand accent (muted teal)</ContextLabel>
@@ -74,7 +74,7 @@ export const Tokens: Story = {
             <Swatch cls="bg-brand-wash" name="Brand wash" token="--brand-wash / bg-brand-wash" note="Hover/selected wash. teal-50." />
             <Swatch cls="bg-brand-ring" name="Brand ring" token="--brand-ring / border-brand-ring" note="Hover border/ring. teal-300." />
             <Swatch cls="bg-brand-icon" name="Brand icon" token="--brand-icon / text-brand-icon" note="Icon on subtle fill. teal-700." />
-            <Swatch cls="bg-ink-heading" name="Heading ink" token="--text-heading / text-ink-heading" note="Dark bold teal page heading (WorkflowHeader)." />
+            <Swatch cls="bg-ink-heading" name="Heading ink" token="--text-heading / text-ink-heading" note="Dark bold teal page heading (WorkflowPageHeader)." />
           </div>
         </section>
 

@@ -26,7 +26,7 @@ import { itemsInQueue, queueCounts } from './fixtures'
 import { AssistantBriefing } from './AssistantBriefing'
 import {
   WorkflowPage,
-  WorkflowHeader,
+  WorkflowPageHeader,
   QueueSection,
   QueueRow,
   QueueListHeader,
@@ -64,7 +64,7 @@ export function QueueBoard({
 
   return (
     <WorkflowPage>
-      <WorkflowHeader primary="1035 Workflow" secondary={<>Today{'\u2019'}s work</>} />
+      <WorkflowPageHeader title="1035 Workflow" secondary={<>Today{'\u2019'}s work</>} />
 
       <div className="grid grid-cols-1 gap-8 lg:grid-cols-[2fr_3fr]">
         {/* LEFT: Assistant */}
