@@ -18,7 +18,7 @@ import {
   Upload, Download, Loader2, SkipForward, StickyNote, ArrowLeft,
 } from 'lucide-react'
 import {
-  WorkflowPage, WorkflowPageHeader,
+  WorkflowPage, WorkflowPageHeader, WorkflowBackLink,
   QueueSection, QueueRow, QueueListHeader, CustomerQueueCard, QueueEmptyState,
   TaskShell, SlimTaskHeader, ContextHeader, type ContextField,
   ActionPanel, PrimaryAction, WorkflowButton, NextNote, OperationalTag,
@@ -818,11 +818,13 @@ export function StewardshipClient({
         <WorkflowPageHeader
           title={`Stewardship — ${project.name}`}
           secondary="Capture outreach scoped to this project's population. Queues and lists below show only this project's work."
+          back={<WorkflowBackLink href="/my-work">Back to My Work</WorkflowBackLink>}
         />
       ) : (
         <WorkflowPageHeader
           title="Stewardship"
           secondary="Capture outreach — confirm servicing access on each customer's policies."
+          back={<WorkflowBackLink href="/my-work">Back to My Work</WorkflowBackLink>}
         />
       )}
     >
