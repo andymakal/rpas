@@ -17,14 +17,14 @@ export default async function InternalLayout({
   if (!user) redirect('/login')
 
   // Shared internal shell: navy sidebar + a scrolling page body. The light-theme
-  // workflow chrome (the persistent Mentoring header and its provider) is NOT
-  // applied here — it is opted into per route by Bob's light-theme pages via
-  // WorkflowChrome, so Andy's existing dark screens keep their original layout.
+  // workflow chrome (the MentoringProvider) is NOT applied here — it is opted
+  // into per route by Bob's light-theme pages via WorkflowChrome, so Andy's
+  // existing dark screens keep their original layout.
   //
-  // SidebarCollapseProvider holds the one collapse state shared by Bob's header
-  // button and the sidebar. It is behavior-neutral for Andy: his routes render
-  // no collapse control, and the sidebar only honors the collapsed state on
-  // Bob's workflow routes, so the default-expanded sidebar is unchanged there.
+  // SidebarCollapseProvider still holds the shared collapse state. The old
+  // header collapse button was removed, so no control currently flips it and
+  // the sidebar stays expanded; the provider is kept because the sidebar still
+  // reads the state and it remains behavior-neutral for Andy's routes.
   return (
     <SidebarCollapseProvider>
       <div style={{ position: 'fixed', inset: 0, display: 'flex', flexDirection: 'row', overflow: 'hidden' }}>

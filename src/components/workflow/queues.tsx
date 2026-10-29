@@ -12,6 +12,7 @@
 import type { ComponentType, ReactNode } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { MentorToggle } from '@/lib/mentoring/MentorUi'
 
 type IconType = ComponentType<{ className?: string }>
 
@@ -124,14 +125,19 @@ export function QueueListHeader({
           {'\u2190'} {backLabel}
         </button>
       )}
-      <div className="flex items-center gap-3">
-        <span className="flex size-12 items-center justify-center rounded-xl bg-brand-subtle text-brand-icon">
-          <Icon className="size-6" />
-        </span>
-        <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">{label}</h1>
-        <span className="inline-flex min-w-9 items-center justify-center rounded-full bg-brand-subtle px-4 py-1 text-xl font-bold tabular-nums text-brand-subtle-foreground">
-          {count}
-        </span>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="flex size-12 items-center justify-center rounded-xl bg-brand-subtle text-brand-icon">
+            <Icon className="size-6" />
+          </span>
+          <h1 className="text-2xl font-semibold tracking-tight text-ink sm:text-3xl">{label}</h1>
+          <span className="inline-flex min-w-9 items-center justify-center rounded-full bg-brand-subtle px-4 py-1 text-xl font-bold tabular-nums text-brand-subtle-foreground">
+            {count}
+          </span>
+        </div>
+        {/* The shared top header was removed; the Mentoring toggle now sits on
+            the right of the page title, including an opened queue list's title. */}
+        <MentorToggle variant="pill" />
       </div>
       <p className="max-w-3xl text-xl leading-relaxed text-ink-supporting">{blurb}</p>
     </div>
