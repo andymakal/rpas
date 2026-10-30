@@ -7,6 +7,7 @@ import {
   Loader2, ChevronRight, X, Table, SkipForward,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { sourceDobToOwnerMask, sourceDobToInsuredColumns } from '@/lib/stewardship/dob'
 
 // ── Shared types ──────────────────────────────────────────────────────────────
 
@@ -87,54 +88,11 @@ function parseIsoDate(v: unknown): string | null {
 // invent a component and never store garbage. Day components in the source are
 // deliberately dropped here (the owner mask is day-less by design); the INSURED
 // path (parseDobPrecision) is where a full date is retained.
+// The OWNER display mask (owner_dob_approx). Day-less by design (PHI); month and
+// year precision are preserved via the shared source interpretation. Null when
+// no reliable 4-digit year is present (never a malformed mask).
 function parseDob(v: unknown): string | null {
-  if (v == null) return null
-
-  // A real date cell: keep month + year, drop the day (owner mask is day-less).
-  if (v instanceof Date && !isNaN(v.getTime())) {
-    const mm   = String(v.getMonth() + 1).padStart(2, '0')
-    const yyyy = v.getFullYear()
-    return `${mm}/xx/${yyyy}`
-  }
-
-  const s = String(v).trim()
-  if (!s) return null
-
-  // Already a masked value: normalize the day token to 'xx' and keep whatever
-  // month precision it carries, provided a 4-digit year is present.
-  if (/xx/i.test(s)) {
-    const year = s.match(/(\d{4})\s*$/)?.[1]
-    if (!year) return null
-    const leadMonth = s.match(/^(\d{1,2})/)?.[1]
-    const m = leadMonth ? Number(leadMonth) : null
-    return m != null && m >= 1 && m <= 12 ? `${String(m).padStart(2, '0')}/xx/${year}` : `xx/xx/${year}`
-  }
-
-  // Full numeric date "M/D/YYYY": keep month + year, drop the day.
-  const full = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
-  if (full) {
-    const m = Number(full[1])
-    return m >= 1 && m <= 12 ? `${String(m).padStart(2, '0')}/xx/${full[3]}` : `xx/xx/${full[3]}`
-  }
-
-  // Bare 4-digit year: preserve it as a year-only mask rather than storing the
-  // raw string (which would violate the masked shape).
-  const bareYear = s.match(/^(\d{4})$/)?.[1]
-  if (bareYear) return `xx/xx/${bareYear}`
-
-  // "MM/YYYY" (month + year, no day) -> month_year mask.
-  const monthYear = s.match(/^(\d{1,2})\/(\d{4})$/)
-  if (monthYear) {
-    const m = Number(monthYear[1])
-    return m >= 1 && m <= 12 ? `${String(m).padStart(2, '0')}/xx/${monthYear[2]}` : `xx/xx/${monthYear[2]}`
-  }
-
-  // Anything with a trailing 4-digit year we can still anchor on the year.
-  const anyYear = s.match(/(\d{4})\s*$/)?.[1]
-  if (anyYear) return `xx/xx/${anyYear}`
-
-  // No reliable year: store nothing rather than a malformed mask.
-  return null
+  return sourceDobToOwnerMask(v)
 }
 
 function str(v: unknown): string | null {
@@ -152,68 +110,21 @@ function parseState(v: unknown): string | null {
   return /^[A-Z]{2}$/.test(up) ? up : null
 }
 
-/**
- * Derive insured DOB precision parts from a source birth value WITHOUT inventing
- * a day or month we were not given. The DB stores DOB by precision (see
- * 20261008000001): 'exact' carries a full date + year + month; 'month_year'
- * carries year + month; 'year_only' carries year; 'missing' carries nothing.
- *   - a real Date or an M/D/Y string  -> exact
- *   - a masked 'MM/xx/YYYY'            -> month_year
- *   - a masked 'xx/xx/YYYY' / bare year-> year_only
- *   - anything else                    -> missing
- */
+// Derive the INSURED DOB-by-precision columns from a source birth value,
+// preserving the FULL precision actually known — an exact source keeps its DAY,
+// a month+year source keeps its month, a year-only source keeps its year, and
+// nothing usable is 'missing'. This is the shared source interpretation, so an
+// ISO date, an "M/D/YYYY" string, an Excel Date cell, and an "MM/YYYY" value
+// are all handled consistently and no known component is dropped. Used when the
+// policy OWNER is the insured, so the owner's exact day is retained here even
+// though the owner display mask (parseDob) is deliberately day-less.
 function parseDobPrecision(v: unknown): {
   insured_dob: string | null
   insured_dob_year: number | null
   insured_dob_month: number | null
   insured_dob_precision: 'exact' | 'month_year' | 'year_only' | 'missing'
 } {
-  const none = { insured_dob: null, insured_dob_year: null, insured_dob_month: null, insured_dob_precision: 'missing' as const }
-  if (v == null) return none
-
-  // Full date from a real Excel date cell → exact precision.
-  if (v instanceof Date && !isNaN(v.getTime())) {
-    const y = v.getFullYear()
-    const m = v.getMonth() + 1
-    const d = v.getDate()
-    return {
-      insured_dob: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
-      insured_dob_year: y,
-      insured_dob_month: m,
-      insured_dob_precision: 'exact',
-    }
-  }
-
-  const s = String(v).trim()
-  if (!s) return none
-
-  // Full numeric date "M/D/YYYY" → exact.
-  const full = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
-  if (full) {
-    const m = Number(full[1]), d = Number(full[2]), y = Number(full[3])
-    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
-      return {
-        insured_dob: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
-        insured_dob_year: y,
-        insured_dob_month: m,
-        insured_dob_precision: 'exact',
-      }
-    }
-  }
-
-  // Masked "MM/xx/YYYY" (month + year, no day) → month_year.
-  const year = s.match(/(\d{4})\s*$/)?.[1]
-  if (!year) return none
-  const y = Number(year)
-  const leadMonth = s.match(/^(\d{1,2})/)?.[1]
-  if (leadMonth && /xx/i.test(s)) {
-    const m = Number(leadMonth)
-    if (m >= 1 && m <= 12) {
-      return { insured_dob: null, insured_dob_year: y, insured_dob_month: m, insured_dob_precision: 'month_year' }
-    }
-  }
-  // Only a year is reliably known.
-  return { insured_dob: null, insured_dob_year: y, insured_dob_month: null, insured_dob_precision: 'year_only' }
+  return sourceDobToInsuredColumns(v)
 }
 
 function col(row: Record<string, unknown>, ...keys: string[]): unknown {

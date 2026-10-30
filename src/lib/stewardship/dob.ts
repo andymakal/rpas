@@ -448,3 +448,189 @@ export function dobSourceToParts(parts: DobSourceParts): DobParts {
     year: parts.year == null ? '' : String(parts.year),
   }
 }
+
+// ---------------------------------------------------------------------------
+// Interpreting a raw IMPORT source value (spreadsheet cell / string / Date)
+// ---------------------------------------------------------------------------
+
+/** A DOB interpreted from a raw import source, at the precision actually
+ * present. `day` is non-null ONLY for an `exact` full date; `month` is non-null
+ * for `exact` or `month-year`. No component is ever invented, and a genuinely
+ * known component is never dropped. */
+export interface SourceDob {
+  precision: DobPrecision
+  year: number | null
+  month: number | null
+  day: number | null
+}
+
+const NONE_SOURCE_DOB: SourceDob = { precision: 'none', year: null, month: null, day: null }
+
+/** Is (y, m, d) a real calendar date? Rejects 02/30, 04/31, etc. */
+function isRealDate(y: number, m: number, d: number): boolean {
+  if (m < 1 || m > 12 || d < 1 || d > 31) return false
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d
+}
+
+/**
+ * Interpret a raw date-of-birth value from an IMPORT source — a spreadsheet
+ * cell (which may arrive as a JS `Date`), or a string in any of the formats
+ * legacy books actually use — into its true precision WITHOUT inventing or
+ * discarding a genuinely known component. This is the single shared entry point
+ * every import path uses so a year-only, month+year, or exact source is each
+ * preserved at exactly the precision it carries.
+ *
+ * Recognized, in order (first match wins):
+ *   - a real JS Date                         -> exact (year + month + day)
+ *   - ISO "YYYY-MM-DD" (optionally with time) -> exact
+ *   - "M/D/YYYY" or "M-D-YYYY"                 -> exact
+ *   - masked "MM/xx/YYYY" / "xx/xx/YYYY"       -> month-year / year-only (no day)
+ *   - "MM/YYYY" or "YYYY-MM"                   -> month-year
+ *   - a bare 4-digit year "YYYY"               -> year-only
+ *   - a value we can only anchor to a trailing 4-digit year -> year-only
+ *   - anything with no reliable year           -> none
+ *
+ * A day is honored only as part of a complete, valid calendar date; an
+ * impossible date (02/30) degrades to its month+year rather than being dropped
+ * entirely or stored as a fake day. A two-digit "year" is not guessed into a
+ * century — only a full 4-digit year is trusted.
+ */
+export function interpretSourceDob(raw: unknown): SourceDob {
+  if (raw == null) return NONE_SOURCE_DOB
+
+  // A real spreadsheet Date cell -> exact.
+  if (raw instanceof Date) {
+    if (isNaN(raw.getTime())) return NONE_SOURCE_DOB
+    return { precision: 'exact', year: raw.getFullYear(), month: raw.getMonth() + 1, day: raw.getDate() }
+  }
+
+  const s = String(raw).trim()
+  if (!s) return NONE_SOURCE_DOB
+
+  const masked = /xx/i.test(s)
+
+  // Non-masked, LEADING-year ISO forms (handled before the trailing-year anchor
+  // below, since "YYYY-MM" has no trailing 4-digit run).
+  if (!masked) {
+    // ISO "YYYY-MM-DD" (optionally "...THH:MM...").
+    const iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[T ].*)?$/)
+    if (iso) {
+      const y = +iso[1], m = +iso[2], d = +iso[3]
+      if (isRealDate(y, m, d)) return { precision: 'exact', year: y, month: m, day: d }
+      if (m >= 1 && m <= 12) return { precision: 'month-year', year: y, month: m, day: null }
+      return { precision: 'year-only', year: y, month: null, day: null }
+    }
+    // ISO "YYYY-MM" (month precision, no day).
+    const ym = s.match(/^(\d{4})-(\d{1,2})$/)
+    if (ym) {
+      const m = +ym[2]
+      if (m >= 1 && m <= 12) return { precision: 'month-year', year: +ym[1], month: m, day: null }
+      return { precision: 'year-only', year: +ym[1], month: null, day: null }
+    }
+    // "M/D/YYYY" or "M-D-YYYY".
+    const mdy = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/)
+    if (mdy) {
+      const m = +mdy[1], d = +mdy[2], y = +mdy[3]
+      if (isRealDate(y, m, d)) return { precision: 'exact', year: y, month: m, day: d }
+      if (m >= 1 && m <= 12) return { precision: 'month-year', year: y, month: m, day: null }
+      return { precision: 'year-only', year: y, month: null, day: null }
+    }
+  }
+
+  // Trailing 4-digit year anchors everything below. No year -> nothing usable.
+  const year = s.match(/(\d{4})\s*$/)?.[1]
+  if (!year) return NONE_SOURCE_DOB
+  const y = +year
+
+  // Masked "MM/xx/YYYY" (month+year) or "xx/xx/YYYY" (year only).
+  if (masked) {
+    const leadMonth = s.match(/^(\d{1,2})/)?.[1]
+    const m = leadMonth != null ? Number(leadMonth) : null
+    if (m != null && m >= 1 && m <= 12) return { precision: 'month-year', year: y, month: m, day: null }
+    return { precision: 'year-only', year: y, month: null, day: null }
+  }
+
+  // "MM/YYYY" (month + year, no day).
+  const my = s.match(/^(\d{1,2})[/-](\d{4})$/)
+  if (my) {
+    const m = +my[1]
+    if (m >= 1 && m <= 12) return { precision: 'month-year', year: y, month: m, day: null }
+    return { precision: 'year-only', year: y, month: null, day: null }
+  }
+
+  // Bare 4-digit year, or any value we can only anchor to a trailing year.
+  return { precision: 'year-only', year: y, month: null, day: null }
+}
+
+/**
+ * The masked owner-DOB string (`service_policies.owner_dob_approx` convention)
+ * for a raw import source. The owner mask is DAY-LESS by design (PHI): an exact
+ * source keeps its month as "MM/xx/YYYY"; a year-only source is "xx/xx/YYYY".
+ * Returns null when no reliable 4-digit year is present (never a malformed
+ * mask). Preserves month/year precision; only the day is intentionally dropped.
+ */
+export function sourceDobToOwnerMask(raw: unknown): string | null {
+  const s = interpretSourceDob(raw)
+  if (s.year == null) return null
+  const yyyy = String(s.year).padStart(4, '0')
+  const mm = s.month == null ? 'xx' : String(s.month).padStart(2, '0')
+  return `${mm}/xx/${yyyy}`
+}
+
+/**
+ * The service_policies insured DOB-by-precision columns for a raw import
+ * source, preserving the FULL precision (an exact source keeps its day). Shapes
+ * match the service_policies_insured_dob_shape_check constraint exactly. Used
+ * when the policy owner IS the insured so the owner's real precision — day and
+ * all — is retained on the insured record.
+ */
+export function sourceDobToInsuredColumns(raw: unknown): {
+  insured_dob: string | null
+  insured_dob_year: number | null
+  insured_dob_month: number | null
+  insured_dob_precision: 'exact' | 'month_year' | 'year_only' | 'missing'
+} {
+  const s = interpretSourceDob(raw)
+  switch (s.precision) {
+    case 'exact':
+      return {
+        insured_dob: `${String(s.year).padStart(4, '0')}-${String(s.month).padStart(2, '0')}-${String(s.day).padStart(2, '0')}`,
+        insured_dob_year: s.year,
+        insured_dob_month: s.month,
+        insured_dob_precision: 'exact',
+      }
+    case 'month-year':
+      return { insured_dob: null, insured_dob_year: s.year, insured_dob_month: s.month, insured_dob_precision: 'month_year' }
+    case 'year-only':
+      return { insured_dob: null, insured_dob_year: s.year, insured_dob_month: null, insured_dob_precision: 'year_only' }
+    default:
+      return { insured_dob: null, insured_dob_year: null, insured_dob_month: null, insured_dob_precision: 'missing' }
+  }
+}
+
+/**
+ * Route a raw import source DOB to the two CUSTOMER storage columns, preserving
+ * precision: an exact full date -> `date_of_birth` (ISO, day included); a
+ * partial (month+year or year-only) -> `date_of_birth_approx` (masked, day-less,
+ * matching the customers_date_of_birth_approx_shape constraint); nothing usable
+ * -> both null. The day is only ever written on the exact column.
+ */
+export function sourceDobToCustomerColumns(raw: unknown): {
+  date_of_birth: string | null
+  date_of_birth_approx: string | null
+} {
+  const s = interpretSourceDob(raw)
+  if (s.precision === 'exact') {
+    return {
+      date_of_birth: `${String(s.year).padStart(4, '0')}-${String(s.month).padStart(2, '0')}-${String(s.day).padStart(2, '0')}`,
+      date_of_birth_approx: null,
+    }
+  }
+  if (s.precision === 'month-year' || s.precision === 'year-only') {
+    const yyyy = String(s.year).padStart(4, '0')
+    const mm = s.month == null ? 'xx' : String(s.month).padStart(2, '0')
+    return { date_of_birth: null, date_of_birth_approx: `${mm}/xx/${yyyy}` }
+  }
+  return { date_of_birth: null, date_of_birth_approx: null }
+}
