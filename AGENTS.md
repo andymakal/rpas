@@ -27,10 +27,23 @@ reviews, and a read-only agency portal.
 
 ### Sensitive customer data
 
-- Date of birth is stored as a `date` but must always be displayed masked as
-  `MM/xx/YYYY`. The day is never shown. Helpers already do this (for example in
-  `customers/[id]/CustomerCardClient.tsx`); reuse them and never render a full
-  DOB.
+- Date of birth. An exact DOB is stored in `customers.date_of_birth` (`date`); a
+  partial DOB is stored in `customers.date_of_birth_approx` (masked
+  `MM/xx/YYYY` / `xx/xx/YYYY`, day never stored). The DEFAULT display rule still
+  holds everywhere: DOB is masked `MM/xx/YYYY`, the day is never shown (helpers
+  like the one in `customers/[id]/CustomerCardClient.tsx` do this; reuse them).
+  THE ONE DELIBERATE EXCEPTION: the shared Customer Contact Card
+  (`src/components/workflow/CustomerContactCard.tsx`) displays the COMPLETE DOB
+  when known — `MM/DD/YYYY` for an exact date, and only the known parts
+  (`MM/YYYY` or `YYYY`) when partial, never inventing a missing part — via
+  `formatDobDisplay` in `src/lib/stewardship/dob.ts`. This operator-facing card
+  is the agreed place a worker sees and corrects the full date. Everywhere else
+  keeps masking, and the full DOB (its day) stays OUT of routine customer
+  history: a DOB change is recorded as a precision-appropriate fact
+  (added / corrected / cleared, with "a full date" / "month and year" /
+  "year only"), never the value. A known exact DOB is never silently downgraded
+  to partial information (`wouldDowngradeExactDob` guards the card and the save
+  route).
 - SSN is highly sensitive PII. The Fact Finder (`FactFinderSection.tsx`) does
   capture SSN for the customer and beneficiaries, so treat it as stored-securely
   data: never log it, never surface it in search results, lists, exports, or the

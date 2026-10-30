@@ -37,7 +37,7 @@
 
 import { ZenEngine } from '@gorules/zen-engine'
 import contactHistoryFactsModel from '@/rules/contact-history-facts.json'
-import { maskApproxDobForHistory } from './dob'
+import { dobChanged, readStoredDob } from './dob'
 import type { ContactSnapshot } from './customer-history'
 
 // ---------------------------------------------------------------------------
@@ -80,7 +80,12 @@ export interface ContactChangeFactInput {
   hasValue: boolean
 }
 
-/** The ZEN verdict for one change: its employee-facing kind and verb. */
+/** The ZEN verdict for one change: its employee-facing kind plus the AGREED
+ * WORDING templates (the summary label and the description sentence). The
+ * templates carry the phrasing — they live in the ZEN rule, not in TypeScript —
+ * with two placeholders the TS layer substitutes: {field} (the field label) and
+ * {detail} (an optional trailing detail: the alert text, or the resulting
+ * email-availability state). */
 export interface ContactChangeKind {
   changeKind:
     | 'added'
@@ -94,7 +99,11 @@ export interface ContactChangeKind {
     | 'alert_added'
     | 'alert_updated'
     | 'alert_cleared'
-  verb: string
+  /** The summary-label template from ZEN, e.g. "{field} added". */
+  label: string
+  /** The description-sentence template from ZEN, e.g. "{field} added." or
+   * "Alert added: {detail}". */
+  template: string
 }
 
 /** One employee-facing history fact: the field it concerns, the classified
@@ -126,7 +135,8 @@ export async function classifyContactChange(
   const response = await zen.evaluate('contact-history-facts.json', input)
   return {
     changeKind: response.result.changeKind as ContactChangeKind['changeKind'],
-    verb: response.result.verb as string,
+    label: response.result.label as string,
+    template: response.result.template as string,
   }
 }
 
@@ -165,68 +175,26 @@ interface PendingChange {
   order: number
   field: string
   input: ContactChangeFactInput
-  /** Optional trailing text appended to an alert description ("...: <text>"). */
-  alertText?: string | null
+  /** Optional trailing detail substituted into the ZEN template's {detail}
+   * placeholder: the alert text for an alert, or the resulting
+   * email-availability state in plain words. */
+  detail?: string | null
 }
 
 /**
- * Compose the one concise, employee-facing description for a classified change.
- * No prior/new values appear (that is the technical audit note's job); the one
- * exception is the customer alert, whose actual text IS the employee-facing
- * fact the operator needs to see ("Alert added: <text>"). Email availability
- * names the resulting state in plain words, not an internal code.
+ * Substitute the two placeholders into a ZEN-provided wording template. The
+ * agreed phrasing lives in the template (from contact-history-facts.json); this
+ * only fills in {field} (the field label) and {detail} (the trailing detail the
+ * caller supplies — the alert text, or the resulting email-availability state).
+ * A template with no {detail} ignores the detail. Any residual placeholder and
+ * resulting double spaces are trimmed so a missing optional detail never leaves
+ * a dangling "{detail}" or stray punctuation.
  */
-function describeFact(
-  field: string,
-  kind: ContactChangeKind['changeKind'],
-  alertText?: string | null,
-  availabilityLabel?: string | null,
-): string {
-  switch (kind) {
-    case 'added':
-      return `${field} added.`
-    case 'corrected':
-      return `${field} corrected.`
-    case 'cleared':
-      return `${field} cleared.`
-    case 'verified':
-      return `${field} verified.`
-    case 'verification_cleared':
-      return `${field} verification cleared.`
-    case 'restriction_set':
-      return `${field} set.`
-    case 'restriction_cleared':
-      return `${field} cleared.`
-    case 'availability_changed':
-      return `Email availability changed to ${availabilityLabel ?? 'unknown'}.`
-    case 'alert_added':
-      return `Alert added: ${alertText ?? ''}`.trimEnd()
-    case 'alert_updated':
-      return `Alert updated: ${alertText ?? ''}`.trimEnd()
-    case 'alert_cleared':
-      return 'Alert cleared.'
-    default:
-      return `${field} changed.`
-  }
-}
-
-/** A short combined-summary label for a classified change. */
-function labelFor(field: string, kind: ContactChangeKind['changeKind']): string {
-  const lower = field.toLowerCase()
-  switch (kind) {
-    case 'added': return `${lower} added`
-    case 'corrected': return `${lower} corrected`
-    case 'cleared': return `${lower} cleared`
-    case 'verified': return `${lower} verified`
-    case 'verification_cleared': return `${lower} verification cleared`
-    case 'restriction_set': return `${lower} set`
-    case 'restriction_cleared': return `${lower} cleared`
-    case 'availability_changed': return 'email availability changed'
-    case 'alert_added': return 'alert added'
-    case 'alert_updated': return 'alert updated'
-    case 'alert_cleared': return 'alert cleared'
-    default: return lower
-  }
+function renderTemplate(template: string, field: string, detail?: string | null): string {
+  const out = template
+    .replaceAll('{field}', field)
+    .replaceAll('{detail}', (detail ?? '').trim())
+  return out.replace(/\s+/g, ' ').replace(/\s+([.,])/g, '$1').trim()
 }
 
 /**
@@ -258,15 +226,22 @@ export async function buildContactHistoryFacts(
     })
   }
 
-  // Date of birth — compared MASKED (no day). Exact and partial are mutually
-  // exclusive in storage, so the masked form is the DOB's stable identity.
-  const beforeDob = maskApproxDobForHistory(before.date_of_birth, before.date_of_birth_approx)
-  const afterDob = maskApproxDobForHistory(after.date_of_birth, after.date_of_birth_approx)
-  if (beforeDob !== afterDob) {
+  // Date of birth — detected on the TRUE stored values (not a day-masked form),
+  // so an actual correction INCLUDING a day-only change produces a fact. The
+  // fact never carries the day: the ZEN "value" templates read "Date of birth
+  // added / corrected / cleared." with no value.
+  if (dobChanged(
+    before.date_of_birth, before.date_of_birth_approx,
+    after.date_of_birth, after.date_of_birth_approx,
+  )) {
     pending.push({
       order: 0.5,
       field: 'Date of birth',
-      input: { changeType: 'value', hadValue: beforeDob !== '(none)', hasValue: afterDob !== '(none)' },
+      input: {
+        changeType: 'value',
+        hadValue: readStoredDob(before.date_of_birth, before.date_of_birth_approx).precision !== 'none',
+        hasValue: readStoredDob(after.date_of_birth, after.date_of_birth_approx).precision !== 'none',
+      },
     })
   }
 
@@ -289,7 +264,7 @@ export async function buildContactHistoryFacts(
         order: 2,
         field: 'Email availability',
         input: { changeType: 'availability_changed', hadValue: true, hasValue: true },
-        alertText: after.email_availability ? EMAIL_AVAILABILITY_PROSE[after.email_availability] : 'unknown',
+        detail: after.email_availability ? EMAIL_AVAILABILITY_PROSE[after.email_availability] : 'unknown',
       })
     }
   }
@@ -366,23 +341,28 @@ export async function buildContactHistoryFacts(
       order: 10,
       field: 'Alert',
       input: { changeType: 'alert', hadValue: !!trimOrNull(before.contact_alert), hasValue: !!trimOrNull(after.contact_alert) },
-      alertText: trimOrNull(after.contact_alert),
+      detail: trimOrNull(after.contact_alert),
     })
   }
 
   if (pending.length === 0) return []
 
-  // Classify each change via the ZEN decision, then compose the prose here.
+  // Classify each change via the ZEN decision (which also OWNS the wording), then
+  // substitute {field} and {detail} into the ZEN-provided templates here. The
+  // phrasing is not decided in TypeScript.
   const facts = await Promise.all(
     pending.map(async (p): Promise<ContactHistoryFact> => {
       const kind = await classifyContactChange(p.input)
-      const availabilityLabel = p.input.changeType === 'availability_changed' ? p.alertText : undefined
+      // Labels read lowercased for the combined summary, matching the prior
+      // convention; the description keeps the template's own casing.
+      const label = renderTemplate(kind.label, p.field.toLowerCase(), p.detail)
+      const description = renderTemplate(kind.template, p.field, p.detail)
       return {
         order: p.order,
         field: p.field,
         changeKind: kind.changeKind,
-        label: labelFor(p.field, kind.changeKind),
-        description: describeFact(p.field, kind.changeKind, p.alertText, availabilityLabel),
+        label,
+        description,
       }
     }),
   )

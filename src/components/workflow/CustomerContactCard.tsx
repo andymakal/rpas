@@ -87,7 +87,7 @@ import {
   type ContactSnapshot,
   type NextHistoryEntryPreview,
 } from '@/lib/stewardship/customer-history'
-import { normalizeDobParts, dobToParts, maskDobDisplay } from '@/lib/stewardship/dob'
+import { normalizeDobParts, dobToParts, formatDobDisplay, wouldDowngradeExactDob } from '@/lib/stewardship/dob'
 
 // ── Data shape ───────────────────────────────────────────────────────────────
 
@@ -912,7 +912,7 @@ function SelfContainedContactCard({
           expanded={false}
           age={record.age ?? null}
           ageApproximate={record.age_approximate === true}
-          dob={maskDobDisplay(record.date_of_birth, record.date_of_birth_approx)}
+          dob={formatDobDisplay(record.date_of_birth, record.date_of_birth_approx)}
           onSaved={handleChange}
         />
       }
@@ -1283,6 +1283,13 @@ function UnifiedContactEditor({
   // The live normalization of the DOB drafts, for the inline validity message
   // and to block Save on an invalid changed DOB.
   const dobResult = normalizeDobParts({ month: dobMonth, day: dobDay, year: dobYear })
+  // A known EXACT DOB must never be silently downgraded to partial info: if the
+  // record holds a full date and the draft would store a partial one, Save is
+  // blocked with an explicit message rather than quietly dropping the day.
+  const dobWouldDowngrade = wouldDowngradeExactDob(
+    { date_of_birth: record.date_of_birth ?? null, date_of_birth_approx: record.date_of_birth_approx ?? null },
+    dobResult,
+  )
 
   // The number that WILL be on file after Save, so the texting controls and the
   // address verifiability reflect the pending state, not the stored one.
@@ -1312,14 +1319,21 @@ function UnifiedContactEditor({
     // contributes no change here (Save is blocked separately on it). Normalized
     // locally from the drafts so this callback's deps fully cover it.
     const dobNorm = normalizeDobParts({ month: dobMonth, day: dobDay, year: dobYear })
-    const nextDob = dobNorm.status === 'invalid'
+    // A downgrade (exact -> partial) is never applied: keep the stored value and
+    // emit no DOB change, so the preview and payload don't reflect a loss the
+    // Save guard rejects.
+    const dobDowngrade = wouldDowngradeExactDob(
+      { date_of_birth: record.date_of_birth ?? null, date_of_birth_approx: record.date_of_birth_approx ?? null },
+      dobNorm,
+    )
+    const nextDob = (dobNorm.status === 'invalid' || dobDowngrade)
       ? { date_of_birth: record.date_of_birth ?? null, date_of_birth_approx: record.date_of_birth_approx ?? null }
       : { date_of_birth: dobNorm.date_of_birth, date_of_birth_approx: dobNorm.date_of_birth_approx }
-    const dobChanged =
-      dobNorm.status !== 'invalid' &&
+    const dobDidChange =
+      dobNorm.status !== 'invalid' && !dobDowngrade &&
       ((nextDob.date_of_birth ?? null) !== (record.date_of_birth ?? null) ||
         (nextDob.date_of_birth_approx ?? null) !== (record.date_of_birth_approx ?? null))
-    if (dobChanged) {
+    if (dobDidChange) {
       payload.dob_month = dobMonth
       payload.dob_day = dobDay
       payload.dob_year = dobYear
@@ -1469,8 +1483,10 @@ function UnifiedContactEditor({
     const nf = normalizeNameInput(first)
     const nl = normalizeNameInput(last)
     if (nf.status === 'empty' && nl.status === 'empty') { return }
-    // Block Save on an invalid DOB (same rules the route enforces).
+    // Block Save on an invalid DOB, or on a downgrade of a known exact DOB to
+    // partial info (same guards the route enforces).
     if (dobResult.status === 'invalid') { return }
+    if (dobWouldDowngrade) { return }
     onSave(buildChange().payload)
   }
 
@@ -1523,7 +1539,8 @@ function UnifiedContactEditor({
 
         {/* Date of birth — separate month / day / year; leave unknown parts
             blank. A year with a blank day is kept as a partial DOB; a full
-            month+day+year is kept exact. The day is never shown once saved. */}
+            month+day+year is kept exact. A known exact DOB cannot be downgraded
+            to partial info. */}
         <div className="py-3">
           <p className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
             <Pencil className="size-4" aria-hidden /> Date of birth
@@ -1551,7 +1568,12 @@ function UnifiedContactEditor({
           {dobResult.status === 'invalid' && (
             <p className="mt-1.5 text-base text-status-missing-strong">{dobResult.reason}</p>
           )}
-          <p className="mt-1.5 text-sm text-ink-muted">Leave the day (or month) blank if unknown. The day is never displayed.</p>
+          {dobResult.status !== 'invalid' && dobWouldDowngrade && (
+            <p className="mt-1.5 text-base text-status-missing-strong">
+              A full date of birth is already on file. Enter the complete date to correct it, or leave it unchanged — it can&rsquo;t be replaced with a partial date.
+            </p>
+          )}
+          <p className="mt-1.5 text-sm text-ink-muted">Leave the day (or month) blank if only part of the date is known.</p>
         </div>
 
         {/* Email + availability + verification */}
@@ -1981,9 +2003,11 @@ export function CustomerNameHeading({
   /** True when `age` came from the masked policy fallback rather than an exact
    * date_of_birth, so it is labeled approximate ("~N (approx.)"). */
   ageApproximate?: boolean
-  /** The customer's date of birth, ALREADY MASKED ("MM/xx/YYYY" / "xx/xx/YYYY")
-   * by the caller. Shown beneath the name alongside age. Null omits it. The day
-   * is never part of this value. */
+  /** The customer's date of birth, ALREADY FORMATTED for display by the caller
+   * ("MM/DD/YYYY" when the exact date is known, "MM/YYYY" or "YYYY" when only
+   * those parts are known). Shown beneath the name alongside age. Null omits it.
+   * This is the shared card's scoped exception to the DOB-masking rule (it shows
+   * the day when known); see AGENTS.md and src/lib/stewardship/dob.ts. */
   dob?: string | null
   /** Inject persistence. Omit to PATCH /api/customers/[id]/contact. Must resolve
    * with the full updated record. */

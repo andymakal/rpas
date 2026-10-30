@@ -1,6 +1,6 @@
 -- =============================================================================
 -- Customer DOB — preserve a PARTIAL date of birth without inventing a day
--- Migration: 20261106000001_customers_date_of_birth_approx.sql
+-- Migration: 20261030154658_customers_date_of_birth_approx.sql
 --
 -- The Customer Contact Card now lets an operator enter a date of birth by
 -- separate month / day / year, leaving unknown parts blank. The exact-date

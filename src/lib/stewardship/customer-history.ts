@@ -33,7 +33,7 @@ import {
   type OutreachChannel,
   type ChannelOutcome,
 } from './outreach-attempts'
-import { maskDobDisplay } from './dob'
+import { dobChanged, readStoredDob, dobPrecisionLabel } from './dob'
 
 /** The direction of a recorded communication, for presentations that title an
  * event by who initiated it. Derived from the stored note (the inbound marker
@@ -1300,22 +1300,25 @@ function diffContact(before: ContactSnapshot, after: ContactSnapshot): ContactCh
   )
   verifyField(9, 'Address', before.address_verified_at, after.address_verified_at, addrChanged)
 
-  // Date of birth — compared at MASKED precision so the day is never part of
-  // the audit sentence. An exact and a partial DOB are mutually exclusive in
-  // storage, so the masked form ("MM/xx/YYYY" / "xx/xx/YYYY") is the stable
-  // identity of the DOB on file; a change in that masked form is the change we
-  // record. Ordered just after the name (identity data), before contact fields.
-  const beforeDob = maskDobDisplay(before.date_of_birth, before.date_of_birth_approx)
-  const afterDob = maskDobDisplay(after.date_of_birth, after.date_of_birth_approx)
-  if ((beforeDob ?? null) !== (afterDob ?? null)) {
-    const had = !!beforeDob
-    const has = !!afterDob
+  // Date of birth — detected on the TRUE stored values (exact date + partial
+  // string), NOT a day-masked form, so an actual correction INCLUDING a
+  // day-only change is recorded. Routine history never prints the day: the
+  // audit sentence states that the DOB was added/corrected/cleared and names
+  // the PRECISION ("a full date", "month and year", "year only"), never the
+  // value. Ordered just after the name (identity data), before contact fields.
+  if (dobChanged(
+    before.date_of_birth, before.date_of_birth_approx,
+    after.date_of_birth, after.date_of_birth_approx,
+  )) {
+    const had = readStoredDob(before.date_of_birth, before.date_of_birth_approx).precision !== 'none'
+    const has = readStoredDob(after.date_of_birth, after.date_of_birth_approx).precision !== 'none'
+    const afterPrecision = dobPrecisionLabel(after.date_of_birth, after.date_of_birth_approx)
     changes.push({
       order: 0.5,
       label: !had && has ? 'date of birth added' : !has ? 'date of birth cleared' : 'date of birth corrected',
       sentence: !has
         ? 'Date of birth was cleared.'
-        : `Date of birth ${had ? 'changed' : 'added'} ${had ? `from ${beforeDob} to ${afterDob}` : afterDob}.`,
+        : `Date of birth ${had ? 'corrected' : 'added'} (${afterPrecision}).`,
     })
   }
 

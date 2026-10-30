@@ -1,21 +1,20 @@
 /**
- * Contact history facts + DOB normalization (Right Path).
+ * Contact history facts + DOB normalization, display, and change detection
+ * (Right Path).
  *
  * Runs on the Node built-in test runner (node:test) via jiti, exercising the
- * REAL GoRules ZEN rule (contact-history-facts.json) and the REAL DOB
- * normalizer — no copy of the logic. Run with: npm run test:dd
+ * REAL GoRules ZEN rule (contact-history-facts.json) and the REAL DOB helpers —
+ * no copy of the logic. Run with: npm run test:dd
  *
- * Locks in:
- *   1. DOB normalization preserves precision without inventing a day: all-blank
- *      clears; a full valid calendar date is exact; a year (+ optional month)
- *      with a blank day is partial and masked; a day without a month, a lone
- *      day, a missing year, an out-of-range part, or an impossible date is
- *      invalid and never stored.
- *   2. Masked display never exposes the day and an exact DOB wins over a partial.
- *   3. The ZEN classifier maps a change SHAPE to the employee-facing change kind.
- *   4. buildContactHistoryFacts composes concise employee-facing descriptions
- *      (added / corrected / cleared / verified / alert text / DOB masked) and
- *      preserves the project's suppression rules.
+ * Locks in the corrected behavior:
+ *   1. DOB normalization preserves precision without inventing a day.
+ *   2. Display shows the COMPLETE DOB when known (MM/DD/YYYY), only the known
+ *      parts when partial (MM/YYYY / YYYY), nothing when absent.
+ *   3. Change detection compares the TRUE stored values, so a day-only
+ *      correction is detected; a known exact DOB is never downgraded to partial.
+ *   4. History prose never prints the day (precision-appropriate wording).
+ *   5. The ZEN rule OWNS the employee-facing wording (label + description
+ *      templates); the TS layer only substitutes {field} and {detail}.
  */
 
 import test from 'node:test'
@@ -23,8 +22,12 @@ import assert from 'node:assert/strict'
 
 import {
   normalizeDobParts,
-  maskDobDisplay,
+  formatDobDisplay,
+  dobPrecisionLabel,
+  dobChanged,
+  wouldDowngradeExactDob,
   dobToParts,
+  readStoredDob,
 } from './dob'
 import {
   classifyContactChange,
@@ -83,18 +86,15 @@ test('DOB: year only is partial masked xx/xx/YYYY', () => {
 })
 
 test('DOB: a day without a month is invalid (no day invented)', () => {
-  const r = normalizeDobParts({ month: '', day: '15', year: '1980' })
-  assert.equal(r.status, 'invalid')
+  assert.equal(normalizeDobParts({ month: '', day: '15', year: '1980' }).status, 'invalid')
 })
 
 test('DOB: a year is required (lone month is invalid)', () => {
-  const r = normalizeDobParts({ month: '3', day: '', year: '' })
-  assert.equal(r.status, 'invalid')
+  assert.equal(normalizeDobParts({ month: '3', day: '', year: '' }).status, 'invalid')
 })
 
 test('DOB: an impossible calendar date is invalid', () => {
-  const r = normalizeDobParts({ month: '2', day: '30', year: '1980' })
-  assert.equal(r.status, 'invalid')
+  assert.equal(normalizeDobParts({ month: '2', day: '30', year: '1980' }).status, 'invalid')
 })
 
 test('DOB: out-of-range month/year is invalid', () => {
@@ -102,54 +102,102 @@ test('DOB: out-of-range month/year is invalid', () => {
   assert.equal(normalizeDobParts({ month: '', day: '', year: '1800' }).status, 'invalid')
 })
 
-// ── Masking + round-trip ────────────────────────────────────────────────────
+// ── Display: complete when known, known parts when partial ──────────────────
 
-test('mask: exact DOB shows month + year, never the day', () => {
-  assert.equal(maskDobDisplay('1980-03-15', null), '03/xx/1980')
+test('display: an exact DOB shows the COMPLETE date MM/DD/YYYY', () => {
+  assert.equal(formatDobDisplay('1980-03-15', null), '03/15/1980')
 })
 
-test('mask: exact wins over a partial (never downgraded)', () => {
-  assert.equal(maskDobDisplay('1980-03-15', 'xx/xx/1999'), '03/xx/1980')
+test('display: exact wins over a stale partial (never downgraded in view)', () => {
+  assert.equal(formatDobDisplay('1980-03-15', 'xx/xx/1999'), '03/15/1980')
 })
 
-test('mask: partial renders at its own precision', () => {
-  assert.equal(maskDobDisplay(null, '03/xx/1980'), '03/xx/1980')
-  assert.equal(maskDobDisplay(null, 'xx/xx/1980'), 'xx/xx/1980')
+test('display: a month+year partial shows MM/YYYY; year-only shows YYYY', () => {
+  assert.equal(formatDobDisplay(null, '03/xx/1980'), '03/1980')
+  assert.equal(formatDobDisplay(null, 'xx/xx/1980'), '1980')
 })
 
-test('mask: no DOB returns null', () => {
-  assert.equal(maskDobDisplay(null, null), null)
+test('display: no DOB returns null', () => {
+  assert.equal(formatDobDisplay(null, null), null)
+})
+
+test('readStoredDob: exact exposes the day; partial never invents one', () => {
+  assert.deepEqual(readStoredDob('1980-03-15', null), { precision: 'exact', year: 1980, month: 3, day: 15 })
+  assert.deepEqual(readStoredDob(null, '03/xx/1980'), { precision: 'month-year', year: 1980, month: 3, day: null })
+  assert.deepEqual(readStoredDob(null, 'xx/xx/1980'), { precision: 'year-only', year: 1980, month: null, day: null })
 })
 
 test('dobToParts: a partial DOB yields a BLANK day', () => {
   assert.deepEqual(dobToParts(null, '03/xx/1980'), { month: '3', day: '', year: '1980' })
 })
 
-// ── ZEN classification ──────────────────────────────────────────────────────
+// ── Change detection on TRUE values ─────────────────────────────────────────
 
-test('ZEN classifies a value present-only-after as "added"', async () => {
-  const k = await classifyContactChange({ changeType: 'value', hadValue: false, hasValue: true })
-  assert.equal(k.changeKind, 'added')
+test('dobChanged: a DAY-ONLY correction to an exact date is detected', () => {
+  assert.equal(dobChanged('1980-03-15', null, '1980-03-16', null), true)
 })
 
-test('ZEN classifies a value present-before-and-after as "corrected"', async () => {
-  const k = await classifyContactChange({ changeType: 'value', hadValue: true, hasValue: true })
-  assert.equal(k.changeKind, 'corrected')
+test('dobChanged: an identical exact date is NOT a change', () => {
+  assert.equal(dobChanged('1980-03-15', null, '1980-03-15', null), false)
 })
 
-test('ZEN classifies a value gone-after as "cleared"', async () => {
-  const k = await classifyContactChange({ changeType: 'value', hadValue: true, hasValue: false })
-  assert.equal(k.changeKind, 'cleared')
+test('dobChanged: exact -> partial of the same month/year still differs (precision)', () => {
+  assert.equal(dobChanged('1980-03-15', null, null, '03/xx/1980'), true)
 })
 
-test('ZEN classifies verification + restriction + alert kinds', async () => {
-  assert.equal((await classifyContactChange({ changeType: 'verified', hadValue: false, hasValue: true })).changeKind, 'verified')
-  assert.equal((await classifyContactChange({ changeType: 'restriction_set', hadValue: false, hasValue: true })).changeKind, 'restriction_set')
-  assert.equal((await classifyContactChange({ changeType: 'alert', hadValue: false, hasValue: true })).changeKind, 'alert_added')
-  assert.equal((await classifyContactChange({ changeType: 'alert', hadValue: true, hasValue: true })).changeKind, 'alert_updated')
+test('no-downgrade: a partial entry over an existing EXACT date is a downgrade', () => {
+  const prior = { date_of_birth: '1980-03-15', date_of_birth_approx: null }
+  assert.equal(wouldDowngradeExactDob(prior, normalizeDobParts({ month: '3', day: '', year: '1980' })), true)
 })
 
-// ── Employee-facing facts ───────────────────────────────────────────────────
+test('no-downgrade: correcting an exact date to another exact date is NOT a downgrade', () => {
+  const prior = { date_of_birth: '1980-03-15', date_of_birth_approx: null }
+  assert.equal(wouldDowngradeExactDob(prior, normalizeDobParts({ month: '3', day: '16', year: '1980' })), false)
+})
+
+test('no-downgrade: clearing an exact date entirely is NOT a downgrade', () => {
+  const prior = { date_of_birth: '1980-03-15', date_of_birth_approx: null }
+  assert.equal(wouldDowngradeExactDob(prior, normalizeDobParts({ month: '', day: '', year: '' })), false)
+})
+
+test('no-downgrade: a partial over an existing PARTIAL is not a downgrade', () => {
+  const prior = { date_of_birth: null, date_of_birth_approx: 'xx/xx/1980' }
+  assert.equal(wouldDowngradeExactDob(prior, normalizeDobParts({ month: '3', day: '', year: '1980' })), false)
+})
+
+test('history precision label never contains a day', () => {
+  assert.equal(dobPrecisionLabel('1980-03-15', null), 'a full date')
+  assert.equal(dobPrecisionLabel(null, '03/xx/1980'), 'month and year')
+  assert.equal(dobPrecisionLabel(null, 'xx/xx/1980'), 'year only')
+  assert.equal(dobPrecisionLabel(null, null), 'not on file')
+})
+
+// ── ZEN owns the wording (label + description templates) ─────────────────────
+
+test('ZEN returns the agreed wording templates, not just a classification', async () => {
+  const added = await classifyContactChange({ changeType: 'value', hadValue: false, hasValue: true })
+  assert.equal(added.changeKind, 'added')
+  assert.equal(added.template, '{field} added.')
+  assert.equal(added.label, '{field} added')
+
+  const corrected = await classifyContactChange({ changeType: 'value', hadValue: true, hasValue: true })
+  assert.equal(corrected.changeKind, 'corrected')
+  assert.equal(corrected.template, '{field} corrected.')
+
+  const cleared = await classifyContactChange({ changeType: 'value', hadValue: true, hasValue: false })
+  assert.equal(cleared.changeKind, 'cleared')
+  assert.equal(cleared.template, '{field} cleared.')
+})
+
+test('ZEN templates for verification, restriction, availability, and alert', async () => {
+  assert.equal((await classifyContactChange({ changeType: 'verified', hadValue: false, hasValue: true })).template, '{field} verified.')
+  assert.equal((await classifyContactChange({ changeType: 'restriction_set', hadValue: false, hasValue: true })).template, '{field} set.')
+  assert.equal((await classifyContactChange({ changeType: 'availability_changed', hadValue: true, hasValue: true })).template, 'Email availability changed to {detail}.')
+  assert.equal((await classifyContactChange({ changeType: 'alert', hadValue: false, hasValue: true })).template, 'Alert added: {detail}')
+  assert.equal((await classifyContactChange({ changeType: 'alert', hadValue: true, hasValue: true })).template, 'Alert updated: {detail}')
+})
+
+// ── Employee-facing facts (wording rendered from the ZEN templates) ─────────
 
 test('facts: email added yields "Email added."', async () => {
   const facts = await buildContactHistoryFacts(EMPTY, { ...EMPTY, email: 'jo@example.com' })
@@ -176,15 +224,29 @@ test('facts: address verification yields "Address verified."', async () => {
   assert.equal(facts[0].description, 'Address verified.')
 })
 
-test('facts: DOB added is described masked, never with a day', async () => {
+test('facts: email availability change names the resulting state in plain words', async () => {
+  const facts = await buildContactHistoryFacts(EMPTY, { ...EMPTY, email_availability: 'no_address' })
+  assert.equal(facts[0].description, 'Email availability changed to No Usable Email.')
+})
+
+test('facts: DOB added is described WITHOUT a day', async () => {
   const facts = await buildContactHistoryFacts(EMPTY, { ...EMPTY, date_of_birth: '1980-03-15' })
   assert.equal(facts[0].field, 'Date of birth')
   assert.equal(facts[0].description, 'Date of birth added.')
+  // The day must not leak into the fact.
+  assert.ok(!facts[0].description.includes('15'))
+})
+
+test('facts: a DAY-ONLY DOB correction still produces a "corrected" fact, no day', async () => {
+  const before = { ...EMPTY, date_of_birth: '1980-03-15' }
+  const after = { ...EMPTY, date_of_birth: '1980-03-16' }
+  const facts = await buildContactHistoryFacts(before, after)
+  assert.equal(facts.length, 1)
+  assert.equal(facts[0].description, 'Date of birth corrected.')
+  assert.ok(!facts[0].description.includes('16'))
 })
 
 test('facts: editing a value suppresses its automatic verification clear', async () => {
-  // A verified email that is then changed: the value change is reported, but the
-  // automatic verification clear is NOT a separate fact.
   const before = { ...EMPTY, email: 'a@example.com', email_verified_at: '2026-01-01T00:00:00Z' }
   const after = { ...EMPTY, email: 'b@example.com', email_verified_at: null }
   const facts = await buildContactHistoryFacts(before, after)

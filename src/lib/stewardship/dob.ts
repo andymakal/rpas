@@ -1,10 +1,10 @@
 /**
- * Date-of-birth input, storage, and masked display — the one place Right Path
- * normalizes a customer DOB entered as SEPARATE month / day / year parts,
- * preserving whatever precision the operator actually knows without inventing
- * anything, and renders it masked so the DAY is never exposed.
+ * Date-of-birth input, storage, display, and change detection — the one place
+ * Right Path normalizes a customer DOB entered as SEPARATE month / day / year
+ * parts, preserving whatever precision the operator actually knows without
+ * inventing anything.
  *
- * Storage model (see migration 20261106000001):
+ * Storage model (see migration 20261030154658_customers_date_of_birth_approx):
  *   - An EXACT DOB (all three parts known) is stored in customers.date_of_birth
  *     as a real `date` (YYYY-MM-DD).
  *   - A PARTIAL DOB (year known, month optional, day blank/unknown) is stored in
@@ -12,15 +12,20 @@
  *     parses: "MM/xx/YYYY" (month + year) or "xx/xx/YYYY" (year only). The day is
  *     ALWAYS "xx" there — no day is ever stored in the approx column.
  *
- * Rules honored here:
- *   - Unknown parts are left blank; a missing day never becomes a real day.
- *   - A partial date is preserved at its true precision, never upgraded by
- *     guessing and never silently discarded.
- *   - A known EXACT DOB is never downgraded to a less precise value: an exact
- *     entry always targets date_of_birth and clears the approx column, while a
- *     partial entry targets the approx column and clears the exact one.
- *   - Display and history NEVER show the day: both exact and partial DOBs render
- *     masked as "MM/xx/YYYY" / "xx/xx/YYYY" / "xx/xx/YYYY".
+ * Display rules (the shared Customer Contact Card — a deliberate, scoped
+ * exception to the general DOB-masking rule, see AGENTS.md):
+ *   - Show the COMPLETE DOB when known: "MM/DD/YYYY".
+ *   - Show only the KNOWN parts when incomplete: "MM/YYYY" (month + year) or
+ *     "YYYY" (year only). Missing parts are never invented or shown.
+ *   - Routine customer HISTORY never exposes the day: a DOB correction is
+ *     recorded as a precision-appropriate fact that does not print the day.
+ *
+ * Change-detection rule: DOB changes are compared on the TRUE stored values
+ * (the exact date plus the partial string), NOT on a day-masked form, so an
+ * actual correction — INCLUDING a day-only correction — is detected and
+ * recorded. A known EXACT DOB is never silently downgraded by entering partial
+ * information; that guard lives where the prior value is known (the route and
+ * the card), using `wouldDowngradeExactDob` below.
  */
 
 /** The DOB as three independent, possibly-blank input parts. Each part is the
@@ -158,43 +163,150 @@ export function normalizeDobParts(parts: DobParts): DobNormalizeResult {
   return { status: 'partial', date_of_birth: null, date_of_birth_approx: masked }
 }
 
+// ---------------------------------------------------------------------------
+// Parsing a stored DOB back to parts
+// ---------------------------------------------------------------------------
+
+/** The precision a stored DOB is held at. */
+export type DobPrecision = 'exact' | 'month-year' | 'year-only' | 'none'
+
+/** The parsed year/month/day of a stored DOB, with its precision. Missing
+ * components are null — never invented. */
+export interface StoredDob {
+  precision: DobPrecision
+  year: number | null
+  month: number | null
+  day: number | null
+}
+
+const ISO_RE = /^(\d{4})-(\d{2})-(\d{2})$/
+const APPROX_RE = /^(\d{1,2}|xx)\/\w{1,2}\/(\d{4})$/
+
 /**
- * The masked display of a stored DOB — "MM/xx/YYYY" (month + year known) or
- * "xx/xx/YYYY" (year only). The day is never shown. Pass the exact
- * date_of_birth (YYYY-MM-DD) and/or the partial date_of_birth_approx; the exact
- * value wins when present. Returns null when no DOB is on file.
+ * Resolve the stored DOB to its true components and precision. The EXACT column
+ * wins when present (so a known exact DOB is never represented at lower
+ * precision than it is held). A partial approx yields month+year or year-only.
+ * No component is ever fabricated.
  */
-export function maskDobDisplay(
+export function readStoredDob(
+  exact: string | null | undefined,
+  approx: string | null | undefined,
+): StoredDob {
+  if (exact) {
+    const iso = exact.includes('T') ? exact.slice(0, 10) : exact
+    const m = ISO_RE.exec(iso)
+    if (m) {
+      return { precision: 'exact', year: +m[1], month: +m[2], day: +m[3] }
+    }
+  }
+  if (approx) {
+    const a = APPROX_RE.exec(approx.trim())
+    if (a) {
+      const month = a[1] === 'xx' ? null : parseInt(a[1], 10)
+      return {
+        precision: month == null ? 'year-only' : 'month-year',
+        year: +a[2],
+        month,
+        day: null,
+      }
+    }
+  }
+  return { precision: 'none', year: null, month: null, day: null }
+}
+
+// ---------------------------------------------------------------------------
+// Display
+// ---------------------------------------------------------------------------
+
+/**
+ * The COMPLETE DOB for display on the shared Customer Contact Card: "MM/DD/YYYY"
+ * when the exact date is known, "MM/YYYY" when only month + year are known,
+ * "YYYY" when only the year is known, null when no DOB is on file. Missing parts
+ * are never invented. This deliberately shows the day for a known exact DOB (a
+ * scoped exception to the general masking rule — see AGENTS.md); it is NOT used
+ * for routine history.
+ */
+export function formatDobDisplay(
   exact: string | null | undefined,
   approx: string | null | undefined,
 ): string | null {
-  if (exact) {
-    const iso = exact.includes('T') ? exact.slice(0, 10) : exact
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
-    if (m) return `${m[2]}/xx/${m[1]}`
+  const s = readStoredDob(exact, approx)
+  const yyyy = s.year == null ? null : String(s.year).padStart(4, '0')
+  const mm = s.month == null ? null : String(s.month).padStart(2, '0')
+  const dd = s.day == null ? null : String(s.day).padStart(2, '0')
+  switch (s.precision) {
+    case 'exact':
+      return `${mm}/${dd}/${yyyy}`
+    case 'month-year':
+      return `${mm}/${yyyy}`
+    case 'year-only':
+      return yyyy
+    default:
+      return null
   }
-  if (approx) {
-    // Already masked; normalize a numeric month to two digits and force the day
-    // token to "xx" defensively so a day can never leak through display.
-    const a = /^(\d{1,2}|xx)\/\w{1,2}\/(\d{4})$/.exec(approx.trim())
-    if (a) {
-      const month = a[1] === 'xx' ? 'xx' : a[1].padStart(2, '0')
-      return `${month}/xx/${a[2]}`
-    }
-  }
-  return null
 }
 
 /**
- * The masked DOB string used in HISTORY prose, or "(none)" when there is no DOB
- * — so a prior -> new audit sentence reads clearly even when one side is blank.
- * Never contains a day.
+ * A precision label for a stored DOB, used in ROUTINE HISTORY prose so a
+ * correction can be recorded WITHOUT printing the day. Exact -> "a full date";
+ * month+year -> "month and year"; year-only -> "year only"; none -> "not on
+ * file". Never contains any DOB component.
  */
-export function maskApproxDobForHistory(
+export function dobPrecisionLabel(
   exact: string | null | undefined,
   approx: string | null | undefined,
 ): string {
-  return maskDobDisplay(exact, approx) ?? '(none)'
+  switch (readStoredDob(exact, approx).precision) {
+    case 'exact':
+      return 'a full date'
+    case 'month-year':
+      return 'month and year'
+    case 'year-only':
+      return 'year only'
+    default:
+      return 'not on file'
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Change detection (true values, not a masked form)
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether two stored DOBs differ, compared on their TRUE components (so a
+ * day-only correction to an exact date counts as a change). Each side is the
+ * (exact, approx) pair as stored.
+ */
+export function dobChanged(
+  beforeExact: string | null | undefined,
+  beforeApprox: string | null | undefined,
+  afterExact: string | null | undefined,
+  afterApprox: string | null | undefined,
+): boolean {
+  const a = readStoredDob(beforeExact, beforeApprox)
+  const b = readStoredDob(afterExact, afterApprox)
+  return (
+    a.precision !== b.precision ||
+    a.year !== b.year ||
+    a.month !== b.month ||
+    a.day !== b.day
+  )
+}
+
+/**
+ * Whether applying `next` on top of `prior` would DOWNGRADE a known exact DOB to
+ * less precise information — i.e. the record currently holds an exact date and
+ * the new entry is a (different) partial date. Replacing an exact DOB with
+ * another exact DOB is a correction, not a downgrade; clearing the DOB entirely
+ * is an explicit clear, not a downgrade; adding precision is never a downgrade.
+ * The caller rejects a downgrade so an exact birth date is never silently lost.
+ */
+export function wouldDowngradeExactDob(
+  prior: Pick<DobNormalizeResult, 'date_of_birth' | 'date_of_birth_approx'>,
+  next: DobNormalizeResult,
+): boolean {
+  const hadExact = !!prior.date_of_birth
+  return hadExact && next.status === 'partial'
 }
 
 /**
@@ -207,16 +319,10 @@ export function dobToParts(
   exact: string | null | undefined,
   approx: string | null | undefined,
 ): DobParts {
-  if (exact) {
-    const iso = exact.includes('T') ? exact.slice(0, 10) : exact
-    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
-    if (m) return { month: String(parseInt(m[2], 10)), day: String(parseInt(m[3], 10)), year: m[1] }
+  const s = readStoredDob(exact, approx)
+  return {
+    month: s.month == null ? '' : String(s.month),
+    day: s.day == null ? '' : String(s.day),
+    year: s.year == null ? '' : String(s.year),
   }
-  if (approx) {
-    const a = /^(\d{1,2}|xx)\/\w{1,2}\/(\d{4})$/.exec(approx.trim())
-    if (a) {
-      return { month: a[1] === 'xx' ? '' : String(parseInt(a[1], 10)), day: '', year: a[2] }
-    }
-  }
-  return { month: '', day: '', year: '' }
 }

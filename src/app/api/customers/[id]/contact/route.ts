@@ -17,7 +17,7 @@ import {
   buildContactUpdateHistoryNote,
   type ContactSnapshot,
 } from '@/lib/stewardship/customer-history'
-import { normalizeDobParts, type DobParts } from '@/lib/stewardship/dob'
+import { normalizeDobParts, wouldDowngradeExactDob, type DobParts } from '@/lib/stewardship/dob'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
@@ -467,6 +467,18 @@ export async function PATCH(
       const dob = normalizeDobParts(parts)
       if (dob.status === 'invalid') {
         return Response.json({ error: dob.reason }, { status: 400 })
+      }
+      // Never silently downgrade a known EXACT DOB to partial info: reject a
+      // partial entry when the record already holds a full date. Correcting an
+      // exact DOB (to another exact date) or clearing it entirely is allowed.
+      if (wouldDowngradeExactDob(
+        { date_of_birth: before.date_of_birth ?? null, date_of_birth_approx: before.date_of_birth_approx ?? null },
+        dob,
+      )) {
+        return Response.json(
+          { error: 'A full date of birth is already on file and cannot be replaced with a partial date. Enter the complete date, or clear it.' },
+          { status: 400 },
+        )
       }
       if ((dob.date_of_birth ?? null) !== (before.date_of_birth ?? null)) {
         patch.date_of_birth = dob.date_of_birth
