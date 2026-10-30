@@ -152,6 +152,26 @@ export interface CustomerContact {
   /** The customer's PARTIAL date of birth (masked 'MM/xx/YYYY' / 'xx/xx/YYYY',
    * no day) when the exact date is not fully known, else null. Optional. */
   date_of_birth_approx?: string | null
+  /** The best-available-precision DOB resolved for display ("MM/DD/YYYY" /
+   * "MM/YYYY" / "YYYY"), drawn from the exact date, the customer's own partial
+   * DOB, or the reliable owner-DOB consensus across the customer's LINKED
+   * POLICIES (never the policy insured). Null when nothing usable is on file.
+   * Supplied by /api/customers/[id]/contact. The card's scoped full-DOB
+   * exception; prefer this over formatting the stored columns directly so a
+   * linked-policy partial DOB is also shown. */
+  dob_display?: string | null
+  /** Where `dob_display` came from: 'exact'/'customer_partial' stored on the
+   * customer, 'linked_policy' derived from the customer's policies, 'none'. */
+  dob_source?: 'exact' | 'customer_partial' | 'linked_policy' | 'none'
+  /** True when `dob_display` is NOT a confirmed exact date on the customer (a
+   * partial, or derived from linked policies), so it is labeled not-yet-
+   * confirmed — mirroring the approximate-age treatment. */
+  dob_approximate?: boolean
+  /** The resolved DOB parts for seeding the editor (a partial/linked source has
+   * a blank day). Numbers, or null when unknown. */
+  dob_month?: number | null
+  dob_day?: number | null
+  dob_year?: number | null
 }
 
 type ContactFieldKey = 'email' | 'phone' | 'address'
@@ -858,6 +878,12 @@ function SelfContainedContactCard({
       ...updated,
       age: updated.age ?? prev?.age ?? null,
       age_approximate: updated.age_approximate ?? prev?.age_approximate ?? false,
+      // The resolved DOB display travels with every PATCH response now (so a
+      // just-saved or just-promoted DOB shows at its true precision); keep the
+      // prior resolution if a response ever omits it.
+      dob_display: updated.dob_display ?? prev?.dob_display ?? null,
+      dob_source: updated.dob_source ?? prev?.dob_source,
+      dob_approximate: updated.dob_approximate ?? prev?.dob_approximate ?? false,
     }))
     onChange?.(updated)
   }, [onChange])
@@ -912,7 +938,12 @@ function SelfContainedContactCard({
           expanded={false}
           age={record.age ?? null}
           ageApproximate={record.age_approximate === true}
-          dob={formatDobDisplay(record.date_of_birth, record.date_of_birth_approx)}
+          // Prefer the resolved best-available DOB (which includes a reliable
+          // partial DOB consensus from the customer's LINKED POLICIES) over the
+          // DOB stored directly on the row, falling back to the stored columns
+          // if the resolver did not run. The card's scoped full-DOB exception.
+          dob={record.dob_display ?? formatDobDisplay(record.date_of_birth, record.date_of_birth_approx)}
+          dobApproximate={record.dob_approximate === true}
           onSaved={handleChange}
         />
       }
@@ -1276,7 +1307,19 @@ function UnifiedContactEditor({
   // partial DOB. A partial DOB yields a BLANK day (the day was never stored, so
   // it stays unknown). Edited freely; the route re-normalizes with the same
   // rules on save.
-  const seededDob = dobToParts(record.date_of_birth, record.date_of_birth_approx)
+  // Seed from the RESOLVED best-available DOB when present (which may be a
+  // reliable month/year consensus from the customer's linked policies), so the
+  // operator confirms and saves that onto the customer rather than starting
+  // blank; otherwise seed from the DOB stored directly on the row. A partial or
+  // linked source carries a blank day — the day was never known, so it stays
+  // unknown and the downgrade guard still protects any stored exact date.
+  const seededDob = record.dob_year != null
+    ? {
+        month: record.dob_month == null ? '' : String(record.dob_month),
+        day: record.dob_day == null ? '' : String(record.dob_day),
+        year: String(record.dob_year),
+      }
+    : dobToParts(record.date_of_birth, record.date_of_birth_approx)
   const [dobMonth, setDobMonth] = useState(seededDob.month)
   const [dobDay, setDobDay] = useState(seededDob.day)
   const [dobYear, setDobYear] = useState(seededDob.year)
@@ -1981,6 +2024,7 @@ export function CustomerNameHeading({
   age = null,
   ageApproximate = false,
   dob = null,
+  dobApproximate = false,
   onPersist,
   onSaved,
 }: {
@@ -2009,6 +2053,11 @@ export function CustomerNameHeading({
    * This is the shared card's scoped exception to the DOB-masking rule (it shows
    * the day when known); see AGENTS.md and src/lib/stewardship/dob.ts. */
   dob?: string | null
+  /** True when `dob` is NOT a confirmed exact date stored on the customer (a
+   * partial, or one derived from the customer's linked policies), so it is
+   * labeled "(unconfirmed)" — the operator can open Edit to confirm and save it
+   * onto the customer. Mirrors the approximate-age treatment. */
+  dobApproximate?: boolean
   /** Inject persistence. Omit to PATCH /api/customers/[id]/contact. Must resolve
    * with the full updated record. */
   onPersist?: (customerId: string, payload: ContactPersistPayload) => Promise<CustomerContact>
@@ -2058,8 +2107,9 @@ export function CustomerNameHeading({
   const ageSubline = (dob || age != null) ? (
     <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-base font-medium text-ink-supporting">
       {dob && (
-        <span>
+        <span title={dobApproximate ? 'Partial or derived from linked records — open Edit to confirm' : undefined}>
           DOB <span className="font-mono text-ink-secondary">{dob}</span>
+          {dobApproximate && <span className="ml-1 text-ink-muted">(unconfirmed)</span>}
         </span>
       )}
       {dob && age != null && <span aria-hidden className="text-ink-muted">·</span>}

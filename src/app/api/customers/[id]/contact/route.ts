@@ -17,7 +17,16 @@ import {
   buildContactUpdateHistoryNote,
   type ContactSnapshot,
 } from '@/lib/stewardship/customer-history'
-import { normalizeDobParts, wouldDowngradeExactDob, type DobParts } from '@/lib/stewardship/dob'
+import {
+  normalizeDobParts,
+  wouldDowngradeExactDob,
+  formatDobParts,
+  formatDobDisplay,
+  dobPrecisionFromToken,
+  readStoredDob,
+  type DobParts,
+  type DobSourceParts,
+} from '@/lib/stewardship/dob'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
@@ -273,14 +282,102 @@ function addressUsable(street: string | null, city: string | null, state: string
  * always present and consistent.
  */
 async function respondWithContact(admin: AdminClient, row: CustomerContactRow) {
-  const [text_undeliverable, ageInfo] = await Promise.all([
+  const [text_undeliverable, ageInfo, dobInfo] = await Promise.all([
     isTextUndeliverableForCurrentNumber(admin, row.id, row.phone),
     // Re-derive the best-available-precision age on every write so the identity
     // header stays correct after a DOB edit (or any edit) — age only, never a
     // DOB/day. Matches the GET half so initial and post-write display agree.
     resolveCustomerAge(admin, row.id),
+    // Re-resolve the best-available-precision DOB for the card display on every
+    // write, so a just-saved DOB (or one promoted from a linked policy) shows at
+    // its true precision. Matches the GET half.
+    resolveCustomerDob(admin, row),
   ])
-  return Response.json({ data: { ...row, text_undeliverable, ...ageInfo } })
+  return Response.json({ data: { ...row, text_undeliverable, ...ageInfo, ...dobInfo } })
+}
+
+/** The resolved DOB the card displays, at its best available precision. */
+export interface DobDisplayInfo {
+  /** The DOB formatted for display ("MM/DD/YYYY" / "MM/YYYY" / "YYYY"), or null
+   * when nothing usable is on file. The card's scoped full-DOB exception. */
+  dob_display: string | null
+  /** Where the displayed DOB came from. 'exact'/'customer_partial' are stored on
+   * the customer; 'linked_policy' is the reliable owner-DOB consensus across the
+   * customer's policies (never the policy insured); 'none' = nothing to show. */
+  dob_source: DobSourceParts['source']
+  /** True when the displayed DOB is NOT a confirmed exact date stored on the
+   * customer (a partial, or one derived from linked policies), so the card can
+   * label it as not-yet-confirmed — mirroring the approximate-age treatment. */
+  dob_approximate: boolean
+  /** The resolved parts for seeding the editor. A partial/linked source carries
+   * a blank day; the operator confirms and saves it onto the customer. */
+  dob_month: number | null
+  dob_day: number | null
+  dob_year: number | null
+}
+
+/**
+ * Resolve the customer's best-available-precision DOB for the shared card's
+ * display, reusing the SQL resolver project_customer_dob_display: exact
+ * customers.date_of_birth (the only source with a day), else
+ * customers.date_of_birth_approx (month/year), else the reliable consensus of
+ * the customer's linked owner_dob_approx (single agreed year, month only if all
+ * agree; conflicting years => none). Owner source only — never the policy
+ * insured. No day is ever fabricated from a partial source.
+ *
+ * On any failure it falls back to the DOB stored directly on the row (exact
+ * date / partial approx), so the card still shows what is on the customer even
+ * if the linked-policy resolver is unavailable, never a wrong value.
+ */
+async function resolveCustomerDob(
+  admin: AdminClient,
+  row: CustomerContactRow,
+): Promise<DobDisplayInfo> {
+  try {
+    const { data } = await admin.rpc('project_customer_dob_display', { p_customer_id: row.id })
+    const r = (data ?? [])[0] as
+      | { dob_year: number | null; dob_month: number | null; dob_day: number | null; dob_precision: string; dob_source: string }
+      | undefined
+    if (r) {
+      const parts: DobSourceParts = {
+        year: r.dob_year,
+        month: r.dob_month,
+        day: r.dob_day,
+        precision: dobPrecisionFromToken(r.dob_precision),
+        source: (r.dob_source as DobSourceParts['source']) ?? 'none',
+      }
+      return {
+        dob_display: formatDobParts(parts),
+        dob_source: parts.source,
+        dob_approximate: parts.source === 'customer_partial' || parts.source === 'linked_policy',
+        dob_month: parts.month,
+        dob_day: parts.day,
+        dob_year: parts.year,
+      }
+    }
+  } catch (e) {
+    console.error('customer contact dob resolve error:', e)
+  }
+  // Fallback: what is stored directly on the customer row.
+  const fallback = readStoredDobFallback(row.date_of_birth, row.date_of_birth_approx)
+  return fallback
+}
+
+/** DOB display derived ONLY from the stored customer columns, used when the
+ * linked-policy resolver is unavailable. */
+function readStoredDobFallback(
+  exact: string | null,
+  approx: string | null,
+): DobDisplayInfo {
+  const s = readStoredDob(exact, approx)
+  return {
+    dob_display: formatDobDisplay(exact, approx),
+    dob_source: s.precision === 'exact' ? 'exact' : s.precision === 'none' ? 'none' : 'customer_partial',
+    dob_approximate: s.precision !== 'exact' && s.precision !== 'none',
+    dob_month: s.month,
+    dob_day: s.day,
+    dob_year: s.year,
+  }
 }
 
 /**
@@ -349,12 +446,7 @@ export async function GET(
     return Response.json({ error: 'Customer not found.' }, { status: 404 })
   }
 
-  const [text_undeliverable, ageInfo] = await Promise.all([
-    isTextUndeliverableForCurrentNumber(supabase, row.id, row.phone),
-    resolveCustomerAge(supabase, row.id),
-  ])
-
-  return Response.json({ data: { ...row, text_undeliverable, ...ageInfo } })
+  return respondWithContact(supabase, row)
 }
 
 export async function PATCH(

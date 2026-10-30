@@ -326,3 +326,125 @@ export function dobToParts(
     year: s.year == null ? '' : String(s.year),
   }
 }
+
+// ---------------------------------------------------------------------------
+// The one consistent interpretation: FHIR partial dates
+// ---------------------------------------------------------------------------
+//
+// Every date of birth in Right Path is understood at exactly one of four
+// precisions, which is the FHIR partial-date model:
+//
+//   exact       YYYY-MM-DD   all three parts known
+//   month-year  YYYY-MM      year + month known, day unknown
+//   year-only   YYYY         year known, month + day unknown
+//   none        —            no usable birth information
+//
+// `readStoredDob` already yields this shape from the two customer storage
+// columns; `DobSourceParts` lets a resolver (e.g. the SQL
+// project_customer_dob_display, which can also draw a reliable partial DOB from
+// a customer's linked policies) feed the SAME interpretation to the display and
+// precision helpers below. The STORAGE encoding is unchanged — this is the one
+// interpretation layered over whatever source produced the parts; no part is
+// ever invented.
+
+/** Resolved DOB parts from any source, carrying the FHIR precision and where it
+ * came from. A day is present ONLY at `exact` precision from a genuine full
+ * date; a partial source (the customer's own partial DOB or a linked-policy
+ * consensus) carries year (+ month) with a null day. */
+export interface DobSourceParts {
+  year: number | null
+  month: number | null
+  day: number | null
+  precision: DobPrecision
+  /** Where the displayed DOB came from. 'exact'/'customer_partial' live on the
+   * customer row; 'linked_policy' is the reliable owner-DOB consensus across the
+   * customer's policies (never the policy insured); 'none' = nothing to show. */
+  source: 'exact' | 'customer_partial' | 'linked_policy' | 'none'
+}
+
+/** Map the DB precision token (project_customer_dob_display: 'exact' |
+ * 'month_year' | 'year_only' | 'none') to the DobPrecision used here. Unknown
+ * tokens degrade to 'none' rather than guess. */
+export function dobPrecisionFromToken(token: string | null | undefined): DobPrecision {
+  switch (token) {
+    case 'exact':
+      return 'exact'
+    case 'month_year':
+      return 'month-year'
+    case 'year_only':
+      return 'year-only'
+    default:
+      return 'none'
+  }
+}
+
+/**
+ * Format resolved DOB parts for the shared Customer Contact Card, applying the
+ * SAME display rule as `formatDobDisplay`: "MM/DD/YYYY" (exact), "MM/YYYY"
+ * (month+year), "YYYY" (year-only), null (none). A day is shown only when the
+ * precision is exact AND a day is actually present, so a partial source can
+ * never print a day. Missing parts are never invented.
+ */
+export function formatDobParts(parts: DobSourceParts): string | null {
+  const yyyy = parts.year == null ? null : String(parts.year).padStart(4, '0')
+  const mm = parts.month == null ? null : String(parts.month).padStart(2, '0')
+  const dd = parts.day == null ? null : String(parts.day).padStart(2, '0')
+  switch (parts.precision) {
+    case 'exact':
+      return dd && mm && yyyy ? `${mm}/${dd}/${yyyy}` : mm && yyyy ? `${mm}/${yyyy}` : yyyy
+    case 'month-year':
+      return mm && yyyy ? `${mm}/${yyyy}` : yyyy
+    case 'year-only':
+      return yyyy
+    default:
+      return null
+  }
+}
+
+/**
+ * The canonical FHIR partial-date token for resolved DOB parts: "YYYY-MM-DD",
+ * "YYYY-MM", "YYYY", or null (none). This is the standardized machine form of a
+ * DOB at its known precision — year/month/day joined with hyphens, dropping the
+ * parts that are unknown. Never fabricates a missing part.
+ */
+export function toFhirDob(parts: DobSourceParts): string | null {
+  const yyyy = parts.year == null ? null : String(parts.year).padStart(4, '0')
+  const mm = parts.month == null ? null : String(parts.month).padStart(2, '0')
+  const dd = parts.day == null ? null : String(parts.day).padStart(2, '0')
+  switch (parts.precision) {
+    case 'exact':
+      return dd && mm && yyyy ? `${yyyy}-${mm}-${dd}` : mm && yyyy ? `${yyyy}-${mm}` : yyyy
+    case 'month-year':
+      return mm && yyyy ? `${yyyy}-${mm}` : yyyy
+    case 'year-only':
+      return yyyy
+    default:
+      return null
+  }
+}
+
+/** The FHIR partial-date token for a stored (exact, approx) customer DOB pair.
+ * Convenience over `readStoredDob` + `toFhirDob`. */
+export function storedDobToFhir(
+  exact: string | null | undefined,
+  approx: string | null | undefined,
+): string | null {
+  const s = readStoredDob(exact, approx)
+  return toFhirDob({ year: s.year, month: s.month, day: s.day, precision: s.precision, source: 'exact' })
+}
+
+/**
+ * Break resolved DOB parts into editable form parts (month/day/year strings),
+ * mirroring `dobToParts` but for a source that may be a linked-policy
+ * consensus. A partial source yields a BLANK day — the day was never known, so
+ * the operator starts from blank and the downgrade guard still protects any
+ * stored exact date. All-blank when there is nothing to seed.
+ */
+export function dobSourceToParts(parts: DobSourceParts): DobParts {
+  if (parts.precision === 'none') return { month: '', day: '', year: '' }
+  return {
+    month: parts.month == null ? '' : String(parts.month),
+    day: parts.day == null ? '' : String(parts.day),
+    year: parts.year == null ? '' : String(parts.year),
+  }
+}
