@@ -1,0 +1,146 @@
+{
+  "_comment": "Right Path — CONTACT HISTORY FACTS decision. Part of the established GoRules ZEN decision layer (same pattern as src/rules/next-best-action.json and src/rules/contact-options.json). This decision owns the CLASSIFICATION of a single customer-contact change into one readable, employee-facing CHANGE KIND and the verb phrase that names it. The TypeScript layer (src/lib/stewardship/contact-history-facts.ts) normalizes a before/after contact snapshot into one set of per-change facts, asks this decision what KIND each change is, and composes the concise employee-facing description (e.g. 'Email added', 'Phone corrected', 'Address verified', 'Alert added: <text>'). The actual prior/new VALUES (the technical audit detail) are owned by TypeScript and deliberately NOT fed to ZEN — ZEN classifies the shape of the change, never the sensitive values, so no email/phone/DOB value ever enters the rule engine. ZEN never queries the database. The decision is a single hit ('first' policy) over a normalized changeType plus two booleans describing the before/after presence of a value, which is sufficient to distinguish added / corrected / cleared for a value field and set / cleared for a flag. Verification, availability and alert carry their own explicit changeType rows. This centralizes the history vocabulary as DATA so the phrasing can evolve in one readable place rather than being scattered across hardcoded sentences.",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "inputNode",
+      "name": "Contact change fact",
+      "position": { "x": 0, "y": 150 },
+      "content": {}
+    },
+    {
+      "id": "contact-history-facts-table",
+      "type": "decisionTableNode",
+      "name": "History fact kind",
+      "position": { "x": 300, "y": 150 },
+      "content": {
+        "hitPolicy": "first",
+        "inputs": [
+          { "id": "i1", "name": "Change type", "field": "changeType" },
+          { "id": "i2", "name": "Had a value before", "field": "hadValue" },
+          { "id": "i3", "name": "Has a value after", "field": "hasValue" }
+        ],
+        "outputs": [
+          { "id": "o1", "name": "Change kind", "field": "changeKind" },
+          { "id": "o2", "name": "Verb phrase", "field": "verb" }
+        ],
+        "rules": [
+          {
+            "_id": "r_value_added",
+            "_description": "A value field that had nothing before and has a value now: the fact was ADDED.",
+            "i1": "\"value\"",
+            "i2": "false",
+            "i3": "true",
+            "o1": "\"added\"",
+            "o2": "\"added\""
+          },
+          {
+            "_id": "r_value_cleared",
+            "_description": "A value field that had a value and now has none: the fact was CLEARED (an empty value is a valid clear, never an error).",
+            "i1": "\"value\"",
+            "i2": "true",
+            "i3": "false",
+            "o1": "\"cleared\"",
+            "o2": "\"cleared\""
+          },
+          {
+            "_id": "r_value_corrected",
+            "_description": "A value field that had a value and still has one, but a DIFFERENT one (the TS layer only emits a 'value' fact when the normalized value actually changed): the fact was CORRECTED.",
+            "i1": "\"value\"",
+            "i2": "true",
+            "i3": "true",
+            "o1": "\"corrected\"",
+            "o2": "\"corrected\""
+          },
+          {
+            "_id": "r_verified",
+            "_description": "A field marked customer verified.",
+            "i1": "\"verified\"",
+            "i2": "",
+            "i3": "",
+            "o1": "\"verified\"",
+            "o2": "\"verified\""
+          },
+          {
+            "_id": "r_verification_cleared",
+            "_description": "A field's customer-verified confirmation cleared (a deliberate operator act, not the automatic clear that rides a value edit — the TS layer suppresses the automatic case before it reaches here).",
+            "i1": "\"verification_cleared\"",
+            "i2": "",
+            "i3": "",
+            "o1": "\"verification_cleared\"",
+            "o2": "\"verification cleared\""
+          },
+          {
+            "_id": "r_restriction_set",
+            "_description": "A contact restriction turned ON (Do Not Text, Text Undeliverable).",
+            "i1": "\"restriction_set\"",
+            "i2": "",
+            "i3": "",
+            "o1": "\"restriction_set\"",
+            "o2": "\"set\""
+          },
+          {
+            "_id": "r_restriction_cleared",
+            "_description": "A contact restriction turned OFF.",
+            "i1": "\"restriction_cleared\"",
+            "i2": "",
+            "i3": "",
+            "o1": "\"restriction_cleared\"",
+            "o2": "\"cleared\""
+          },
+          {
+            "_id": "r_availability_changed",
+            "_description": "The durable email-availability fact moved (e.g. to No Usable Email / Undeliverable / unknown), reported when it is not merely the automatic 'available' that rides a saved usable email (the TS layer suppresses that automatic case).",
+            "i1": "\"availability_changed\"",
+            "i2": "",
+            "i3": "",
+            "o1": "\"availability_changed\"",
+            "o2": "\"changed\""
+          },
+          {
+            "_id": "r_alert_added",
+            "_description": "A customer alert added where there was none.",
+            "i1": "\"alert\"",
+            "i2": "false",
+            "i3": "true",
+            "o1": "\"alert_added\"",
+            "o2": "\"added\""
+          },
+          {
+            "_id": "r_alert_cleared",
+            "_description": "A customer alert cleared.",
+            "i1": "\"alert\"",
+            "i2": "true",
+            "i3": "false",
+            "o1": "\"alert_cleared\"",
+            "o2": "\"cleared\""
+          },
+          {
+            "_id": "r_alert_updated",
+            "_description": "A customer alert changed from one text to another.",
+            "i1": "\"alert\"",
+            "i2": "true",
+            "i3": "true",
+            "o1": "\"alert_updated\"",
+            "o2": "\"updated\""
+          }
+        ],
+        "passThrough": false,
+        "inputField": null,
+        "outputPath": null,
+        "executionMode": "single"
+      }
+    },
+    {
+      "id": "output",
+      "type": "outputNode",
+      "name": "Response",
+      "position": { "x": 600, "y": 150 },
+      "content": {}
+    }
+  ],
+  "edges": [
+    { "id": "e1", "sourceId": "input", "targetId": "contact-history-facts-table", "sourceHandle": null, "type": "edge" },
+    { "id": "e2", "sourceId": "contact-history-facts-table", "targetId": "output", "sourceHandle": null, "type": "edge" }
+  ]
+}

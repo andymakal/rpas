@@ -33,6 +33,7 @@ import {
   type OutreachChannel,
   type ChannelOutcome,
 } from './outreach-attempts'
+import { maskDobDisplay } from './dob'
 
 /** The direction of a recorded communication, for presentations that title an
  * event by who initiated it. Derived from the stored note (the inbound marker
@@ -1108,6 +1109,12 @@ export interface ContactSnapshot {
   sms_opt_out: boolean
   text_undeliverable: boolean
   contact_alert: string | null
+  /** The customer's EXACT date of birth (YYYY-MM-DD) when all three parts are
+   * known, else null. Only ever rendered MASKED in history (day never shown). */
+  date_of_birth: string | null
+  /** The customer's PARTIAL date of birth (masked "MM/xx/YYYY" / "xx/xx/YYYY")
+   * when the exact date is not fully known, else null. Already dayless. */
+  date_of_birth_approx: string | null
 }
 
 /** The email-availability values the snapshot carries. Kept as a local string
@@ -1292,6 +1299,25 @@ function diffContact(before: ContactSnapshot, after: ContactSnapshot): ContactCh
     (trimOrNull(before.phone) ?? null) !== (trimOrNull(after.phone) ?? null),
   )
   verifyField(9, 'Address', before.address_verified_at, after.address_verified_at, addrChanged)
+
+  // Date of birth — compared at MASKED precision so the day is never part of
+  // the audit sentence. An exact and a partial DOB are mutually exclusive in
+  // storage, so the masked form ("MM/xx/YYYY" / "xx/xx/YYYY") is the stable
+  // identity of the DOB on file; a change in that masked form is the change we
+  // record. Ordered just after the name (identity data), before contact fields.
+  const beforeDob = maskDobDisplay(before.date_of_birth, before.date_of_birth_approx)
+  const afterDob = maskDobDisplay(after.date_of_birth, after.date_of_birth_approx)
+  if ((beforeDob ?? null) !== (afterDob ?? null)) {
+    const had = !!beforeDob
+    const has = !!afterDob
+    changes.push({
+      order: 0.5,
+      label: !had && has ? 'date of birth added' : !has ? 'date of birth cleared' : 'date of birth corrected',
+      sentence: !has
+        ? 'Date of birth was cleared.'
+        : `Date of birth ${had ? 'changed' : 'added'} ${had ? `from ${beforeDob} to ${afterDob}` : afterDob}.`,
+    })
+  }
 
   // Customer alert.
   if ((trimOrNull(before.contact_alert) ?? null) !== (trimOrNull(after.contact_alert) ?? null)) {

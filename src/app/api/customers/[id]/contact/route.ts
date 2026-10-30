@@ -17,6 +17,7 @@ import {
   buildContactUpdateHistoryNote,
   type ContactSnapshot,
 } from '@/lib/stewardship/customer-history'
+import { normalizeDobParts, type DobParts } from '@/lib/stewardship/dob'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
@@ -95,12 +96,17 @@ type CustomerContactRow = {
   contact_alert: string | null
   /** Do Not Text — the durable customer-level texting opt-out. */
   sms_opt_out: boolean | null
+  /** Exact date of birth (YYYY-MM-DD) when fully known, else null. */
+  date_of_birth: string | null
+  /** Partial date of birth (masked 'MM/xx/YYYY' / 'xx/xx/YYYY', no day) when the
+   * exact date is not fully known, else null. */
+  date_of_birth_approx: string | null
 }
 
 const SELECT =
   'id, first_name, last_name, email, phone, street, address_line1, city, state, zip, ' +
   'email_verified_at, phone_verified_at, address_verified_at, email_availability, contact_alert, ' +
-  'sms_opt_out'
+  'sms_opt_out, date_of_birth, date_of_birth_approx'
 
 /** The stable machine marker that identifies a case_touches 'workflow' note as
  * an email-availability change, carrying the new status. Bracketed so the
@@ -267,8 +273,14 @@ function addressUsable(street: string | null, city: string | null, state: string
  * always present and consistent.
  */
 async function respondWithContact(admin: AdminClient, row: CustomerContactRow) {
-  const text_undeliverable = await isTextUndeliverableForCurrentNumber(admin, row.id, row.phone)
-  return Response.json({ data: { ...row, text_undeliverable } })
+  const [text_undeliverable, ageInfo] = await Promise.all([
+    isTextUndeliverableForCurrentNumber(admin, row.id, row.phone),
+    // Re-derive the best-available-precision age on every write so the identity
+    // header stays correct after a DOB edit (or any edit) — age only, never a
+    // DOB/day. Matches the GET half so initial and post-write display agree.
+    resolveCustomerAge(admin, row.id),
+  ])
+  return Response.json({ data: { ...row, text_undeliverable, ...ageInfo } })
 }
 
 /**
@@ -431,6 +443,39 @@ export async function PATCH(
       }
       if ((nextFirst ?? null) !== (before.first_name ?? null)) { patch.first_name = nextFirst; changed = true }
       if ((nextLast ?? null) !== (before.last_name ?? null)) { patch.last_name = nextLast; changed = true }
+    }
+
+    // ── Date of birth (entered as separate month / day / year parts) ──
+    // The card sends the three raw parts; the SAME normalization the form
+    // applies runs here so invalid formatting cannot bypass the UI. An exact
+    // date (all three parts) targets date_of_birth; a partial date (year, and
+    // optionally month, with a blank day) targets date_of_birth_approx — the
+    // two are mutually exclusive, so storing one clears the other and a known
+    // exact DOB is never downgraded to a less precise value. An all-blank entry
+    // is a valid clear (both columns null). The day is never fabricated or
+    // stored on the approx column. Save-only-changed per column.
+    if (has('dob_month') || has('dob_day') || has('dob_year')) {
+      const partOf = (k: string): string => {
+        const v = (body as Record<string, unknown>)[k]
+        return typeof v === 'string' ? v : v == null ? '' : String(v)
+      }
+      const parts: DobParts = {
+        month: has('dob_month') ? partOf('dob_month') : '',
+        day: has('dob_day') ? partOf('dob_day') : '',
+        year: has('dob_year') ? partOf('dob_year') : '',
+      }
+      const dob = normalizeDobParts(parts)
+      if (dob.status === 'invalid') {
+        return Response.json({ error: dob.reason }, { status: 400 })
+      }
+      if ((dob.date_of_birth ?? null) !== (before.date_of_birth ?? null)) {
+        patch.date_of_birth = dob.date_of_birth
+        changed = true
+      }
+      if ((dob.date_of_birth_approx ?? null) !== (before.date_of_birth_approx ?? null)) {
+        patch.date_of_birth_approx = dob.date_of_birth_approx
+        changed = true
+      }
     }
 
     // ── Email value + availability ──
@@ -648,6 +693,8 @@ export async function PATCH(
       address_verified_at: row.address_verified_at,
       email_availability: row.email_availability,
       sms_opt_out: row.sms_opt_out ?? false,
+      date_of_birth: row.date_of_birth,
+      date_of_birth_approx: row.date_of_birth_approx,
       text_undeliverable: undeliverable,
       contact_alert: row.contact_alert,
     })

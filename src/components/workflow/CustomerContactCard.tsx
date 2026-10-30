@@ -87,6 +87,7 @@ import {
   type ContactSnapshot,
   type NextHistoryEntryPreview,
 } from '@/lib/stewardship/customer-history'
+import { normalizeDobParts, dobToParts, maskDobDisplay } from '@/lib/stewardship/dob'
 
 // ── Data shape ───────────────────────────────────────────────────────────────
 
@@ -143,6 +144,14 @@ export interface CustomerContact {
    * date_of_birth, so the identity header labels it approximate ("~N (approx.)").
    * Optional; defaults to exact. */
   age_approximate?: boolean
+  /** The customer's EXACT date of birth (YYYY-MM-DD) when all three parts are
+   * known, else null. Shown MASKED only (day never rendered) beneath the name,
+   * alongside age, and editable in the expanded editor. Optional so existing
+   * callers that don't select it still satisfy the type. */
+  date_of_birth?: string | null
+  /** The customer's PARTIAL date of birth (masked 'MM/xx/YYYY' / 'xx/xx/YYYY',
+   * no day) when the exact date is not fully known, else null. Optional. */
+  date_of_birth_approx?: string | null
 }
 
 type ContactFieldKey = 'email' | 'phone' | 'address'
@@ -594,6 +603,13 @@ export interface ContactUpdatePayload {
   do_not_text?: boolean
   mark_undeliverable?: boolean
   alert?: string | null
+  /** Date of birth, sent as the three raw parts the operator entered. Any part
+   * may be blank (unknown); the route normalizes them with the same rules the
+   * form applies and stores an exact or partial DOB accordingly. Present only
+   * when the DOB actually changed. */
+  dob_month?: string
+  dob_day?: string
+  dob_year?: string
 }
 
 /** The request the card would send. Exposed so a host (or Storybook) can supply
@@ -896,6 +912,7 @@ function SelfContainedContactCard({
           expanded={false}
           age={record.age ?? null}
           ageApproximate={record.age_approximate === true}
+          dob={maskDobDisplay(record.date_of_birth, record.date_of_birth_approx)}
           onSaved={handleChange}
         />
       }
@@ -1255,6 +1272,17 @@ function UnifiedContactEditor({
   const [phoneVerified, setPhoneVerified] = useState(!!record.phone_verified_at)
   const [addressVerified, setAddressVerified] = useState(!!record.address_verified_at)
   const [alertDraft, setAlertDraft] = useState(record.contact_alert ?? '')
+  // DOB drafts — three independent parts, seeded from the stored exact or
+  // partial DOB. A partial DOB yields a BLANK day (the day was never stored, so
+  // it stays unknown). Edited freely; the route re-normalizes with the same
+  // rules on save.
+  const seededDob = dobToParts(record.date_of_birth, record.date_of_birth_approx)
+  const [dobMonth, setDobMonth] = useState(seededDob.month)
+  const [dobDay, setDobDay] = useState(seededDob.day)
+  const [dobYear, setDobYear] = useState(seededDob.year)
+  // The live normalization of the DOB drafts, for the inline validity message
+  // and to block Save on an invalid changed DOB.
+  const dobResult = normalizeDobParts({ month: dobMonth, day: dobDay, year: dobYear })
 
   // The number that WILL be on file after Save, so the texting controls and the
   // address verifiability reflect the pending state, not the stored one.
@@ -1277,6 +1305,25 @@ function UnifiedContactEditor({
     const nl = normalizeNameInput(last).value
     if ((nf ?? null) !== (record.first_name ?? null)) payload.first_name = nf
     if ((nl ?? null) !== (record.last_name ?? null)) payload.last_name = nl
+
+    // DOB: normalize the three parts the same way the route will. The masked
+    // form is the stable identity of the DOB (day never compared), so a change
+    // in the normalized columns is what we send and preview. An invalid DOB
+    // contributes no change here (Save is blocked separately on it). Normalized
+    // locally from the drafts so this callback's deps fully cover it.
+    const dobNorm = normalizeDobParts({ month: dobMonth, day: dobDay, year: dobYear })
+    const nextDob = dobNorm.status === 'invalid'
+      ? { date_of_birth: record.date_of_birth ?? null, date_of_birth_approx: record.date_of_birth_approx ?? null }
+      : { date_of_birth: dobNorm.date_of_birth, date_of_birth_approx: dobNorm.date_of_birth_approx }
+    const dobChanged =
+      dobNorm.status !== 'invalid' &&
+      ((nextDob.date_of_birth ?? null) !== (record.date_of_birth ?? null) ||
+        (nextDob.date_of_birth_approx ?? null) !== (record.date_of_birth_approx ?? null))
+    if (dobChanged) {
+      payload.dob_month = dobMonth
+      payload.dob_day = dobDay
+      payload.dob_year = dobYear
+    }
 
     // Email: a staged reason wins (clears the email); else the typed value.
     let nextEmail: string | null = record.email
@@ -1360,6 +1407,8 @@ function UnifiedContactEditor({
       address_verified_at: record.address_verified_at,
       email_availability: record.email_availability ?? null,
       sms_opt_out: record.sms_opt_out === true,
+      date_of_birth: record.date_of_birth ?? null,
+      date_of_birth_approx: record.date_of_birth_approx ?? null,
       text_undeliverable: record.text_undeliverable === true && !!record.phone?.trim(),
       contact_alert: record.contact_alert ?? null,
     })
@@ -1378,6 +1427,8 @@ function UnifiedContactEditor({
       address_verified_at: wantAddrVerified ? (record.address_verified_at ?? 'pending') : null,
       email_availability: nextAvailability,
       sms_opt_out: doNotText,
+      date_of_birth: nextDob.date_of_birth,
+      date_of_birth_approx: nextDob.date_of_birth_approx,
       text_undeliverable: willMarkUndeliverable || (numberUnchanged && record.text_undeliverable === true && willHaveNumber),
       contact_alert: nextAlert,
     }
@@ -1385,7 +1436,8 @@ function UnifiedContactEditor({
   }, [
     first, last, email, emailReason, phone, doNotText, markUndeliverable,
     street, city, stateVal, zip, emailVerified, phoneVerified, addressVerified,
-    alertDraft, willHaveNumber, lockedUndeliverable, numberUnchanged, record,
+    alertDraft, dobMonth, dobDay, dobYear,
+    willHaveNumber, lockedUndeliverable, numberUnchanged, record,
   ])
 
   // Report the live preview of the pending change AND whether the drafts are
@@ -1417,6 +1469,8 @@ function UnifiedContactEditor({
     const nf = normalizeNameInput(first)
     const nl = normalizeNameInput(last)
     if (nf.status === 'empty' && nl.status === 'empty') { return }
+    // Block Save on an invalid DOB (same rules the route enforces).
+    if (dobResult.status === 'invalid') { return }
     onSave(buildChange().payload)
   }
 
@@ -1465,6 +1519,39 @@ function UnifiedContactEditor({
           {nameInvalid && (
             <p className="mt-1.5 text-base text-status-missing-strong">Enter at least a first or last name.</p>
           )}
+        </div>
+
+        {/* Date of birth — separate month / day / year; leave unknown parts
+            blank. A year with a blank day is kept as a partial DOB; a full
+            month+day+year is kept exact. The day is never shown once saved. */}
+        <div className="py-3">
+          <p className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
+            <Pencil className="size-4" aria-hidden /> Date of birth
+          </p>
+          <div className="mt-1.5 grid grid-cols-3 gap-2 sm:max-w-xs">
+            <div>
+              <label htmlFor="uc-dob-month" className="text-sm font-medium text-ink-secondary">Month</label>
+              <input id="uc-dob-month" type="text" inputMode="numeric" value={dobMonth} disabled={busy}
+                maxLength={2} onChange={(e) => setDobMonth(e.target.value.replace(/\D/g, '').slice(0, 2))}
+                placeholder="MM" className={cn('mt-1', inputCls(false))} />
+            </div>
+            <div>
+              <label htmlFor="uc-dob-day" className="text-sm font-medium text-ink-secondary">Day</label>
+              <input id="uc-dob-day" type="text" inputMode="numeric" value={dobDay} disabled={busy}
+                maxLength={2} onChange={(e) => setDobDay(e.target.value.replace(/\D/g, '').slice(0, 2))}
+                placeholder="DD" className={cn('mt-1', inputCls(false))} />
+            </div>
+            <div>
+              <label htmlFor="uc-dob-year" className="text-sm font-medium text-ink-secondary">Year</label>
+              <input id="uc-dob-year" type="text" inputMode="numeric" value={dobYear} disabled={busy}
+                maxLength={4} onChange={(e) => setDobYear(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                placeholder="YYYY" className={cn('mt-1', inputCls(dobResult.status === 'invalid'))} />
+            </div>
+          </div>
+          {dobResult.status === 'invalid' && (
+            <p className="mt-1.5 text-base text-status-missing-strong">{dobResult.reason}</p>
+          )}
+          <p className="mt-1.5 text-sm text-ink-muted">Leave the day (or month) blank if unknown. The day is never displayed.</p>
         </div>
 
         {/* Email + availability + verification */}
@@ -1871,6 +1958,7 @@ export function CustomerNameHeading({
   expanded = true,
   age = null,
   ageApproximate = false,
+  dob = null,
   onPersist,
   onSaved,
 }: {
@@ -1893,6 +1981,10 @@ export function CustomerNameHeading({
   /** True when `age` came from the masked policy fallback rather than an exact
    * date_of_birth, so it is labeled approximate ("~N (approx.)"). */
   ageApproximate?: boolean
+  /** The customer's date of birth, ALREADY MASKED ("MM/xx/YYYY" / "xx/xx/YYYY")
+   * by the caller. Shown beneath the name alongside age. Null omits it. The day
+   * is never part of this value. */
+  dob?: string | null
   /** Inject persistence. Omit to PATCH /api/customers/[id]/contact. Must resolve
    * with the full updated record. */
   onPersist?: (customerId: string, payload: ContactPersistPayload) => Promise<CustomerContact>
@@ -1933,19 +2025,26 @@ export function CustomerNameHeading({
     }
   }, [customerId, onPersist, onSaved])
 
-  // The age line beneath the name, shown uniformly in both modes. Omitted when
-  // age is unknown; an approximate age (from the masked policy fallback) is
-  // marked "~N (approx.)" with a clarifying tooltip. Shared by both the editing
-  // and read states so every workflow screen reads identically.
-  const ageSubline = age != null ? (
-    <div className="mt-0.5">
-      <span
-        className="text-base font-medium text-ink-supporting"
-        title={ageApproximate ? 'Approximate age, estimated from policy records' : undefined}
-      >
-        Age {ageApproximate ? `~${age}` : age}
-        {ageApproximate && <span className="ml-1 text-ink-muted">(approx.)</span>}
-      </span>
+  // The DOB + age line beneath the name, shown uniformly in both modes. The DOB
+  // is shown MASKED (the day is never rendered) alongside the calculated age; an
+  // approximate age (from the masked policy fallback or a partial DOB) is marked
+  // "~N (approx.)" with a clarifying tooltip. Each part is omitted when unknown,
+  // never guessed. Shared by both the editing and read states so every workflow
+  // screen reads identically.
+  const ageSubline = (dob || age != null) ? (
+    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-base font-medium text-ink-supporting">
+      {dob && (
+        <span>
+          DOB <span className="font-mono text-ink-secondary">{dob}</span>
+        </span>
+      )}
+      {dob && age != null && <span aria-hidden className="text-ink-muted">·</span>}
+      {age != null && (
+        <span title={ageApproximate ? 'Approximate age, estimated from available records' : undefined}>
+          Age {ageApproximate ? `~${age}` : age}
+          {ageApproximate && <span className="ml-1 text-ink-muted">(approx.)</span>}
+        </span>
+      )}
     </div>
   ) : null
 
