@@ -79,20 +79,62 @@ function parseIsoDate(v: unknown): string | null {
   return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0]
 }
 
+// Owner display DOB -> the masked owner_dob_approx convention. The owner mask
+// NEVER carries a day (PHI), but it must preserve the precision actually known:
+// 'MM/xx/YYYY' when a month is known, 'xx/xx/YYYY' when only a year is. A value
+// we cannot reduce to at least a 4-digit year yields null rather than a
+// malformed string that would violate the owner_dob_approx shape — we never
+// invent a component and never store garbage. Day components in the source are
+// deliberately dropped here (the owner mask is day-less by design); the INSURED
+// path (parseDobPrecision) is where a full date is retained.
 function parseDob(v: unknown): string | null {
   if (v == null) return null
-  const s = String(v).trim()
-  if (s.includes('xx') || s.includes('XX')) return s || null
+
+  // A real date cell: keep month + year, drop the day (owner mask is day-less).
   if (v instanceof Date && !isNaN(v.getTime())) {
     const mm   = String(v.getMonth() + 1).padStart(2, '0')
     const yyyy = v.getFullYear()
     return `${mm}/xx/${yyyy}`
   }
-  if (s.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
-    const parts = s.split('/')
-    return `${parts[0].padStart(2,'0')}/xx/${parts[2]}`
+
+  const s = String(v).trim()
+  if (!s) return null
+
+  // Already a masked value: normalize the day token to 'xx' and keep whatever
+  // month precision it carries, provided a 4-digit year is present.
+  if (/xx/i.test(s)) {
+    const year = s.match(/(\d{4})\s*$/)?.[1]
+    if (!year) return null
+    const leadMonth = s.match(/^(\d{1,2})/)?.[1]
+    const m = leadMonth ? Number(leadMonth) : null
+    return m != null && m >= 1 && m <= 12 ? `${String(m).padStart(2, '0')}/xx/${year}` : `xx/xx/${year}`
   }
-  return s || null
+
+  // Full numeric date "M/D/YYYY": keep month + year, drop the day.
+  const full = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (full) {
+    const m = Number(full[1])
+    return m >= 1 && m <= 12 ? `${String(m).padStart(2, '0')}/xx/${full[3]}` : `xx/xx/${full[3]}`
+  }
+
+  // Bare 4-digit year: preserve it as a year-only mask rather than storing the
+  // raw string (which would violate the masked shape).
+  const bareYear = s.match(/^(\d{4})$/)?.[1]
+  if (bareYear) return `xx/xx/${bareYear}`
+
+  // "MM/YYYY" (month + year, no day) -> month_year mask.
+  const monthYear = s.match(/^(\d{1,2})\/(\d{4})$/)
+  if (monthYear) {
+    const m = Number(monthYear[1])
+    return m >= 1 && m <= 12 ? `${String(m).padStart(2, '0')}/xx/${monthYear[2]}` : `xx/xx/${monthYear[2]}`
+  }
+
+  // Anything with a trailing 4-digit year we can still anchor on the year.
+  const anyYear = s.match(/(\d{4})\s*$/)?.[1]
+  if (anyYear) return `xx/xx/${anyYear}`
+
+  // No reliable year: store nothing rather than a malformed mask.
+  return null
 }
 
 function str(v: unknown): string | null {

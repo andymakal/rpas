@@ -43,6 +43,13 @@
 -- This adds NO new age behavior and does not touch project_customer_age, the
 -- population match/facet functions, or any stored column. It is a read-only
 -- display resolver for the card. Development clone only.
+--
+-- NOTE: the single-source precedence BODY defined here is superseded by
+-- 20261030170000_customer_dob_display_enrich.sql, which keeps the same signature
+-- and the same exact/owner-only guarantees but MERGES compatible precisions
+-- across the customer's own DOB and the linked owner consensus (e.g. a stored
+-- year plus a linked month+year for the same year yields month+year). This file
+-- is retained for migration history; the enrich migration is authoritative.
 -- Depends on 20261012000001 / 20261013000001 / 20261030154658 (the masked-DOB
 -- parsers and the precision-aware age/consensus logic).
 -- =============================================================================

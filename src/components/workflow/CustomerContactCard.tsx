@@ -1313,13 +1313,24 @@ function UnifiedContactEditor({
   // blank; otherwise seed from the DOB stored directly on the row. A partial or
   // linked source carries a blank day — the day was never known, so it stays
   // unknown and the downgrade guard still protects any stored exact date.
-  const seededDob = record.dob_year != null
-    ? {
-        month: record.dob_month == null ? '' : String(record.dob_month),
-        day: record.dob_day == null ? '' : String(record.dob_day),
-        year: String(record.dob_year),
-      }
-    : dobToParts(record.date_of_birth, record.date_of_birth_approx)
+  // The parts the fields are SEEDED with are captured once per record so they
+  // are a stable baseline for "did the operator actually edit the DOB?". This
+  // is the display value (possibly a linked-policy consensus); it is NOT the
+  // stored customer DOB. The DOB is written ONLY when the operator changes a
+  // field away from this seed (see buildChange) — so merely saving an unrelated
+  // contact edit never persists a policy-derived DOB onto the customer, while an
+  // explicit DOB edit still saves.
+  const seededDob = useMemo(
+    () =>
+      record.dob_year != null
+        ? {
+            month: record.dob_month == null ? '' : String(record.dob_month),
+            day: record.dob_day == null ? '' : String(record.dob_day),
+            year: String(record.dob_year),
+          }
+        : dobToParts(record.date_of_birth, record.date_of_birth_approx),
+    [record.dob_year, record.dob_month, record.dob_day, record.date_of_birth, record.date_of_birth_approx],
+  )
   const [dobMonth, setDobMonth] = useState(seededDob.month)
   const [dobDay, setDobDay] = useState(seededDob.day)
   const [dobYear, setDobYear] = useState(seededDob.year)
@@ -1362,6 +1373,16 @@ function UnifiedContactEditor({
     // contributes no change here (Save is blocked separately on it). Normalized
     // locally from the drafts so this callback's deps fully cover it.
     const dobNorm = normalizeDobParts({ month: dobMonth, day: dobDay, year: dobYear })
+    // Whether the operator actually EDITED the DOB fields away from what they
+    // were seeded with. The seed is the display value (which may be a
+    // policy-derived consensus), NOT the stored customer DOB — so a plain
+    // contact save, where the operator never touched the DOB fields, must NOT
+    // write that derived value onto the customer. A DOB is persisted only on a
+    // genuine edit; an explicit DOB change (differing from the seed) still saves.
+    const dobEdited =
+      dobMonth.trim() !== seededDob.month.trim() ||
+      dobDay.trim() !== seededDob.day.trim() ||
+      dobYear.trim() !== seededDob.year.trim()
     // A downgrade (exact -> partial) is never applied: keep the stored value and
     // emit no DOB change, so the preview and payload don't reflect a loss the
     // Save guard rejects.
@@ -1369,11 +1390,11 @@ function UnifiedContactEditor({
       { date_of_birth: record.date_of_birth ?? null, date_of_birth_approx: record.date_of_birth_approx ?? null },
       dobNorm,
     )
-    const nextDob = (dobNorm.status === 'invalid' || dobDowngrade)
+    const nextDob = (dobNorm.status === 'invalid' || dobDowngrade || !dobEdited)
       ? { date_of_birth: record.date_of_birth ?? null, date_of_birth_approx: record.date_of_birth_approx ?? null }
       : { date_of_birth: dobNorm.date_of_birth, date_of_birth_approx: dobNorm.date_of_birth_approx }
     const dobDidChange =
-      dobNorm.status !== 'invalid' && !dobDowngrade &&
+      dobEdited && dobNorm.status !== 'invalid' && !dobDowngrade &&
       ((nextDob.date_of_birth ?? null) !== (record.date_of_birth ?? null) ||
         (nextDob.date_of_birth_approx ?? null) !== (record.date_of_birth_approx ?? null))
     if (dobDidChange) {
@@ -1493,7 +1514,7 @@ function UnifiedContactEditor({
   }, [
     first, last, email, emailReason, phone, doNotText, markUndeliverable,
     street, city, stateVal, zip, emailVerified, phoneVerified, addressVerified,
-    alertDraft, dobMonth, dobDay, dobYear,
+    alertDraft, dobMonth, dobDay, dobYear, seededDob,
     willHaveNumber, lockedUndeliverable, numberUnchanged, record,
   ])
 
