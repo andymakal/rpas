@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { readStoredDob, mergeImportDobIntoCustomer } from '@/lib/stewardship/dob'
 
 type ContactRow = {
   source_client_id:  string
@@ -225,14 +226,27 @@ export async function POST(req: NextRequest) {
       if (row.is_deceased)       patch.is_deceased       = true
       // Only set segment if currently null
       if (!ex?.segment && row.segment) patch.segment = row.segment
-      // DOB enrichment WITHOUT downgrade: fill a DOB only when the matched
-      // customer has NONE on file at all, from whichever precision the import
-      // carries. Never overwrite an existing exact date or partial with the
-      // import value, so more precise information is always protected.
-      const exHasDob = !!(ex?.date_of_birth || ex?.date_of_birth_approx)
-      if (!exHasDob) {
-        if (row.date_of_birth) patch.date_of_birth = row.date_of_birth
-        else if (row.date_of_birth_approx) patch.date_of_birth_approx = row.date_of_birth_approx
+      // DOB enrichment by COMPATIBLE MERGE: when the import carries additional,
+      // compatible birth information (e.g. the customer has only a year on file
+      // and the import adds the month, or the full date), upgrade the stored DOB
+      // to the more complete value. A contradiction (a different year, or a
+      // different month/day within the same year) or an import that is no more
+      // precise than what is on file changes nothing — more reliable existing
+      // information is never overwritten. The merge writes only the column that
+      // actually changes (exact -> date_of_birth, partial -> the masked approx).
+      const incomingDob = readStoredDob(row.date_of_birth, row.date_of_birth_approx)
+      const mergedDob = mergeImportDobIntoCustomer(
+        ex?.date_of_birth ?? null,
+        ex?.date_of_birth_approx ?? null,
+        incomingDob,
+      )
+      if (mergedDob) {
+        if ((mergedDob.date_of_birth ?? null) !== (ex?.date_of_birth ?? null)) {
+          patch.date_of_birth = mergedDob.date_of_birth
+        }
+        if ((mergedDob.date_of_birth_approx ?? null) !== (ex?.date_of_birth_approx ?? null)) {
+          patch.date_of_birth_approx = mergedDob.date_of_birth_approx
+        }
       }
 
       if (Object.keys(patch).length > 0) {

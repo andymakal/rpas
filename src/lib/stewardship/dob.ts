@@ -423,6 +423,16 @@ export function toFhirDob(parts: DobSourceParts): string | null {
   }
 }
 
+/** The canonical FHIR partial-date token ("YYYY-MM-DD" / "YYYY-MM" / "YYYY" /
+ * null) for a RAW import source value. Useful for carrying an interpreted DOB
+ * across a client -> server boundary as a plain, unambiguous string (a JS Date
+ * cell cannot survive JSON as a Date); the receiver re-interprets it with
+ * `interpretSourceDob`. Defined after interpretSourceDob below. */
+export function sourceDobToFhir(raw: unknown): string | null {
+  const s = interpretSourceDob(raw)
+  return toFhirDob({ year: s.year, month: s.month, day: s.day, precision: s.precision, source: 'exact' })
+}
+
 /** The FHIR partial-date token for a stored (exact, approx) customer DOB pair.
  * Convenience over `readStoredDob` + `toFhirDob`. */
 export function storedDobToFhir(
@@ -628,6 +638,112 @@ export function sourceDobToCustomerColumns(raw: unknown): {
     }
   }
   if (s.precision === 'month-year' || s.precision === 'year-only') {
+    const yyyy = String(s.year).padStart(4, '0')
+    const mm = s.month == null ? 'xx' : String(s.month).padStart(2, '0')
+    return { date_of_birth: null, date_of_birth_approx: `${mm}/xx/${yyyy}` }
+  }
+  return { date_of_birth: null, date_of_birth_approx: null }
+}
+
+// ---------------------------------------------------------------------------
+// Compatible enrichment: merge an incoming import DOB into an existing stored one
+// ---------------------------------------------------------------------------
+
+/** How precise a DOB is, as a rank for comparison. Higher = more complete. */
+function precisionRank(p: DobPrecision): number {
+  switch (p) {
+    case 'exact': return 3
+    case 'month-year': return 2
+    case 'year-only': return 1
+    default: return 0
+  }
+}
+
+/**
+ * Merge an INCOMING import DOB into a customer's EXISTING stored DOB, returning
+ * the customer columns to write ONLY when the incoming information genuinely
+ * ADDS compatible precision, or `null` when nothing should change. This is how
+ * an import enriches a customer whose DOB is partial (or absent) without ever
+ * overwriting contradictory or more-reliable information.
+ *
+ * Rules (the incoming value is `interpretSourceDob(raw)` output):
+ *   - incoming has no usable year            -> null (nothing to add)
+ *   - existing has no DOB                     -> adopt the incoming value
+ *   - YEARS differ (both known)               -> null (CONTRADICTION; keep existing)
+ *   - same year, but a KNOWN month differs    -> null (contradiction; keep existing)
+ *   - same year + month, but a KNOWN day differs (both exact) -> null (keep existing)
+ *   - incoming precision <= existing precision AND adds no new component
+ *                                             -> null (existing already as good)
+ *   - otherwise COMPATIBLE and MORE COMPLETE  -> the merged value, taking each
+ *       component from whichever side knows it (they agree where both know it)
+ *
+ * The merged result is expressed as the two customer columns: an exact full date
+ * on `date_of_birth`; a partial (month+year or year-only) on the masked,
+ * day-less `date_of_birth_approx`. A day is only ever set when the merge yields a
+ * complete, real calendar date. Never fabricates a component neither side knows.
+ */
+export function mergeImportDobIntoCustomer(
+  existingExact: string | null | undefined,
+  existingApprox: string | null | undefined,
+  incoming: SourceDob,
+): { date_of_birth: string | null; date_of_birth_approx: string | null } | null {
+  // Nothing usable coming in.
+  if (incoming.year == null) return null
+
+  const cur = readStoredDob(existingExact, existingApprox)
+
+  // Existing has no DOB at all: adopt the incoming value outright.
+  if (cur.precision === 'none') {
+    return sourceToCustomerColumns(incoming)
+  }
+
+  // CONTRADICTION guards — never overwrite a conflicting known component.
+  if (cur.year != null && incoming.year !== cur.year) return null
+  if (cur.month != null && incoming.month != null && incoming.month !== cur.month) return null
+  if (
+    cur.day != null && incoming.day != null &&
+    (incoming.day !== cur.day || (incoming.month ?? cur.month) !== cur.month)
+  ) {
+    return null
+  }
+
+  // Build the most complete COMPATIBLE value, taking each component from
+  // whichever side knows it (they agree wherever both know it).
+  const year = cur.year ?? incoming.year
+  const month = cur.month ?? incoming.month ?? null
+  // A day is only trusted as part of a complete, real date whose month/year
+  // match the merged values (so an incoming exact day cannot attach to a month
+  // the existing record contradicts — already guarded above).
+  const day =
+    cur.day != null ? cur.day
+    : incoming.day != null && month != null && incoming.month === month && incoming.year === year
+      ? incoming.day
+      : null
+
+  const mergedPrecision: DobPrecision =
+    day != null && month != null ? 'exact'
+    : month != null ? 'month-year'
+    : 'year-only'
+
+  // Only write when the merge is strictly MORE complete than what's on file.
+  if (precisionRank(mergedPrecision) <= precisionRank(cur.precision)) return null
+
+  return sourceToCustomerColumns({ precision: mergedPrecision, year, month, day })
+}
+
+/** The two customer columns for a resolved SourceDob: an exact date on
+ * date_of_birth; a partial on the masked, day-less date_of_birth_approx. */
+function sourceToCustomerColumns(s: SourceDob): {
+  date_of_birth: string | null
+  date_of_birth_approx: string | null
+} {
+  if (s.precision === 'exact' && s.year != null && s.month != null && s.day != null) {
+    return {
+      date_of_birth: `${String(s.year).padStart(4, '0')}-${String(s.month).padStart(2, '0')}-${String(s.day).padStart(2, '0')}`,
+      date_of_birth_approx: null,
+    }
+  }
+  if ((s.precision === 'month-year' || s.precision === 'year-only') && s.year != null) {
     const yyyy = String(s.year).padStart(4, '0')
     const mm = s.month == null ? 'xx' : String(s.month).padStart(2, '0')
     return { date_of_birth: null, date_of_birth_approx: `${mm}/xx/${yyyy}` }

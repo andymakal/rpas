@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
+import { interpretSourceDob, mergeImportDobIntoCustomer } from '@/lib/stewardship/dob'
 
 /**
  * POST /api/admin/policy-import
@@ -45,6 +46,12 @@ type PolicyRow = {
   coverage_status:      string
   sa_status:            'unknown'
   is_test:              false
+  // Transient owner-enrichment fields (present in the request, NOT columns on
+  // service_policies). Stripped before insert; used only to enrich the owner's
+  // customer record with the owner's complete DOB.
+  _owner_first_name?:   string | null
+  _owner_last_name?:    string | null
+  _owner_dob_source?:   string | null
 }
 
 export async function POST(req: NextRequest) {
@@ -94,13 +101,24 @@ export async function POST(req: NextRequest) {
   const toInsert = policies.filter(p => !existingSet.has(p.policy_number))
   const onFile   = policies.filter(p =>  existingSet.has(p.policy_number))
 
+  // The transient owner-enrichment fields travel in the request body but are NOT
+  // columns on service_policies, so strip them before inserting the policy row.
+  // The owner's complete DOB they carry is applied to the owner's CUSTOMER
+  // record below — the single source of truth for a person's DOB — never onto
+  // the policy (which would duplicate it and blur owner vs insured).
+  const stripOwnerEnrichment = (p: PolicyRow): Record<string, unknown> => {
+    const { _owner_first_name, _owner_last_name, _owner_dob_source, ...policyColumns } = p
+    void _owner_first_name; void _owner_last_name; void _owner_dob_source
+    return policyColumns
+  }
+
   // ── Chunked insert ────────────────────────────────────────────────────────────
   const INSERT_CHUNK = 200
   let   insertedCount = 0
   const errors: string[] = []
 
   for (let i = 0; i < toInsert.length; i += INSERT_CHUNK) {
-    const chunk = toInsert.slice(i, i + INSERT_CHUNK)
+    const chunk = toInsert.slice(i, i + INSERT_CHUNK).map(stripOwnerEnrichment)
     const { error } = await supabase.from('service_policies').insert(chunk)
     if (error) {
       console.error(`Policy import chunk ${Math.floor(i / INSERT_CHUNK) + 1} error:`, error)
@@ -110,13 +128,120 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── Preserve the owner's COMPLETE DOB on the owner's CUSTOMER record ─────────
+  // owner_dob_approx on the policy is day-less by design, so an exact owner DOB
+  // would otherwise lose its day whenever the insured is a different person.
+  // Here we carry the owner's full DOB to the single source of truth — the
+  // owner's customer — by a compatible, non-destructive merge: a customer is
+  // enriched only when the import adds compatible precision, and a contradiction
+  // or an existing more-reliable value is never overwritten. The insured columns
+  // are untouched, so owner and insured stay distinct. This runs over EVERY
+  // parsed policy (new or already on file), since the owner's DOB is the owner's
+  // regardless of whether the policy row itself was inserted.
+  const ownerDobEnriched = await enrichOwnerCustomerDobs(supabase, policies)
+
   return NextResponse.json({
     file_name,
     total_parsed:      policies.length,
     inserted:          insertedCount,
     already_on_file:   onFile.length,
+    owner_dob_enriched: ownerDobEnriched,
     skipped_annuities,
     skipped_no_id,
     errors:            errors.length ? errors : undefined,
   })
+}
+
+type AdminClient = ReturnType<typeof createAdminClient>
+
+/**
+ * Enrich the owner's CUSTOMER record with the owner's complete date of birth
+ * carried by the import, so an exact owner DOB (day included) is preserved even
+ * when the policy's insured is a different person. This writes a person's DOB
+ * only to the customer (the single source of truth), never onto the policy, and
+ * only by a COMPATIBLE merge — a customer gains precision when the import adds
+ * it, but a contradictory year/month/day or an existing more-reliable value is
+ * never overwritten. The policy's insured columns are untouched.
+ *
+ * An owner is matched to an existing customer the same safe way the contact
+ * dedup does: first name + last name + birth year, and ONLY when that key maps
+ * to exactly one customer (ambiguous or unmatched owners are left alone — we do
+ * not create customers here). Returns how many customers were enriched.
+ */
+async function enrichOwnerCustomerDobs(
+  supabase: AdminClient,
+  policies: PolicyRow[],
+): Promise<number> {
+  // Distinct owners that actually carry a usable DOB, keyed by
+  // firstName|lastName|birthYear (the same 3-factor identity the contact dedup
+  // uses). A duplicate key across policies collapses to one owner.
+  const owners = new Map<string, { raw: string }>()
+  for (const p of policies) {
+    const first = (p._owner_first_name ?? '').trim().toLowerCase().split(/\s+/)[0]
+    const last  = (p._owner_last_name ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+    const raw   = p._owner_dob_source ?? null
+    if (!first || !last || !raw) continue
+    const src = interpretSourceDob(raw)
+    if (src.year == null) continue
+    owners.set(`${first}|${last}|${src.year}`, { raw })
+  }
+  if (owners.size === 0) return 0
+
+  // Build a first|last|year -> customer id index over existing customers,
+  // paginating to clear Supabase's 1000-row cap. A key shared by two customers
+  // maps to null (ambiguous) so we never guess which to enrich.
+  type Cust = { id: string; first_name: string | null; last_name: string | null; date_of_birth: string | null; date_of_birth_approx: string | null }
+  const byKey = new Map<string, string | null>()
+  const byId  = new Map<string, Cust>()
+  const PAGE = 1000
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase
+      .from('customers')
+      .select('id, first_name, last_name, date_of_birth, date_of_birth_approx')
+      .eq('is_test', false)
+      .range(from, from + PAGE - 1)
+    if (error || !data || data.length === 0) break
+    for (const c of data as Cust[]) {
+      const cf = (c.first_name ?? '').trim().toLowerCase().split(/\s+/)[0]
+      const cl = (c.last_name ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+      const yr = birthYearOf(c.date_of_birth, c.date_of_birth_approx)
+      if (cf && cl && yr != null) {
+        const key = `${cf}|${cl}|${yr}`
+        byKey.set(key, byKey.has(key) ? null : c.id)
+      }
+      byId.set(c.id, c)
+    }
+    if (data.length < PAGE) break
+  }
+
+  let enriched = 0
+  for (const [key, owner] of owners) {
+    const id = byKey.get(key)
+    if (!id) continue // unmatched OR ambiguous -> leave the customer alone
+    const cust = byId.get(id)
+    if (!cust) continue
+    const merged = mergeImportDobIntoCustomer(
+      cust.date_of_birth, cust.date_of_birth_approx, interpretSourceDob(owner.raw),
+    )
+    if (!merged) continue // no compatible precision to add; never overwrite
+    const { error } = await supabase
+      .from('customers')
+      .update({ date_of_birth: merged.date_of_birth, date_of_birth_approx: merged.date_of_birth_approx })
+      .eq('id', id)
+    if (!error) enriched++
+  }
+  return enriched
+}
+
+/** Birth year from either a customer's exact date or masked partial. */
+function birthYearOf(exact: string | null, approx: string | null): number | null {
+  if (exact) {
+    const y = parseInt(exact.slice(0, 4), 10)
+    if (!isNaN(y)) return y
+  }
+  if (approx) {
+    const m = approx.match(/(\d{4})\s*$/)
+    if (m) return parseInt(m[1], 10)
+  }
+  return null
 }

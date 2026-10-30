@@ -7,7 +7,7 @@ import {
   Loader2, ChevronRight, X, Table, SkipForward,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { sourceDobToOwnerMask, sourceDobToInsuredColumns } from '@/lib/stewardship/dob'
+import { sourceDobToOwnerMask, sourceDobToInsuredColumns, sourceDobToFhir } from '@/lib/stewardship/dob'
 
 // ── Shared types ──────────────────────────────────────────────────────────────
 
@@ -36,6 +36,15 @@ type PolicyRow = {
   coverage_status:      string
   sa_status:            'unknown'
   is_test:              false
+  // ── Transient owner-enrichment fields (NOT stored on service_policies) ──
+  // Carried in the POST body only so the server can enrich the OWNER'S CUSTOMER
+  // record (the single source of truth for a person's DOB) with the owner's
+  // COMPLETE date of birth — including the day, which owner_dob_approx cannot
+  // hold. Stripped before the policy row is inserted, so no owner full date is
+  // duplicated onto the policy and the owner/insured distinction is preserved.
+  _owner_first_name:    string | null
+  _owner_last_name:     string | null
+  _owner_dob_source:    string | null   // the raw owner DOB value, re-interpreted server-side
 }
 
 type SheetStat = {
@@ -236,6 +245,12 @@ function parseRow(row: Record<string, unknown>): PolicyRow | null {
     coverage_status:      coverageStatus,
     sa_status:            'unknown',
     is_test:              false,
+    // Transient owner identity + COMPLETE DOB (canonical FHIR token so a Date
+    // cell survives JSON) for server-side enrichment of the owner's CUSTOMER
+    // record. Not stored on the policy.
+    _owner_first_name:    ownerFirst,
+    _owner_last_name:     ownerLast,
+    _owner_dob_source:    sourceDobToFhir(rawOwnerDob),
   }
 }
 

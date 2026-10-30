@@ -18,7 +18,12 @@ import {
   sourceDobToOwnerMask,
   sourceDobToInsuredColumns,
   sourceDobToCustomerColumns,
+  mergeImportDobIntoCustomer,
 } from './dob'
+
+// Convenience: merge a raw import value into an existing (exact, approx) pair.
+const merge = (exact: string | null, approx: string | null, raw: unknown) =>
+  mergeImportDobIntoCustomer(exact, approx, interpretSourceDob(raw))
 
 test('interpretSourceDob: a real Date cell is exact (keeps the day)', () => {
   // xlsx yields local-time Date cells; the helper reads local components.
@@ -94,4 +99,54 @@ test('sourceDobToCustomerColumns: exact -> date_of_birth; partial -> masked date
   assert.deepEqual(sourceDobToCustomerColumns('07/1959'), { date_of_birth: null, date_of_birth_approx: '07/xx/1959' })
   assert.deepEqual(sourceDobToCustomerColumns('1959'), { date_of_birth: null, date_of_birth_approx: 'xx/xx/1959' })
   assert.deepEqual(sourceDobToCustomerColumns(''), { date_of_birth: null, date_of_birth_approx: null })
+})
+
+// ── Compatible enrichment of an existing customer DOB ────────────────────────
+
+test('merge: existing year-only + import month+year (same year) -> upgraded to month+year', () => {
+  assert.deepEqual(merge(null, 'xx/xx/1959', '07/1959'), { date_of_birth: null, date_of_birth_approx: '07/xx/1959' })
+})
+
+test('merge: existing year-only + import exact (same year) -> upgraded to the full date', () => {
+  assert.deepEqual(merge(null, 'xx/xx/1959', '1959-07-15'), { date_of_birth: '1959-07-15', date_of_birth_approx: null })
+})
+
+test('merge: existing month+year + import exact (same year+month) -> upgraded to the full date', () => {
+  assert.deepEqual(merge(null, '07/xx/1959', '7/15/1959'), { date_of_birth: '1959-07-15', date_of_birth_approx: null })
+})
+
+test('merge: existing none + import anything -> adopt the import', () => {
+  assert.deepEqual(merge(null, null, '1959'), { date_of_birth: null, date_of_birth_approx: 'xx/xx/1959' })
+  assert.deepEqual(merge(null, null, '7/15/1959'), { date_of_birth: '1959-07-15', date_of_birth_approx: null })
+})
+
+test('merge: CONTRADICTION on year -> null (keep existing, never overwrite)', () => {
+  assert.equal(merge(null, 'xx/xx/1959', '1960'), null)
+  assert.equal(merge('1959-07-15', null, '1960-01-01'), null)
+})
+
+test('merge: CONTRADICTION on month within the same year -> null (keep existing)', () => {
+  assert.equal(merge(null, '07/xx/1959', '03/1959'), null)
+  assert.equal(merge(null, '07/xx/1959', '3/9/1959'), null)
+})
+
+test('merge: CONTRADICTION on day within the same month+year -> null (keep existing exact)', () => {
+  assert.equal(merge('1959-07-15', null, '1959-07-20'), null)
+})
+
+test('merge: import is LESS precise than existing -> null (never downgrade)', () => {
+  assert.equal(merge('1959-07-15', null, '1959'), null)       // exact vs year
+  assert.equal(merge('1959-07-15', null, '07/1959'), null)    // exact vs month+year
+  assert.equal(merge(null, '07/xx/1959', '1959'), null)       // month+year vs year
+})
+
+test('merge: import EQUALLY precise and compatible -> null (nothing new to add)', () => {
+  assert.equal(merge('1959-07-15', null, '1959-07-15'), null)
+  assert.equal(merge(null, '07/xx/1959', '07/1959'), null)
+  assert.equal(merge(null, 'xx/xx/1959', '1959'), null)
+})
+
+test('merge: no usable incoming year -> null', () => {
+  assert.equal(merge(null, 'xx/xx/1959', 'unknown'), null)
+  assert.equal(merge(null, null, ''), null)
 })
