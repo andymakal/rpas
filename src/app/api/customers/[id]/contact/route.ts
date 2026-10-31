@@ -495,10 +495,10 @@ export async function PATCH(
 
     // ── Name (first, middle, last, suffix, goes-by, suffix-in-familiar) ──
     // The SAME centralized normalization and validation the form applies runs
-    // here so invalid input cannot bypass the UI: capitalization and multi-word
-    // names are preserved, nothing is inferred, and at least a first or last
-    // name must remain. Save-only-changed per column; an omitted field keeps
-    // its stored value. The suffix-in-familiar preference is accepted as
+    // here so invalid input cannot bypass the UI: capitalization/accents and
+    // multi-word names are preserved, nothing is inferred, and BOTH first and
+    // last name are required. Save-only-changed per column; an omitted field
+    // keeps its stored value. The suffix-in-familiar preference is accepted as
     // boolean|null (null = no preference / include).
     const nameTouched =
       has('first_name') || has('last_name') || has('middle_name') ||

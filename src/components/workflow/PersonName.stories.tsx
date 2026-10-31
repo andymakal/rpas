@@ -7,17 +7,19 @@ import { type PersonName, presentPersonName } from '@/lib/person-name'
  * Workflow Design System — Person Name.
  *
  * The reusable name surface, rendered as the real shared component. All
- * presentation rules (familiar / greeting / full recorded, the suffix-in-
- * familiar preference, caps-preserving normalization) live in
- * `@/lib/person-name`; these stories exercise the display and the editor over
- * representative records.
+ * presentation and validation rules (familiar / greeting / full recorded, the
+ * suffix dropdown + Other, the suffix-in-familiar preference, both-required
+ * First/Last, caps/accent-preserving normalization) live in `@/lib/person-name`;
+ * these stories exercise the display and the editor over representative records.
+ * The editor layout: First, Middle, Last, Suffix on the first row; Goes by and
+ * the "Use suffix in familiar name" checkbox on the second.
  */
 
 const goesByWithSuffix: PersonName = {
   firstName: 'Robert',
   middleName: 'Anne',
   lastName: 'Smith',
-  suffix: 'Jr',
+  suffix: 'Jr.',
   goesBy: 'Bob',
   suffixInFamiliar: null, // no preference → defaults to include
 }

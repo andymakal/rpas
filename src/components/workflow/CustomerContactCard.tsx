@@ -63,7 +63,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useMentorDisclosure, MentorCapButton, MentorCapPanel } from '@/lib/mentoring/MentorUi'
 import {
-  normalizeEmailInput, normalizePhoneInput, normalizeNameInput, formatPhoneAsTyped, formatPhoneDisplay,
+  normalizeEmailInput, normalizePhoneInput, formatPhoneAsTyped, formatPhoneDisplay,
   type ContactFieldResult,
 } from '@/lib/contact-input'
 import {
@@ -90,10 +90,9 @@ import {
 import { normalizeDobParts, dobToParts, formatDobDisplay, wouldDowngradeExactDob } from '@/lib/stewardship/dob'
 import {
   type PersonName,
-  presentPersonName,
   familiarName as personFamiliarName,
 } from '@/lib/person-name'
-import { PersonNameDisplay, PersonNameEditor } from './PersonName'
+import { PersonNameDisplay, PersonNameEditor, PersonNameFields, usePersonNameDraft } from './PersonName'
 
 // ── Data shape ───────────────────────────────────────────────────────────────
 
@@ -602,10 +601,6 @@ function textStyle(
   return s
 }
 
-/** Backwards-compatible helper kept for the value/address renderers. */
-function fontStyle(ap: ResolvedAppearance, px: number): React.CSSProperties | undefined {
-  return ap.isDefault ? undefined : { fontSize: `${px.toFixed(3)}px` }
-}
 
 /** Icon style: an explicit px size when non-default, else undefined so the
  * size-* class governs. */
@@ -1333,16 +1328,20 @@ function UnifiedContactEditor({
 }) {
   // ── Drafts, seeded from the current record (display-normalized where the
   // read view shows a normalized value, so the operator edits what they saw). ──
-  const [first, setFirst] = useState(record.first_name ?? '')
-  const [last, setLast] = useState(record.last_name ?? '')
-  const [middle, setMiddle] = useState(record.middle_name ?? '')
-  const [suffix, setSuffix] = useState(record.suffix ?? '')
-  const [goesBy, setGoesBy] = useState(record.goes_by ?? '')
-  // Preference for showing the suffix in the familiar name (null = no preference
-  // recorded, which defaults to include). Seeded from the stored preference.
-  const [suffixInFamiliar, setSuffixInFamiliar] = useState<boolean | null>(
-    record.suffix_in_familiar ?? null,
-  )
+  // Name is edited through the ONE shared Person Name field group + validation
+  // (usePersonNameDraft / PersonNameFields), the same implementation the
+  // standalone editor uses — no duplicated name-field logic here. Seeded from
+  // the record's recorded parts.
+  const nameApi = usePersonNameDraft({
+    firstName: record.first_name ?? null,
+    middleName: record.middle_name ?? null,
+    lastName: record.last_name ?? null,
+    suffix: record.suffix ?? null,
+    goesBy: record.goes_by ?? null,
+    suffixInFamiliar: record.suffix_in_familiar ?? null,
+  })
+  // Defer the inline name error until a Save attempt, like the standalone editor.
+  const [nameAttempted, setNameAttempted] = useState(false)
   const [email, setEmail] = useState(record.email ?? '')
   const [emailResult, setEmailResult] = useState<ContactFieldResult | null>(null)
   // A staged "no usable email" reason selected in this session; mutually
@@ -1423,11 +1422,14 @@ function UnifiedContactEditor({
   const buildChange = useCallback((): { payload: ContactUpdatePayload; after: ContactSnapshot; before: ContactSnapshot } => {
     const payload: ContactUpdatePayload = {}
 
-    const nf = normalizeNameInput(first).value
-    const nl = normalizeNameInput(last).value
-    const nm = normalizeNameInput(middle).value
-    const nsuf = normalizeNameInput(suffix).value
-    const ngb = normalizeNameInput(goesBy).value
+    // Name — the live, normalized parts from the shared draft. Save-only-changed
+    // per column.
+    const ln = nameApi.liveName
+    const nf = ln.firstName
+    const nl = ln.lastName
+    const nm = ln.middleName
+    const nsuf = ln.suffix
+    const ngb = ln.goesBy
     if ((nf ?? null) !== (record.first_name ?? null)) payload.first_name = nf
     if ((nl ?? null) !== (record.last_name ?? null)) payload.last_name = nl
     if ((nm ?? null) !== (record.middle_name ?? null)) payload.middle_name = nm
@@ -1435,7 +1437,7 @@ function UnifiedContactEditor({
     if ((ngb ?? null) !== (record.goes_by ?? null)) payload.goes_by = ngb
     // The suffix-in-familiar preference. Only meaningful when a suffix will be
     // on file; otherwise there is nothing to show or hide, so don't write it.
-    const nextPref = nsuf ? suffixInFamiliar : (record.suffix_in_familiar ?? null)
+    const nextPref = nsuf ? ln.suffixInFamiliar : (record.suffix_in_familiar ?? null)
     if ((nextPref ?? null) !== (record.suffix_in_familiar ?? null)) {
       payload.suffix_in_familiar = nextPref
     }
@@ -1593,7 +1595,7 @@ function UnifiedContactEditor({
     }
     return { payload, before, after }
   }, [
-    first, last, middle, suffix, goesBy, suffixInFamiliar,
+    nameApi.liveName,
     email, emailReason, phone, doNotText, markUndeliverable,
     street, city, stateVal, zip, emailVerified, phoneVerified, addressVerified,
     alertDraft, dobMonth, dobDay, dobYear, seededDob,
@@ -1626,9 +1628,9 @@ function UnifiedContactEditor({
     }
     const pr = normalizePhoneInput(phone)
     if (pr.status === 'invalid') { setPhoneResult(pr); return }
-    const nf = normalizeNameInput(first)
-    const nl = normalizeNameInput(last)
-    if (nf.status === 'empty' && nl.status === 'empty') { return }
+    // Name: First and Last both required (Other needs a custom suffix). The
+    // shared draft reports validity; block Save and surface the inline errors.
+    if (!nameApi.valid) { setNameAttempted(true); return }
     // Block Save on an invalid DOB, or on a downgrade of a known exact DOB to
     // partial info (same guards the route enforces).
     if (dobResult.status === 'invalid') { return }
@@ -1646,22 +1648,10 @@ function UnifiedContactEditor({
     })
   }
 
-  const nameInvalid =
-    normalizeNameInput(first).status === 'empty' && normalizeNameInput(last).status === 'empty'
-
-  // Live familiar + greeting preview of exactly what Save will persist, via the
-  // centralized person-name presentation rules.
-  const namePreview = presentPersonName(
-    {
-      firstName: normalizeNameInput(first).value,
-      middleName: normalizeNameInput(middle).value,
-      lastName: normalizeNameInput(last).value,
-      suffix: normalizeNameInput(suffix).value,
-      goesBy: normalizeNameInput(goesBy).value,
-      suffixInFamiliar,
-    },
-    '',
-  )
+  // Name validity comes from the shared draft hook (First and Last both
+  // required; Other requires a custom suffix) — the same rule the server
+  // enforces. The inline field errors/preview live inside PersonNameFields.
+  const nameInvalid = !nameApi.valid
 
   const draftSmsDisplay: SmsAvailabilityDisplay = resolveSmsAvailabilityDisplay({
     smsOptOut: doNotText,
@@ -1671,89 +1661,24 @@ function UnifiedContactEditor({
   return (
     <form onSubmit={submit} className="mt-3">
       <div className="divide-y divide-surface-border-strong">
-        {/* Name — every recorded part plus the "Goes by" familiar name and the
-            suffix-in-familiar preference, with a live familiar + greeting
-            preview. Capitalization and multi-word names are preserved; nothing
-            is inferred. */}
+        {/* Name — the ONE shared Person Name field group (First, Middle, Last,
+            Suffix dropdown; Goes by + the suffix-in-familiar checkbox) with its
+            live familiar + greeting preview. Exactly the implementation the
+            standalone editor uses, so there is no duplicated name-field logic.
+            The inline required-field error shows only after a Save attempt. */}
         <div className="py-3 first:pt-0">
           <p className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
             <Pencil className="size-4" aria-hidden /> Name
           </p>
-          <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <div>
-              <label htmlFor="uc-first" className="text-sm font-medium text-ink-secondary">First name</label>
-              <input id="uc-first" type="text" value={first} disabled={busy}
-                onChange={(e) => setFirst(e.target.value)}
-                onBlur={() => setFirst((v) => normalizeNameInput(v).value ?? '')}
-                placeholder="First name" className={cn('mt-1', inputCls(false))} />
-            </div>
-            <div>
-              <label htmlFor="uc-last" className="text-sm font-medium text-ink-secondary">Last name</label>
-              <input id="uc-last" type="text" value={last} disabled={busy}
-                onChange={(e) => setLast(e.target.value)}
-                onBlur={() => setLast((v) => normalizeNameInput(v).value ?? '')}
-                placeholder="Last name" className={cn('mt-1', inputCls(false))} />
-            </div>
-            <div>
-              <label htmlFor="uc-middle" className="text-sm font-medium text-ink-secondary">
-                Middle name <span className="font-normal text-ink-muted">(optional)</span>
-              </label>
-              <input id="uc-middle" type="text" value={middle} disabled={busy}
-                onChange={(e) => setMiddle(e.target.value)}
-                onBlur={() => setMiddle((v) => normalizeNameInput(v).value ?? '')}
-                placeholder="Middle name(s)" className={cn('mt-1', inputCls(false))} />
-            </div>
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <label htmlFor="uc-goesby" className="text-sm font-medium text-ink-secondary">
-                  Goes by <span className="font-normal text-ink-muted">(optional)</span>
-                </label>
-                <input id="uc-goesby" type="text" value={goesBy} disabled={busy}
-                  onChange={(e) => setGoesBy(e.target.value)}
-                  onBlur={() => setGoesBy((v) => normalizeNameInput(v).value ?? '')}
-                  placeholder="e.g. Bob" className={cn('mt-1', inputCls(false))} />
-              </div>
-              <div className="w-20">
-                <label htmlFor="uc-suffix" className="text-sm font-medium text-ink-secondary">Suffix</label>
-                <input id="uc-suffix" type="text" value={suffix} disabled={busy}
-                  onChange={(e) => setSuffix(e.target.value)}
-                  onBlur={() => setSuffix((v) => normalizeNameInput(v).value ?? '')}
-                  placeholder="Jr" className={cn('mt-1', inputCls(false))} />
-              </div>
-            </div>
+          <div className="mt-1.5">
+            <PersonNameFields
+              api={nameApi}
+              busy={busy}
+              idPrefix="uc-name"
+              autoFocus={false}
+              showError={nameAttempted}
+            />
           </div>
-
-          {/* Suffix-in-familiar preference — only meaningful when a suffix is
-              on file. Null preference defaults to include. */}
-          {normalizeNameInput(suffix).status === 'valid' && (
-            <label className="mt-2 flex items-center gap-2 text-base font-medium text-ink-secondary">
-              <input
-                type="checkbox"
-                checked={suffixInFamiliar ?? true}
-                disabled={busy}
-                onChange={(e) => setSuffixInFamiliar(e.target.checked)}
-                className="size-4 rounded border-surface-border-strong text-brand focus:ring-brand-wash"
-              />
-              Include the suffix in the familiar name
-            </label>
-          )}
-
-          {/* Live familiar + greeting preview of exactly what will be saved. */}
-          <div className="mt-2 rounded-lg border border-surface-border bg-surface-muted px-3 py-2">
-            <p className="text-sm font-medium uppercase tracking-wide text-ink-supporting">Preview</p>
-            <p className="mt-0.5 text-lg font-semibold text-ink">
-              {namePreview.familiar || <span className="text-ink-muted">Enter a name</span>}
-            </p>
-            {namePreview.greeting && (
-              <p className="mt-0.5 text-base text-ink-secondary">
-                Greeting: <span className="font-medium text-ink">Hi {namePreview.greeting}</span>
-              </p>
-            )}
-          </div>
-
-          {nameInvalid && (
-            <p className="mt-1.5 text-base text-status-missing-strong">Enter at least a first or last name.</p>
-          )}
         </div>
 
         {/* Date of birth — separate month / day / year; leave unknown parts
@@ -1972,24 +1897,12 @@ function VerifiedToggle({
  */
 function ContactMentoring({
   appearance, name, showMentoring = true,
-  firstName, lastName, nameEditing, nameBusy, onEditName, onCancelName, onSaveName,
 }: {
   appearance: ResolvedAppearance
   name: string
   /** Render the mentoring cap/panel. Default true (the existing behavior). When
    * false, only the name heading renders and no mentoring appears. */
   showMentoring?: boolean
-  /** The stored first/last name backing the inline name editor. */
-  firstName?: string | null
-  lastName?: string | null
-  /** Whether the inline name editor is open, and whether a save is in flight. */
-  nameEditing?: boolean
-  nameBusy?: boolean
-  /** Open / cancel the inline name editor, and save the corrected first/last.
-   * When these are omitted the name heading is read-only, exactly as before. */
-  onEditName?: () => void
-  onCancelName?: () => void
-  onSaveName?: (first: string | null, last: string | null) => void
 }) {
   const body =
     'Changes here update customer information throughout Right Path. Check Verified only when the ' +
@@ -1997,10 +1910,6 @@ function ContactMentoring({
     'response.'
 
   const { open, setOpen } = useMentorDisclosure()
-
-  // The name is editable only when the host wired the save handler (every
-  // on-card call site does). A read-only host keeps today's plain heading.
-  const nameEditable = !!onSaveName
 
   // Presentation-only overrides for the coaching body (size / color); the cap
   // icon itself keeps its standard purple identity. Only applied when a
@@ -2012,19 +1921,8 @@ function ContactMentoring({
       }
     : undefined
 
-  if (nameEditable && nameEditing) {
-    return (
-      <NameEditor
-        appearance={appearance}
-        firstName={firstName ?? null}
-        lastName={lastName ?? null}
-        busy={!!nameBusy}
-        onCancel={() => onCancelName?.()}
-        onSave={(first, last) => onSaveName?.(first, last)}
-      />
-    )
-  }
-
+  // The name is read-only here: it is corrected inside the one unified editor
+  // (the shared Person Name fields). This heading never carries its own editor.
   return (
     <>
       <div className="flex items-center gap-2">
@@ -2037,16 +1935,6 @@ function ContactMentoring({
         {showMentoring && !open && (
           <MentorCapButton onOpen={() => setOpen(true)} label="Show mentoring about these fields" />
         )}
-        {nameEditable && (
-          <button
-            type="button"
-            onClick={() => onEditName?.()}
-            aria-label="Edit customer name"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-2 py-1 text-sm font-medium text-ink-secondary hover:bg-surface-muted"
-          >
-            <Pencil className="size-3.5" aria-hidden /> Edit name
-          </button>
-        )}
       </div>
       {showMentoring && open && (
         <MentorCapPanel className="mt-2" onClose={() => setOpen(false)}>
@@ -2057,129 +1945,19 @@ function ContactMentoring({
   )
 }
 
-/**
- * The inline editor for the customer's first and last name, shown in place of
- * the name heading. Two independent fields; capitalization is preserved exactly
- * as typed (McAndrew, DeLuca) and multiword surnames (La Bar, van der Berg) are
- * kept whole — the shared `normalizeNameInput` only collapses whitespace and
- * trims, it never title-cases or splits. First and last are saved independently;
- * either may be cleared to empty. Save is blocked only when NOTHING would remain
- * (both blank), since a customer must keep at least one name.
- */
-function NameEditor({
-  appearance, firstName, lastName, busy, onCancel, onSave,
-}: {
-  appearance: ResolvedAppearance
-  firstName: string | null
-  lastName: string | null
-  busy: boolean
-  onCancel: () => void
-  onSave: (first: string | null, last: string | null) => void
-}) {
-  const [first, setFirst] = useState(firstName ?? '')
-  const [last, setLast] = useState(lastName ?? '')
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault()
-    // Normalize for storage: collapse internal whitespace and trim, preserving
-    // capitalization exactly as typed. Each field is independent; an empty field
-    // is a valid clear (null).
-    const f = normalizeNameInput(first)
-    const l = normalizeNameInput(last)
-    onSave(f.value, l.value)
-  }
-
-  // At least one name component must remain after normalization.
-  const nothingLeft =
-    normalizeNameInput(first).status === 'empty' && normalizeNameInput(last).status === 'empty'
-
-  return (
-    <form onSubmit={submit} className="py-1">
-      <p className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
-        <Pencil className="size-4" aria-hidden /> Edit name
-      </p>
-      <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <div>
-          <label htmlFor="cc-first-name" className="text-sm font-medium text-ink-secondary">First name</label>
-          <input
-            id="cc-first-name"
-            type="text"
-            autoFocus
-            value={first}
-            disabled={busy}
-            onChange={(e) => setFirst(e.target.value)}
-            onBlur={() => setFirst((v) => normalizeNameInput(v).value ?? '')}
-            placeholder="First name"
-            className={cn('mt-1', inputCls(false))}
-          />
-        </div>
-        <div>
-          <label htmlFor="cc-last-name" className="text-sm font-medium text-ink-secondary">Last name</label>
-          <input
-            id="cc-last-name"
-            type="text"
-            value={last}
-            disabled={busy}
-            onChange={(e) => setLast(e.target.value)}
-            onBlur={() => setLast((v) => normalizeNameInput(v).value ?? '')}
-            placeholder="Last name"
-            className={cn('mt-1', inputCls(false))}
-          />
-        </div>
-      </div>
-      {nothingLeft && (
-        <p className="mt-1.5 text-base text-status-missing-strong">Enter at least a first or last name.</p>
-      )}
-      <div className="mt-2.5">
-        <NameEditActions busy={busy} disabled={nothingLeft} onCancel={onCancel} appearance={appearance} />
-      </div>
-    </form>
-  )
-}
-
-/** Save / Cancel for the name editor. Mirrors `EditActions` but allows the Save
- * button to be disabled independently (when both name fields are blank). */
-function NameEditActions({
-  busy, disabled, onCancel, appearance,
-}: {
-  busy: boolean
-  disabled: boolean
-  onCancel: () => void
-  appearance: ResolvedAppearance
-}) {
-  const style = fontStyle(appearance, appearance.controlFontPx)
-  return (
-    <div className="flex items-center gap-2">
-      <button
-        type="submit"
-        disabled={busy || disabled}
-        style={style}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-base font-semibold text-brand-foreground hover:bg-brand-hover disabled:opacity-50"
-      >
-        {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
-        Save
-      </button>
-      <button
-        type="button"
-        onClick={onCancel}
-        disabled={busy}
-        style={style}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-3 py-1.5 text-base font-medium text-ink-secondary hover:bg-surface-muted disabled:opacity-40"
-      >
-        <X className="size-3.5" aria-hidden /> Cancel
-      </button>
-    </div>
-  )
-}
+/* The legacy inline first/last NameEditor and NameEditActions were removed: the
+   one shared Person Name field group (PersonNameFields / usePersonNameDraft,
+   used by the unified editor and the standalone PersonNameEditor) is now the
+   single name-editing implementation. */
 
 /**
  * A standalone, editable customer-name heading for hosts that render their OWN
  * name heading beside the shared CustomerContactCard (Contact Research, the
  * calling workbench, and other stewardship surfaces that pass `showName={false}`
- * and supply a `header`). It renders the host's existing heading text — with the
- * host's own className/style, so there is NO duplicate heading and the look is
- * unchanged — and adds the same "Edit name" control and inline first/last editor
- * the card heading uses.
+ * and supply a `header`). It renders the familiar name prominently (with the
+ * full recorded name beneath when it differs) via the shared `PersonNameDisplay`
+ * and adds an "Edit name" control that opens the shared `PersonNameEditor` — the
+ * same name UI, validation, and rules the card's unified editor uses.
  *
  * It persists through the SAME shared route the card uses
  * (`PATCH /api/customers/[id]/contact`, `{ field: 'name' }`), so capitalization

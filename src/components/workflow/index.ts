@@ -70,4 +70,9 @@ export {
 export {
   PersonNameDisplay,
   PersonNameEditor,
+  PersonNameFields,
+  usePersonNameDraft,
+  nameFromDraft,
+  type PersonNameDraft,
+  type PersonNameDraftApi,
 } from './PersonName'

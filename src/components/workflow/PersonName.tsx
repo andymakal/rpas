@@ -3,42 +3,53 @@
 /**
  * PersonName — the reusable name surface for Right Path's light-theme workflow
  * UI. One component family for showing and editing a customer's name, so every
- * screen presents and edits names the same way without copying logic.
+ * light-theme screen presents, edits, and validates names the same way without
+ * copying logic.
  *
- * All presentation RULES live in `@/lib/person-name` (familiar / greeting /
- * full-recorded, the suffix-in-familiar preference, normalization that
- * preserves spelling, capitalization, and multi-word names). This file is the
- * UI layer over those rules:
+ * All presentation and validation RULES live in `@/lib/person-name` (familiar /
+ * greeting / full-recorded, the suffix-in-familiar preference, the suffix
+ * dropdown model, and normalization that preserves spelling, capitalization,
+ * accents, and multi-word names). This file is the UI layer:
  *
  *   - `PersonNameDisplay` — the familiar name shown prominently, with the full
  *     recorded name beneath it ONLY when it differs.
- *   - `PersonNameEditor` — compact controls for first, middle, last, suffix,
- *     "Goes by", and the suffix-in-familiar preference, with a live familiar +
- *     greeting preview and Save / Cancel.
+ *   - `PersonNameFields` — the controlled field rows (First, Middle, Last,
+ *     Suffix dropdown; Goes by + the suffix-in-familiar checkbox) plus the live
+ *     familiar + greeting preview. It carries NO Save/Cancel, so it can be
+ *     embedded in a larger form (the contact card's one coordinated save) as
+ *     well as the standalone editor. This is the single implementation of the
+ *     name fields, widths, required indicators, and inline validation.
+ *   - `usePersonNameDraft` — the shared draft state + validation hook that backs
+ *     the fields, so every host validates names identically.
+ *   - `PersonNameEditor` — `PersonNameFields` wrapped with its own Save/Cancel
+ *     for hosts that edit the name on its own.
  *
- * The editor keeps draft state local and hands the host a normalized, validated
- * result on Save; it never persists on its own. Hosts (the Customer Contact
- * card, Contact Research, any stewardship screen) wire Save to their existing
- * save route. Capitalization is preserved, multi-word names stay whole, and
- * nothing is inferred — no nickname guessing, no middle name in a greeting.
+ * Nothing here persists; a host wires Save to its route. Capitalization and
+ * accents are preserved, multi-word names stay whole, and nothing is inferred —
+ * no nickname guessing, no middle name in a greeting.
  */
 
 import { useMemo, useState } from 'react'
-import { Pencil, Check, X, Loader2 } from 'lucide-react'
+import { Check, X, Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   type PersonName,
+  type SuffixSelection,
+  type PersonNameFieldErrors,
+  SUFFIX_OPTIONS,
   presentPersonName,
   familiarName,
   greetingName,
   validatePersonName,
   includeSuffixInFamiliar,
+  suffixSelectionFrom,
+  resolveSuffixSelection,
   normalizeNameInput,
 } from '@/lib/person-name'
 
-// ── Shared input styling (matches the Customer Contact card's inline edit) ───
+// ── Shared field styling (light-theme workflow tokens) ───────────────────────
 
-const nameInputCls = (invalid: boolean) =>
+const fieldInputCls = (invalid: boolean) =>
   cn(
     'w-full rounded-lg border px-3 py-2 text-lg text-ink focus:outline-none focus:ring-2',
     invalid
@@ -46,7 +57,17 @@ const nameInputCls = (invalid: boolean) =>
       : 'border-surface-border-strong focus:border-brand-ring focus:ring-brand-wash',
   )
 
-const labelCls = 'text-sm font-medium text-ink-secondary'
+const labelCls = 'block text-sm font-medium text-ink-secondary'
+
+/** A field label, with a red required asterisk when the field is required. */
+function FieldLabel({ htmlFor, children, required }: { htmlFor: string; children: React.ReactNode; required?: boolean }) {
+  return (
+    <label htmlFor={htmlFor} className={labelCls}>
+      {children}
+      {required && <span className="ml-0.5 text-status-missing-strong" aria-hidden>*</span>}
+    </label>
+  )
+}
 
 // ── Display ──────────────────────────────────────────────────────────────────
 
@@ -54,8 +75,7 @@ const labelCls = 'text-sm font-medium text-ink-secondary'
  * Show a customer's name: the familiar name prominently, and the full recorded
  * name beneath it only when the full name carries something the familiar name
  * does not (a middle name, a suppressed suffix, or a different recorded first
- * name behind a "Goes by"). The greeting name is available via the shared rules
- * for hosts that address the customer directly.
+ * name behind a "Goes by").
  */
 export function PersonNameDisplay({
   name,
@@ -88,50 +108,265 @@ export function PersonNameDisplay({
   )
 }
 
-// ── Editor ───────────────────────────────────────────────────────────────────
+// ── Draft state + validation (shared by the fields and every host) ───────────
 
-/** The draft shape the editor works with (all strings for inputs; the
- * preference as a tri-state via the recorded boolean|null). */
-interface Draft {
+/** The editor's working draft: raw strings for the text fields plus the suffix
+ * dropdown selection and the familiar-suffix preference. */
+export interface PersonNameDraft {
   first: string
   middle: string
   last: string
-  suffix: string
   goesBy: string
+  suffix: SuffixSelection
   /** null = no preference recorded (defaults to include). */
   suffixInFamiliar: boolean | null
 }
 
-function draftFrom(name: PersonName): Draft {
+function draftFromName(name: PersonName): PersonNameDraft {
   return {
     first: name.firstName ?? '',
     middle: name.middleName ?? '',
     last: name.lastName ?? '',
-    suffix: name.suffix ?? '',
     goesBy: name.goesBy ?? '',
+    suffix: suffixSelectionFrom(name.suffix),
     suffixInFamiliar: name.suffixInFamiliar,
   }
 }
 
-/** Build a live PersonName from the current draft, for the preview and for the
- * save payload (the preview must reflect exactly what will be saved). */
-function nameFromDraft(d: Draft): PersonName {
+/** Build the live PersonName from a draft (what the preview shows and what Save
+ * persists — they must match). */
+export function nameFromDraft(d: PersonNameDraft): PersonName {
   return {
     firstName: normalizeNameInput(d.first).value,
     middleName: normalizeNameInput(d.middle).value,
     lastName: normalizeNameInput(d.last).value,
-    suffix: normalizeNameInput(d.suffix).value,
     goesBy: normalizeNameInput(d.goesBy).value,
+    suffix: resolveSuffixSelection(d.suffix),
     suffixInFamiliar: d.suffixInFamiliar,
   }
 }
 
+/** True when the draft's suffix dropdown is on "Other" with blank custom text. */
+function suffixOtherBlank(d: PersonNameDraft): boolean {
+  return d.suffix.option === 'Other' && normalizeNameInput(d.suffix.custom).status === 'empty'
+}
+
+/** Whether the draft has a suffix that will appear (so the familiar-suffix
+ * preference is meaningful). */
+function draftHasSuffix(d: PersonNameDraft): boolean {
+  return resolveSuffixSelection(d.suffix) != null
+}
+
+export interface PersonNameDraftApi {
+  draft: PersonNameDraft
+  setField: <K extends keyof PersonNameDraft>(key: K, value: PersonNameDraft[K]) => void
+  /** Normalize a text field on blur (collapse whitespace, trim; caps kept). */
+  blurNormalize: (key: 'first' | 'middle' | 'last' | 'goesBy') => void
+  /** The live name the draft resolves to (preview + save payload). */
+  liveName: PersonName
+  /** Whether a suffix is present (preference checkbox shown only then). */
+  hasSuffix: boolean
+  /** Whether the suffix should appear in the familiar name (resolved default). */
+  suffixInFamiliar: boolean
+  /** Validity of the current draft. */
+  valid: boolean
+  reason: string | null
+  fieldErrors: PersonNameFieldErrors
+  /** The normalized, validated name, or null when invalid. */
+  resolve: () => PersonName | null
+}
+
+/** The shared draft + validation hook. Every host (standalone editor, contact
+ * card) drives `PersonNameFields` through this, so validation and resolution
+ * are identical everywhere. */
+export function usePersonNameDraft(name: PersonName): PersonNameDraftApi {
+  const [draft, setDraft] = useState<PersonNameDraft>(() => draftFromName(name))
+
+  const setField = <K extends keyof PersonNameDraft>(key: K, value: PersonNameDraft[K]) =>
+    setDraft((d) => ({ ...d, [key]: value }))
+  const blurNormalize = (key: 'first' | 'middle' | 'last' | 'goesBy') =>
+    setDraft((d) => ({ ...d, [key]: normalizeNameInput(d[key]).value ?? '' }))
+
+  const liveName = useMemo(() => nameFromDraft(draft), [draft])
+  const validation = useMemo(
+    () =>
+      validatePersonName({
+        firstName: draft.first,
+        middleName: draft.middle,
+        lastName: draft.last,
+        goesBy: draft.goesBy,
+        suffix: resolveSuffixSelection(draft.suffix),
+        suffixInFamiliar: draft.suffixInFamiliar,
+        suffixOtherBlank: suffixOtherBlank(draft),
+      }),
+    [draft],
+  )
+
+  return {
+    draft,
+    setField,
+    blurNormalize,
+    liveName,
+    hasSuffix: draftHasSuffix(draft),
+    suffixInFamiliar: includeSuffixInFamiliar(liveName),
+    valid: validation.status === 'valid',
+    reason: validation.status === 'invalid' ? validation.reason : null,
+    fieldErrors: validation.status === 'invalid' ? validation.fieldErrors : {},
+    resolve: () => (validation.status === 'valid' ? { ...validation.value } : null),
+  }
+}
+
+// ── Fields (headless of Save/Cancel; embeddable) ─────────────────────────────
+
 /**
- * Compact editor for every name part plus the suffix-in-familiar preference,
- * with a live familiar + greeting preview. On Save it validates and normalizes
- * via the shared rules (at least a first or last name required; capitalization
- * and multi-word names preserved) and hands the host the normalized parts; it
- * does not persist. Cancel discards the draft.
+ * The controlled name fields plus the live familiar + greeting preview. It owns
+ * the layout (First, Middle, Last, Suffix on the first row; Goes by + the
+ * suffix-in-familiar checkbox on the second), the required asterisks, the
+ * practical field widths, and the inline required-field error — but NO buttons,
+ * so it embeds inside a larger coordinated form as well as the standalone
+ * editor. All state and validity come from `usePersonNameDraft`.
+ *
+ * `idPrefix` keeps input ids unique when more than one instance renders on a
+ * page. `showError` lets the host defer the inline message until a save attempt
+ * (the contact card shows it only after Save is pressed).
+ */
+export function PersonNameFields({
+  api,
+  busy = false,
+  idPrefix = 'pn',
+  showError = true,
+  autoFocus = true,
+}: {
+  api: PersonNameDraftApi
+  busy?: boolean
+  idPrefix?: string
+  showError?: boolean
+  autoFocus?: boolean
+}) {
+  const { draft, setField, blurNormalize, liveName, hasSuffix, suffixInFamiliar, reason, fieldErrors } = api
+  const id = (s: string) => `${idPrefix}-${s}`
+  const familiar = familiarName(liveName)
+  const greeting = greetingName(liveName)
+
+  return (
+    <div>
+      {/* Row 1: First, Middle, Last, Suffix. First and Last get the most room;
+          Middle and Suffix are narrower. Wraps gracefully on small widths. */}
+      <div className="flex flex-wrap gap-2">
+        <div className="min-w-[8rem] flex-[3]">
+          <FieldLabel htmlFor={id('first')} required>First</FieldLabel>
+          <input
+            id={id('first')} type="text" autoFocus={autoFocus} value={draft.first} disabled={busy}
+            onChange={(e) => setField('first', e.target.value)}
+            onBlur={() => blurNormalize('first')}
+            aria-invalid={fieldErrors.firstName || undefined}
+            className={cn('mt-1', fieldInputCls(!!fieldErrors.firstName))}
+          />
+        </div>
+        <div className="min-w-[5rem] flex-[2]">
+          <FieldLabel htmlFor={id('middle')}>Middle</FieldLabel>
+          <input
+            id={id('middle')} type="text" value={draft.middle} disabled={busy}
+            onChange={(e) => setField('middle', e.target.value)}
+            onBlur={() => blurNormalize('middle')}
+            className={cn('mt-1', fieldInputCls(false))}
+          />
+        </div>
+        <div className="min-w-[8rem] flex-[3]">
+          <FieldLabel htmlFor={id('last')} required>Last</FieldLabel>
+          <input
+            id={id('last')} type="text" value={draft.last} disabled={busy}
+            onChange={(e) => setField('last', e.target.value)}
+            onBlur={() => blurNormalize('last')}
+            aria-invalid={fieldErrors.lastName || undefined}
+            className={cn('mt-1', fieldInputCls(!!fieldErrors.lastName))}
+          />
+        </div>
+        <div className="min-w-[6rem] flex-[2]">
+          <FieldLabel htmlFor={id('suffix')}>Suffix</FieldLabel>
+          <select
+            id={id('suffix')}
+            value={draft.suffix.option}
+            disabled={busy}
+            onChange={(e) => setField('suffix', { ...draft.suffix, option: e.target.value as SuffixSelection['option'] })}
+            className={cn('mt-1', fieldInputCls(false), 'bg-surface-card')}
+          >
+            {SUFFIX_OPTIONS.map((opt) => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* The custom-suffix field, revealed only when the dropdown is "Other". */}
+      {draft.suffix.option === 'Other' && (
+        <div className="mt-2 max-w-[12rem]">
+          <FieldLabel htmlFor={id('suffix-custom')} required>Suffix</FieldLabel>
+          <input
+            id={id('suffix-custom')} type="text" autoFocus value={draft.suffix.custom} disabled={busy}
+            onChange={(e) => setField('suffix', { ...draft.suffix, custom: e.target.value })}
+            onBlur={() => setField('suffix', { ...draft.suffix, custom: normalizeNameInput(draft.suffix.custom).value ?? '' })}
+            placeholder="Custom suffix"
+            aria-invalid={fieldErrors.suffix || undefined}
+            className={cn('mt-1', fieldInputCls(!!fieldErrors.suffix))}
+          />
+        </div>
+      )}
+
+      {/* Row 2: Goes by + the suffix-in-familiar checkbox (checkbox only when a
+          suffix exists). */}
+      <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-2">
+        <div className="min-w-[10rem] flex-[2]">
+          <FieldLabel htmlFor={id('goesby')}>Goes by</FieldLabel>
+          <input
+            id={id('goesby')} type="text" value={draft.goesBy} disabled={busy}
+            onChange={(e) => setField('goesBy', e.target.value)}
+            onBlur={() => blurNormalize('goesBy')}
+            className={cn('mt-1', fieldInputCls(false))}
+          />
+        </div>
+        {hasSuffix && (
+          <label className="flex min-h-[2.75rem] flex-1 items-center gap-2 text-base font-medium text-ink-secondary">
+            <input
+              type="checkbox"
+              checked={suffixInFamiliar}
+              disabled={busy}
+              onChange={(e) => setField('suffixInFamiliar', e.target.checked)}
+              className="size-4 rounded border-surface-border-strong text-brand focus:ring-brand-wash"
+            />
+            Use suffix in familiar name
+          </label>
+        )}
+      </div>
+
+      {/* Compact live familiar + greeting preview of exactly what Save persists. */}
+      <div className="mt-2.5 rounded-lg border border-surface-border bg-surface-muted px-3 py-2">
+        <p className="text-sm font-medium uppercase tracking-wide text-ink-supporting">Preview</p>
+        <p className="mt-0.5 text-lg font-semibold text-ink">
+          {familiar || <span className="text-ink-muted">Enter a name</span>}
+        </p>
+        {greeting && (
+          <p className="mt-0.5 text-base text-ink-secondary">
+            Greeting: <span className="font-medium text-ink">Hi {greeting}</span>
+          </p>
+        )}
+      </div>
+
+      {showError && reason && (
+        <p className="mt-1.5 text-base text-status-missing-strong">{reason}</p>
+      )}
+    </div>
+  )
+}
+
+// ── Standalone editor (fields + Save / Cancel) ───────────────────────────────
+
+/**
+ * The standalone name editor: the shared fields with their own Save / Cancel.
+ * On Save it validates via the shared hook and hands the host the normalized
+ * parts; it does not persist. Used where the name is edited on its own (the
+ * Customer Contact name heading). Hosts that edit the name inside a larger form
+ * embed `PersonNameFields` with `usePersonNameDraft` directly instead.
  */
 export function PersonNameEditor({
   name,
@@ -148,131 +383,29 @@ export function PersonNameEditor({
   /** Receives the normalized, validated parts. The host persists them. */
   onSave: (value: PersonName) => void
 }) {
-  const [draft, setDraft] = useState<Draft>(() => draftFrom(name))
-
-  const set = <K extends keyof Draft>(key: K, value: Draft[K]) =>
-    setDraft((d) => ({ ...d, [key]: value }))
-  const blurNormalize = (key: 'first' | 'middle' | 'last' | 'suffix' | 'goesBy') =>
-    setDraft((d) => ({ ...d, [key]: normalizeNameInput(d[key]).value ?? '' }))
-
-  // The live preview reflects exactly what will be saved.
-  const previewName = useMemo(() => nameFromDraft(draft), [draft])
-  const familiar = familiarName(previewName)
-  const greeting = greetingName(previewName)
-
-  // Validity: at least a first or last name after normalization.
-  const validation = validatePersonName({
-    firstName: draft.first,
-    lastName: draft.last,
-  })
-  const invalid = validation.status === 'invalid'
-
-  const hasSuffix = normalizeNameInput(draft.suffix).status === 'valid'
-  const suffixShown = includeSuffixInFamiliar(previewName)
+  const api = usePersonNameDraft(name)
+  const [attempted, setAttempted] = useState(false)
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
-    const result = validatePersonName(draft)
-    if (result.status === 'invalid') return
-    onSave({ ...result.value })
+    setAttempted(true)
+    const resolved = api.resolve()
+    if (resolved) onSave(resolved)
   }
 
   return (
     <form onSubmit={submit} className="py-1">
-      <p className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
-        <Pencil className="size-4" aria-hidden /> Edit name
-      </p>
-
-      <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <div>
-          <label htmlFor="pn-first" className={labelCls}>First name</label>
-          <input
-            id="pn-first" type="text" autoFocus value={draft.first} disabled={busy}
-            onChange={(e) => set('first', e.target.value)}
-            onBlur={() => blurNormalize('first')}
-            placeholder="First name" className={cn('mt-1', nameInputCls(false))}
-          />
-        </div>
-        <div>
-          <label htmlFor="pn-last" className={labelCls}>Last name</label>
-          <input
-            id="pn-last" type="text" value={draft.last} disabled={busy}
-            onChange={(e) => set('last', e.target.value)}
-            onBlur={() => blurNormalize('last')}
-            placeholder="Last name" className={cn('mt-1', nameInputCls(false))}
-          />
-        </div>
-        <div>
-          <label htmlFor="pn-middle" className={labelCls}>
-            Middle name <span className="font-normal text-ink-muted">(optional)</span>
-          </label>
-          <input
-            id="pn-middle" type="text" value={draft.middle} disabled={busy}
-            onChange={(e) => set('middle', e.target.value)}
-            onBlur={() => blurNormalize('middle')}
-            placeholder="Middle name(s)" className={cn('mt-1', nameInputCls(false))}
-          />
-        </div>
-        <div className="flex gap-2">
-          <div className="flex-1">
-            <label htmlFor="pn-goesby" className={labelCls}>
-              Goes by <span className="font-normal text-ink-muted">(optional)</span>
-            </label>
-            <input
-              id="pn-goesby" type="text" value={draft.goesBy} disabled={busy}
-              onChange={(e) => set('goesBy', e.target.value)}
-              onBlur={() => blurNormalize('goesBy')}
-              placeholder="e.g. Bob" className={cn('mt-1', nameInputCls(false))}
-            />
-          </div>
-          <div className="w-24">
-            <label htmlFor="pn-suffix" className={labelCls}>Suffix</label>
-            <input
-              id="pn-suffix" type="text" value={draft.suffix} disabled={busy}
-              onChange={(e) => set('suffix', e.target.value)}
-              onBlur={() => blurNormalize('suffix')}
-              placeholder="Jr" className={cn('mt-1', nameInputCls(false))}
-            />
-          </div>
-        </div>
+      <p className="text-base font-semibold text-ink-secondary">Edit name</p>
+      <div className="mt-1.5">
+        <PersonNameFields api={api} busy={busy} showError={attempted} />
       </div>
 
-      {/* Suffix-in-familiar preference — only meaningful when a suffix exists. */}
-      {hasSuffix && (
-        <label className="mt-2 flex items-center gap-2 text-base font-medium text-ink-secondary">
-          <input
-            type="checkbox"
-            checked={suffixShown}
-            disabled={busy}
-            onChange={(e) => set('suffixInFamiliar', e.target.checked)}
-            className="size-4 rounded border-surface-border-strong text-brand focus:ring-brand-wash"
-          />
-          Include the suffix in the familiar name
-        </label>
-      )}
-
-      {/* Live preview of exactly what will be saved. */}
-      <div className="mt-2.5 rounded-lg border border-surface-border bg-surface-muted px-3 py-2">
-        <p className="text-sm font-medium uppercase tracking-wide text-ink-supporting">Preview</p>
-        <p className="mt-0.5 text-lg font-semibold text-ink">
-          {familiar || <span className="text-ink-muted">Enter a name</span>}
-        </p>
-        {greeting && (
-          <p className="mt-0.5 text-base text-ink-secondary">
-            Greeting: <span className="font-medium text-ink">Hi {greeting}</span>
-          </p>
-        )}
-      </div>
-
-      {invalid && (
-        <p className="mt-1.5 text-base text-status-missing-strong">{validation.reason}</p>
-      )}
       {error && <p className="mt-1.5 text-base text-status-missing-strong">{error}</p>}
 
       <div className="mt-2.5 flex items-center gap-2">
         <button
           type="submit"
-          disabled={busy || invalid}
+          disabled={busy}
           className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-base font-semibold text-brand-foreground hover:bg-brand-hover disabled:opacity-50"
         >
           {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />}

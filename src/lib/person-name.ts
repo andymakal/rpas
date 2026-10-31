@@ -83,6 +83,48 @@ export function toPersonName(raw: {
   }
 }
 
+// ── Suffix options (dropdown model) ──────────────────────────────────────────
+
+/** The fixed generational-suffix choices offered in the editor dropdown.
+ * `None` means no suffix; `Other` reveals a free-text field for an unusual
+ * suffix the list does not cover. The stored value is always the plain suffix
+ * string (e.g. "Jr.", or the custom text), never the sentinel. */
+export const SUFFIX_OPTIONS = ['None', 'Jr.', 'Sr.', 'II', 'III', 'IV', 'V', 'Other'] as const
+export type SuffixOption = (typeof SUFFIX_OPTIONS)[number]
+
+/** The non-"Other" suffixes that map directly to a stored value. */
+const KNOWN_SUFFIXES: readonly string[] = ['Jr.', 'Sr.', 'II', 'III', 'IV', 'V']
+
+/** The editor's suffix selection, split into the dropdown choice and (when the
+ * choice is `Other`) the custom text. This is the editor's working state; the
+ * stored `PersonName.suffix` is resolved from it via `resolveSuffixSelection`. */
+export interface SuffixSelection {
+  option: SuffixOption
+  /** The custom suffix text, meaningful only when `option` is `Other`. */
+  custom: string
+}
+
+/** Derive the dropdown selection from a stored suffix string. A known suffix
+ * selects its option; any other non-empty value is `Other` with the value as
+ * the custom text; empty/null is `None`. Matching is done on the trimmed value
+ * so "jr." or " Jr. " still maps to the Jr. option. */
+export function suffixSelectionFrom(suffix: string | null | undefined): SuffixSelection {
+  const trimmed = (suffix ?? '').trim()
+  if (!trimmed) return { option: 'None', custom: '' }
+  const match = KNOWN_SUFFIXES.find((s) => s.toLowerCase() === trimmed.toLowerCase())
+  if (match) return { option: match as SuffixOption, custom: '' }
+  return { option: 'Other', custom: trimmed }
+}
+
+/** Resolve a dropdown selection to the stored suffix string (or null for None).
+ * `Other` uses the normalized custom text; an `Other` with blank custom text
+ * resolves to null here (validation reports that as an error separately). */
+export function resolveSuffixSelection(sel: SuffixSelection): string | null {
+  if (sel.option === 'None') return null
+  if (sel.option === 'Other') return normalizeNameInput(sel.custom).value
+  return sel.option
+}
+
 // ── Preference ───────────────────────────────────────────────────────────────
 
 /**
@@ -196,14 +238,26 @@ export interface NormalizedPersonName {
 
 export type PersonNameValidation =
   | { status: 'valid'; value: NormalizedPersonName }
-  | { status: 'invalid'; reason: string }
+  | { status: 'invalid'; reason: string; fieldErrors: PersonNameFieldErrors }
+
+/** A field-level validity map so the editor can mark exactly which required
+ * field is blank. Each flag is true when that field FAILS its required check. */
+export interface PersonNameFieldErrors {
+  firstName?: boolean
+  lastName?: boolean
+  /** Other was chosen but the custom suffix is blank. */
+  suffix?: boolean
+}
 
 /**
- * Validate and normalize raw name input for saving. The one rule mirrors the
- * existing contact standard: a customer must keep at least one of first or
- * last name after normalization — everything else (middle, suffix, goes-by) is
- * optional and may be cleared. Capitalization and multi-word names are
- * preserved; nothing is inferred.
+ * Validate and normalize raw name input for saving. The required rules:
+ *   - First and Last are BOTH required and cannot be blank or whitespace-only.
+ *   - Middle, Suffix, and Goes by are optional and may be cleared.
+ *   - A suffix of "Other" (passed as `suffixOtherBlank`) requires nonblank
+ *     custom text.
+ * Capitalization, accents, and multi-word names are preserved; nothing is
+ * inferred. On failure it returns the first reason plus a per-field error map
+ * so the editor can mark each offending field.
  */
 export function validatePersonName(raw: {
   firstName?: string | null
@@ -212,12 +266,30 @@ export function validatePersonName(raw: {
   suffix?: string | null
   goesBy?: string | null
   suffixInFamiliar?: boolean | null
+  /** True when the suffix dropdown is on "Other" with blank custom text. */
+  suffixOtherBlank?: boolean
 }): PersonNameValidation {
   const first = normalizeNameInput(raw.firstName)
   const last = normalizeNameInput(raw.lastName)
-  if (first.status === 'empty' && last.status === 'empty') {
-    return { status: 'invalid', reason: 'Enter at least a first or last name.' }
+
+  const fieldErrors: PersonNameFieldErrors = {}
+  if (first.status === 'empty') fieldErrors.firstName = true
+  if (last.status === 'empty') fieldErrors.lastName = true
+  if (raw.suffixOtherBlank) fieldErrors.suffix = true
+
+  if (fieldErrors.firstName || fieldErrors.lastName) {
+    const reason =
+      fieldErrors.firstName && fieldErrors.lastName
+        ? 'First and last name are required.'
+        : fieldErrors.firstName
+          ? 'First name is required.'
+          : 'Last name is required.'
+    return { status: 'invalid', reason, fieldErrors }
   }
+  if (fieldErrors.suffix) {
+    return { status: 'invalid', reason: 'Enter the suffix, or choose None.', fieldErrors }
+  }
+
   return {
     status: 'valid',
     value: {
