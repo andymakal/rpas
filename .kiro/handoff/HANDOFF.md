@@ -56,21 +56,44 @@ consumes all three via their headless Fields + draft hooks; the card-local
 the bold Lego style, and the editor section divider is the darker
 `divide-surface-border-section` token.
 
-## What remains (NOT field Legos)
+## What remains (OPTIONAL — Option B, non-field parts)
 
-The five FIELD Legos are done. The remaining decomposition work is OPTIONAL
-(Option B): the card's non-field parts could also become their own components if
-they prove reusable elsewhere. A reusability analysis of those parts (the
-identity header `CustomerNameHeading`, the `VerifiedToggle` primitive now living
-only inside the Legos, the status primitives `OverviewRow` / `ContactStatusKey` /
-`STATUS_META` / `toneFor`, and the `ContactMentoring` block) determines which are
-genuinely reusable vs card-specific. The card-level orchestration (self-contained
-fetch/PATCH, collapsed/expanded state machine, `buildChange` minimal-diff +
-history preview, the card-wide `appearance` system) stays in the card and should
-NOT become field Legos. Deploy each change to the development preview only
-(never production) via the delivery workflow in AGENTS.md /
-`.kiro/steering/delivery-workflow.md` (`vercel deploy` + alias `bobdev` +
-`vercel inspect`).
+The five FIELD Legos are done and shipped. The remaining work is OPTIONAL: pull
+the card's non-field parts into their own components IF they prove reusable
+elsewhere. A reusability analysis was completed (owner agreed to do A now, then
+analyze B); its conclusions, which drive the recommended order:
+
+- **Identity header** (`CustomerNameHeading` → name + age + masked-DOB subline):
+  genuinely reusable (customer record page, stewardship/My Work task banners,
+  case/project detail all hand-build a weaker version). Extract the PRESENTATION
+  half as `CustomerIdentityHeader` (composing `PersonNameDisplay` + the new
+  `DobDisplay` + age formatting) and leave name-editing as an optional wrapper.
+  Trigger: the first second screen that needs it — do not do it speculatively.
+- **Status vocabulary** (`STATUS_META` + `toneFor`): reusable; the most
+  design-system-shaped piece. Extract into the workflow design system so
+  confirmed/known/missing means the same everywhere, when a second surface shows
+  that status. Low risk (pure data + one pure fn).
+- **`VerifiedToggle`**: already effectively shared — verified now lives inside
+  each field Lego (per-field "can this be verified?" rule). The card-local copy
+  was deleted. No standalone component needed unless a 4th field wants it.
+- **`OverviewRow` / `ContactStatusKey`**: card-specific collapsed-view layout.
+  Keep in the card; let them consume the shared status vocabulary once it moves.
+- **`ContactMentoring`**: the mechanism is already shared (`MentorUi`); only the
+  card-specific coaching copy lives here. Keep it, and keep it distinct from the
+  Assistant (steering).
+
+Recommended order if B is pursued: (1) `STATUS_META` + `toneFor` into the design
+system; (2) `CustomerIdentityHeader` when a second screen needs it; (3) leave the
+rest until a concrete second caller exists.
+
+The card-level ORCHESTRATION stays in the card and must NOT become a field Lego:
+self-contained fetch/PATCH + age/DOB preservation, the collapsed/expanded state
+machine, `buildChange` minimal-diff + the single history-entry preview, and the
+card-wide `appearance` (Design Playground) system.
+
+Deploy each change to the development preview only (never production) via the
+delivery workflow in AGENTS.md / `.kiro/steering/delivery-workflow.md`
+(`vercel deploy` + alias `bobdev` + `vercel inspect`).
 
 ## The Name pattern to copy (the reference Lego)
 
