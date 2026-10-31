@@ -59,7 +59,7 @@ export function GatewayLookup({
 
   return (
     <div className="space-y-2 rounded-xl border border-surface-border bg-surface-muted/40 p-4">
-      <p className="text-base font-semibold text-ink-secondary">Search Gateway</p>
+      <p className="text-xl font-bold leading-tight tracking-tight text-brand">Search Gateway</p>
       <p className="text-sm text-ink-supporting">
         Select Other locations, then search by last name and policy number.
       </p>

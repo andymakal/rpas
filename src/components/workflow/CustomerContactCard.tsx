@@ -980,7 +980,7 @@ function SelfContainedContactCard({
           suffix={record.suffix ?? null}
           goesBy={record.goes_by ?? null}
           suffixInFamiliar={record.suffix_in_familiar ?? null}
-          className="text-[33px] font-bold leading-tight tracking-tight text-brand"
+          className="text-[26px] font-bold leading-tight tracking-tight text-brand"
           // Name is corrected inside the one unified editor now, so the heading
           // never shows its own Edit name control (expanded=false hides it).
           expanded={false}
@@ -1665,17 +1665,22 @@ function UnifiedContactEditor({
             Suffix dropdown; Goes by + the suffix-in-familiar checkbox) with its
             compact live familiar + greeting preview. Exactly the implementation
             the standalone editor uses, so there is no duplicated name-field
-            logic. No redundant "Name" header here: the card is already in edit
-            mode and the fields are self-evidently the name. The inline
-            required-field error shows only after a Save attempt. */}
+            logic. A bold section heading (matching the other sections) marks
+            Name as its own section; the inline required-field error shows only
+            after a Save attempt. */}
         <div className="py-3 first:pt-0">
-          <PersonNameFields
-            api={nameApi}
-            busy={busy}
-            idPrefix="uc-name"
-            autoFocus={false}
-            showError={nameAttempted}
-          />
+          <p className="flex items-center gap-1.5 text-base font-bold text-ink">
+            <Pencil className="size-4" aria-hidden /> Name
+          </p>
+          <div className="mt-1.5">
+            <PersonNameFields
+              api={nameApi}
+              busy={busy}
+              idPrefix="uc-name"
+              autoFocus={false}
+              showError={nameAttempted}
+            />
+          </div>
         </div>
 
         {/* Date of birth — separate month / day / year; leave unknown parts

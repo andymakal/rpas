@@ -51,13 +51,13 @@ import {
 
 const fieldInputCls = (invalid: boolean) =>
   cn(
-    'w-full rounded-lg border px-3 py-2 text-lg text-ink focus:outline-none focus:ring-2',
+    'w-full rounded-lg border px-2.5 py-1.5 text-base text-ink focus:outline-none focus:ring-2',
     invalid
       ? 'border-status-missing-border focus:border-status-missing-border focus:ring-status-missing-soft'
       : 'border-surface-border-strong focus:border-brand-ring focus:ring-brand-wash',
   )
 
-const labelCls = 'block text-sm font-medium text-ink-secondary'
+const labelCls = 'block text-xs font-medium text-ink-secondary'
 
 /** A field label, with a red required asterisk when the field is required. */
 function FieldLabel({ htmlFor, children, required }: { htmlFor: string; children: React.ReactNode; required?: boolean }) {
@@ -324,7 +324,7 @@ export function PersonNameFields({
           </div>
         )}
         {hasSuffix && (
-          <label className="flex min-h-[2.5rem] items-center gap-2 text-base font-medium text-ink-secondary">
+          <label className="flex min-h-[2.25rem] items-center gap-2 text-sm font-medium text-ink-secondary">
             <input
               type="checkbox"
               checked={suffixInFamiliar}
@@ -339,7 +339,7 @@ export function PersonNameFields({
 
       {/* Compact single-line live preview of exactly what Save persists:
           the familiar name, with the greeting appended inline. */}
-      <p className="mt-1.5 text-base">
+      <p className="mt-1.5 text-sm">
         <span className="font-medium uppercase tracking-wide text-ink-supporting">Preview </span>
         {familiar
           ? <span className="font-semibold text-ink">{familiar}</span>
@@ -350,7 +350,7 @@ export function PersonNameFields({
       </p>
 
       {showError && reason && (
-        <p className="mt-1 text-base text-status-missing-strong">{reason}</p>
+        <p className="mt-1 text-sm text-status-missing-strong">{reason}</p>
       )}
     </div>
   )
