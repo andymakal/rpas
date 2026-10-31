@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { createClient } from '@/lib/supabase/server'
-import { interpretSourceDob, mergeImportDobIntoCustomer } from '@/lib/stewardship/dob'
+import { requireInternalAdmin } from '@/lib/stewardship/auth'
+import {
+  interpretSourceDob,
+  mergeImportDobIntoCustomer,
+  reconcileSourceDobs,
+  type SourceDob,
+} from '@/lib/stewardship/dob'
 
 /**
  * POST /api/admin/policy-import
@@ -56,12 +61,12 @@ type PolicyRow = {
 
 export async function POST(req: NextRequest) {
   // This route is excluded from the proxy matcher (large request bodies), so it
-  // must verify the logged-in internal user itself before any service-role work.
-  const sessionClient = await createClient()
-  const { data: { user }, error: authError } = await sessionClient.auth.getUser()
-  if (authError || !user) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  // must authorize the caller itself before any service-role work. It imports
+  // policies AND writes authoritative customer DOBs, so being merely signed in
+  // is not enough — require an INTERNAL ADMIN (no agency mapping), the same gate
+  // the other stewardship write routes use. Agency/portal users are rejected.
+  const auth = await requireInternalAdmin()
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   let body: {
     policies:          PolicyRow[]
@@ -128,16 +133,21 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // ── Preserve the owner's COMPLETE DOB on the owner's CUSTOMER record ─────────
-  // owner_dob_approx on the policy is day-less by design, so an exact owner DOB
-  // would otherwise lose its day whenever the insured is a different person.
-  // Here we carry the owner's full DOB to the single source of truth — the
-  // owner's customer — by a compatible, non-destructive merge: a customer is
-  // enriched only when the import adds compatible precision, and a contradiction
-  // or an existing more-reliable value is never overwritten. The insured columns
-  // are untouched, so owner and insured stay distinct. This runs over EVERY
-  // parsed policy (new or already on file), since the owner's DOB is the owner's
-  // regardless of whether the policy row itself was inserted.
+  // ── Preserve the owner's COMPLETE DOB as source EVIDENCE ────────────────────
+  // owner_dob_approx on the policy is day-less by design (PHI), and an owner is
+  // not always reliably linked to a customer. So the complete owner DOB the
+  // source stated is first preserved as EVIDENCE keyed to the policy (source
+  // document) — never discarded, never a second authoritative DOB. This runs
+  // for EVERY parsed policy that carries a usable owner DOB, linked or not.
+  const ownerDobEvidence = await recordOwnerDobEvidence(supabase, policies, file_name)
+
+  // ── Enrich the AUTHORITATIVE customer DOB — only on a confident match ────────
+  // The owner's complete DOB is merged into the owner's customer (the single
+  // source of truth) ONLY when the owner's identity is sufficiently established
+  // (it resolves to exactly one existing customer) and the import carries no
+  // conflicting owner DOB for that identity. A compatible merge adds precision
+  // but never overwrites a contradictory or more-reliable existing value, and
+  // the insured columns are untouched, so owner and insured stay distinct.
   const ownerDobEnriched = await enrichOwnerCustomerDobs(supabase, policies)
 
   return NextResponse.json({
@@ -145,6 +155,7 @@ export async function POST(req: NextRequest) {
     total_parsed:      policies.length,
     inserted:          insertedCount,
     already_on_file:   onFile.length,
+    owner_dob_evidence: ownerDobEvidence,
     owner_dob_enriched: ownerDobEnriched,
     skipped_annuities,
     skipped_no_id,
@@ -172,10 +183,13 @@ async function enrichOwnerCustomerDobs(
   supabase: AdminClient,
   policies: PolicyRow[],
 ): Promise<number> {
-  // Distinct owners that actually carry a usable DOB, keyed by
-  // firstName|lastName|birthYear (the same 3-factor identity the contact dedup
-  // uses). A duplicate key across policies collapses to one owner.
-  const owners = new Map<string, { raw: string }>()
+  // Collect, per owner identity (firstName|lastName|birthYear — the 3-factor
+  // identity the contact dedup uses), every DOB the import stated for that
+  // owner. We then reconcile them: compatible values (one adds a month or day
+  // the other lacked) fold into the most complete agreed DOB; genuinely
+  // DISAGREEING values (a different month or day) are a conflict we refuse to
+  // resolve, rather than arbitrarily picking one.
+  const ownerSources = new Map<string, SourceDob[]>()
   for (const p of policies) {
     const first = (p._owner_first_name ?? '').trim().toLowerCase().split(/\s+/)[0]
     const last  = (p._owner_last_name ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
@@ -183,7 +197,19 @@ async function enrichOwnerCustomerDobs(
     if (!first || !last || !raw) continue
     const src = interpretSourceDob(raw)
     if (src.year == null) continue
-    owners.set(`${first}|${last}|${src.year}`, { raw })
+    const key = `${first}|${last}|${src.year}`
+    const list = ownerSources.get(key) ?? []
+    list.push(src)
+    ownerSources.set(key, list)
+  }
+  // Keep only identities whose sources AGREE, carrying the reconciled (most
+  // complete compatible) owner DOB. A conflict is skipped entirely.
+  const owners = new Map<string, { dob: SourceDob }>()
+  for (const [key, sources] of ownerSources) {
+    const reconciled = reconcileSourceDobs(sources)
+    if (reconciled.status === 'agreed' && reconciled.dob.year != null) {
+      owners.set(key, { dob: reconciled.dob })
+    }
   }
   if (owners.size === 0) return 0
 
@@ -221,7 +247,7 @@ async function enrichOwnerCustomerDobs(
     const cust = byId.get(id)
     if (!cust) continue
     const merged = mergeImportDobIntoCustomer(
-      cust.date_of_birth, cust.date_of_birth_approx, interpretSourceDob(owner.raw),
+      cust.date_of_birth, cust.date_of_birth_approx, owner.dob,
     )
     if (!merged) continue // no compatible precision to add; never overwrite
     const { error } = await supabase
@@ -231,6 +257,63 @@ async function enrichOwnerCustomerDobs(
     if (!error) enriched++
   }
   return enriched
+}
+
+/**
+ * Preserve the complete owner DOB each policy stated as source EVIDENCE, keyed
+ * to the policy (the source document) — never discarded, never a second
+ * authoritative customer DOB. Upserts one current evidence row per policy, so a
+ * re-import refreshes rather than duplicates. Only policies that actually carry
+ * a usable owner DOB (a year at minimum) are recorded. Returns the row count
+ * written. A failure here never blocks the import; evidence is best-effort.
+ */
+async function recordOwnerDobEvidence(
+  supabase: AdminClient,
+  policies: PolicyRow[],
+  fileName: string | null,
+): Promise<number> {
+  // One current evidence row per policy_number; later rows for the same policy
+  // in this batch win (same as a re-import would).
+  const rows = new Map<string, Record<string, unknown>>()
+  for (const p of policies) {
+    if (!p.policy_number) continue
+    const raw = p._owner_dob_source ?? null
+    if (!raw) continue
+    const src = interpretSourceDob(raw)
+    if (src.year == null) continue // nothing usable to preserve
+    const precision =
+      src.precision === 'exact' ? 'exact'
+      : src.precision === 'month-year' ? 'month_year'
+      : 'year_only'
+    rows.set(p.policy_number, {
+      policy_number:    p.policy_number,
+      owner_first_name: p._owner_first_name ?? null,
+      owner_last_name:  p._owner_last_name ?? null,
+      dob_year:         src.year,
+      dob_month:        src.month,
+      dob_day:          src.day,
+      dob_precision:    precision,
+      source_file:      fileName,
+      observed_at:      new Date().toISOString(),
+    })
+  }
+  if (rows.size === 0) return 0
+
+  let written = 0
+  const CHUNK = 500
+  const all = [...rows.values()]
+  for (let i = 0; i < all.length; i += CHUNK) {
+    const chunk = all.slice(i, i + CHUNK)
+    const { error } = await supabase
+      .from('policy_owner_dob_evidence')
+      .upsert(chunk, { onConflict: 'policy_number' })
+    if (error) {
+      console.error('owner DOB evidence upsert error:', error)
+    } else {
+      written += chunk.length
+    }
+  }
+  return written
 }
 
 /** Birth year from either a customer's exact date or masked partial. */

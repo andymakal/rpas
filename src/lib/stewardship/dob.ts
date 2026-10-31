@@ -750,3 +750,62 @@ function sourceToCustomerColumns(s: SourceDob): {
   }
   return { date_of_birth: null, date_of_birth_approx: null }
 }
+
+// ---------------------------------------------------------------------------
+// Reconciling MULTIPLE source DOBs for one identity (conflict vs agreement)
+// ---------------------------------------------------------------------------
+
+/** The outcome of folding several source DOBs for the same person together. */
+export type ReconcileDobResult =
+  /** The sources agree (missing parts don't count): the most complete combined
+   * value they jointly support. Precision 'none' means no source carried a year. */
+  | { status: 'agreed'; dob: SourceDob }
+  /** At least two sources disagree on a KNOWN component (year, month, or day).
+   * The caller must NOT pick one — a human resolves it. */
+  | { status: 'conflict' }
+
+/**
+ * Fold several interpreted source DOBs for ONE identity into a single agreed
+ * value, or report a conflict. The rule matches the enrichment merge: a MISSING
+ * component never conflicts (one source knowing more than another is agreement,
+ * not disagreement); only a KNOWN component that DISAGREES is a conflict. When
+ * the sources agree, the result carries each component from whichever source
+ * knew it (the most complete compatible value). No component is ever invented.
+ *
+ * This is what lets a policy import that states "July 1959" on one policy and
+ * the full "1959-07-15" on another for the same owner be treated as agreement
+ * (yielding the full date), while "1959-07-15" vs "1959-07-20" is a conflict
+ * that is refused rather than guessed.
+ */
+export function reconcileSourceDobs(sources: SourceDob[]): ReconcileDobResult {
+  let year: number | null = null
+  let month: number | null = null
+  let day: number | null = null
+
+  for (const s of sources) {
+    if (s.year != null) {
+      if (year == null) year = s.year
+      else if (year !== s.year) return { status: 'conflict' }
+    }
+    if (s.month != null) {
+      if (month == null) month = s.month
+      else if (month !== s.month) return { status: 'conflict' }
+    }
+    if (s.day != null) {
+      if (day == null) day = s.day
+      else if (day !== s.day) return { status: 'conflict' }
+    }
+  }
+
+  // A day only stands with a month (and a day-with-no-month should never occur
+  // from interpretSourceDob, but guard anyway so we never emit an invalid part).
+  if (day != null && month == null) day = null
+
+  const precision: DobPrecision =
+    year == null ? 'none'
+    : day != null && month != null ? 'exact'
+    : month != null ? 'month-year'
+    : 'year-only'
+
+  return { status: 'agreed', dob: { precision, year, month, day } }
+}

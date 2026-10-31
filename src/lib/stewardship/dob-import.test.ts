@@ -19,6 +19,7 @@ import {
   sourceDobToInsuredColumns,
   sourceDobToCustomerColumns,
   mergeImportDobIntoCustomer,
+  reconcileSourceDobs,
 } from './dob'
 
 // Convenience: merge a raw import value into an existing (exact, approx) pair.
@@ -149,4 +150,45 @@ test('merge: import EQUALLY precise and compatible -> null (nothing new to add)'
 test('merge: no usable incoming year -> null', () => {
   assert.equal(merge(null, 'xx/xx/1959', 'unknown'), null)
   assert.equal(merge(null, null, ''), null)
+})
+
+// ── Reconciling multiple owner DOBs for one identity (policy-import) ─────────
+//
+// The policy-import route gathers every DOB the import stated for one owner
+// identity and reconciles them: compatible values fold into the most complete
+// agreed DOB; a genuine disagreement on a known component is a conflict the
+// route refuses to resolve (it never arbitrarily picks one). A missing part is
+// never a conflict. These lock in reconcileSourceDobs, which the route uses.
+const reconcile = (...raws: unknown[]) => reconcileSourceDobs(raws.map(interpretSourceDob))
+
+test('reconcile: a day-less and a compatible full DOB AGREE -> the full date', () => {
+  const r = reconcile('07/1959', '1959-07-15')
+  assert.equal(r.status, 'agreed')
+  if (r.status === 'agreed') assert.deepEqual(r.dob, { precision: 'exact', year: 1959, month: 7, day: 15 })
+})
+
+test('reconcile: year-only + month+year + exact (all compatible) -> the full date', () => {
+  const r = reconcile('1959', '07/1959', '7/15/1959')
+  assert.equal(r.status, 'agreed')
+  if (r.status === 'agreed') assert.deepEqual(r.dob, { precision: 'exact', year: 1959, month: 7, day: 15 })
+})
+
+test('reconcile: two exact DOBs differing by DAY -> conflict (never guessed)', () => {
+  assert.equal(reconcile('1959-07-15', '1959-07-20').status, 'conflict')
+})
+
+test('reconcile: two DOBs differing by MONTH (same year) -> conflict', () => {
+  assert.equal(reconcile('07/1959', '03/1959').status, 'conflict')
+})
+
+test('reconcile: identical DOBs agree', () => {
+  const r = reconcile('1959-07-15', '7/15/1959')
+  assert.equal(r.status, 'agreed')
+  if (r.status === 'agreed') assert.deepEqual(r.dob, { precision: 'exact', year: 1959, month: 7, day: 15 })
+})
+
+test('reconcile: a single source is trivially agreed (its own value)', () => {
+  const r = reconcile('07/1959')
+  assert.equal(r.status, 'agreed')
+  if (r.status === 'agreed') assert.deepEqual(r.dob, { precision: 'month-year', year: 1959, month: 7, day: null })
 })
