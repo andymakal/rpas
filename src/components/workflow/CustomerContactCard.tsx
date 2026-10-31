@@ -88,6 +88,12 @@ import {
   type NextHistoryEntryPreview,
 } from '@/lib/stewardship/customer-history'
 import { normalizeDobParts, dobToParts, formatDobDisplay, wouldDowngradeExactDob } from '@/lib/stewardship/dob'
+import {
+  type PersonName,
+  presentPersonName,
+  familiarName as personFamiliarName,
+} from '@/lib/person-name'
+import { PersonNameDisplay, PersonNameEditor } from './PersonName'
 
 // ── Data shape ───────────────────────────────────────────────────────────────
 
@@ -97,6 +103,18 @@ export interface CustomerContact {
   id: string
   first_name: string | null
   last_name: string | null
+  /** Recorded middle name(s), kept whole. NULL = none. Optional so existing
+   * callers that don't select it still satisfy the type. */
+  middle_name?: string | null
+  /** Generational suffix as typed ("Jr", "III"). NULL = none. Optional. */
+  suffix?: string | null
+  /** The name the customer is called ("Goes by" / preferred first). NULL = none
+   * and the familiar/greeting names fall back to first_name. Optional. */
+  goes_by?: string | null
+  /** Preference for showing the suffix in the FAMILIAR name. NULL = no
+   * preference (defaults to include); false suppresses it from the familiar
+   * name only. Optional. */
+  suffix_in_familiar?: boolean | null
   email: string | null
   phone: string | null
   /** Mailing street. Mirrors the app convention: `street`, falling back to the
@@ -610,6 +628,10 @@ function colorClass(choice: ColorChoice, statusColor: string): string {
 export interface ContactUpdatePayload {
   first_name?: string | null
   last_name?: string | null
+  middle_name?: string | null
+  suffix?: string | null
+  goes_by?: string | null
+  suffix_in_familiar?: boolean | null
   email?: string | null
   phone?: string | null
   street?: string | null
@@ -640,7 +662,15 @@ export type ContactPersistPayload =
   // "Customer Contact Updated" history entry. This is what the single Save on
   // the card sends.
   | ({ field: 'contact' } & ContactUpdatePayload)
-  | { field: 'name'; first_name: string | null; last_name: string | null }
+  | {
+      field: 'name'
+      first_name: string | null
+      last_name: string | null
+      middle_name?: string | null
+      suffix?: string | null
+      goes_by?: string | null
+      suffix_in_familiar?: boolean | null
+    }
   | { field: 'email'; email: string | null }
   | { field: 'phone'; phone: string | null }
   | { field: 'address'; street: string | null; city: string | null; state: string | null; zip: string | null }
@@ -659,8 +689,27 @@ type Tone = 'confirmed' | 'known' | 'missing'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function fullName(c: Pick<CustomerContact, 'first_name' | 'last_name'>): string {
-  return `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim() || 'Unknown customer'
+/** Build the shared PersonName shape from a customer-contact record, so the
+ * card reuses the centralized familiar/greeting/full-recorded presentation. */
+function personNameOf(
+  c: Pick<CustomerContact, 'first_name' | 'last_name' | 'middle_name' | 'suffix' | 'goes_by' | 'suffix_in_familiar'>,
+): PersonName {
+  return {
+    firstName: c.first_name ?? null,
+    middleName: c.middle_name ?? null,
+    lastName: c.last_name ?? null,
+    suffix: c.suffix ?? null,
+    goesBy: c.goes_by ?? null,
+    suffixInFamiliar: c.suffix_in_familiar ?? null,
+  }
+}
+
+/** The customer's familiar name (the everyday name), via the shared rules. Used
+ * where a single-line name string is needed (Overview, mentoring heading). */
+function fullName(
+  c: Pick<CustomerContact, 'first_name' | 'last_name' | 'middle_name' | 'suffix' | 'goes_by' | 'suffix_in_familiar'>,
+): string {
+  return personFamiliarName(personNameOf(c)) || 'Unknown customer'
 }
 
 function streetOf(c: CustomerContact): string {
@@ -932,6 +981,10 @@ function SelfContainedContactCard({
           customerId={record.id}
           firstName={record.first_name}
           lastName={record.last_name}
+          middleName={record.middle_name ?? null}
+          suffix={record.suffix ?? null}
+          goesBy={record.goes_by ?? null}
+          suffixInFamiliar={record.suffix_in_familiar ?? null}
           className="text-[33px] font-bold leading-tight tracking-tight text-brand"
           // Name is corrected inside the one unified editor now, so the heading
           // never shows its own Edit name control (expanded=false hides it).
@@ -1282,6 +1335,14 @@ function UnifiedContactEditor({
   // read view shows a normalized value, so the operator edits what they saw). ──
   const [first, setFirst] = useState(record.first_name ?? '')
   const [last, setLast] = useState(record.last_name ?? '')
+  const [middle, setMiddle] = useState(record.middle_name ?? '')
+  const [suffix, setSuffix] = useState(record.suffix ?? '')
+  const [goesBy, setGoesBy] = useState(record.goes_by ?? '')
+  // Preference for showing the suffix in the familiar name (null = no preference
+  // recorded, which defaults to include). Seeded from the stored preference.
+  const [suffixInFamiliar, setSuffixInFamiliar] = useState<boolean | null>(
+    record.suffix_in_familiar ?? null,
+  )
   const [email, setEmail] = useState(record.email ?? '')
   const [emailResult, setEmailResult] = useState<ContactFieldResult | null>(null)
   // A staged "no usable email" reason selected in this session; mutually
@@ -1364,8 +1425,20 @@ function UnifiedContactEditor({
 
     const nf = normalizeNameInput(first).value
     const nl = normalizeNameInput(last).value
+    const nm = normalizeNameInput(middle).value
+    const nsuf = normalizeNameInput(suffix).value
+    const ngb = normalizeNameInput(goesBy).value
     if ((nf ?? null) !== (record.first_name ?? null)) payload.first_name = nf
     if ((nl ?? null) !== (record.last_name ?? null)) payload.last_name = nl
+    if ((nm ?? null) !== (record.middle_name ?? null)) payload.middle_name = nm
+    if ((nsuf ?? null) !== (record.suffix ?? null)) payload.suffix = nsuf
+    if ((ngb ?? null) !== (record.goes_by ?? null)) payload.goes_by = ngb
+    // The suffix-in-familiar preference. Only meaningful when a suffix will be
+    // on file; otherwise there is nothing to show or hide, so don't write it.
+    const nextPref = nsuf ? suffixInFamiliar : (record.suffix_in_familiar ?? null)
+    if ((nextPref ?? null) !== (record.suffix_in_familiar ?? null)) {
+      payload.suffix_in_familiar = nextPref
+    }
 
     // DOB: normalize the three parts the same way the route will. The masked
     // form is the stable identity of the DOB (day never compared), so a change
@@ -1474,6 +1547,10 @@ function UnifiedContactEditor({
     const toSnapshot = (): ContactSnapshot => ({
       first_name: record.first_name,
       last_name: record.last_name,
+      middle_name: record.middle_name ?? null,
+      suffix: record.suffix ?? null,
+      goes_by: record.goes_by ?? null,
+      suffix_in_familiar: record.suffix_in_familiar ?? null,
       email: record.email,
       phone: record.phone,
       street: beforeStreet,
@@ -1494,6 +1571,10 @@ function UnifiedContactEditor({
     const after: ContactSnapshot = {
       first_name: nf,
       last_name: nl,
+      middle_name: nm,
+      suffix: nsuf,
+      goes_by: ngb,
+      suffix_in_familiar: nextPref,
       email: nextEmail,
       phone: nextPhone,
       street: ns,
@@ -1512,7 +1593,8 @@ function UnifiedContactEditor({
     }
     return { payload, before, after }
   }, [
-    first, last, email, emailReason, phone, doNotText, markUndeliverable,
+    first, last, middle, suffix, goesBy, suffixInFamiliar,
+    email, emailReason, phone, doNotText, markUndeliverable,
     street, city, stateVal, zip, emailVerified, phoneVerified, addressVerified,
     alertDraft, dobMonth, dobDay, dobYear, seededDob,
     willHaveNumber, lockedUndeliverable, numberUnchanged, record,
@@ -1567,6 +1649,20 @@ function UnifiedContactEditor({
   const nameInvalid =
     normalizeNameInput(first).status === 'empty' && normalizeNameInput(last).status === 'empty'
 
+  // Live familiar + greeting preview of exactly what Save will persist, via the
+  // centralized person-name presentation rules.
+  const namePreview = presentPersonName(
+    {
+      firstName: normalizeNameInput(first).value,
+      middleName: normalizeNameInput(middle).value,
+      lastName: normalizeNameInput(last).value,
+      suffix: normalizeNameInput(suffix).value,
+      goesBy: normalizeNameInput(goesBy).value,
+      suffixInFamiliar,
+    },
+    '',
+  )
+
   const draftSmsDisplay: SmsAvailabilityDisplay = resolveSmsAvailabilityDisplay({
     smsOptOut: doNotText,
     textUndeliverable: markUndeliverable && willHaveNumber,
@@ -1575,7 +1671,10 @@ function UnifiedContactEditor({
   return (
     <form onSubmit={submit} className="mt-3">
       <div className="divide-y divide-surface-border-strong">
-        {/* Name */}
+        {/* Name — every recorded part plus the "Goes by" familiar name and the
+            suffix-in-familiar preference, with a live familiar + greeting
+            preview. Capitalization and multi-word names are preserved; nothing
+            is inferred. */}
         <div className="py-3 first:pt-0">
           <p className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
             <Pencil className="size-4" aria-hidden /> Name
@@ -1595,7 +1694,63 @@ function UnifiedContactEditor({
                 onBlur={() => setLast((v) => normalizeNameInput(v).value ?? '')}
                 placeholder="Last name" className={cn('mt-1', inputCls(false))} />
             </div>
+            <div>
+              <label htmlFor="uc-middle" className="text-sm font-medium text-ink-secondary">
+                Middle name <span className="font-normal text-ink-muted">(optional)</span>
+              </label>
+              <input id="uc-middle" type="text" value={middle} disabled={busy}
+                onChange={(e) => setMiddle(e.target.value)}
+                onBlur={() => setMiddle((v) => normalizeNameInput(v).value ?? '')}
+                placeholder="Middle name(s)" className={cn('mt-1', inputCls(false))} />
+            </div>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label htmlFor="uc-goesby" className="text-sm font-medium text-ink-secondary">
+                  Goes by <span className="font-normal text-ink-muted">(optional)</span>
+                </label>
+                <input id="uc-goesby" type="text" value={goesBy} disabled={busy}
+                  onChange={(e) => setGoesBy(e.target.value)}
+                  onBlur={() => setGoesBy((v) => normalizeNameInput(v).value ?? '')}
+                  placeholder="e.g. Bob" className={cn('mt-1', inputCls(false))} />
+              </div>
+              <div className="w-20">
+                <label htmlFor="uc-suffix" className="text-sm font-medium text-ink-secondary">Suffix</label>
+                <input id="uc-suffix" type="text" value={suffix} disabled={busy}
+                  onChange={(e) => setSuffix(e.target.value)}
+                  onBlur={() => setSuffix((v) => normalizeNameInput(v).value ?? '')}
+                  placeholder="Jr" className={cn('mt-1', inputCls(false))} />
+              </div>
+            </div>
           </div>
+
+          {/* Suffix-in-familiar preference — only meaningful when a suffix is
+              on file. Null preference defaults to include. */}
+          {normalizeNameInput(suffix).status === 'valid' && (
+            <label className="mt-2 flex items-center gap-2 text-base font-medium text-ink-secondary">
+              <input
+                type="checkbox"
+                checked={suffixInFamiliar ?? true}
+                disabled={busy}
+                onChange={(e) => setSuffixInFamiliar(e.target.checked)}
+                className="size-4 rounded border-surface-border-strong text-brand focus:ring-brand-wash"
+              />
+              Include the suffix in the familiar name
+            </label>
+          )}
+
+          {/* Live familiar + greeting preview of exactly what will be saved. */}
+          <div className="mt-2 rounded-lg border border-surface-border bg-surface-muted px-3 py-2">
+            <p className="text-sm font-medium uppercase tracking-wide text-ink-supporting">Preview</p>
+            <p className="mt-0.5 text-lg font-semibold text-ink">
+              {namePreview.familiar || <span className="text-ink-muted">Enter a name</span>}
+            </p>
+            {namePreview.greeting && (
+              <p className="mt-0.5 text-base text-ink-secondary">
+                Greeting: <span className="font-medium text-ink">Hi {namePreview.greeting}</span>
+              </p>
+            )}
+          </div>
+
           {nameInvalid && (
             <p className="mt-1.5 text-base text-status-missing-strong">Enter at least a first or last name.</p>
           )}
@@ -2039,6 +2194,10 @@ export function CustomerNameHeading({
   customerId,
   firstName,
   lastName,
+  middleName = null,
+  suffix = null,
+  goesBy = null,
+  suffixInFamiliar = null,
   className,
   style,
   expanded = true,
@@ -2052,6 +2211,14 @@ export function CustomerNameHeading({
   customerId: string
   firstName: string | null
   lastName: string | null
+  /** Recorded middle name(s); shown only in the full recorded name. */
+  middleName?: string | null
+  /** Generational suffix; shown in the familiar name per the preference. */
+  suffix?: string | null
+  /** The name the customer is called; drives the familiar and greeting names. */
+  goesBy?: string | null
+  /** Preference for the suffix in the familiar name (null = include). */
+  suffixInFamiliar?: boolean | null
   /** Applied to the heading text so it matches the host's existing name style. */
   className?: string
   style?: React.CSSProperties
@@ -2086,17 +2253,34 @@ export function CustomerNameHeading({
    * the host can refresh the displayed name throughout the workflow. */
   onSaved?: (updated: CustomerContact) => void
 }) {
-  const ap = useMemo(() => resolveAppearance(undefined), [])
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const display = `${firstName ?? ''} ${lastName ?? ''}`.trim() || 'Unknown customer'
+  const personName: PersonName = useMemo(
+    () => ({
+      firstName,
+      middleName,
+      lastName,
+      suffix,
+      goesBy,
+      suffixInFamiliar,
+    }),
+    [firstName, middleName, lastName, suffix, goesBy, suffixInFamiliar],
+  )
 
-  const save = useCallback(async (first: string | null, last: string | null) => {
+  const save = useCallback(async (value: PersonName) => {
     setBusy(true); setError(null)
     try {
-      const payload: ContactPersistPayload = { field: 'name', first_name: first, last_name: last }
+      const payload: ContactPersistPayload = {
+        field: 'name',
+        first_name: value.firstName,
+        last_name: value.lastName,
+        middle_name: value.middleName,
+        suffix: value.suffix,
+        goes_by: value.goesBy,
+        suffix_in_familiar: value.suffixInFamiliar,
+      }
       let updated: CustomerContact
       if (onPersist) {
         updated = await onPersist(customerId, payload)
@@ -2146,24 +2330,24 @@ export function CustomerNameHeading({
   if (editing) {
     return (
       <div>
-        <NameEditor
-          appearance={ap}
-          firstName={firstName}
-          lastName={lastName}
+        <PersonNameEditor
+          name={personName}
           busy={busy}
+          error={error}
           onCancel={() => { setError(null); setEditing(false) }}
           onSave={save}
         />
         {ageSubline}
-        {error && <p className="mt-1.5 text-base text-status-missing-strong">{error}</p>}
       </div>
     )
   }
 
   return (
     <div>
-      <div className="flex items-center gap-2">
-        <h2 className={className} style={style}>{display}</h2>
+      <div className="flex items-start gap-2">
+        {/* The familiar name shown prominently (host className), with the full
+            recorded name beneath it only when it differs — the shared rule. */}
+        <PersonNameDisplay name={personName} className={className} style={style} />
         {/* Uniform rule for every workflow screen: Edit name only in expanded
             Edit mode, hidden in the compact Overview. */}
         {expanded && (
@@ -2171,7 +2355,7 @@ export function CustomerNameHeading({
             type="button"
             onClick={() => { setError(null); setEditing(true) }}
             aria-label="Edit customer name"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-2 py-1 text-sm font-medium text-ink-secondary hover:bg-surface-muted"
+            className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-2 py-1 text-sm font-medium text-ink-secondary hover:bg-surface-muted"
           >
             <Pencil className="size-3.5" aria-hidden /> Edit name
           </button>

@@ -66,3 +66,8 @@ export {
   type EditPlacement,
   type AlignChoice,
 } from './CustomerContactCard'
+
+export {
+  PersonNameDisplay,
+  PersonNameEditor,
+} from './PersonName'
