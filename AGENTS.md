@@ -156,13 +156,14 @@ guard onto `main`), do it as its own reviewed change, not silently.
 
 IPF (the `bobpfromm/ipf-stewardship` repository, external to this repo) is the
 functional blueprint for Right Path's operational and assistant overlay, and its
-capabilities are the committed functional roadmap. This section is the canonical
-record of these decisions for every tool and both branches; the Kiro steering
-file `.kiro/steering/ipf-integration.md` carries the same decisions plus
-Kiro-specific operational framing and defers to this section. Being the
-committed direction does not authorize expanding an unrelated task: reuse an IPF
-capability when a task's outcome calls for it, and do not build IPF structure a
-task does not need (see Working discipline and efficient-execution).
+capabilities are the committed functional roadmap. This section is the single
+authoritative statement of these decisions for every tool and both branches; the
+steering file `.kiro/steering/ipf-integration.md` does not restate them, it only
+records the supporting reference detail (the named queue read, the Daily
+Direction behavior). Being the committed direction does not authorize expanding
+an unrelated task: reuse an IPF capability when a task's outcome calls for it,
+and do not build IPF structure a task does not need (see Working discipline and
+efficient-execution).
 
 - Reuse IPF's working capabilities, not just its ideas: GoRules ZEN
   (`@gorules/zen-engine`) plus IPF's rule models (`src/rules/*.json`) for
@@ -239,15 +240,16 @@ task does not need (see Working discipline and efficient-execution).
   project's preview is published by `vercel deploy` (CLI) and the `bobdev`
   alias is pointed at that deployment; a git push alone does NOT update the
   preview. Only `main`/production actions require explicit authorization. This
-  is the canonical statement of the delivery workflow for all tools and both
-  branches; `.kiro/steering/delivery-workflow.md` carries the same default plus
-  the exact Kiro command sequence (`vercel deploy` / `vercel alias set` /
-  `vercel inspect`) and defers to this section.
-- Unfinished multi-session work: if `.kiro/handoff/HANDOFF.md` exists, read it
-  at the start of a task — it is the agent-maintained status of an in-flight
-  effort (what's done, what's left, decisions made, blockers). Keep it current
-  while that effort is active and delete it when the effort is complete. It is
-  temporary task state, never a permanent rule, and must not be placed in
-  steering. If it describes a different active task than the one you are
-  starting, do not overwrite its context — append your own clearly separated
-  section or use a distinct `.kiro/handoff/<task>.md` file.
+  is the single authoritative statement of the delivery workflow for all tools
+  and both branches; `.kiro/steering/delivery-workflow.md` does not restate the
+  policy, it records the deploy mechanics that carry it out (the exact
+  `vercel deploy` / `vercel alias set` / `vercel inspect` sequence and the
+  stable-alias rule), as shared reference for whatever tool deploys.
+- Unfinished multi-session work: the one handoff location is
+  `.kiro/handoff/HANDOFF.md`. Read it at the start of a task if it exists — it is
+  the agent-maintained status of an in-flight effort (what's done, what's left,
+  decisions made, blockers). Keep it current while that effort is active and
+  delete it when the effort is complete. It is temporary task state, never a
+  permanent rule, and must not be placed in steering. If it describes a different
+  active task than the one you are starting, do not overwrite its context: append
+  your own clearly separated section to the same file.

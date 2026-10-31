@@ -4,107 +4,24 @@ inclusion: always
 
 # IPF is Right Path's functional blueprint
 
-The canonical, cross-tool/cross-branch record of these IPF decisions is
-`AGENTS.md` (§IPF integration). This Kiro steering file states the same
-decisions with Kiro-specific framing and defers to AGENTS.md if they ever
-diverge; keep the decisions here consistent with AGENTS.md rather than letting
-the two drift.
+The IPF integration decisions are stated once, authoritatively, in `AGENTS.md`
+(§IPF integration): what IPF is to Right Path, what to reuse and how, the
+operating guardrails the integration must preserve, and what must never be
+imported. Read that section for the decisions. This file does not restate them;
+it records only the reference detail that supports them, so there is a single
+source of truth rather than two copies to keep in step.
 
-IPF (the `bobpfromm/ipf-stewardship` repository) is the functional blueprint for
-Right Path's operational and assistant overlay, and its capabilities are the
-committed functional roadmap. This supersedes any earlier framing that treated
-IPF as merely an idea source, a reference, or a spec to paraphrase.
+## Reference detail (supports the AGENTS.md decisions)
 
-Being the committed direction and executing a bounded task are compatible: IPF
-being the roadmap does NOT mean every task builds more of it. When a task's
-agreed outcome calls for an IPF capability, reuse IPF's working code and settled
-patterns for that capability — fully, rather than re-deriving it. When a task
-does not call for one, do not introduce IPF tables, engines, or capabilities it
-does not need; that is a scope expansion, handled per efficient-execution ("A
-new table or component is a review signal, not an approval gate"). The named
-implementations below are a reference catalog to reuse when an outcome calls for
-them, not a checklist to deliver proactively.
-
-IPF is a blueprint, not a merge. Right Path is and remains one application and
-one database. We take IPF's capabilities, patterns, and rule models into Right
-Path's existing architecture; we do not adopt IPF's separate database, its
-multi-tenancy, its authentication, or any structure that conflicts with the
-operating decisions below.
-
-## What to reuse from IPF, and how
-
-- GoRules ZEN (`@gorules/zen-engine`) and IPF's rule models (`src/rules/*.json`)
-  are the intended engine for deterministic recommendations in Right Path. The
-  IPF division of labor carries over verbatim: ZEN owns the deterministic
-  decision matrix (eligibility, placement, priority bands); TypeScript owns
-  normalization, time math, capability resolution, and the operator-facing
-  prose. ZEN is fed normalized facts and never queries the database.
-- IPF's shared-queue model is queue-owned work (`list_initial_outreach_queue`,
-  structural candidacy only, scoped to no individual) with OPTIONAL per-callback
-  claiming that is deliberately distinct from episode assignment: a claim lives
-  on the callback's `action_context` (`claimedByTeamMemberId`), not on the
-  generic episode assignee. An unclaimed exact-time callback surfaces to every
-  eligible worker as claimable; once claimed it is that worker's commitment.
-  This is the model to reuse for Right Path's shared queues.
-- IPF's promised-callback and preferred-window commitment handling, its
-  capability-based routing (work functions, primary/support), and its
-  always-visible recommendation plus separate coaching are the functional
-  targets. Reuse the IPF logic and rule JSON; re-host the data on Right Path's
-  existing tables.
-- The Daily Direction Assistant is an implemented, GoRules-powered IPF feature,
-  not merely doctrine. A ZEN decision (`src/rules/next-best-action.json`) picks
-  the single Next Best Action from a fixed priority order (imminent fixed
-  commitment, then active work, then missed commitment, then owned Intake, then
-  owned Outreach, then other owned work, then Support, then open capacity).
-  `src/lib/daily-direction-engine.ts` normalizes facts and resolves time labels,
-  `src/composition/daily-direction.ts` assembles candidates from existing reads,
-  and the Assistant presence renders the ready result. Reuse that engine, the
-  rule JSON, and the fact/candidate shape; re-home the candidate reads on Right
-  Path's own records. Its behavior is the directive function: surface what is
-  actionable, hold future work until its runway, separate must-do from optional,
-  and recognize when nothing needs attention.
-- Assistant and Mentoring are two distinct surfaces and must stay distinct. The
-  Assistant is a system-state explanation of what to do next (the teal
-  `AssistantNotice` / `HardCommitmentNotice` treatment, driven by the Daily
-  Direction verdict); Mentoring is separate coaching prose. One tells the worker
-  what is next and why; the other teaches. Do not merge them.
-
-## Right Path operating decisions that integration must preserve
-
-These are settled. IPF capability enters Right Path in a form that honors them;
-anything in IPF that conflicts is adapted or left behind, never imported as-is.
-
-- One Right Path application and one Right Path database. No second database, no
-  cross-app data plane.
-- Shared work queues, not routine individual assignment. Work is surfaced to
-  whoever is eligible; claiming is optional and lightweight (a soft lease at
-  most), never a routing-by-assignment default.
-- Employee capabilities determine eligibility for work. Capability, not a
-  personal in-box, decides who can act on an item.
-- Project ownership and escalation are project-specific. The Projects module
-  owns its own ownership and escalation semantics; do not replace them with a
-  generic per-item assignment model.
-- Today's Focus influences priority but never overrides a customer commitment. A
-  promised callback or a scheduled appointment outranks focus-based ordering.
-- GoRules provides deterministic, attributable recommendations. Recommendations
-  inform the worker; they do not silently take consequential action.
-- Human judgment controls consequential business decisions. The system surfaces
-  and recommends; a person decides. No automatic lost/closed/terminal state.
-- The customer relationship is the durable center. Episodes, queues, projects,
-  and reviews are work around that relationship, not a replacement for it.
-
-## Do not import from IPF
-
-- IPF's separate database or any multi-database topology.
-- IPF's `practice_id` multi-tenancy. Right Path is single-tenant (one agency).
-- IPF's authentication and permission model (`practice_memberships`,
-  `ipf_require_practice_membership`, `ipf_check_permission`, the
-  `ipf_command_owner` role). Right Path keeps its own auth: internal admin
-  (no `agency_members` row, `app_role = 'admin'`) via the service-role client,
-  agency users via session + RLS.
-- Any IPF architecture that assumes multiple practices, a separate command-owner
-  role chain, or a different tenancy or identity boundary than Right Path's.
-
-When an IPF capability is entangled with any of the above, lift the capability
-(the rule model, the state logic, the recommendation shape) and re-home it on
-Right Path's existing tables, auth, and single-tenant assumptions.
+- Shared-queue model: the IPF queue read to reuse is `list_initial_outreach_queue`
+  (structural candidacy only, scoped to no individual). Optional per-callback
+  claiming lives on the callback's `action_context` (`claimedByTeamMemberId`),
+  deliberately distinct from episode assignment: an unclaimed exact-time callback
+  surfaces to every eligible worker as claimable, and once claimed it is that
+  worker's commitment.
+- Daily Direction, directive behavior: the engine surfaces what is actionable,
+  holds future work until its runway, separates must-do from optional, and
+  recognizes when nothing needs attention. (The rule JSON, engine, and
+  fact/candidate shape to reuse are named in AGENTS.md.)
+- Assistant vs Mentoring: one tells the worker what is next and why; the other
+  teaches. They stay distinct surfaces; do not merge them.
