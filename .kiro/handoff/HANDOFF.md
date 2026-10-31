@@ -1,4 +1,4 @@
-# Handoff: contact-card "Lego" components (Name + Email done; Phone, DOB next)
+# Handoff: contact-card "Lego" components (Name + Email + Phone done; DOB next)
 
 Status date: 2026-10-31. Branch: `development`. All work below is live on the
 preview `https://bobdev.therightpathagency.com` (development clone only; nothing
@@ -24,10 +24,27 @@ mutually-exclusive availability reasons (Missing / No Usable Email /
 Undeliverable), Verified gated on a usable value, and availability resolving to
 `available` on a usable save (the server derives that from a saved email).
 
-Build Phone and Date of birth the same way. After each, verify and deploy to the
-development preview only (never production), using the delivery workflow in
-AGENTS.md / `.kiro/steering/delivery-workflow.md` (`vercel deploy` + alias
-`bobdev` + `vercel inspect`).
+**Phone is now also complete** (`src/components/workflow/ContactPhone.tsx`:
+`PhoneDisplay`, `PhoneFields`, `usePhoneDraft`, `PhoneEditor`; exported from
+`index.ts`; Storybook story `ContactPhone.stories.tsx`; the unified editor
+consumes it via `usePhoneDraft`/`PhoneFields`, no inline phone/SMS logic
+remains). Texting belongs to the phone, so the Phone Lego owns the number AND
+its Text-message availability controls (Do Not Text + Text Undeliverable) plus
+the Verified checkbox. It reproduces the full prior behavior: format-as-typed to
+the `(XXX) XXX-XXXX` standard, invalid blocks save, Do Not Text togglable even
+with no number and outranking Undeliverable, Text Undeliverable gated on a number
+/ moot under Do Not Text / locked on for an unchanged already-failed number
+(clears only by replacing the number), and Verified gated on a usable number. The
+local `SmsAvailabilityControls` was moved out of the card into the Lego.
+
+Only **Date of birth** remains. Build it the same way (it is the three-part
+month/day/year editor still inline in `CustomerContactCard.tsx`, using
+`src/lib/stewardship/dob.ts`: `normalizeDobParts`, `wouldDowngradeExactDob`,
+`formatDobDisplay`, `dobToParts`; respect the exact-DOB downgrade guard and the
+masked-display rule). After it, verify and deploy to the development preview only
+(never production), using the delivery workflow in AGENTS.md /
+`.kiro/steering/delivery-workflow.md` (`vercel deploy` + alias `bobdev` +
+`vercel inspect`).
 
 ## The Name pattern to copy (the reference Lego)
 
