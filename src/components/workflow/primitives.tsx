@@ -68,16 +68,15 @@ export function WorkflowSurface({
  * The ONE shared content-column width recipe for every Right Path workflow
  * surface. It is the established My Work behavior, now the standard everywhere:
  * the column fills ~80% of the viewport (balanced gutters on each side), stays
- * responsive via the percentage on smaller screens, and is capped at 1760px so
- * it does not sprawl on an ultrawide monitor. `min-w-0` lets it shrink so inner
- * content wraps instead of forcing overflow; `mx-auto` centers it.
+ * content now spans the FULL width of the workflow surface, with no maximum
+ * width cap, so it uses all available horizontal space on every screen size.
+ * `min-w-0` lets it shrink so inner content wraps instead of forcing overflow.
  *
- * This is a COMPLETE width recipe (it already sets width + centering), so apply
- * it ALONE — do not combine it with `w-full`, which would conflict with `w-4/5`.
- * Centralizing it here means existing and future workflow pages inherit the one
- * width automatically; there are no per-page 1360px (or other) caps anymore.
+ * This is a COMPLETE width recipe, so apply it ALONE. Centralizing it here means
+ * existing and future workflow pages inherit the one width automatically; there
+ * are no per-page width caps.
  */
-export const WORKFLOW_MAX_WIDTH = 'mx-auto w-4/5 min-w-0 max-w-[1760px]'
+export const WORKFLOW_MAX_WIDTH = 'w-full min-w-0'
 
 /**
  * The standard page body for a Right Path workflow surface.
