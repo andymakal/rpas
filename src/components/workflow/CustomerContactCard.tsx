@@ -1663,22 +1663,19 @@ function UnifiedContactEditor({
       <div className="divide-y divide-surface-border-strong">
         {/* Name — the ONE shared Person Name field group (First, Middle, Last,
             Suffix dropdown; Goes by + the suffix-in-familiar checkbox) with its
-            live familiar + greeting preview. Exactly the implementation the
-            standalone editor uses, so there is no duplicated name-field logic.
-            The inline required-field error shows only after a Save attempt. */}
+            compact live familiar + greeting preview. Exactly the implementation
+            the standalone editor uses, so there is no duplicated name-field
+            logic. No redundant "Name" header here: the card is already in edit
+            mode and the fields are self-evidently the name. The inline
+            required-field error shows only after a Save attempt. */}
         <div className="py-3 first:pt-0">
-          <p className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
-            <Pencil className="size-4" aria-hidden /> Name
-          </p>
-          <div className="mt-1.5">
-            <PersonNameFields
-              api={nameApi}
-              busy={busy}
-              idPrefix="uc-name"
-              autoFocus={false}
-              showError={nameAttempted}
-            />
-          </div>
+          <PersonNameFields
+            api={nameApi}
+            busy={busy}
+            idPrefix="uc-name"
+            autoFocus={false}
+            showError={nameAttempted}
+          />
         </div>
 
         {/* Date of birth — separate month / day / year; leave unknown parts

@@ -250,46 +250,46 @@ export function PersonNameFields({
 
   return (
     <div>
-      {/* Row 1: First, Middle, Last, Suffix. First and Last get the most room;
-          Middle and Suffix are narrower. Wraps gracefully on small widths. */}
-      <div className="flex flex-wrap gap-2">
-        <div className="min-w-[8rem] flex-[3]">
+      {/* Row 1: First, Middle, Last share the width evenly; Suffix is a narrow
+          fixed column (its values are short). Wraps gracefully on small widths. */}
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="min-w-[6rem] flex-1">
           <FieldLabel htmlFor={id('first')} required>First</FieldLabel>
           <input
             id={id('first')} type="text" autoFocus={autoFocus} value={draft.first} disabled={busy}
             onChange={(e) => setField('first', e.target.value)}
             onBlur={() => blurNormalize('first')}
             aria-invalid={fieldErrors.firstName || undefined}
-            className={cn('mt-1', fieldInputCls(!!fieldErrors.firstName))}
+            className={cn('mt-0.5', fieldInputCls(!!fieldErrors.firstName))}
           />
         </div>
-        <div className="min-w-[5rem] flex-[2]">
+        <div className="min-w-[6rem] flex-1">
           <FieldLabel htmlFor={id('middle')}>Middle</FieldLabel>
           <input
             id={id('middle')} type="text" value={draft.middle} disabled={busy}
             onChange={(e) => setField('middle', e.target.value)}
             onBlur={() => blurNormalize('middle')}
-            className={cn('mt-1', fieldInputCls(false))}
+            className={cn('mt-0.5', fieldInputCls(false))}
           />
         </div>
-        <div className="min-w-[8rem] flex-[3]">
+        <div className="min-w-[6rem] flex-1">
           <FieldLabel htmlFor={id('last')} required>Last</FieldLabel>
           <input
             id={id('last')} type="text" value={draft.last} disabled={busy}
             onChange={(e) => setField('last', e.target.value)}
             onBlur={() => blurNormalize('last')}
             aria-invalid={fieldErrors.lastName || undefined}
-            className={cn('mt-1', fieldInputCls(!!fieldErrors.lastName))}
+            className={cn('mt-0.5', fieldInputCls(!!fieldErrors.lastName))}
           />
         </div>
-        <div className="min-w-[6rem] flex-[2]">
+        <div className="w-[5.5rem] shrink-0">
           <FieldLabel htmlFor={id('suffix')}>Suffix</FieldLabel>
           <select
             id={id('suffix')}
             value={draft.suffix.option}
             disabled={busy}
             onChange={(e) => setField('suffix', { ...draft.suffix, option: e.target.value as SuffixSelection['option'] })}
-            className={cn('mt-1', fieldInputCls(false), 'bg-surface-card')}
+            className={cn('mt-0.5 px-2', fieldInputCls(false), 'bg-surface-card')}
           >
             {SUFFIX_OPTIONS.map((opt) => (
               <option key={opt} value={opt}>{opt}</option>
@@ -298,35 +298,33 @@ export function PersonNameFields({
         </div>
       </div>
 
-      {/* The custom-suffix field, revealed only when the dropdown is "Other". */}
-      {draft.suffix.option === 'Other' && (
-        <div className="mt-2 max-w-[12rem]">
-          <FieldLabel htmlFor={id('suffix-custom')} required>Suffix</FieldLabel>
-          <input
-            id={id('suffix-custom')} type="text" autoFocus value={draft.suffix.custom} disabled={busy}
-            onChange={(e) => setField('suffix', { ...draft.suffix, custom: e.target.value })}
-            onBlur={() => setField('suffix', { ...draft.suffix, custom: normalizeNameInput(draft.suffix.custom).value ?? '' })}
-            placeholder="Custom suffix"
-            aria-invalid={fieldErrors.suffix || undefined}
-            className={cn('mt-1', fieldInputCls(!!fieldErrors.suffix))}
-          />
-        </div>
-      )}
-
-      {/* Row 2: Goes by + the suffix-in-familiar checkbox (checkbox only when a
-          suffix exists). */}
-      <div className="mt-2 flex flex-wrap items-end gap-x-4 gap-y-2">
-        <div className="min-w-[10rem] flex-[2]">
+      {/* Row 2: Goes by (narrow) + the custom-suffix field when "Other" and the
+          suffix-in-familiar checkbox when a suffix exists. One compact row. */}
+      <div className="mt-1.5 flex flex-wrap items-end gap-x-4 gap-y-1.5">
+        <div className="w-[12rem] max-w-full">
           <FieldLabel htmlFor={id('goesby')}>Goes by</FieldLabel>
           <input
             id={id('goesby')} type="text" value={draft.goesBy} disabled={busy}
             onChange={(e) => setField('goesBy', e.target.value)}
             onBlur={() => blurNormalize('goesBy')}
-            className={cn('mt-1', fieldInputCls(false))}
+            className={cn('mt-0.5', fieldInputCls(false))}
           />
         </div>
+        {draft.suffix.option === 'Other' && (
+          <div className="w-[10rem] max-w-full">
+            <FieldLabel htmlFor={id('suffix-custom')} required>Suffix</FieldLabel>
+            <input
+              id={id('suffix-custom')} type="text" autoFocus value={draft.suffix.custom} disabled={busy}
+              onChange={(e) => setField('suffix', { ...draft.suffix, custom: e.target.value })}
+              onBlur={() => setField('suffix', { ...draft.suffix, custom: normalizeNameInput(draft.suffix.custom).value ?? '' })}
+              placeholder="e.g. Esq."
+              aria-invalid={fieldErrors.suffix || undefined}
+              className={cn('mt-0.5', fieldInputCls(!!fieldErrors.suffix))}
+            />
+          </div>
+        )}
         {hasSuffix && (
-          <label className="flex min-h-[2.75rem] flex-1 items-center gap-2 text-base font-medium text-ink-secondary">
+          <label className="flex min-h-[2.5rem] items-center gap-2 text-base font-medium text-ink-secondary">
             <input
               type="checkbox"
               checked={suffixInFamiliar}
@@ -339,21 +337,20 @@ export function PersonNameFields({
         )}
       </div>
 
-      {/* Compact live familiar + greeting preview of exactly what Save persists. */}
-      <div className="mt-2.5 rounded-lg border border-surface-border bg-surface-muted px-3 py-2">
-        <p className="text-sm font-medium uppercase tracking-wide text-ink-supporting">Preview</p>
-        <p className="mt-0.5 text-lg font-semibold text-ink">
-          {familiar || <span className="text-ink-muted">Enter a name</span>}
-        </p>
+      {/* Compact single-line live preview of exactly what Save persists:
+          the familiar name, with the greeting appended inline. */}
+      <p className="mt-1.5 text-base">
+        <span className="font-medium uppercase tracking-wide text-ink-supporting">Preview </span>
+        {familiar
+          ? <span className="font-semibold text-ink">{familiar}</span>
+          : <span className="text-ink-muted">Enter a name</span>}
         {greeting && (
-          <p className="mt-0.5 text-base text-ink-secondary">
-            Greeting: <span className="font-medium text-ink">Hi {greeting}</span>
-          </p>
+          <span className="text-ink-secondary"> · Greeting: <span className="font-medium text-ink">Hi {greeting}</span></span>
         )}
-      </div>
+      </p>
 
       {showError && reason && (
-        <p className="mt-1.5 text-base text-status-missing-strong">{reason}</p>
+        <p className="mt-1 text-base text-status-missing-strong">{reason}</p>
       )}
     </div>
   )
