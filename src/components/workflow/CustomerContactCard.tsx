@@ -57,7 +57,7 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Mail, Phone, MapPin, Pencil, Check, X, Loader2,
-  ShieldQuestion, CheckCircle2, AlertTriangle,
+  ShieldQuestion, CheckCircle2, AlertTriangle, CalendarDays,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMentorDisclosure, MentorCapButton, MentorCapPanel } from '@/lib/mentoring/MentorUi'
@@ -82,7 +82,7 @@ import {
   type ContactSnapshot,
   type NextHistoryEntryPreview,
 } from '@/lib/stewardship/customer-history'
-import { normalizeDobParts, dobToParts, formatDobDisplay, wouldDowngradeExactDob } from '@/lib/stewardship/dob'
+import { formatDobDisplay } from '@/lib/stewardship/dob'
 import {
   type PersonName,
   familiarName as personFamiliarName,
@@ -90,6 +90,9 @@ import {
 import { PersonNameDisplay, PersonNameEditor, PersonNameFields, usePersonNameDraft } from './PersonName'
 import { EmailFields, useEmailDraft } from './ContactEmail'
 import { PhoneFields, usePhoneDraft } from './ContactPhone'
+import { DobFields, useDobDraft } from './ContactDob'
+import { AddressFields, useAddressDraft } from './ContactAddress'
+import { AlertBanner, AlertField, useAlertDraft } from './ContactAlert'
 
 // ── Data shape ───────────────────────────────────────────────────────────────
 
@@ -1199,7 +1202,7 @@ function ContactCardView({
       {/* The customer alert banner near the top, shown in the compact Overview
           whenever an alert exists. In the editor the alert is one of the fields,
           so the banner is not shown there. */}
-      {alertText && !isExpanded && <AlertBanner text={alertText} />}
+      {alertText && !isExpanded && <AlertBanner alert={alertText} className="mt-3" />}
 
       {/* The customer's name heading (read-only here). Name is corrected inside
           the one unified editor, so the heading never carries its own Edit name
@@ -1361,57 +1364,33 @@ function UnifiedContactEditor({
   })
   // Defer the inline phone error until a Save attempt, like the name section.
   const [phoneAttempted, setPhoneAttempted] = useState(false)
-  const [street, setStreet] = useState(streetDisplay(record))
-  const [city, setCity] = useState(normalizeCity(record.city) ?? '')
-  const [stateVal, setStateVal] = useState(normalizeState(record.state) ?? '')
-  const [zip, setZip] = useState(record.zip ?? '')
-  // Verified reflects the value that will be on file. An edited value clears its
-  // own verification; the checkbox follows that below. (Email and phone
-  // verification live in their Lego drafts, `emailApi.draft.verified` /
-  // `phoneApi.draft.verified`.)
-  const [addressVerified, setAddressVerified] = useState(!!record.address_verified_at)
-  const [alertDraft, setAlertDraft] = useState(record.contact_alert ?? '')
-  // DOB drafts — three independent parts, seeded from the stored exact or
-  // partial DOB. A partial DOB yields a BLANK day (the day was never stored, so
-  // it stays unknown). Edited freely; the route re-normalizes with the same
-  // rules on save.
-  // Seed from the RESOLVED best-available DOB when present (which may be a
-  // reliable month/year consensus from the customer's linked policies), so the
-  // operator confirms and saves that onto the customer rather than starting
-  // blank; otherwise seed from the DOB stored directly on the row. A partial or
-  // linked source carries a blank day — the day was never known, so it stays
-  // unknown and the downgrade guard still protects any stored exact date.
-  // The parts the fields are SEEDED with are captured once per record so they
-  // are a stable baseline for "did the operator actually edit the DOB?". This
-  // is the display value (possibly a linked-policy consensus); it is NOT the
-  // stored customer DOB. The DOB is written ONLY when the operator changes a
-  // field away from this seed (see buildChange) — so merely saving an unrelated
-  // contact edit never persists a policy-derived DOB onto the customer, while an
-  // explicit DOB edit still saves.
-  const seededDob = useMemo(
-    () =>
-      record.dob_year != null
-        ? {
-            month: record.dob_month == null ? '' : String(record.dob_month),
-            day: record.dob_day == null ? '' : String(record.dob_day),
-            year: String(record.dob_year),
-          }
-        : dobToParts(record.date_of_birth, record.date_of_birth_approx),
-    [record.dob_year, record.dob_month, record.dob_day, record.date_of_birth, record.date_of_birth_approx],
-  )
-  const [dobMonth, setDobMonth] = useState(seededDob.month)
-  const [dobDay, setDobDay] = useState(seededDob.day)
-  const [dobYear, setDobYear] = useState(seededDob.year)
-  // The live normalization of the DOB drafts, for the inline validity message
-  // and to block Save on an invalid changed DOB.
-  const dobResult = normalizeDobParts({ month: dobMonth, day: dobDay, year: dobYear })
-  // A known EXACT DOB must never be silently downgraded to partial info: if the
-  // record holds a full date and the draft would store a partial one, Save is
-  // blocked with an explicit message rather than quietly dropping the day.
-  const dobWouldDowngrade = wouldDowngradeExactDob(
-    { date_of_birth: record.date_of_birth ?? null, date_of_birth_approx: record.date_of_birth_approx ?? null },
-    dobResult,
-  )
+  // Defer the inline DOB error until a Save attempt, like the name section.
+  const [dobAttempted, setDobAttempted] = useState(false)
+  // Date of birth — the ONE shared DOB field group (month / day / year with the
+  // exact-vs-partial rules and the downgrade guard). Seeded from the resolved
+  // best-available parts (which may be a linked-policy consensus) when present,
+  // else the stored columns; the Lego persists only on a genuine edit away from
+  // that seed, so merely opening the editor never writes a derived DOB.
+  const dobApi = useDobDraft({
+    date_of_birth: record.date_of_birth ?? null,
+    date_of_birth_approx: record.date_of_birth_approx ?? null,
+    seed_month: record.dob_month ?? null,
+    seed_day: record.dob_day ?? null,
+    seed_year: record.dob_year ?? null,
+  })
+  // Mailing address — the ONE shared Address field group (street / city / state
+  // / ZIP + the Address Verified checkbox), driven by the shared draft hook so
+  // normalization, resolution, and verified gating match everywhere.
+  const addressApi = useAddressDraft({
+    street: record.street,
+    address_line1: record.address_line1 ?? null,
+    city: record.city,
+    state: record.state,
+    zip: record.zip,
+    address_verified_at: record.address_verified_at,
+  })
+  // Customer alert — the ONE shared Alert field group (a single free-text note).
+  const alertApi = useAlertDraft({ contact_alert: record.contact_alert ?? null })
 
   // The number/texting state that WILL be on file after Save lives in the shared
   // Phone Lego draft (`phoneApi.willHaveNumber` / `numberUnchanged` /
@@ -1445,40 +1424,19 @@ function UnifiedContactEditor({
       payload.suffix_in_familiar = nextPref
     }
 
-    // DOB: normalize the three parts the same way the route will. The masked
-    // form is the stable identity of the DOB (day never compared), so a change
-    // in the normalized columns is what we send and preview. An invalid DOB
-    // contributes no change here (Save is blocked separately on it). Normalized
-    // locally from the drafts so this callback's deps fully cover it.
-    const dobNorm = normalizeDobParts({ month: dobMonth, day: dobDay, year: dobYear })
-    // Whether the operator actually EDITED the DOB fields away from what they
-    // were seeded with. The seed is the display value (which may be a
-    // policy-derived consensus), NOT the stored customer DOB — so a plain
-    // contact save, where the operator never touched the DOB fields, must NOT
-    // write that derived value onto the customer. A DOB is persisted only on a
-    // genuine edit; an explicit DOB change (differing from the seed) still saves.
-    const dobEdited =
-      dobMonth.trim() !== seededDob.month.trim() ||
-      dobDay.trim() !== seededDob.day.trim() ||
-      dobYear.trim() !== seededDob.year.trim()
-    // A downgrade (exact -> partial) is never applied: keep the stored value and
-    // emit no DOB change, so the preview and payload don't reflect a loss the
-    // Save guard rejects.
-    const dobDowngrade = wouldDowngradeExactDob(
-      { date_of_birth: record.date_of_birth ?? null, date_of_birth_approx: record.date_of_birth_approx ?? null },
-      dobNorm,
-    )
-    const nextDob = (dobNorm.status === 'invalid' || dobDowngrade || !dobEdited)
-      ? { date_of_birth: record.date_of_birth ?? null, date_of_birth_approx: record.date_of_birth_approx ?? null }
-      : { date_of_birth: dobNorm.date_of_birth, date_of_birth_approx: dobNorm.date_of_birth_approx }
-    const dobDidChange =
-      dobEdited && dobNorm.status !== 'invalid' && !dobDowngrade &&
-      ((nextDob.date_of_birth ?? null) !== (record.date_of_birth ?? null) ||
-        (nextDob.date_of_birth_approx ?? null) !== (record.date_of_birth_approx ?? null))
-    if (dobDidChange) {
-      payload.dob_month = dobMonth
-      payload.dob_day = dobDay
-      payload.dob_year = dobYear
+    // DOB: the shared DOB Lego resolves whether the operator actually edited the
+    // date away from its seed and whether that edit changes the stored columns
+    // (never a downgrade of a known exact date, never a policy-derived seed
+    // written on a plain save). Send the three raw parts only on a genuine
+    // change; the route re-normalizes them identically.
+    const nextDob =
+      dobApi.willChange
+        ? { date_of_birth: dobApi.result.date_of_birth, date_of_birth_approx: dobApi.result.date_of_birth_approx }
+        : { date_of_birth: record.date_of_birth ?? null, date_of_birth_approx: record.date_of_birth_approx ?? null }
+    if (dobApi.willChange) {
+      payload.dob_month = dobApi.parts.month
+      payload.dob_day = dobApi.parts.day
+      payload.dob_year = dobApi.parts.year
     }
 
     // Email: the shared Email Lego resolves the value and availability that will
@@ -1503,10 +1461,12 @@ function UnifiedContactEditor({
       payload.phone = nextPhone
     }
 
-    const ns = normalizeStreet(street)
-    const nc = normalizeCity(city)
-    const nst = normalizeState(stateVal)
-    const nz = ((): string | null => { const t = zip.replace(/\s+/g, ' ').trim(); return t.length ? t : null })()
+    // Mailing address: the shared Address Lego resolves the four normalized
+    // values that will be on file. Send the group only when any of them changed.
+    const ns = addressApi.resolved.street
+    const nc = addressApi.resolved.city
+    const nst = addressApi.resolved.state
+    const nz = addressApi.resolved.zip
     const beforeStreet = (record.street ?? record.address_line1 ?? '').trim() || null
     const addrChanged =
       (ns ?? null) !== (beforeStreet ?? null) ||
@@ -1526,8 +1486,8 @@ function UnifiedContactEditor({
     if (doNotText !== (record.sms_opt_out === true)) payload.do_not_text = doNotText
     if (willMarkUndeliverable) payload.mark_undeliverable = true
 
-    // Alert.
-    const nextAlert = alertDraft.trim().length ? alertDraft.trim() : null
+    // Alert: the shared Alert Lego resolves the trimmed note (null to clear).
+    const nextAlert = alertApi.resolved
     if ((nextAlert ?? null) !== ((record.contact_alert ?? '').trim() ? record.contact_alert : null)) {
       payload.alert = nextAlert
     }
@@ -1545,7 +1505,7 @@ function UnifiedContactEditor({
     const addrVerifiedAfter = addrEdited ? false : !!record.address_verified_at
     const wantEmailVerified = emailApi.draft.verified && emailApi.canVerify && emailUsableAfter
     const wantPhoneVerified = phoneApi.draft.verified && phoneApi.canVerify && phoneUsableAfter
-    const wantAddrVerified = addressVerified && addrUsableAfter
+    const wantAddrVerified = addressApi.draft.verified && addressApi.canVerify && addrUsableAfter
     if (wantEmailVerified !== emailVerifiedAfter) payload.email_verified = wantEmailVerified
     if (wantPhoneVerified !== phoneVerifiedAfter) payload.phone_verified = wantPhoneVerified
     if (wantAddrVerified !== addrVerifiedAfter) payload.address_verified = wantAddrVerified
@@ -1605,8 +1565,9 @@ function UnifiedContactEditor({
     phoneApi.resolvedPhone, phoneApi.draft.doNotText, phoneApi.draft.verified,
     phoneApi.willMarkUndeliverable, phoneApi.willHaveNumber, phoneApi.numberUnchanged,
     phoneApi.canVerify,
-    street, city, stateVal, zip, addressVerified,
-    alertDraft, dobMonth, dobDay, dobYear, seededDob,
+    dobApi.willChange, dobApi.result, dobApi.parts,
+    addressApi.resolved, addressApi.draft.verified, addressApi.canVerify,
+    alertApi.resolved,
     record,
   ])
 
@@ -1639,9 +1600,9 @@ function UnifiedContactEditor({
     // shared draft reports validity; block Save and surface the inline errors.
     if (!nameApi.valid) { setNameAttempted(true); return }
     // Block Save on an invalid DOB, or on a downgrade of a known exact DOB to
-    // partial info (same guards the route enforces).
-    if (dobResult.status === 'invalid') { return }
-    if (dobWouldDowngrade) { return }
+    // partial info (same guards the route enforces); the shared DOB Lego reports
+    // both as not-valid. Surface the inline message on attempt.
+    if (!dobApi.valid) { setDobAttempted(true); return }
     onSave(buildChange().payload)
   }
 
@@ -1652,7 +1613,7 @@ function UnifiedContactEditor({
 
   return (
     <form onSubmit={submit} className="mt-3">
-      <div className="divide-y divide-surface-border-strong">
+      <div className="divide-y-2 divide-surface-border-section">
         {/* Name — the ONE shared Person Name field group (First, Middle, Last,
             Suffix dropdown; Goes by + the suffix-in-familiar checkbox) with its
             compact live familiar + greeting preview. Exactly the implementation
@@ -1675,43 +1636,22 @@ function UnifiedContactEditor({
           </div>
         </div>
 
-        {/* Date of birth — separate month / day / year; leave unknown parts
-            blank. A year with a blank day is kept as a partial DOB; a full
-            month+day+year is kept exact. A known exact DOB cannot be downgraded
-            to partial info. */}
+        {/* Date of birth — the ONE shared DOB field group (month / day / year
+            with the exact-vs-partial rules and the exact-DOB downgrade guard).
+            The inline invalid/downgrade message shows only after a Save
+            attempt. */}
         <div className="py-3">
-          <p className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
-            <Pencil className="size-4" aria-hidden /> Date of birth
+          <p className="flex items-center gap-1.5 text-base font-bold text-ink">
+            <CalendarDays className="size-4" aria-hidden /> Date of birth
           </p>
-          <div className="mt-1.5 grid grid-cols-3 gap-2 sm:max-w-xs">
-            <div>
-              <label htmlFor="uc-dob-month" className="text-sm font-medium text-ink-secondary">Month</label>
-              <input id="uc-dob-month" type="text" inputMode="numeric" value={dobMonth} disabled={busy}
-                maxLength={2} onChange={(e) => setDobMonth(e.target.value.replace(/\D/g, '').slice(0, 2))}
-                placeholder="MM" className={cn('mt-1', inputCls(false))} />
-            </div>
-            <div>
-              <label htmlFor="uc-dob-day" className="text-sm font-medium text-ink-secondary">Day</label>
-              <input id="uc-dob-day" type="text" inputMode="numeric" value={dobDay} disabled={busy}
-                maxLength={2} onChange={(e) => setDobDay(e.target.value.replace(/\D/g, '').slice(0, 2))}
-                placeholder="DD" className={cn('mt-1', inputCls(false))} />
-            </div>
-            <div>
-              <label htmlFor="uc-dob-year" className="text-sm font-medium text-ink-secondary">Year</label>
-              <input id="uc-dob-year" type="text" inputMode="numeric" value={dobYear} disabled={busy}
-                maxLength={4} onChange={(e) => setDobYear(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                placeholder="YYYY" className={cn('mt-1', inputCls(dobResult.status === 'invalid'))} />
-            </div>
+          <div className="mt-1.5">
+            <DobFields
+              api={dobApi}
+              busy={busy}
+              idPrefix="uc-dob"
+              showError={dobAttempted}
+            />
           </div>
-          {dobResult.status === 'invalid' && (
-            <p className="mt-1.5 text-base text-status-missing-strong">{dobResult.reason}</p>
-          )}
-          {dobResult.status !== 'invalid' && dobWouldDowngrade && (
-            <p className="mt-1.5 text-base text-status-missing-strong">
-              A full date of birth is already on file. Enter the complete date to correct it, or leave it unchanged — it can&rsquo;t be replaced with a partial date.
-            </p>
-          )}
-          <p className="mt-1.5 text-sm text-ink-muted">Leave the day (or month) blank if only part of the date is known.</p>
         </div>
 
         {/* Email — the ONE shared Email field group (input + the three
@@ -1752,55 +1692,27 @@ function UnifiedContactEditor({
           </div>
         </div>
 
-        {/* Mailing address + verification */}
-        <div className="py-3 last:pb-0">
-          <p className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
+        {/* Mailing address — the ONE shared Address field group (street / city /
+            state / ZIP + the Address Verified checkbox). */}
+        <div className={cn('py-3', !alertEditable && 'last:pb-0')}>
+          <p className="flex items-center gap-1.5 text-base font-bold text-ink">
             <MapPin className="size-4" aria-hidden /> Mailing Address
           </p>
-          <div className="mt-1.5 space-y-2">
-            <div>
-              <label htmlFor="uc-street" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">Street</label>
-              <input id="uc-street" value={street} disabled={busy} onChange={(e) => setStreet(e.target.value)}
-                onBlur={() => setStreet((v) => normalizeStreet(v) ?? '')}
-                placeholder="123 Main St" className={cn('mt-1', inputCls(false))} />
-            </div>
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <label htmlFor="uc-city" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">City</label>
-                <input id="uc-city" value={city} disabled={busy} onChange={(e) => setCity(e.target.value)}
-                  onBlur={() => setCity((v) => normalizeCity(v) ?? '')}
-                  placeholder="Philadelphia" className={cn('mt-1', inputCls(false))} />
-              </div>
-              <div className="w-16">
-                <label htmlFor="uc-state" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">State</label>
-                <input id="uc-state" value={stateVal} disabled={busy} onChange={(e) => setStateVal(e.target.value.toUpperCase())}
-                  maxLength={2} placeholder="PA" className={cn('mt-1 uppercase', inputCls(false))} />
-              </div>
-              <div className="w-24">
-                <label htmlFor="uc-zip" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">ZIP</label>
-                <input id="uc-zip" value={zip} disabled={busy} onChange={(e) => setZip(e.target.value)}
-                  placeholder="19103" className={cn('mt-1', inputCls(false))} />
-              </div>
-            </div>
-          </div>
-          <div className="mt-2">
-            <VerifiedToggle label="Address verified"
-              checked={addressVerified}
-              disabled={busy || !(normalizeStreet(street) && normalizeCity(city) && normalizeState(stateVal) && zip.trim())}
-              onChange={setAddressVerified} />
+          <div className="mt-1.5">
+            <AddressFields api={addressApi} busy={busy} idPrefix="uc-addr" />
           </div>
         </div>
 
-        {/* Customer alert — part of the one editing area. */}
+        {/* Customer alert — the ONE shared Alert field group (a single note),
+            part of the one editing area. */}
         {alertEditable && (
-          <div className="py-3">
-            <label htmlFor="uc-alert" className="flex items-center gap-1.5 text-base font-semibold text-status-known-strong">
+          <div className="py-3 last:pb-0">
+            <p className="flex items-center gap-1.5 text-base font-bold text-status-known-strong">
               <AlertTriangle className="size-4" aria-hidden /> Customer alert
-            </label>
-            <textarea id="uc-alert" rows={2} value={alertDraft} disabled={busy}
-              onChange={(e) => setAlertDraft(e.target.value)}
-              placeholder="Add a short alert shown at the top of this customer's card."
-              className="mt-1.5 w-full rounded-lg border border-surface-border-strong px-3 py-2 text-base text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-wash disabled:opacity-50" />
+            </p>
+            <div className="mt-1.5">
+              <AlertField api={alertApi} busy={busy} idPrefix="uc-alert" />
+            </div>
           </div>
         )}
       </div>
@@ -1818,31 +1730,6 @@ function UnifiedContactEditor({
         </button>
       </div>
     </form>
-  )
-}
-
-/** A compact Customer Verified checkbox used inside the unified editor. */
-function VerifiedToggle({
-  label, checked, disabled, onChange,
-}: {
-  label: string
-  checked: boolean
-  disabled: boolean
-  onChange: (v: boolean) => void
-}) {
-  return (
-    <label
-      className={cn(
-        'flex w-fit items-center gap-2 text-base font-medium',
-        disabled ? 'cursor-not-allowed text-ink-muted' : 'cursor-pointer text-ink-secondary',
-      )}
-      title={disabled ? 'A missing or unusable value cannot be marked verified.' : undefined}
-    >
-      <input type="checkbox" checked={checked} disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
-        className="size-4 rounded border-slate-400 text-teal-600 focus:ring-teal-500 disabled:opacity-40" />
-      <span>{label}</span>
-    </label>
   )
 }
 
@@ -2187,31 +2074,6 @@ function OverviewRow({
 }
 
 /**
- * The prominent customer-alert banner near the top of the card. One short,
- * high-contrast amber band (the known/amber status tokens, same family the
- * card already uses) so the alert reads at a glance. Display-only; the text
- * wraps and preserves line breaks from the editor.
- */
-function AlertBanner({ text }: { text: string }) {
-  return (
-    <div
-      role="alert"
-      className="mt-3 flex items-start gap-2.5 rounded-xl border border-status-known-border bg-status-known-fill px-3 py-2.5"
-    >
-      <AlertTriangle className="mt-0.5 size-5 shrink-0 text-status-known-strong" aria-hidden />
-      <p className="min-w-0 whitespace-pre-line break-words text-base font-medium text-status-known-strong">
-        {text}
-      </p>
-    </div>
-  )
-}
-
-/**
- * The multiline alert editor with Save and Cancel. Reuses the card's input and
- * button chrome (the same tokens as the field editors) so it feels native to
- * the card. Empty text on Save clears the alert.
- */
-/**
  * The single control that opens the unified editor from the compact Overview.
  */
 function ModeToggleButton({
@@ -2265,14 +2127,6 @@ function ContactStatusKey({ appearance, inline = false }: { appearance: Resolved
     </div>
   )
 }
-
-const inputCls = (invalid: boolean) =>
-  cn(
-    'w-full rounded-lg border px-3 py-2 text-lg text-ink focus:outline-none focus:ring-2',
-    invalid
-      ? 'border-status-missing-border focus:border-status-missing-border focus:ring-status-missing-soft'
-      : 'border-surface-border-strong focus:border-brand-ring focus:ring-brand-wash',
-  )
 
 // The Text-message availability controls (Do Not Text / Text Undeliverable) now
 // live in the shared Phone Lego (`./ContactPhone`), rendered by `PhoneFields`.

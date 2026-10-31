@@ -100,3 +100,36 @@ export {
   type PhoneRecord,
   type PhoneEditResult,
 } from './ContactPhone'
+
+export {
+  DobDisplay,
+  DobEditor,
+  DobFields,
+  useDobDraft,
+  type DobDraftApi,
+  type DobRecord,
+  type DobEditResult,
+} from './ContactDob'
+
+export {
+  AddressDisplay,
+  AddressEditor,
+  AddressFields,
+  useAddressDraft,
+  addressLines,
+  addressUsable,
+  type AddressDraft,
+  type AddressDraftApi,
+  type AddressRecord,
+  type AddressEditResult,
+} from './ContactAddress'
+
+export {
+  AlertBanner,
+  AlertEditor,
+  AlertField,
+  useAlertDraft,
+  type AlertDraftApi,
+  type AlertRecord,
+  type AlertEditResult,
+} from './ContactAlert'
