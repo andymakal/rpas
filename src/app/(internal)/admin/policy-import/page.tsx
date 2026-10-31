@@ -7,7 +7,6 @@ import {
   Loader2, ChevronRight, X, Table, SkipForward,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { sourceDobToOwnerMask, sourceDobToInsuredColumns, sourceDobToFhir } from '@/lib/stewardship/dob'
 
 // ── Shared types ──────────────────────────────────────────────────────────────
 
@@ -36,15 +35,6 @@ type PolicyRow = {
   coverage_status:      string
   sa_status:            'unknown'
   is_test:              false
-  // ── Transient owner-enrichment fields (NOT stored on service_policies) ──
-  // Carried in the POST body only so the server can enrich the OWNER'S CUSTOMER
-  // record (the single source of truth for a person's DOB) with the owner's
-  // COMPLETE date of birth — including the day, which owner_dob_approx cannot
-  // hold. Stripped before the policy row is inserted, so no owner full date is
-  // duplicated onto the policy and the owner/insured distinction is preserved.
-  _owner_first_name:    string | null
-  _owner_last_name:     string | null
-  _owner_dob_source:    string | null   // the raw owner DOB value, re-interpreted server-side
 }
 
 type SheetStat = {
@@ -89,19 +79,20 @@ function parseIsoDate(v: unknown): string | null {
   return isNaN(d.getTime()) ? null : d.toISOString().split('T')[0]
 }
 
-// Owner display DOB -> the masked owner_dob_approx convention. The owner mask
-// NEVER carries a day (PHI), but it must preserve the precision actually known:
-// 'MM/xx/YYYY' when a month is known, 'xx/xx/YYYY' when only a year is. A value
-// we cannot reduce to at least a 4-digit year yields null rather than a
-// malformed string that would violate the owner_dob_approx shape — we never
-// invent a component and never store garbage. Day components in the source are
-// deliberately dropped here (the owner mask is day-less by design); the INSURED
-// path (parseDobPrecision) is where a full date is retained.
-// The OWNER display mask (owner_dob_approx). Day-less by design (PHI); month and
-// year precision are preserved via the shared source interpretation. Null when
-// no reliable 4-digit year is present (never a malformed mask).
 function parseDob(v: unknown): string | null {
-  return sourceDobToOwnerMask(v)
+  if (v == null) return null
+  const s = String(v).trim()
+  if (s.includes('xx') || s.includes('XX')) return s || null
+  if (v instanceof Date && !isNaN(v.getTime())) {
+    const mm   = String(v.getMonth() + 1).padStart(2, '0')
+    const yyyy = v.getFullYear()
+    return `${mm}/xx/${yyyy}`
+  }
+  if (s.match(/^\d{1,2}\/\d{1,2}\/\d{4}$/)) {
+    const parts = s.split('/')
+    return `${parts[0].padStart(2,'0')}/xx/${parts[2]}`
+  }
+  return s || null
 }
 
 function str(v: unknown): string | null {
@@ -119,21 +110,68 @@ function parseState(v: unknown): string | null {
   return /^[A-Z]{2}$/.test(up) ? up : null
 }
 
-// Derive the INSURED DOB-by-precision columns from a source birth value,
-// preserving the FULL precision actually known — an exact source keeps its DAY,
-// a month+year source keeps its month, a year-only source keeps its year, and
-// nothing usable is 'missing'. This is the shared source interpretation, so an
-// ISO date, an "M/D/YYYY" string, an Excel Date cell, and an "MM/YYYY" value
-// are all handled consistently and no known component is dropped. Used when the
-// policy OWNER is the insured, so the owner's exact day is retained here even
-// though the owner display mask (parseDob) is deliberately day-less.
+/**
+ * Derive insured DOB precision parts from a source birth value WITHOUT inventing
+ * a day or month we were not given. The DB stores DOB by precision (see
+ * 20261008000001): 'exact' carries a full date + year + month; 'month_year'
+ * carries year + month; 'year_only' carries year; 'missing' carries nothing.
+ *   - a real Date or an M/D/Y string  -> exact
+ *   - a masked 'MM/xx/YYYY'            -> month_year
+ *   - a masked 'xx/xx/YYYY' / bare year-> year_only
+ *   - anything else                    -> missing
+ */
 function parseDobPrecision(v: unknown): {
   insured_dob: string | null
   insured_dob_year: number | null
   insured_dob_month: number | null
   insured_dob_precision: 'exact' | 'month_year' | 'year_only' | 'missing'
 } {
-  return sourceDobToInsuredColumns(v)
+  const none = { insured_dob: null, insured_dob_year: null, insured_dob_month: null, insured_dob_precision: 'missing' as const }
+  if (v == null) return none
+
+  // Full date from a real Excel date cell → exact precision.
+  if (v instanceof Date && !isNaN(v.getTime())) {
+    const y = v.getFullYear()
+    const m = v.getMonth() + 1
+    const d = v.getDate()
+    return {
+      insured_dob: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
+      insured_dob_year: y,
+      insured_dob_month: m,
+      insured_dob_precision: 'exact',
+    }
+  }
+
+  const s = String(v).trim()
+  if (!s) return none
+
+  // Full numeric date "M/D/YYYY" → exact.
+  const full = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (full) {
+    const m = Number(full[1]), d = Number(full[2]), y = Number(full[3])
+    if (m >= 1 && m <= 12 && d >= 1 && d <= 31) {
+      return {
+        insured_dob: `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`,
+        insured_dob_year: y,
+        insured_dob_month: m,
+        insured_dob_precision: 'exact',
+      }
+    }
+  }
+
+  // Masked "MM/xx/YYYY" (month + year, no day) → month_year.
+  const year = s.match(/(\d{4})\s*$/)?.[1]
+  if (!year) return none
+  const y = Number(year)
+  const leadMonth = s.match(/^(\d{1,2})/)?.[1]
+  if (leadMonth && /xx/i.test(s)) {
+    const m = Number(leadMonth)
+    if (m >= 1 && m <= 12) {
+      return { insured_dob: null, insured_dob_year: y, insured_dob_month: m, insured_dob_precision: 'month_year' }
+    }
+  }
+  // Only a year is reliably known.
+  return { insured_dob: null, insured_dob_year: y, insured_dob_month: null, insured_dob_precision: 'year_only' }
 }
 
 function col(row: Record<string, unknown>, ...keys: string[]): unknown {
@@ -245,12 +283,6 @@ function parseRow(row: Record<string, unknown>): PolicyRow | null {
     coverage_status:      coverageStatus,
     sa_status:            'unknown',
     is_test:              false,
-    // Transient owner identity + COMPLETE DOB (canonical FHIR token so a Date
-    // cell survives JSON) for server-side enrichment of the owner's CUSTOMER
-    // record. Not stored on the policy.
-    _owner_first_name:    ownerFirst,
-    _owner_last_name:     ownerLast,
-    _owner_dob_source:    sourceDobToFhir(rawOwnerDob),
   }
 }
 

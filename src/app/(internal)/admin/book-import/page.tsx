@@ -7,7 +7,6 @@ import {
   Loader2, ChevronRight, X, Users, Briefcase,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { sourceDobToCustomerColumns } from '@/lib/stewardship/dob'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -21,12 +20,7 @@ export type ContactRow = {
   zip:               string | null
   phone:             string | null
   email:             string | null
-  /** Exact DOB (YYYY-MM-DD) when the Known DOB source is a full date, else null. */
   date_of_birth:     string | null
-  /** Partial DOB (masked 'MM/xx/YYYY' / 'xx/xx/YYYY', day-less) when the Known
-   * DOB source is only a month+year or a year, else null. Preserves partial
-   * precision the exact column cannot hold. */
-  date_of_birth_approx: string | null
   referring_partner: string | null
   is_deceased:       boolean
   is_emoney_client:  boolean
@@ -206,11 +200,7 @@ function parseWorkbook(file: File): Promise<ParseResult> {
             zip:               str(r['Zip']),
             phone:             str(r['Phone']),
             email:             str(r['Email']),
-            // Known DOB kept at the precision the source actually carries: a full
-            // date lands on date_of_birth, a month+year or year-only partial on
-            // date_of_birth_approx (masked, day-less). Never fabricated or
-            // discarded.
-            ...sourceDobToCustomerColumns(r['Known DOB']),
+            date_of_birth:     parseIso(r['Known DOB']),
             referring_partner: str(r['Referring P&C Agent Partner']),
             is_deceased:       String(r['CRM Deceased Flag'] ?? '').trim().toUpperCase() === 'YES',
             is_emoney_client:  String(r['Allstate My Money (eMoney Advisor)'] ?? '').trim().toUpperCase() === 'YES',

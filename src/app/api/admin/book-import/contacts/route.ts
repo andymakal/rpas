@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { readStoredDob, mergeImportDobIntoCustomer } from '@/lib/stewardship/dob'
 
 type ContactRow = {
   source_client_id:  string
@@ -13,10 +12,6 @@ type ContactRow = {
   phone:             string | null
   email:             string | null
   date_of_birth:     string | null
-  /** Partial DOB (masked 'MM/xx/YYYY' / 'xx/xx/YYYY', day-less) when the source
-   * Known DOB was only a month+year or year. Mutually exclusive with the exact
-   * date_of_birth. */
-  date_of_birth_approx: string | null
   referring_partner: string | null
   is_deceased:       boolean
   is_emoney_client:  boolean
@@ -33,25 +28,10 @@ function normalizeLastName(v: string): string {
   return v.trim().toLowerCase().replace(/\s+/g, ' ')
 }
 
-// The birth YEAR used for dedup matching, derived from EITHER the exact date
-// (YYYY-MM-DD, leading 4 digits) OR the masked partial ('MM/xx/YYYY' /
-// 'xx/xx/YYYY', trailing 4 digits). A partial DOB now carries a reliable year,
-// so a year-only or month+year customer still matches on last-name + birth-year
-// exactly as a full date did — matching behavior is unchanged, just sourced
-// from whichever column holds the DOB.
-function birthYear(exact: string | null, approx?: string | null): number | null {
-  if (exact) {
-    const y = parseInt(exact.slice(0, 4), 10)
-    if (!isNaN(y)) return y
-  }
-  if (approx) {
-    const m = approx.match(/(\d{4})\s*$/)
-    if (m) {
-      const y = parseInt(m[1], 10)
-      if (!isNaN(y)) return y
-    }
-  }
-  return null
+function birthYear(dob: string | null): number | null {
+  if (!dob) return null
+  const y = parseInt(dob.slice(0, 4), 10)
+  return isNaN(y) ? null : y
 }
 
 export async function POST(req: NextRequest) {
@@ -71,14 +51,14 @@ export async function POST(req: NextRequest) {
 
   // Load ALL existing customers for dedup — paginate in 1000-row pages to
   // work around Supabase's default 1000-row response cap
-  type ExistingRow = { id: string; first_name: string | null; last_name: string | null; date_of_birth: string | null; date_of_birth_approx: string | null; phone: string | null; email: string | null; source_client_id: string | null; segment: string | null }
+  type ExistingRow = { id: string; first_name: string | null; last_name: string | null; date_of_birth: string | null; phone: string | null; email: string | null; source_client_id: string | null; segment: string | null }
   const existing: ExistingRow[] = []
   const PAGE = 1000
   let from = 0
   while (true) {
     const { data, error: loadErr } = await supabase
       .from('customers')
-      .select('id, first_name, last_name, date_of_birth, date_of_birth_approx, phone, email, source_client_id, segment')
+      .select('id, first_name, last_name, date_of_birth, phone, email, source_client_id, segment')
       .eq('is_test', false)
       .range(from, from + PAGE - 1)
     if (loadErr || !data || data.length === 0) break
@@ -124,7 +104,7 @@ export async function POST(req: NextRequest) {
 
     const lastLower  = normalizeLastName(c.last_name ?? '')
     const firstLower = (c.first_name ?? '').trim().toLowerCase().split(/\s+/)[0]
-    const yr         = birthYear(c.date_of_birth, c.date_of_birth_approx)
+    const yr         = birthYear(c.date_of_birth)
 
     if (firstLower && lastLower && yr)
       setUnique(byFullName, `${firstLower}|${lastLower}|${yr}`, c.id)
@@ -171,7 +151,7 @@ export async function POST(req: NextRequest) {
 
     const lastLower  = normalizeLastName(row.last_name)
     const firstLower = (row.first_name ?? '').trim().toLowerCase().split(/\s+/)[0]
-    const yr         = birthYear(row.date_of_birth, row.date_of_birth_approx)
+    const yr         = birthYear(row.date_of_birth)
     const ph         = normalizePhone(row.phone)
 
     // 1. source_client_id — strongest signal, always unique from the consolidation file
@@ -226,28 +206,6 @@ export async function POST(req: NextRequest) {
       if (row.is_deceased)       patch.is_deceased       = true
       // Only set segment if currently null
       if (!ex?.segment && row.segment) patch.segment = row.segment
-      // DOB enrichment by COMPATIBLE MERGE: when the import carries additional,
-      // compatible birth information (e.g. the customer has only a year on file
-      // and the import adds the month, or the full date), upgrade the stored DOB
-      // to the more complete value. A contradiction (a different year, or a
-      // different month/day within the same year) or an import that is no more
-      // precise than what is on file changes nothing — more reliable existing
-      // information is never overwritten. The merge writes only the column that
-      // actually changes (exact -> date_of_birth, partial -> the masked approx).
-      const incomingDob = readStoredDob(row.date_of_birth, row.date_of_birth_approx)
-      const mergedDob = mergeImportDobIntoCustomer(
-        ex?.date_of_birth ?? null,
-        ex?.date_of_birth_approx ?? null,
-        incomingDob,
-      )
-      if (mergedDob) {
-        if ((mergedDob.date_of_birth ?? null) !== (ex?.date_of_birth ?? null)) {
-          patch.date_of_birth = mergedDob.date_of_birth
-        }
-        if ((mergedDob.date_of_birth_approx ?? null) !== (ex?.date_of_birth_approx ?? null)) {
-          patch.date_of_birth_approx = mergedDob.date_of_birth_approx
-        }
-      }
 
       if (Object.keys(patch).length > 0) {
         toUpdate.push({ id: existingId, patch })
@@ -264,8 +222,7 @@ export async function POST(req: NextRequest) {
         zip:               row.zip,
         phone:             row.phone,
         email:             row.email,
-        date_of_birth:        row.date_of_birth,
-        date_of_birth_approx: row.date_of_birth_approx,
+        date_of_birth:     row.date_of_birth,
         source_client_id:  row.source_client_id,
         is_deceased:       row.is_deceased,
         is_emoney_client:  row.is_emoney_client,
