@@ -72,7 +72,7 @@ export function GatewayLookup({
           onClick={() => copyValue('last', lastDisplay)}
           disabled={!lastDisplay}
         >
-          {copied === 'last' ? 'Last name copied' : 'Copy Last Name'}
+          {copied === 'last' ? 'Copied' : 'Copy'}
         </WorkflowButton>
       </div>
 
@@ -89,7 +89,7 @@ export function GatewayLookup({
                 selected={copied === `policy-${i}`}
                 onClick={() => copyValue(`policy-${i}`, policy)}
               >
-                {copied === `policy-${i}` ? 'Policy number copied' : 'Copy Policy Number'}
+                {copied === `policy-${i}` ? 'Copied' : 'Copy'}
               </WorkflowButton>
             </div>
           ))}
