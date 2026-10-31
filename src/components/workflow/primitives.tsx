@@ -21,7 +21,7 @@ import { ArrowLeft, ExternalLink, MessageSquareQuote } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { MentorToggle } from '@/lib/mentoring/MentorUi'
-import { TaskColumns } from './TaskColumns'
+import { TaskColumns, type TaskColumnRatio } from './TaskColumns'
 
 type IconType = ComponentType<{ className?: string }>
 
@@ -380,7 +380,7 @@ export function FieldStatusDot({
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function TaskShell({
-  header, action, context, history,
+  header, action, context, history, columns,
 }: {
   header: ReactNode
   /** The current action: what the worker should do now (left column). */
@@ -390,6 +390,10 @@ export function TaskShell({
   /** Optional customer-history column. When present the layout is three columns
    * (work · context · history); when absent it stays the two-column default. */
   history?: ReactNode
+  /** Named column-ratio preset for the three-column layout. Only applies when
+   * `history` is supplied. Default 'even' (equal thirds). See
+   * {@link TaskColumnRatio}. */
+  columns?: TaskColumnRatio
 }) {
   return (
     // Full-width within its parent: the page's WorkflowPage work area already
@@ -409,7 +413,7 @@ export function TaskShell({
         // beneath the page heading by measuring the row's own position — no
         // guessed viewport offset — and scrolls each column within its bounds on
         // desktop. Below xl the columns stack and the page scrolls normally.
-        <TaskColumns action={action} context={context} history={history} />
+        <TaskColumns action={action} context={context} history={history} columns={columns} />
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[3fr_2fr]">
           <div className="space-y-5">{action}</div>

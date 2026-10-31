@@ -25,6 +25,8 @@ export {
   SpokenScriptCard,
 } from './primitives'
 
+export { type TaskColumnRatio } from './TaskColumns'
+
 export {
   QueueSection,
   QueueRow,

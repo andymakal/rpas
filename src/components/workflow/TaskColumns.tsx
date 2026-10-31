@@ -38,7 +38,7 @@
  *   so small screens keep ordinary page scrolling.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
 /** The Tailwind `xl` breakpoint (px). The fill behavior is desktop-only; below
@@ -65,14 +65,38 @@ function nearestScrollParent(el: HTMLElement): HTMLElement {
  * genuinely fits into the constrained/scrolling mode. */
 const FIT_TOLERANCE = 2
 
+/**
+ * Named column-ratio presets for the three-column working screen. These are a
+ * DESIGN-TIME tuning vocabulary: a page opts into a preset by name, and the
+ * actual proportions live here in one place (not inline on each page) so the
+ * whole set is visible at a glance and tuned once. The value is only the `xl`
+ * three-column grid track; the one-column (narrow) and two-column (medium)
+ * responsive fallbacks are unaffected, so stacking behavior never changes.
+ *
+ *   even          — equal thirds (1/1/1). The default; today's layout.
+ *   wide-context  — 27/46/27, a wider CENTER for screens where the center
+ *                   column (customer context) carries the weight and the left
+ *                   action is mostly click-through.
+ */
+export type TaskColumnRatio = 'even' | 'wide-context'
+
+const COLUMN_TEMPLATES: Record<TaskColumnRatio, string> = {
+  even: 'repeat(3,minmax(0,1fr))',
+  'wide-context': 'minmax(0,27fr) minmax(0,46fr) minmax(0,27fr)',
+}
+
 export function TaskColumns({
   action,
   context,
   history,
+  columns = 'even',
 }: {
   action: ReactNode
   context: ReactNode
   history: ReactNode
+  /** Named column-ratio preset for the xl three-column track. Default 'even'
+   * (equal thirds). See {@link TaskColumnRatio}. */
+  columns?: TaskColumnRatio
 }) {
   const rowRef = useRef<HTMLDivElement | null>(null)
   const actionRef = useRef<HTMLDivElement | null>(null)
@@ -159,11 +183,21 @@ export function TaskColumns({
 
   const active = fillHeight !== null
 
+  // The xl three-column track is driven by a CSS custom property so the named
+  // ratio preset lives in one place (COLUMN_TEMPLATES) rather than inline on
+  // each page. The one-column (narrow) and two-column (lg) fallbacks stay plain
+  // Tailwind, so stacking on smaller screens is unchanged; only at xl does the
+  // `grid-cols-[var(--task-cols)]` track take effect.
+  const rowStyle: CSSProperties = {
+    ['--task-cols' as string]: COLUMN_TEMPLATES[columns],
+    ...(active ? { height: `${fillHeight}px` } : {}),
+  }
+
   return (
     <div
       ref={rowRef}
-      className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,1fr))] xl:items-start"
-      style={active ? { height: `${fillHeight}px` } : undefined}
+      className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-[var(--task-cols)] xl:items-start"
+      style={rowStyle}
     >
       <div ref={actionRef} className={cn('space-y-5', active && 'xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1')}>{action}</div>
       <div ref={contextRef} className={cn('space-y-5', active && 'xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1')}>{context}</div>

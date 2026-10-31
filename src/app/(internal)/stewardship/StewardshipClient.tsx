@@ -1420,6 +1420,10 @@ export function StewardshipTask({
   return (
     <TaskChrome chromeless={hideBackHeader}>
       <TaskShell
+        // Find Missing Contact Information: widen the CENTER column (customer
+        // context) where the left action is mostly click-through. Every other
+        // working screen keeps equal thirds.
+        columns={research ? 'wide-context' : 'even'}
         header={hideBackHeader ? null : <SlimTaskHeader onBack={onBack} backLabel="All queues" />}
         action={
           forceServicingAccess ? (
