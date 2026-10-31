@@ -58,13 +58,11 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import {
   Mail, Phone, MapPin, Pencil, Check, X, Loader2,
   ShieldQuestion, CheckCircle2, AlertTriangle,
-  Ban, MessageSquareOff,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMentorDisclosure, MentorCapButton, MentorCapPanel } from '@/lib/mentoring/MentorUi'
 import {
-  normalizePhoneInput, formatPhoneAsTyped, formatPhoneDisplay,
-  type ContactFieldResult,
+  formatPhoneDisplay,
 } from '@/lib/contact-input'
 import {
   normalizeEmail, normalizeStreet, normalizeCity, normalizeState,
@@ -76,9 +74,7 @@ import {
   resolveEmailAvailabilityDisplay,
 } from '@/lib/email-availability'
 import {
-  type SmsAvailabilityDisplay,
   SMS_AVAILABILITY_LABEL,
-  SMS_AVAILABILITY_HELP,
   resolveSmsAvailabilityDisplay,
 } from '@/lib/sms-availability'
 import {
@@ -93,6 +89,7 @@ import {
 } from '@/lib/person-name'
 import { PersonNameDisplay, PersonNameEditor, PersonNameFields, usePersonNameDraft } from './PersonName'
 import { EmailFields, useEmailDraft } from './ContactEmail'
+import { PhoneFields, usePhoneDraft } from './ContactPhone'
 
 // ── Data shape ───────────────────────────────────────────────────────────────
 
@@ -1352,20 +1349,26 @@ function UnifiedContactEditor({
   })
   // Defer the inline email error until a Save attempt, like the name section.
   const [emailAttempted, setEmailAttempted] = useState(false)
-  const [phone, setPhone] = useState(formatPhoneAsTyped(record.phone ?? ''))
-  const [phoneResult, setPhoneResult] = useState<ContactFieldResult | null>(null)
-  const [doNotText, setDoNotText] = useState(record.sms_opt_out === true)
-  const [markUndeliverable, setMarkUndeliverable] = useState(
-    record.text_undeliverable === true && !!record.phone?.trim(),
-  )
+  // Phone — the ONE shared Phone field group (number + the Text-message
+  // availability controls Do Not Text / Text Undeliverable + the Verified
+  // checkbox), driven by the shared draft hook so validation, texting gating,
+  // and resolution match everywhere.
+  const phoneApi = usePhoneDraft({
+    phone: record.phone,
+    sms_opt_out: record.sms_opt_out === true,
+    text_undeliverable: record.text_undeliverable === true,
+    phone_verified_at: record.phone_verified_at,
+  })
+  // Defer the inline phone error until a Save attempt, like the name section.
+  const [phoneAttempted, setPhoneAttempted] = useState(false)
   const [street, setStreet] = useState(streetDisplay(record))
   const [city, setCity] = useState(normalizeCity(record.city) ?? '')
   const [stateVal, setStateVal] = useState(normalizeState(record.state) ?? '')
   const [zip, setZip] = useState(record.zip ?? '')
   // Verified reflects the value that will be on file. An edited value clears its
-  // own verification; the checkbox follows that below. (Email verification lives
-  // in the Email Lego's draft, `emailApi.draft.verified`.)
-  const [phoneVerified, setPhoneVerified] = useState(!!record.phone_verified_at)
+  // own verification; the checkbox follows that below. (Email and phone
+  // verification live in their Lego drafts, `emailApi.draft.verified` /
+  // `phoneApi.draft.verified`.)
   const [addressVerified, setAddressVerified] = useState(!!record.address_verified_at)
   const [alertDraft, setAlertDraft] = useState(record.contact_alert ?? '')
   // DOB drafts — three independent parts, seeded from the stored exact or
@@ -1410,15 +1413,10 @@ function UnifiedContactEditor({
     dobResult,
   )
 
-  // The number that WILL be on file after Save, so the texting controls and the
-  // address verifiability reflect the pending state, not the stored one.
-  const stagedPhone = normalizePhoneInput(phone)
-  const willHaveNumber = stagedPhone.status !== 'empty' && stagedPhone.status !== 'invalid'
-  const numberUnchanged =
-    (stagedPhone.value ?? null) === (record.phone ? (normalizePhoneInput(record.phone).value ?? null) : null)
-  // Text Undeliverable clears only by replacing the number, so when the number
-  // is unchanged and already undeliverable the control is locked on.
-  const lockedUndeliverable = record.text_undeliverable === true && !!record.phone?.trim() && numberUnchanged && willHaveNumber
+  // The number/texting state that WILL be on file after Save lives in the shared
+  // Phone Lego draft (`phoneApi.willHaveNumber` / `numberUnchanged` /
+  // `lockedUndeliverable` / `willMarkUndeliverable`), so the card no longer
+  // derives it; the mailing-address verifiability still reads it from there.
 
   // Build the minimal payload of ONLY changed facts, plus the before/after
   // snapshots for the live preview. Verification reflects the value that will be
@@ -1498,11 +1496,11 @@ function UnifiedContactEditor({
       payload.email_availability = emailApi.draft.reason
     }
 
-    const pr = normalizePhoneInput(phone)
-    let nextPhone: string | null = record.phone
-    if (pr.status !== 'invalid' && (pr.value ?? null) !== (record.phone ?? null)) {
-      payload.phone = pr.value
-      nextPhone = pr.value ?? null
+    // Phone: the shared Phone Lego resolves the number that will be on file.
+    // Send it only when it actually changed.
+    const nextPhone = phoneApi.resolvedPhone
+    if ((nextPhone ?? null) !== (record.phone ?? null)) {
+      payload.phone = nextPhone
     }
 
     const ns = normalizeStreet(street)
@@ -1519,11 +1517,13 @@ function UnifiedContactEditor({
       payload.street = ns; payload.city = nc; payload.state = nst; payload.zip = nz
     }
 
-    // Do Not Text / Text Undeliverable.
+    // Do Not Text / Text Undeliverable — both resolved by the Phone Lego. Send
+    // the opt-out only when it changed; request a delivery-failure record only
+    // when the Lego says one should be recorded (staged, a number on file, not
+    // already-and-unchanged). A failure is never cleared here.
+    const doNotText = phoneApi.draft.doNotText
+    const willMarkUndeliverable = phoneApi.willMarkUndeliverable
     if (doNotText !== (record.sms_opt_out === true)) payload.do_not_text = doNotText
-    const willMarkUndeliverable =
-      markUndeliverable && willHaveNumber && !lockedUndeliverable &&
-      !((numberUnchanged) && record.text_undeliverable === true)
     if (willMarkUndeliverable) payload.mark_undeliverable = true
 
     // Alert.
@@ -1544,7 +1544,7 @@ function UnifiedContactEditor({
     const phoneVerifiedAfter = phoneEdited ? false : !!record.phone_verified_at
     const addrVerifiedAfter = addrEdited ? false : !!record.address_verified_at
     const wantEmailVerified = emailApi.draft.verified && emailApi.canVerify && emailUsableAfter
-    const wantPhoneVerified = phoneVerified && phoneUsableAfter
+    const wantPhoneVerified = phoneApi.draft.verified && phoneApi.canVerify && phoneUsableAfter
     const wantAddrVerified = addressVerified && addrUsableAfter
     if (wantEmailVerified !== emailVerifiedAfter) payload.email_verified = wantEmailVerified
     if (wantPhoneVerified !== phoneVerifiedAfter) payload.phone_verified = wantPhoneVerified
@@ -1594,7 +1594,7 @@ function UnifiedContactEditor({
       sms_opt_out: doNotText,
       date_of_birth: nextDob.date_of_birth,
       date_of_birth_approx: nextDob.date_of_birth_approx,
-      text_undeliverable: willMarkUndeliverable || (numberUnchanged && record.text_undeliverable === true && willHaveNumber),
+      text_undeliverable: willMarkUndeliverable || (phoneApi.numberUnchanged && record.text_undeliverable === true && phoneApi.willHaveNumber),
       contact_alert: nextAlert,
     }
     return { payload, before, after }
@@ -1602,10 +1602,12 @@ function UnifiedContactEditor({
     nameApi.liveName,
     emailApi.resolvedEmail, emailApi.resolvedAvailability, emailApi.draft.reason,
     emailApi.draft.verified, emailApi.canVerify,
-    phone, doNotText, markUndeliverable,
-    street, city, stateVal, zip, phoneVerified, addressVerified,
+    phoneApi.resolvedPhone, phoneApi.draft.doNotText, phoneApi.draft.verified,
+    phoneApi.willMarkUndeliverable, phoneApi.willHaveNumber, phoneApi.numberUnchanged,
+    phoneApi.canVerify,
+    street, city, stateVal, zip, addressVerified,
     alertDraft, dobMonth, dobDay, dobYear, seededDob,
-    willHaveNumber, lockedUndeliverable, numberUnchanged, record,
+    record,
   ])
 
   // Report the live preview of the pending change AND whether the drafts are
@@ -1630,8 +1632,9 @@ function UnifiedContactEditor({
     // reports validity, mirroring the server, so bad formatting cannot slip
     // through; surface the inline message on attempt.
     if (!emailApi.valid) { setEmailAttempted(true); return }
-    const pr = normalizePhoneInput(phone)
-    if (pr.status === 'invalid') { setPhoneResult(pr); return }
+    // Phone: the shared Phone Lego reports validity (an empty number is a valid
+    // clear). Block Save and surface the inline message on an invalid number.
+    if (!phoneApi.valid) { setPhoneAttempted(true); return }
     // Name: First and Last both required (Other needs a custom suffix). The
     // shared draft reports validity; block Save and surface the inline errors.
     if (!nameApi.valid) { setNameAttempted(true); return }
@@ -1646,11 +1649,6 @@ function UnifiedContactEditor({
   // required; Other requires a custom suffix) — the same rule the server
   // enforces. The inline field errors/preview live inside PersonNameFields.
   const nameInvalid = !nameApi.valid
-
-  const draftSmsDisplay: SmsAvailabilityDisplay = resolveSmsAvailabilityDisplay({
-    smsOptOut: doNotText,
-    textUndeliverable: markUndeliverable && willHaveNumber,
-  })
 
   return (
     <form onSubmit={submit} className="mt-3">
@@ -1735,33 +1733,22 @@ function UnifiedContactEditor({
           </div>
         </div>
 
-        {/* Phone + texting restrictions + verification */}
+        {/* Phone — the ONE shared Phone field group (number + the Text-message
+            availability controls Do Not Text / Text Undeliverable + the Verified
+            checkbox) with its inline validation. Exactly the implementation the
+            standalone Phone editor uses, so there is no duplicated phone/texting
+            logic; the inline invalid message shows only after a Save attempt. */}
         <div className="py-3">
-          <label htmlFor="uc-phone" className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
+          <p className="flex items-center gap-1.5 text-base font-bold text-ink">
             <Phone className="size-4" aria-hidden /> Phone
-          </label>
-          <input id="uc-phone" type="tel" value={phone} disabled={busy}
-            onChange={(e) => { setPhone(formatPhoneAsTyped(e.target.value)); if (phoneResult) setPhoneResult(null) }}
-            onBlur={() => setPhoneResult(normalizePhoneInput(phone))}
-            placeholder="(215) 555-0100" aria-invalid={phoneResult?.status === 'invalid' || undefined}
-            className={cn('mt-1.5', inputCls(phoneResult?.status === 'invalid'))} />
-          {phoneResult?.status === 'invalid' && phoneResult.reason && (
-            <p className="mt-1.5 text-base text-status-missing-strong">{phoneResult.reason}</p>
-          )}
-          <SmsAvailabilityControls
-            display={draftSmsDisplay}
-            hasNumber={willHaveNumber}
-            doNotText={doNotText}
-            undeliverable={markUndeliverable && willHaveNumber}
-            lockedUndeliverable={lockedUndeliverable}
-            busy={busy}
-            onToggleDoNotText={() => setDoNotText((v) => !v)}
-            onToggleUndeliverable={() => { if (!lockedUndeliverable) setMarkUndeliverable((v) => !v) }}
-          />
-          <div className="mt-2">
-            <VerifiedToggle label="Phone verified" checked={phoneVerified}
-              disabled={busy || !normalizePhoneInput(phone).value}
-              onChange={setPhoneVerified} />
+          </p>
+          <div className="mt-1.5">
+            <PhoneFields
+              api={phoneApi}
+              busy={busy}
+              idPrefix="uc-phone"
+              showError={phoneAttempted}
+            />
           </div>
         </div>
 
@@ -2287,89 +2274,7 @@ const inputCls = (invalid: boolean) =>
       : 'border-surface-border-strong focus:border-brand-ring focus:ring-brand-wash',
   )
 
-// ── Phone texting-availability controls (used by the unified editor) ─────────
-
-/** The Text-message availability controls inside the phone section. Two
- * restrictions, each a STAGED toggle that is part of the phone editor's single
- * Save/Cancel operation — clicking only flips the pending selection, nothing
- * persists until Save, and Cancel discards it. The parent owns the staged state:
- *   - Do Not Text stages the durable customer opt-out (customers.sms_opt_out).
- *     Togglable even with no number on file, since it follows the customer.
- *   - Text Undeliverable stages a delivery-failure record for the NUMBER that
- *     will be on file. Needs a number; an ordinary unsent text is not a failure,
- *     so this is a deliberate opt-in. Replacing the number restores availability.
- * Both disable texting only; telephone calls are never affected. */
-function SmsAvailabilityControls({
-  display, hasNumber, doNotText, undeliverable, lockedUndeliverable, busy,
-  onToggleDoNotText, onToggleUndeliverable,
-}: {
-  /** The STAGED status (from the pending toggles), for the help/preview line. */
-  display: SmsAvailabilityDisplay
-  /** Whether a usable number will be on file after Save. */
-  hasNumber: boolean
-  /** The staged Do Not Text selection. */
-  doNotText: boolean
-  /** The staged Text Undeliverable selection (already gated on hasNumber). */
-  undeliverable: boolean
-  /** The number on file is already undeliverable and unchanged, so the mark
-   * cannot be cleared here (it clears only by replacing the number). The toggle
-   * shows pressed and is locked. */
-  lockedUndeliverable: boolean
-  busy: boolean
-  onToggleDoNotText: () => void
-  onToggleUndeliverable: () => void
-}) {
-  return (
-    <fieldset className="mt-3 border-t border-surface-border-strong pt-3">
-      <legend className="text-sm font-semibold text-ink-secondary">Text-message availability</legend>
-      <p className="mt-0.5 text-sm text-ink-muted">
-        {SMS_AVAILABILITY_HELP[display]}
-      </p>
-      <div className="mt-1.5 flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={busy}
-          aria-pressed={doNotText}
-          onClick={onToggleDoNotText}
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-sm font-medium disabled:opacity-60',
-            doNotText
-              ? 'border-status-missing-border bg-status-missing-soft text-status-missing-strong'
-              : 'border-surface-border-strong bg-surface-card text-ink-secondary hover:bg-surface-muted',
-          )}
-        >
-          <Ban className="size-3.5 shrink-0" aria-hidden />
-          Do Not Text
-        </button>
-        <button
-          type="button"
-          // A delivery failure is recorded against the number that will be on
-          // file, so it needs a number and is moot while Do Not Text already
-          // disables texting. It is also locked ON when the current number is
-          // already undeliverable (it clears only by replacing the number).
-          // Disabled (not hidden) so the control stays legible.
-          disabled={busy || !hasNumber || doNotText || lockedUndeliverable}
-          aria-pressed={undeliverable}
-          onClick={onToggleUndeliverable}
-          title={
-            !hasNumber ? 'Enter a phone number first.'
-            : doNotText ? 'Do Not Text already disables texting.'
-            : lockedUndeliverable ? 'Already undeliverable. Replace the number to restore texting.'
-            : 'Mark that a text to this number failed to deliver (saved on Save).'
-          }
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-sm font-medium disabled:opacity-60',
-            undeliverable && !doNotText
-              ? 'border-status-missing-border bg-status-missing-soft text-status-missing-strong'
-              : 'border-surface-border-strong bg-surface-card text-ink-secondary hover:bg-surface-muted',
-          )}
-        >
-          <MessageSquareOff className="size-3.5 shrink-0" aria-hidden />
-          Text Undeliverable
-        </button>
-      </div>
-    </fieldset>
-  )
-}
+// The Text-message availability controls (Do Not Text / Text Undeliverable) now
+// live in the shared Phone Lego (`./ContactPhone`), rendered by `PhoneFields`.
 
 

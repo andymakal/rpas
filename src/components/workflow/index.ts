@@ -89,3 +89,14 @@ export {
   type EmailRecord,
   type EmailEditResult,
 } from './ContactEmail'
+
+export {
+  PhoneDisplay,
+  PhoneEditor,
+  PhoneFields,
+  usePhoneDraft,
+  type PhoneDraft,
+  type PhoneDraftApi,
+  type PhoneRecord,
+  type PhoneEditResult,
+} from './ContactPhone'
