@@ -63,7 +63,7 @@ import {
 import { cn } from '@/lib/utils'
 import { useMentorDisclosure, MentorCapButton, MentorCapPanel } from '@/lib/mentoring/MentorUi'
 import {
-  normalizeEmailInput, normalizePhoneInput, formatPhoneAsTyped, formatPhoneDisplay,
+  normalizePhoneInput, formatPhoneAsTyped, formatPhoneDisplay,
   type ContactFieldResult,
 } from '@/lib/contact-input'
 import {
@@ -73,7 +73,6 @@ import {
   type EmailAvailability,
   type SelectableEmailAvailability,
   EMAIL_AVAILABILITY_LABEL,
-  SELECTABLE_EMAIL_AVAILABILITY_VALUES,
   resolveEmailAvailabilityDisplay,
 } from '@/lib/email-availability'
 import {
@@ -93,6 +92,7 @@ import {
   familiarName as personFamiliarName,
 } from '@/lib/person-name'
 import { PersonNameDisplay, PersonNameEditor, PersonNameFields, usePersonNameDraft } from './PersonName'
+import { EmailFields, useEmailDraft } from './ContactEmail'
 
 // ── Data shape ───────────────────────────────────────────────────────────────
 
@@ -1342,11 +1342,16 @@ function UnifiedContactEditor({
   })
   // Defer the inline name error until a Save attempt, like the standalone editor.
   const [nameAttempted, setNameAttempted] = useState(false)
-  const [email, setEmail] = useState(record.email ?? '')
-  const [emailResult, setEmailResult] = useState<ContactFieldResult | null>(null)
-  // A staged "no usable email" reason selected in this session; mutually
-  // exclusive with a typed email, exactly like the former per-field editor.
-  const [emailReason, setEmailReason] = useState<SelectableEmailAvailability | null>(null)
+  // Email — the ONE shared Email field group (input + the three mutually-
+  // exclusive availability reasons + the Verified checkbox), driven by the
+  // shared draft hook so validation and resolution match everywhere.
+  const emailApi = useEmailDraft({
+    email: record.email,
+    email_availability: record.email_availability ?? null,
+    email_verified_at: record.email_verified_at,
+  })
+  // Defer the inline email error until a Save attempt, like the name section.
+  const [emailAttempted, setEmailAttempted] = useState(false)
   const [phone, setPhone] = useState(formatPhoneAsTyped(record.phone ?? ''))
   const [phoneResult, setPhoneResult] = useState<ContactFieldResult | null>(null)
   const [doNotText, setDoNotText] = useState(record.sms_opt_out === true)
@@ -1358,8 +1363,8 @@ function UnifiedContactEditor({
   const [stateVal, setStateVal] = useState(normalizeState(record.state) ?? '')
   const [zip, setZip] = useState(record.zip ?? '')
   // Verified reflects the value that will be on file. An edited value clears its
-  // own verification; the checkbox follows that below.
-  const [emailVerified, setEmailVerified] = useState(!!record.email_verified_at)
+  // own verification; the checkbox follows that below. (Email verification lives
+  // in the Email Lego's draft, `emailApi.draft.verified`.)
   const [phoneVerified, setPhoneVerified] = useState(!!record.phone_verified_at)
   const [addressVerified, setAddressVerified] = useState(!!record.address_verified_at)
   const [alertDraft, setAlertDraft] = useState(record.contact_alert ?? '')
@@ -1478,20 +1483,19 @@ function UnifiedContactEditor({
       payload.dob_year = dobYear
     }
 
-    // Email: a staged reason wins (clears the email); else the typed value.
-    let nextEmail: string | null = record.email
-    let nextAvailability = (record.email_availability ?? null)
-    if (emailReason) {
-      payload.email_availability = emailReason
-      nextEmail = null
-      nextAvailability = emailReason === 'missing' ? null : emailReason
-    } else {
-      const er = normalizeEmailInput(email)
-      if (er.status !== 'invalid' && (er.value ?? null) !== (record.email ?? null)) {
-        payload.email = er.value
-        nextEmail = er.value ?? null
-        if (er.value) nextAvailability = 'available'
-      }
+    // Email: the shared Email Lego resolves the value and availability that will
+    // be on file (a staged reason clears the email; a usable address flips
+    // availability to 'available'; "Missing" resets it to null). Send only what
+    // actually changed. A staged reason always writes the availability it
+    // resolved, so a "no usable email" disposition records even when the stored
+    // email was already empty.
+    const nextEmail = emailApi.resolvedEmail
+    const nextAvailability = emailApi.resolvedAvailability
+    if ((nextEmail ?? null) !== (record.email ?? null)) {
+      payload.email = nextEmail
+    }
+    if (emailApi.draft.reason != null) {
+      payload.email_availability = emailApi.draft.reason
     }
 
     const pr = normalizePhoneInput(phone)
@@ -1539,7 +1543,7 @@ function UnifiedContactEditor({
     const emailVerifiedAfter = emailEdited ? false : !!record.email_verified_at
     const phoneVerifiedAfter = phoneEdited ? false : !!record.phone_verified_at
     const addrVerifiedAfter = addrEdited ? false : !!record.address_verified_at
-    const wantEmailVerified = emailVerified && emailUsableAfter
+    const wantEmailVerified = emailApi.draft.verified && emailApi.canVerify && emailUsableAfter
     const wantPhoneVerified = phoneVerified && phoneUsableAfter
     const wantAddrVerified = addressVerified && addrUsableAfter
     if (wantEmailVerified !== emailVerifiedAfter) payload.email_verified = wantEmailVerified
@@ -1596,8 +1600,10 @@ function UnifiedContactEditor({
     return { payload, before, after }
   }, [
     nameApi.liveName,
-    email, emailReason, phone, doNotText, markUndeliverable,
-    street, city, stateVal, zip, emailVerified, phoneVerified, addressVerified,
+    emailApi.resolvedEmail, emailApi.resolvedAvailability, emailApi.draft.reason,
+    emailApi.draft.verified, emailApi.canVerify,
+    phone, doNotText, markUndeliverable,
+    street, city, stateVal, zip, phoneVerified, addressVerified,
     alertDraft, dobMonth, dobDay, dobYear, seededDob,
     willHaveNumber, lockedUndeliverable, numberUnchanged, record,
   ])
@@ -1619,13 +1625,11 @@ function UnifiedContactEditor({
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
-    // Block Save on an invalid typed value (unless the email is being replaced
-    // by a staged reason). Validation mirrors the server, so bad formatting
-    // cannot slip through.
-    if (!emailReason) {
-      const er = normalizeEmailInput(email)
-      if (er.status === 'invalid') { setEmailResult(er); return }
-    }
+    // Block Save on an invalid typed email (an empty email with no reason is a
+    // valid clear; a staged reason always resolves valid). The shared Email Lego
+    // reports validity, mirroring the server, so bad formatting cannot slip
+    // through; surface the inline message on attempt.
+    if (!emailApi.valid) { setEmailAttempted(true); return }
     const pr = normalizePhoneInput(phone)
     if (pr.status === 'invalid') { setPhoneResult(pr); return }
     // Name: First and Last both required (Other needs a custom suffix). The
@@ -1636,16 +1640,6 @@ function UnifiedContactEditor({
     if (dobResult.status === 'invalid') { return }
     if (dobWouldDowngrade) { return }
     onSave(buildChange().payload)
-  }
-
-  const selectReason = (choice: SelectableEmailAvailability) => {
-    setEmailResult(null)
-    setEmailReason((prev) => {
-      const next = prev === choice ? null : choice
-      setEmail(next ? '' : (record.email ?? ''))
-      if (next) setEmailVerified(false)
-      return next
-    })
   }
 
   // Name validity comes from the shared draft hook (First and Last both
@@ -1722,41 +1716,22 @@ function UnifiedContactEditor({
           <p className="mt-1.5 text-sm text-ink-muted">Leave the day (or month) blank if only part of the date is known.</p>
         </div>
 
-        {/* Email + availability + verification */}
+        {/* Email — the ONE shared Email field group (input + the three
+            mutually-exclusive availability reasons + the Verified checkbox) with
+            its inline validation. Exactly the implementation the standalone
+            Email editor uses, so there is no duplicated email logic; the inline
+            invalid message shows only after a Save attempt. */}
         <div className="py-3">
-          <label htmlFor="uc-email" className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
+          <p className="flex items-center gap-1.5 text-base font-bold text-ink">
             <Mail className="size-4" aria-hidden /> Email
-          </label>
-          <input id="uc-email" type="email" value={email} disabled={busy || !!emailReason}
-            onChange={(e) => { setEmail(e.target.value); if (emailResult) setEmailResult(null) }}
-            onBlur={() => { if (!emailReason) setEmailResult(normalizeEmailInput(email)) }}
-            placeholder={emailReason ? EMAIL_AVAILABILITY_LABEL[emailReason] : 'name@example.com'}
-            aria-invalid={emailResult?.status === 'invalid' || undefined}
-            className={cn('mt-1.5', inputCls(emailResult?.status === 'invalid'), emailReason && 'opacity-50')} />
-          {emailResult?.status === 'invalid' && emailResult.reason && (
-            <p className="mt-1.5 text-base text-status-missing-strong">{emailResult.reason}</p>
-          )}
-          <div className="mt-2 flex flex-wrap gap-2">
-            {SELECTABLE_EMAIL_AVAILABILITY_VALUES.map((choice) => {
-              const selected = emailReason === choice
-              return (
-                <button key={choice} type="button" disabled={busy} aria-pressed={selected}
-                  onClick={() => selectReason(choice)}
-                  className={cn(
-                    'inline-flex items-center rounded-lg border px-2.5 py-1 text-sm font-medium disabled:opacity-60',
-                    selected
-                      ? 'border-status-missing-border bg-status-missing-soft text-status-missing-strong'
-                      : 'border-surface-border-strong bg-surface-card text-ink-secondary hover:bg-surface-muted',
-                  )}>
-                  {EMAIL_AVAILABILITY_LABEL[choice]}
-                </button>
-              )
-            })}
-          </div>
-          <div className="mt-2">
-            <VerifiedToggle label="Email verified" checked={emailVerified}
-              disabled={busy || !!emailReason || !normalizeEmailInput(email).value}
-              onChange={setEmailVerified} />
+          </p>
+          <div className="mt-1.5">
+            <EmailFields
+              api={emailApi}
+              busy={busy}
+              idPrefix="uc-email"
+              showError={emailAttempted}
+            />
           </div>
         </div>
 

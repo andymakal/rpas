@@ -78,3 +78,14 @@ export {
   type PersonNameDraft,
   type PersonNameDraftApi,
 } from './PersonName'
+
+export {
+  EmailDisplay,
+  EmailEditor,
+  EmailFields,
+  useEmailDraft,
+  type EmailDraft,
+  type EmailDraftApi,
+  type EmailRecord,
+  type EmailEditResult,
+} from './ContactEmail'
