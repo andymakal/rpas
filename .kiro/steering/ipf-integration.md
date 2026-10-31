@@ -4,12 +4,26 @@ inclusion: always
 
 # IPF is Right Path's functional blueprint
 
+The canonical, cross-tool/cross-branch record of these IPF decisions is
+`AGENTS.md` (§IPF integration). This Kiro steering file states the same
+decisions with Kiro-specific framing and defers to AGENTS.md if they ever
+diverge; keep the decisions here consistent with AGENTS.md rather than letting
+the two drift.
+
 IPF (the `bobpfromm/ipf-stewardship` repository) is the functional blueprint for
-Right Path's operational and assistant overlay. Its established capabilities are
-intended to become part of Right Path. This supersedes any earlier framing that
-treated IPF as merely an idea source, a reference, or a spec to paraphrase.
-Where IPF has working code and settled patterns for a capability Right Path
-needs, reuse that actual functionality rather than re-deriving it.
+Right Path's operational and assistant overlay, and its capabilities are the
+committed functional roadmap. This supersedes any earlier framing that treated
+IPF as merely an idea source, a reference, or a spec to paraphrase.
+
+Being the committed direction and executing a bounded task are compatible: IPF
+being the roadmap does NOT mean every task builds more of it. When a task's
+agreed outcome calls for an IPF capability, reuse IPF's working code and settled
+patterns for that capability — fully, rather than re-deriving it. When a task
+does not call for one, do not introduce IPF tables, engines, or capabilities it
+does not need; that is a scope expansion, handled per efficient-execution ("A
+new table or component is a review signal, not an approval gate"). The named
+implementations below are a reference catalog to reuse when an outcome calls for
+them, not a checklist to deliver proactively.
 
 IPF is a blueprint, not a merge. Right Path is and remains one application and
 one database. We take IPF's capabilities, patterns, and rule models into Right

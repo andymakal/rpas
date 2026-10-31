@@ -27,23 +27,20 @@ reviews, and a read-only agency portal.
 
 ### Sensitive customer data
 
-- Date of birth. An exact DOB is stored in `customers.date_of_birth` (`date`); a
-  partial DOB is stored in `customers.date_of_birth_approx` (masked
-  `MM/xx/YYYY` / `xx/xx/YYYY`, day never stored). The DEFAULT display rule still
-  holds everywhere: DOB is masked `MM/xx/YYYY`, the day is never shown (helpers
-  like the one in `customers/[id]/CustomerCardClient.tsx` do this; reuse them).
-  THE ONE DELIBERATE EXCEPTION: the shared Customer Contact Card
-  (`src/components/workflow/CustomerContactCard.tsx`) displays the COMPLETE DOB
-  when known — `MM/DD/YYYY` for an exact date, and only the known parts
-  (`MM/YYYY` or `YYYY`) when partial, never inventing a missing part — via
-  `formatDobDisplay` in `src/lib/stewardship/dob.ts`. This operator-facing card
-  is the agreed place a worker sees and corrects the full date. Everywhere else
-  keeps masking, and the full DOB (its day) stays OUT of routine customer
-  history: a DOB change is recorded as a precision-appropriate fact
-  (added / corrected / cleared, with "a full date" / "month and year" /
-  "year only"), never the value. A known exact DOB is never silently downgraded
-  to partial information (`wouldDowngradeExactDob` guards the card and the save
-  route).
+- Date of birth. Exact DOB in `customers.date_of_birth` (`date`); partial DOB in
+  `customers.date_of_birth_approx` (masked `MM/xx/YYYY` / `xx/xx/YYYY`, day never
+  stored). DEFAULT display everywhere is masked `MM/xx/YYYY`, day never shown
+  (reuse the helpers, e.g. in `customers/[id]/CustomerCardClient.tsx`). THE ONE
+  DELIBERATE EXCEPTION: the shared Customer Contact Card
+  (`src/components/workflow/CustomerContactCard.tsx`) shows the COMPLETE known
+  DOB — `MM/DD/YYYY` exact, or `MM/YYYY` / `YYYY` when partial, never inventing a
+  missing part (via `formatDobDisplay` in `src/lib/stewardship/dob.ts`) — as the
+  one place an operator sees and corrects it. A known exact DOB is never silently
+  downgraded to partial (`wouldDowngradeExactDob` guards the card and the save
+  route). The full DOB value is NEVER recorded in routine customer history: a DOB
+  change is logged as a precision-appropriate fact (added / corrected / cleared,
+  with "a full date" / "month and year" / "year only"), never the date itself.
+  Detail and helpers: `src/lib/stewardship/dob.ts`.
 - SSN is highly sensitive PII. The Fact Finder (`FactFinderSection.tsx`) does
   capture SSN for the customer and beneficiaries, so treat it as stored-securely
   data: never log it, never surface it in search results, lists, exports, or the
@@ -158,17 +155,44 @@ guard onto `main`), do it as its own reviewed change, not silently.
 ## IPF integration (established decisions)
 
 IPF (the `bobpfromm/ipf-stewardship` repository, external to this repo) is the
-functional blueprint for Right Path's operational and assistant overlay. These
-decisions are settled and are recorded here so they travel with `main`:
+functional blueprint for Right Path's operational and assistant overlay, and its
+capabilities are the committed functional roadmap. This section is the canonical
+record of these decisions for every tool and both branches; the Kiro steering
+file `.kiro/steering/ipf-integration.md` carries the same decisions plus
+Kiro-specific operational framing and defers to this section. Being the
+committed direction does not authorize expanding an unrelated task: reuse an IPF
+capability when a task's outcome calls for it, and do not build IPF structure a
+task does not need (see Working discipline and efficient-execution).
 
 - Reuse IPF's working capabilities, not just its ideas: GoRules ZEN
-  (`@gorules/zen-engine`) plus IPF's rule models for deterministic, attributable
-  recommendations (ZEN owns the decision matrix over normalized facts and never
-  queries the DB; TypeScript owns normalization, time math, capability
-  resolution, and the operator-facing prose); the shared-queue + optional-claim
-  model; promised-callback / preferred-window commitments; capability-based
-  routing; the always-visible recommendation with collapsible coaching; and the
-  "Daily Direction" doctrine.
+  (`@gorules/zen-engine`) plus IPF's rule models (`src/rules/*.json`) for
+  deterministic, attributable recommendations. The division of labor is fixed:
+  ZEN owns the decision matrix (eligibility, placement, priority bands) over
+  normalized facts and never queries the DB; TypeScript owns normalization, time
+  math, capability resolution, and the operator-facing prose.
+- Shared-queue + optional-claim model: queue-owned work (structural candidacy,
+  scoped to no individual) with OPTIONAL per-callback claiming that is distinct
+  from episode assignment — a claim lives on the callback's `action_context`
+  (`claimedByTeamMemberId`), not on a generic episode assignee. An unclaimed
+  exact-time callback surfaces to every eligible worker as claimable; once
+  claimed it is that worker's commitment.
+- Promised-callback / preferred-window commitments, capability-based routing
+  (work functions, primary/support), and an always-visible recommendation with
+  separate, collapsible coaching.
+- Daily Direction is an implemented, GoRules-powered IPF feature, not merely
+  doctrine: a ZEN decision (`src/rules/next-best-action.json`) picks the single
+  Next Best Action from a fixed priority order (imminent fixed commitment, then
+  active work, then missed commitment, then owned Intake, then owned Outreach,
+  then other owned work, then Support, then open capacity);
+  `src/lib/daily-direction-engine.ts` normalizes facts and resolves time labels
+  and `src/composition/daily-direction.ts` assembles candidates. Reuse that
+  engine, rule JSON, and fact/candidate shape; re-home the reads on Right Path's
+  own records. (These file references are a reference catalog — reuse them when a
+  task's outcome calls for Daily Direction, not a backlog to build proactively.)
+- Assistant and Mentoring are two distinct surfaces and must stay distinct: the
+  Assistant is a system-state explanation of what to do next (the teal
+  `AssistantNotice` / `HardCommitmentNotice` treatment, driven by the Daily
+  Direction verdict); Mentoring is separate coaching prose. Do not merge them.
 - IPF is a blueprint, not a merge. Right Path stays one application and one
   database. Re-home every reused capability on Right Path's existing tables,
   auth, and single-tenant assumptions.
@@ -185,15 +209,26 @@ decisions are settled and are recorded here so they travel with `main`:
   commitment such as a promised callback or scheduled appointment; the system
   recommends and a human decides consequential outcomes.
 
-This integration is in-progress work landing on `development` first. When
-working with Kiro on `development`, the same decisions are also maintained as
-Kiro steering under `.kiro/steering/`; on `main`, this section is the reference.
-
 ## Working discipline
 
 - Make minimal, targeted changes; do not rewrite files wholesale unless asked.
+  Deliver the simplest complete solution to the agreed outcome — the whole
+  outcome, verified and shipped, with no unrequested structure. A new table,
+  component, subsystem, or cross-module responsibility is a signal to check
+  scope, not an automatic stop: build ordinary in-scope implementation
+  autonomously, and surface it first only when it materially expands the agreed
+  outcome, departs from the established architecture, or carries a consequential
+  business, data-integrity, or security tradeoff.
 - Match existing patterns, conventions, and libraries already in the repo.
-- Run `npx tsc --noEmit` (and the build / relevant checks) before claiming done.
+- Verify in proportion to the change's actual risk. A type-check (`npx tsc
+  --noEmit`) covers any code change; run the build and relevant checks before
+  claiming done, but reuse results already valid this session and recheck only
+  what a change or an error invalidates. A green compile is not proof of runtime
+  behavior; confirm behavioral changes by the cheapest sufficient means.
+- Handle routine implementation and recovery from your own mistakes
+  independently. Escalate only genuinely unresolved business decisions, material
+  architectural departures, or consequential tradeoffs — with a recommended
+  option, not a request to design the work.
 - Confirm which branch you are on and respect its deploy behavior: `main` is
   production, `development` is the shared testing line. Do not deploy or modify
   production as a side effect of ordinary work.
@@ -203,6 +238,16 @@ Kiro steering under `.kiro/steering/`; on `main`, this section is the reference.
   `https://bobdev.therightpathagency.com`, not merely pushed to GitHub. This
   project's preview is published by `vercel deploy` (CLI) and the `bobdev`
   alias is pointed at that deployment; a git push alone does NOT update the
-  preview. Only `main`/production actions require explicit authorization. The
-  full default lives in Kiro steering (`.kiro/steering/delivery-workflow.md`);
-  keep the two in step.
+  preview. Only `main`/production actions require explicit authorization. This
+  is the canonical statement of the delivery workflow for all tools and both
+  branches; `.kiro/steering/delivery-workflow.md` carries the same default plus
+  the exact Kiro command sequence (`vercel deploy` / `vercel alias set` /
+  `vercel inspect`) and defers to this section.
+- Unfinished multi-session work: if `.kiro/handoff/HANDOFF.md` exists, read it
+  at the start of a task — it is the agent-maintained status of an in-flight
+  effort (what's done, what's left, decisions made, blockers). Keep it current
+  while that effort is active and delete it when the effort is complete. It is
+  temporary task state, never a permanent rule, and must not be placed in
+  steering. If it describes a different active task than the one you are
+  starting, do not overwrite its context — append your own clearly separated
+  section or use a distinct `.kiro/handoff/<task>.md` file.

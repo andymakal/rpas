@@ -8,6 +8,11 @@ This is the permanent default for how finished work reaches the shared
 environment. It records a settled operating decision; it does not override
 correctness, data safety, or the git-safety rules.
 
+The canonical, cross-tool/cross-branch statement of this delivery default lives
+in `AGENTS.md` (§Working discipline). This Kiro steering file is the operational
+companion: it carries the exact command sequence and the preview mechanics and
+defers to AGENTS.md for the decision itself.
+
 ## Completion means available on the shared preview, not merely pushed
 
 The single shared development preview is `https://bobdev.therightpathagency.com`.
