@@ -90,6 +90,13 @@ export interface ContactReviewCustomer {
   customer_id: string
   first_name: string | null
   last_name: string | null
+  /** The remaining recorded name parts, carried so every name shown on the
+   * Contact Research screen renders through the shared Person Name presentation
+   * (familiar name: Goes by/First, Last, suffix when preferred). */
+  middle_name: string | null
+  suffix: string | null
+  goes_by: string | null
+  suffix_in_familiar: boolean | null
   /** Best-available-precision age, reusing the project age logic
    * (public.project_customer_age): exact DOB when present, else the best masked
    * owner DOB from the customer's policies. Null when age cannot be determined
@@ -190,6 +197,10 @@ type CustomerRow = {
   id: string
   first_name: string | null
   last_name: string | null
+  middle_name: string | null
+  suffix: string | null
+  goes_by: string | null
+  suffix_in_familiar: boolean | null
   email: string | null
   phone: string | null
   street: string | null
@@ -211,7 +222,8 @@ type CustomerRow = {
  * Age is NOT read here — it comes from the reused project age logic via
  * `readCustomerAges` (exact DOB or masked policy fallback), age only. */
 const CUSTOMER_SELECT =
-  'id, first_name, last_name, email, phone, street, address_line1, city, state, zip, ' +
+  'id, first_name, last_name, middle_name, suffix, goes_by, suffix_in_familiar, ' +
+  'email, phone, street, address_line1, city, state, zip, ' +
   'email_verified_at, phone_verified_at, address_verified_at, email_availability, contact_alert, sms_opt_out, is_test'
 
 /** Batch the reused project age logic for a set of customers. Returns a map of
@@ -360,6 +372,10 @@ export async function buildContactReview(
       customer_id: c.id,
       first_name: c.first_name,
       last_name: c.last_name,
+      middle_name: c.middle_name,
+      suffix: c.suffix,
+      goes_by: c.goes_by,
+      suffix_in_familiar: c.suffix_in_familiar,
       age: ageInfo?.age ?? null,
       age_approximate: ageInfo?.approximate ?? false,
       email: c.email,
@@ -479,6 +495,10 @@ export async function loadContactReviewCustomer(
     customer_id: row.id,
     first_name: row.first_name,
     last_name: row.last_name,
+    middle_name: row.middle_name,
+    suffix: row.suffix,
+    goes_by: row.goes_by,
+    suffix_in_familiar: row.suffix_in_familiar,
     age: ageInfo?.age ?? null,
     age_approximate: ageInfo?.approximate ?? false,
     email: row.email,

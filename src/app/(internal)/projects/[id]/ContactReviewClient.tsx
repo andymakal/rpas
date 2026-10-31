@@ -47,6 +47,7 @@ import {
   type NextHistoryEntryPreview,
 } from '@/lib/stewardship/customer-history'
 import { type EmailAvailability } from '@/lib/email-availability'
+import { familiarName } from '@/lib/person-name'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import { useWorkReservation } from '@/lib/reservations/useWorkReservation'
 
@@ -54,6 +55,13 @@ type ContactReviewCustomer = {
   customer_id: string
   first_name: string | null
   last_name: string | null
+  /** The remaining recorded name parts, so every name on this screen renders
+   * through the shared Person Name presentation (honoring Goes by and suffix)
+   * rather than any page-local formatting. */
+  middle_name: string | null
+  suffix: string | null
+  goes_by: string | null
+  suffix_in_familiar: boolean | null
   /** Best-available-precision age (reused project age logic): exact DOB or the
    * masked policy fallback. Null when unknown (never guessed). Age only. */
   age: number | null
@@ -100,8 +108,19 @@ type Summary = {
   actionable: number
 }
 
-function fullName(c: Pick<ContactReviewCustomer, 'first_name' | 'last_name'>): string {
-  return `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim() || 'Unknown customer'
+/** The customer's display name, rendered through the shared Person Name
+ * presentation so this screen owns no name-formatting logic of its own: the
+ * familiar name honors the "Goes by" name and the suffix preference exactly as
+ * the shared card and editor do. */
+function displayName(c: Pick<ContactReviewCustomer, 'first_name' | 'last_name' | 'middle_name' | 'suffix' | 'goes_by' | 'suffix_in_familiar'>): string {
+  return familiarName({
+    firstName: c.first_name,
+    middleName: c.middle_name,
+    lastName: c.last_name,
+    suffix: c.suffix,
+    goesBy: c.goes_by,
+    suffixInFamiliar: c.suffix_in_familiar,
+  }) || 'Unknown customer'
 }
 
 function usable(v: string | null | undefined): boolean {
@@ -478,6 +497,8 @@ export function ContactReviewClient({
           setRows(prev => prev.map(r => r.customer_id === updated.id
             ? { ...r,
                 first_name: updated.first_name, last_name: updated.last_name,
+                middle_name: updated.middle_name ?? null, suffix: updated.suffix ?? null,
+                goes_by: updated.goes_by ?? null, suffix_in_familiar: updated.suffix_in_familiar ?? null,
                 email: updated.email, phone: updated.phone,
                 has_email: usable(updated.email), has_phone: usable(updated.phone),
                 has_address: addr,
@@ -492,6 +513,8 @@ export function ContactReviewClient({
           setReopened(prev => prev && prev.customer_id === updated.id
             ? { ...prev,
                 first_name: updated.first_name, last_name: updated.last_name,
+                middle_name: updated.middle_name ?? null, suffix: updated.suffix ?? null,
+                goes_by: updated.goes_by ?? null, suffix_in_familiar: updated.suffix_in_familiar ?? null,
                 email: updated.email, phone: updated.phone,
                 has_email: usable(updated.email), has_phone: usable(updated.phone),
                 has_address: addr,
@@ -617,7 +640,7 @@ export function ContactReviewClient({
               {activeOutstanding.map(c => (
                 <CustomerQueueCard
                   key={c.customer_id}
-                  name={fullName(c)}
+                  name={displayName(c)}
                   detail={gapDetail(c)}
                   onOpen={() => openWithReservation(c.customer_id)}
                 />
@@ -630,7 +653,7 @@ export function ContactReviewClient({
               {activeUnsuccessful.map(c => (
                 <CustomerQueueCard
                   key={c.customer_id}
-                  name={fullName(c)}
+                  name={displayName(c)}
                   detail={gapDetail(c)}
                   trailing={<OperationalTag tone="exception">Research unsuccessful</OperationalTag>}
                   onOpen={() => openWithReservation(c.customer_id)}
@@ -660,7 +683,7 @@ export function ContactReviewClient({
               {exceptionOutstanding.map(c => (
                 <CustomerQueueCard
                   key={c.customer_id}
-                  name={fullName(c)}
+                  name={displayName(c)}
                   detail="No email, no phone"
                   trailing={<OperationalTag tone="reason">Research needed</OperationalTag>}
                   onOpen={() => openWithReservation(c.customer_id)}
@@ -674,7 +697,7 @@ export function ContactReviewClient({
               {exceptionUnsuccessful.map(c => (
                 <CustomerQueueCard
                   key={c.customer_id}
-                  name={fullName(c)}
+                  name={displayName(c)}
                   detail="No email, no phone"
                   trailing={<OperationalTag tone="exception">Research unsuccessful</OperationalTag>}
                   onOpen={() => openWithReservation(c.customer_id)}
@@ -789,7 +812,7 @@ function ContactReviewTask({
   /** The card persisted a contact change; keep the list/summary in sync. */
   onContactChange: (updated: CustomerContact) => void
 }) {
-  const name = fullName(customer)
+  const name = displayName(customer)
   const [busy, setBusy] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   // Whether the Customer Contact Card has unsaved edits or a save in flight.
