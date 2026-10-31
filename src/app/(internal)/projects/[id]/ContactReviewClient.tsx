@@ -875,6 +875,10 @@ function ContactReviewTask({
 
   return (
     <TaskShell
+      // Find Missing Contact Information: widen the CENTER column (the Customer
+      // Contact card) where the left action is mostly click-through and the
+      // right is reference history.
+      columns="wide-context"
       header={filterBar}
       action={
         <ActionPanel>
