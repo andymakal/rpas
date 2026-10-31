@@ -1,4 +1,4 @@
-# Handoff: contact-card "Lego" components (Name done; Email, Phone, DOB next)
+# Handoff: contact-card "Lego" components (Name + Email done; Phone, DOB next)
 
 Status date: 2026-10-31. Branch: `development`. All work below is live on the
 preview `https://bobdev.therightpathagency.com` (development clone only; nothing
@@ -14,11 +14,20 @@ and display — so any screen that needs to edit/show that field calls the
 component instead of re-implementing the logic. The host page supplies data and
 a save handler; it owns no field logic of its own.
 
-**Name is complete and is the reference pattern.** Build Email, Phone, and Date
-of birth the same way. After each, verify and deploy to the development preview
-only (never production), using the delivery workflow in AGENTS.md /
-`.kiro/steering/delivery-workflow.md` (`vercel deploy` + alias `bobdev` +
-`vercel inspect`).
+**Name is complete and is the reference pattern. Email is now also complete**
+(`src/components/workflow/ContactEmail.tsx`: `EmailDisplay`, `EmailFields`,
+`useEmailDraft`, `EmailEditor`; exported from `index.ts`; Storybook story
+`ContactEmail.stories.tsx`; the unified editor in `CustomerContactCard.tsx` now
+consumes it via `useEmailDraft`/`EmailFields`, no inline email logic remains).
+The Email Lego reproduces the full prior behavior: a typed address vs the three
+mutually-exclusive availability reasons (Missing / No Usable Email /
+Undeliverable), Verified gated on a usable value, and availability resolving to
+`available` on a usable save (the server derives that from a saved email).
+
+Build Phone and Date of birth the same way. After each, verify and deploy to the
+development preview only (never production), using the delivery workflow in
+AGENTS.md / `.kiro/steering/delivery-workflow.md` (`vercel deploy` + alias
+`bobdev` + `vercel inspect`).
 
 ## The Name pattern to copy (the reference Lego)
 
@@ -41,12 +50,12 @@ UI component: `src/components/workflow/PersonName.tsx` (exported from
   standalone edit.
 
 The split that made consolidation work: a pure rules module + a headless fields
-component + a draft hook + a thin standalone editor. Reproduce this shape for
-each new Lego (e.g. `src/lib/contact-email.ts` already has normalization in
-`src/lib/contact-input.ts` — reuse it; add an `EmailFields`/`useEmailDraft` in a
-new `src/components/workflow/ContactEmail.tsx`, etc.). Reuse the existing
-normalizers in `src/lib/contact-input.ts` (`normalizeEmailInput`,
-`normalizePhoneInput`, `formatPhoneDisplay`) and `src/lib/stewardship/dob.ts`
+component + a draft hook + a thin standalone editor. `ContactEmail.tsx` already
+follows this shape and is the closest template for Phone (an input value + a
+validity signal + a Verified checkbox, plus Phone's own Do Not Text / Text
+Undeliverable controls). Reproduce it for each remaining Lego. Reuse the
+existing normalizers in `src/lib/contact-input.ts` (`normalizePhoneInput`,
+`formatPhoneDisplay`, `formatPhoneAsTyped`) and `src/lib/stewardship/dob.ts`
 (`normalizeDobParts`, `wouldDowngradeExactDob`, `formatDobDisplay`,
 `dobToParts`) rather than re-deriving.
 
