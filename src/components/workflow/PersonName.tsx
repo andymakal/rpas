@@ -51,7 +51,7 @@ import {
 
 const fieldInputCls = (invalid: boolean) =>
   cn(
-    'w-full rounded-lg border px-2.5 py-1.5 text-base text-ink focus:outline-none focus:ring-2',
+    'w-full rounded-lg border px-2.5 py-1 text-sm text-ink focus:outline-none focus:ring-2',
     invalid
       ? 'border-status-missing-border focus:border-status-missing-border focus:ring-status-missing-soft'
       : 'border-surface-border-strong focus:border-brand-ring focus:ring-brand-wash',
@@ -337,10 +337,11 @@ export function PersonNameFields({
         )}
       </div>
 
-      {/* Compact single-line live preview of exactly what Save persists:
-          the familiar name, with the greeting appended inline. */}
-      <p className="mt-1.5 text-sm">
-        <span className="font-medium uppercase tracking-wide text-ink-supporting">Preview </span>
+      {/* Compact single-line live preview of exactly what Save persists —
+          the familiar name with the greeting inline — in a light-teal (brand)
+          bubble so it reads as a distinct "this is what you'll see" callout. */}
+      <p className="mt-1.5 rounded-lg border border-brand-ring bg-brand-subtle px-3 py-1.5 text-sm">
+        <span className="font-semibold uppercase tracking-wide text-brand-subtle-foreground">Preview </span>
         {familiar
           ? <span className="font-semibold text-ink">{familiar}</span>
           : <span className="text-ink-muted">Enter a name</span>}
