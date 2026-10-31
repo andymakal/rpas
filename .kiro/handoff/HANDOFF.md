@@ -1,4 +1,4 @@
-# Handoff: contact-card "Lego" components (Name + Email + Phone done; DOB next)
+# Handoff: contact-card "Lego" components (ALL FIVE FIELD LEGOS DONE)
 
 Status date: 2026-10-31. Branch: `development`. All work below is live on the
 preview `https://bobdev.therightpathagency.com` (development clone only; nothing
@@ -37,12 +37,38 @@ with no number and outranking Undeliverable, Text Undeliverable gated on a numbe
 (clears only by replacing the number), and Verified gated on a usable number. The
 local `SmsAvailabilityControls` was moved out of the card into the Lego.
 
-Only **Date of birth** remains. Build it the same way (it is the three-part
-month/day/year editor still inline in `CustomerContactCard.tsx`, using
-`src/lib/stewardship/dob.ts`: `normalizeDobParts`, `wouldDowngradeExactDob`,
-`formatDobDisplay`, `dobToParts`; respect the exact-DOB downgrade guard and the
-masked-display rule). After it, verify and deploy to the development preview only
-(never production), using the delivery workflow in AGENTS.md /
+**Date of birth, Mailing address, and Customer alert are now also complete**, so
+EVERY editable field of the card is now its own Lego:
+- `src/components/workflow/ContactDob.tsx` (`DobDisplay`, `DobFields`,
+  `useDobDraft`, `DobEditor`). Reuses `src/lib/stewardship/dob.ts`; preserves the
+  exact-DOB downgrade guard and the edited-vs-seed persist rule (a policy-derived
+  seed is written ONLY on a genuine edit, never on a plain save).
+- `src/components/workflow/ContactAddress.tsx` (`AddressDisplay`,
+  `AddressFields`, `useAddressDraft`, `AddressEditor`, plus exported
+  `addressLines`/`addressUsable`). Reuses the `fmt` normalizers; owns the Address
+  Verified checkbox.
+- `src/components/workflow/ContactAlert.tsx` (`AlertBanner` display +
+  `AlertField`/`useAlertDraft`/`AlertEditor`). The top-of-card banner and the
+  editor textarea; empty text clears the alert.
+Each has a Storybook story and is exported from `index.ts`. The unified editor
+consumes all three via their headless Fields + draft hooks; the card-local
+`VerifiedToggle`, `AlertBanner`, and `inputCls` were removed, the headings are
+the bold Lego style, and the editor section divider is the darker
+`divide-surface-border-section` token.
+
+## What remains (NOT field Legos)
+
+The five FIELD Legos are done. The remaining decomposition work is OPTIONAL
+(Option B): the card's non-field parts could also become their own components if
+they prove reusable elsewhere. A reusability analysis of those parts (the
+identity header `CustomerNameHeading`, the `VerifiedToggle` primitive now living
+only inside the Legos, the status primitives `OverviewRow` / `ContactStatusKey` /
+`STATUS_META` / `toneFor`, and the `ContactMentoring` block) determines which are
+genuinely reusable vs card-specific. The card-level orchestration (self-contained
+fetch/PATCH, collapsed/expanded state machine, `buildChange` minimal-diff +
+history preview, the card-wide `appearance` system) stays in the card and should
+NOT become field Legos. Deploy each change to the development preview only
+(never production) via the delivery workflow in AGENTS.md /
 `.kiro/steering/delivery-workflow.md` (`vercel deploy` + alias `bobdev` +
 `vercel inspect`).
 
