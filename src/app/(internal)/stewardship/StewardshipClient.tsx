@@ -1419,6 +1419,11 @@ export function StewardshipTask({
   return (
     <TaskChrome chromeless={hideBackHeader}>
       <TaskShell
+        // The outbound call workbench (forceCall) leads with the Outreach Call
+        // Panel, so give the work column the weight (46/27/27); the customer
+        // context and history each take a narrower track. Other working screens
+        // keep equal thirds.
+        columns={forceCall ? 'wide-work' : 'even'}
         header={hideBackHeader ? null : <SlimTaskHeader onBack={onBack} backLabel="All queues" />}
         action={
           forceServicingAccess ? (

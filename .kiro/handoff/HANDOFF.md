@@ -6,6 +6,12 @@ in production).
 
 ## What this effort is
 
+> Vocabulary note (added 2026-10-31): the "Lego" concept, and the tiers above
+> it (Panel → Workbench/Screen → Workflow), plus the one-file-per-Lego file rule,
+> are now defined authoritatively in the always-included steering file
+> `.kiro/steering/ui-composition-vocabulary.md`. That steering is the source of
+> truth; the description below is the original contact-card application of it.
+
 We are turning the shared Customer Contact card's edit sections into a set of
 self-contained, reusable "Lego" components. Each field group (Name, Email,
 Phone, Date of birth, Mailing address) should be ONE shared component that owns
@@ -416,3 +422,72 @@ credentials. Creating/editing GitHub Environments + reviewer rules returned 403
 Git state at wrap: branch `development` at `0a754f7`; `origin/main` unchanged at
 `74c6cd9`. Working tree has only the usual untracked local items
 (`.kiro/settings/`, `supabase/.temp/`) plus this handoff edit.
+
+---
+
+# Outreach Call Panel + UI composition vocabulary (SHIPPED 2026-10-31)
+
+Branch `development`; live on the preview `https://bobdev.therightpathagency.com`
+(development clone only, nothing in production). Commits `e239239` and `dca950f`.
+
+## What this effort established
+
+1. A permanent UI composition vocabulary, now the always-included steering file
+   `.kiro/steering/ui-composition-vocabulary.md`:
+   - Four tiers: Lego (one self-contained field/control component) → Panel (one
+     composed unit on a workbench) → Workbench/Screen (interchangeable; one step
+     of the work, holds one or more panels) → Workflow (ordered path through
+     screens).
+   - File rule: each Lego / named reusable component gets its OWN file in
+     `src/components/workflow/`, exported through the barrel `index.ts`.
+     `primitives.tsx` is FROZEN to generic shared controls/helpers — no new
+     Legos there. Breaking `primitives.tsx` apart into per-component files is an
+     agreed FUTURE refactor, to be done deliberately as its own reviewed change.
+   - Call workbenches are situation-specific: the Outreach Call Panel is the
+     OUTBOUND outreach (marketing) call (dial → "did we reach them" = two
+     outcomes). Inbound is a different, future workbench. The post-reach branch
+     is panel-specific, never a global outcome set.
+
+2. The guided outbound call panel is named `OutreachCallPanel` (was
+   `CallWorkbenchAction`) in `StewardshipClient.tsx`. It is the LEFT panel of the
+   outbound call workbench (the "Make the Calls That Are Due" /
+   "Call Other Reachable Customers" screen); the center is the customer contact
+   panel and the right is the history panels. Its sibling compact board recorder
+   is still `CallBoardAction`.
+
+3. Three new Legos (each its own file under `src/components/workflow/`, exported
+   from `index.ts`):
+   - `CallButton.tsx` — dials a HOST-SUPPLIED phone via `tel:` (RingCentral),
+     shows `(XXX) XXX-XXXX`, disabled "No phone on file" when empty. No fetching.
+   - `SkipForNowButton.tsx` — fixed label + meaning everywhere: record nothing,
+     change nothing, send to back, advance to next. Host supplies `onSkip`.
+   - `CallContextCard.tsx` — the "what is this call + what happened last" block
+     (call-number tag + one reason line). PRESENTATIONAL: takes `label` +
+     `reason` strings; the client still maps the task `Detail` to those strings
+     (reason/number logic stays host-side with the internal types).
+
+4. Outreach Call Panel layout: Call / Skip for now are EQUAL halves
+   (`grid-cols-2`), Call solid teal primary, Skip quiet outline (Call fills the
+   row when no skip handler). Reached / Didn't reach are EQUAL halves filling the
+   box. The panel is a "pick your own adventure": each step reveals the next on
+   the SAME scrolling panel (not literal separate screens), so the worker never
+   loses the customer context while on the phone.
+
+5. Workbench columns: added a `wide-work` ratio preset (46/27/27) to
+   `TaskColumns.tsx` and applied it to the outbound call workbench
+   (`columns={forceCall ? 'wide-work' : 'even'}` on the `TaskShell` in
+   `StewardshipClient.tsx`). Work column wider; customer context + history each
+   narrower. Other working screens keep `even` (equal thirds). Existing presets:
+   `even`, `wide-context` (27/46/27).
+
+Verified each step: `npx tsc --noEmit`, `npx eslint` on changed files, and
+`npm run build` all clean; deployed to the preview and confirmed the `bobdev`
+alias with `vercel inspect`.
+
+## Open / next (not yet done)
+
+- Eyeball the 46/27/27 workbench and the two 50/50 rows on the preview; tune if
+  the proportions or Skip emphasis want adjusting.
+- Going forward, new call surfaces should reuse `CallButton`,
+  `SkipForNowButton`, and `CallContextCard` rather than re-implementing them, per
+  the vocabulary steering.
