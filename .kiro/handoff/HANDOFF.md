@@ -47,12 +47,27 @@ per session). `email_availability` backfill is DONE on BOTH dev and prod
   (2) the MENTORING content ("what you're doing"), fed to `CallMentorCap`,
   (3) the TALK PATH content ("how you explain it"), fed to `TalkPathCard`,
   (4) the downstream ACTION the outcome runs, and
-  (5) the HISTORY ENTRY that action records ON COMPLETION — its wording and the
-      resulting status move (e.g. Advance → "authorization form sent, moved to
-      Waiting for Form"; Decline → "recorded not interested, outreach stopped").
-  Division of labor stays fixed: ZEN picks label/content/action/history over
-  normalized facts; TypeScript resolves prose + time/names and performs the
-  action. CONTENT SEAMS already in place: `CallOutcomeChoice` takes `labels`;
+  (5) the HISTORY ENTRY clauses that action records ON COMPLETION — its wording
+      and the resulting status move (e.g. Advance → "authorization form sent,
+      moved to Waiting for Form"; Decline → "recorded not interested, outreach
+      stopped").
+  NOTE on (5): the history entry is a COMPOSED paragraph, already built clause-
+  by-clause as the worker proceeds by `describeCallSelection` in
+  `src/lib/stewardship/customer-history.ts` (reached opener "Spoke with…" vs
+  not-reached "Called… No answer…", then the outcome clause, then follow-on
+  step clauses that stack, e.g. agreed → "form to be emailed" (pending) → "form
+  emailed. Awaiting signed authorization" (sent); summary chip composes the same
+  way with "·"). The table does NOT supply a finished string: it supplies the
+  per-situation CLAUSE FRAGMENTS the composer stitches. The composer keeps the
+  behavior — stitching, and the pending-vs-completed TENSE logic — which must
+  NOT move into the table. Two gaps to close when table-driving it: the clause
+  strings in `describeCallSelection` are currently hardcoded to the
+  servicing-agent wording (lift them to table-fed content, same seam as
+  mentoring/talk path), and it only knows the three concrete decisions
+  (agreed/callback/not-interested) — `divert` has no clause wording yet.
+  Division of labor stays fixed: ZEN picks label/content/action/history-clauses
+  over normalized facts; TypeScript resolves prose + time/names, composes the
+  paragraph, and performs the action. CONTENT SEAMS already in place: `CallOutcomeChoice` takes `labels`;
   `CallMentorCap`/`TalkPathCard` take fed-in content; the panel currently
   resolves this situation's content locally (`callMentorBody`,
   `SERVICING_CALL_SCRIPTS.opening`) — that local resolve is what the table
