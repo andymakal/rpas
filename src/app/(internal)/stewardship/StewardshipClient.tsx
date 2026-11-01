@@ -22,7 +22,7 @@ import {
   QueueSection, QueueRow, QueueListHeader, CustomerQueueCard, QueueEmptyState,
   TaskShell, SlimTaskHeader, ContextHeader, type ContextField,
   ActionPanel, PrimaryAction, WorkflowButton, NextNote, OperationalTag,
-  ExternalActionConfirm, SpokenScriptCard, CallButton, SkipForNowButton,
+  ExternalActionConfirm, SpokenScriptCard, CallButton, SkipForNowButton, CallContextCard,
   CustomerContactCard, GatewayLookup,
   PolicySummaryList, type PolicySummary,
   CustomerHistoryCard, NextHistoryEntry,
@@ -1033,15 +1033,15 @@ function callReasonLine(detail: {
  * calling modes (board recorder and workbench) so they read identically.
  * Presentation only.
  */
+// Maps the internal task detail to the presentational CallContextCard Lego: the
+// reason/number logic (which knows the Detail shape) stays here; the Lego owns
+// only how the tag + line look.
 function CallContext({ detail }: { detail: Detail }) {
-  const line = callReasonLine(detail)
   return (
-    <div className="space-y-1">
-      <OperationalTag tone="reason">
-        <CircleAlert className="mr-1.5 size-4" aria-hidden /> {callNumberLabel(detail.call_attempts)}
-      </OperationalTag>
-      {line && <p className="text-sm text-ink-secondary">{line}</p>}
-    </div>
+    <CallContextCard
+      label={callNumberLabel(detail.call_attempts)}
+      reason={callReasonLine(detail)}
+    />
   )
 }
 
@@ -2771,34 +2771,36 @@ function OutreachCallPanel({
       {noteBox}
       <CallContext detail={detail} />
 
-      {/* 1. Dial + Skip share the top line. The CallButton Lego dials the stored
-          number through the team member\u2019s configured phone (RingCentral) and
-          shows it in the standard (XXX) XXX-XXXX form; launching the dialer is
-          not proof the call happened. Skip for now (when the host supplies an
-          advance handler) records nothing and moves to the next customer, so the
-          worker can set up the call or skip it from one row. */}
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
-        <div className="min-w-0 flex-1">
+      {/* 1. Dial + Skip share the top line as EQUAL halves (grid-cols-2) when a
+          skip handler is supplied. Call is the solid teal primary — it is what
+          we want the worker to do — and Skip is the quiet outline beside it,
+          equal width and height, so the row reads balanced while the emphasis
+          stays on calling. The CallButton Lego dials the stored number through
+          the team member\u2019s configured phone (RingCentral); launching the
+          dialer is not proof the call happened. With no skip handler, Call fills
+          the row. */}
+      {onSkip ? (
+        <div className="grid grid-cols-2 items-stretch gap-2">
           <CallButton phone={phone} />
+          <SkipForNowButton onSkip={onSkip} disabled={busy} className="h-14 w-full justify-center" />
         </div>
-        {onSkip && (
-          <SkipForNowButton onSkip={onSkip} disabled={busy} className="h-14 shrink-0 sm:self-stretch" />
-        )}
-      </div>
+      ) : (
+        <CallButton phone={phone} />
+      )}
 
       {/* 2. With Skip moved up, this line holds only the two real outcomes of an
-          outbound call — Reached and Didn\u2019t Reach. The opening script stays
-          hidden until Reached is chosen, so the worker decides the outcome
-          first. */}
+          outbound call — Reached and Didn\u2019t Reach — as EQUAL halves filling
+          the box (two options, two halves). The opening script stays hidden
+          until Reached is chosen, so the worker decides the outcome first. */}
       <div className="border-t border-surface-divider pt-4">
         <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-supporting">Did you reach the customer?</p>
-        <div className="flex flex-wrap gap-2">
+        <div className="grid grid-cols-2 gap-2">
           <WorkflowButton icon={PhoneCall} selected={reach === 'reached'} disabled={busy}
-            onClick={chooseReached}>
+            className="w-full justify-center" onClick={chooseReached}>
             Reached
           </WorkflowButton>
           <WorkflowButton icon={PhoneOff} selected={reach === 'not-reached'} disabled={busy}
-            onClick={chooseNotReached}>
+            className="w-full justify-center" onClick={chooseNotReached}>
             Didn&apos;t reach
           </WorkflowButton>
         </div>

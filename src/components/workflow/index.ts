@@ -27,6 +27,7 @@ export {
 
 export { CallButton } from './CallButton'
 export { SkipForNowButton } from './SkipForNowButton'
+export { CallContextCard } from './CallContextCard'
 
 export { type TaskColumnRatio } from './TaskColumns'
 
