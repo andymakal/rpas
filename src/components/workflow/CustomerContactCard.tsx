@@ -38,20 +38,15 @@
  *     value clears its prior verification (the server resets it on edit, and the
  *     card reflects that from the returned row).
  *
- * Persistence is injectable so the card is testable and Storybook-friendly:
+ * Persistence is injectable so the card is testable:
  *   - Omit `onPersist` and the card calls PATCH /api/customers/[id]/contact.
- *   - Provide `onPersist` (e.g. in Storybook) to intercept writes.
+ *   - Provide `onPersist` (e.g. in a test) to intercept writes.
  *
- * Appearance (presentation-only, Storybook-driven)
- *   - A single optional `appearance` prop drives every cosmetic choice the Design
- *     Playground exposes: element visibility, per-role typography (family, size,
- *     weight, color), icon sizing with proportional-to-text scaling plus
- *     independent overrides, layout arrangement of the Verified checkbox and Edit
- *     button, card/control chrome (borders, dividers, backgrounds, rounding,
- *     spacing, padding), and the Mentoring block.
- *   - It never changes behavior, data, or the payloads sent to `onPersist`.
- *     Omitting it (as every production call site does) reproduces the current
- *     production look exactly — see `resolveAppearance`/`isDefault`.
+ * Appearance
+ *   - The card renders one approved look. `resolveAppearance()` (called with no
+ *     argument) returns that fixed design; the internal resolver is a leftover
+ *     from a removed presentation-override subsystem and is a candidate for
+ *     being inlined to its resolved constants.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -194,7 +189,7 @@ export interface CustomerContact {
 
 type ContactFieldKey = 'email' | 'phone' | 'address'
 
-// ── Appearance (presentation-only, Storybook-driven) ─────────────────────────
+// ── Appearance (internal; resolves to the one approved look) ─────────────────
 
 /** Which color a recolorable element takes. `status` = the field's green/amber/
  * red status token (the production default for the icons); `black` = plain
@@ -650,7 +645,7 @@ export interface ContactUpdatePayload {
   dob_year?: string
 }
 
-/** The request the card would send. Exposed so a host (or Storybook) can supply
+/** The request the card would send. Exposed so a host (or a test) can supply
  * its own persistence and still exercise the exact same payloads. */
 export type ContactPersistPayload =
   // The unified save: every changed contact fact in one request. Only the keys
@@ -851,7 +846,7 @@ interface LegacyProps {
  * change to the card appears everywhere it is used without editing those pages.
  *
  * LEGACY (host-assembled): passing a resolved `customer` renders the same core
- * exactly as before. Used by Storybook/playgrounds and injectable persistence.
+ * exactly as before. Used with injectable persistence.
  */
 export function CustomerContactCard(props: SelfContainedProps | LegacyProps) {
   if (props.customerId !== undefined) {
@@ -1177,7 +1172,7 @@ function ContactCardView({
   //     never swept again;
   //   - best-effort and silent: a failure is ignored (the display already
   //     normalizes) and never blocks viewing or editing;
-  //   - skipped entirely when a host injects persistence (Storybook).
+  //   - skipped entirely when a host injects persistence.
   const cleanedKeyRef = useRef<string | null>(null)
   useEffect(() => {
     if (onPersist) return
@@ -1849,7 +1844,7 @@ function ContactMentoring({
  * the correction is recorded once in Customer History. On success it calls
  * `onSaved` with the authoritative updated record so the host folds the new name
  * into its own state and the displayed name updates immediately everywhere in
- * the active workflow. A host may inject `onPersist` (Storybook/tests) exactly
+ * the active workflow. A host may inject `onPersist` (tests) exactly
  * as the card does.
  */
 export function CustomerNameHeading({

@@ -8,9 +8,8 @@
  * sources, and (for eligible workers) a claim control. It does NO business
  * judgment and NO prioritization — ZEN owns the ordering; this presents it.
  *
- * LAYOUT: the approved three-column board (see the Storybook reference,
- * MyWorkRedesign.prototype.stories.tsx). Each column has a distinct purpose and
- * is populated ONLY from real resolved data:
+ * LAYOUT: the approved three-column board. Each column has a distinct purpose
+ * and is populated ONLY from real resolved data:
  *
  *   1. Priorities        — what needs attention: genuine commitments (date-only
  *      promised callbacks that have come due, the `due_callback` band), plus the
@@ -93,7 +92,7 @@ import {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Attention tone — the settled "Strong" (Level-4) treatment from the approved
-// Storybook reference. Each tone drives the WHOLE card so importance reads from
+// design. Each tone drives the WHOLE card so importance reads from
 // the overall presentation, not a tiny glyph. Color is EARNED: a category only
 // takes an attention tone when it actually has work; otherwise it renders as a
 // quiet neutral card. 'calm' stays on the quiet design tokens.
