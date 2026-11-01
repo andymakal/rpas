@@ -22,7 +22,7 @@ import {
   QueueSection, QueueRow, QueueListHeader, CustomerQueueCard, QueueEmptyState,
   TaskShell, SlimTaskHeader, ContextHeader, type ContextField,
   ActionPanel, PrimaryAction, WorkflowButton, NextNote, OperationalTag,
-  ExternalActionConfirm, SpokenScriptCard,
+  ExternalActionConfirm, SpokenScriptCard, CallButton, SkipForNowButton,
   CustomerContactCard, GatewayLookup,
   PolicySummaryList, type PolicySummary,
   CustomerHistoryCard, NextHistoryEntry,
@@ -52,7 +52,6 @@ import {
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { isPermanent } from '@/lib/policies/product-type'
 import { buildMailto, SERVICING_CALL_SCRIPTS, interpolate } from '@/lib/templates'
-import { formatPhoneDisplay } from '@/lib/contact-input'
 import type { AgencyOption } from './page'
 
 /**
@@ -1283,7 +1282,7 @@ export function StewardshipTask({
   useEffect(() => { setCallSelection(null) }, [itemId])
 
   // The action column reports its live selection up through this callback on
-  // every render (via an effect in CallWorkbenchAction), each time with a FRESH
+  // every render (via an effect in OutreachCallPanel), each time with a FRESH
   // object literal. Writing that straight into state would re-render this task
   // on every report, which re-runs the action subtree and re-fires the report —
   // a churn loop that never lets the guided-call buttons settle, so clicks
@@ -2473,7 +2472,7 @@ function CallAction({
 }) {
   if (workbench) {
     return (
-      <CallWorkbenchAction
+      <OutreachCallPanel
         detail={detail} request={request} busy={busy} noteBox={noteBox} act={act}
         hasNextInActivity={hasNextInActivity}
         onSkip={onSkip}
@@ -2513,16 +2512,11 @@ function CallBoardAction({
     <ActionPanel heading={`Call ${fullName(detail.customer)}`}>
       {noteBox}
       <CallContext detail={detail} />
-      {/* Established call behavior: a tel: link dials via the team member's
-          configured phone (RingCentral). Launching the dialer is not proof the
-          call happened — the worker records the outcome below. */}
-      {phone ? (
-        <a href={`tel:${phone}`} className="block">
-          <PrimaryAction icon={Phone} label={`Call ${formatPhoneDisplay(phone)}`} />
-        </a>
-      ) : (
-        <PrimaryAction icon={Phone} label="No phone on file" disabled />
-      )}
+      {/* Established call behavior via the shared CallButton Lego: dials the
+          stored number through the team member's configured phone (RingCentral).
+          Launching the dialer is not proof the call happened — the worker
+          records the outcome below. */}
+      <CallButton phone={phone} />
       <div className="border-t border-slate-100 pt-4">
         <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-600">Record the call outcome</p>
         <div className="flex flex-wrap gap-2">
@@ -2589,16 +2583,25 @@ function CallBoardAction({
   )
 }
 
-/** The reach decision in the guided workbench: not chosen yet, reached, or not. */
+/** The reach decision in the outreach call panel: not chosen yet, reached, or not. */
 type ReachChoice = null | 'reached' | 'not-reached'
 
 /**
- * The Call Reachable Customers guided single-page flow. Opens with the opening
- * script and the two choices, and progressively reveals the next section on the
- * SAME page as the worker proceeds. Every terminal path records exactly ONE
- * grouped attempt and then advances to the next customer.
+ * OutreachCallPanel — the guided outbound outreach (marketing) call panel. It is
+ * the left-hand PANEL of the outbound call workbench (the "Make the Calls That
+ * Are Due" / "Call Other Reachable Customers" screen), alongside the customer
+ * contact panel and the history panels. See
+ * `.kiro/steering/ui-composition-vocabulary.md` for the Lego → Panel →
+ * Workbench → Workflow tiers.
+ *
+ * It opens with the dial control and the single question "did we reach them or
+ * not" — an outbound call has exactly two outcomes — then progressively reveals
+ * the next relevant section on the SAME page as the worker proceeds. The
+ * post-reach choices are specific to THIS panel, not a global set (an inbound
+ * call, or another workbench, would branch differently). Every terminal path
+ * records exactly ONE grouped attempt and then advances to the next customer.
  */
-function CallWorkbenchAction({
+function OutreachCallPanel({
   detail, request, busy, noteBox, act, hasNextInActivity, onSkip, onSelectionChange,
 }: {
   detail: Detail
@@ -2768,23 +2771,25 @@ function CallWorkbenchAction({
       {noteBox}
       <CallContext detail={detail} />
 
-      {/* 1. Phone button. The number is shown in the standard (XXX) XXX-XXXX
-          display form via the shared formatter; the tel: link still dials the
-          stored value through the team member\u2019s configured phone, so the
-          existing system phone behavior is unchanged. Launching the dialer is
-          not proof the call happened. */}
-      {phone ? (
-        <a href={`tel:${phone}`} className="block">
-          <PrimaryAction icon={Phone} label={`Call ${formatPhoneDisplay(phone)}`} />
-        </a>
-      ) : (
-        <PrimaryAction icon={Phone} label="No phone on file" disabled />
-      )}
+      {/* 1. Dial + Skip share the top line. The CallButton Lego dials the stored
+          number through the team member\u2019s configured phone (RingCentral) and
+          shows it in the standard (XXX) XXX-XXXX form; launching the dialer is
+          not proof the call happened. Skip for now (when the host supplies an
+          advance handler) records nothing and moves to the next customer, so the
+          worker can set up the call or skip it from one row. */}
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-stretch">
+        <div className="min-w-0 flex-1">
+          <CallButton phone={phone} />
+        </div>
+        {onSkip && (
+          <SkipForNowButton onSkip={onSkip} disabled={busy} className="h-14 shrink-0 sm:self-stretch" />
+        )}
+      </div>
 
-      {/* 2. The three call choices sit immediately below the phone button —
-          Reached, Didn\u2019t Reach, and Skip for Now. The opening script stays
+      {/* 2. With Skip moved up, this line holds only the two real outcomes of an
+          outbound call — Reached and Didn\u2019t Reach. The opening script stays
           hidden until Reached is chosen, so the worker decides the outcome
-          first. Skip records nothing and advances to the next customer. */}
+          first. */}
       <div className="border-t border-surface-divider pt-4">
         <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-supporting">Did you reach the customer?</p>
         <div className="flex flex-wrap gap-2">
@@ -2796,11 +2801,6 @@ function CallWorkbenchAction({
             onClick={chooseNotReached}>
             Didn&apos;t reach
           </WorkflowButton>
-          {onSkip && (
-            <WorkflowButton icon={SkipForward} disabled={busy} onClick={onSkip}>
-              Skip for now
-            </WorkflowButton>
-          )}
         </div>
       </div>
 
