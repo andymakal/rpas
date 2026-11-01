@@ -54,7 +54,7 @@
  *     production look exactly — see `resolveAppearance`/`isDefault`.
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Mail, Phone, MapPin, Pencil, Check, X, Loader2,
   ShieldQuestion, CheckCircle2, AlertTriangle, CalendarDays,
@@ -1170,6 +1170,35 @@ function ContactCardView({
       setBusy(false)
     }
   }, [persist, onChange, onAlertChange, setExpandedState])
+
+  // Clean the floor when you're in the room: the first time the editor is
+  // opened for this record, ask the server to heal representation-only
+  // inconsistencies (address case, email-availability derivation) on the STORED
+  // value — silently, with no history. It is best-effort: a failure is ignored
+  // (the display already normalizes), it never blocks opening or editing, and it
+  // runs at most once per open (guarded by cleanedKey) so re-renders don't
+  // re-fire it. Skipped entirely when a host injects persistence (Storybook).
+  const cleanedKeyRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!isExpanded || onPersist) return
+    if (cleanedKeyRef.current === record.id) return
+    cleanedKeyRef.current = record.id
+    void (async () => {
+      try {
+        const res = await fetch(`/api/customers/${record.id}/contact`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ field: 'cleanup' }),
+        })
+        if (!res.ok) return
+        const json = await res.json()
+        const cleaned = json.data as CustomerContact | undefined
+        if (cleaned) { setRecord(cleaned); onChange?.(cleaned) }
+      } catch {
+        // Best-effort: leave the stored value un-healed and try again next open.
+      }
+    })()
+  }, [isExpanded, onPersist, record.id, onChange])
 
   const emailPresent = !!record.email?.trim()
   const phonePresent = !!record.phone?.trim()

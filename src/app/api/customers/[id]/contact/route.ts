@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { normalizeEmailInput, normalizePhoneInput } from '@/lib/contact-input'
+import { normalizeStreet, normalizeCity, normalizeState } from '@/lib/fmt'
 import { validatePersonName } from '@/lib/person-name'
 import {
   type EmailAvailability,
@@ -442,10 +443,11 @@ export async function PATCH(
   if (
     field !== 'name' && field !== 'email' && field !== 'phone' && field !== 'address' &&
     field !== 'email_availability' && field !== 'alert' &&
-    field !== 'sms' && field !== 'sms_undeliverable' && field !== 'contact'
+    field !== 'sms' && field !== 'sms_undeliverable' && field !== 'contact' &&
+    field !== 'cleanup'
   ) {
     return Response.json(
-      { error: 'A field of contact, name, email, phone, address, email_availability, alert, sms, or sms_undeliverable is required.' },
+      { error: 'A field of contact, cleanup, name, email, phone, address, email_availability, alert, sms, or sms_undeliverable is required.' },
       { status: 400 },
     )
   }
@@ -464,6 +466,75 @@ export async function PATCH(
   }
   if (!before) {
     return Response.json({ error: 'Customer not found.' }, { status: 404 })
+  }
+
+  // ── REPRESENTATION CLEANUP (silent, no history) ───────────────────────────
+  // Body: { field: 'cleanup' }
+  //
+  // Heal representation-only inconsistencies on the stored row to the app's
+  // canonical form, computed FROM THE STORED VALUE (never any draft), and record
+  // NO history — this carries no new information, so it is not a "change" in the
+  // audit sense. The card fires this once when an operator OPENS the editor
+  // ("clean the floor when you're in the room"): a touched record heals, an
+  // untouched record is never rewritten, and a record already clean writes
+  // nothing at all. It only ever rewrites a value to its own normalized form and
+  // NEVER touches a value's meaning, verification timestamps, Do Not Text, or
+  // any other substantive fact.
+  //
+  // Today's named cleanups:
+  //   1. Mailing address case/whitespace -> the canonical normalizeStreet/City/
+  //      State form (Allstate ships all-caps; we store/show title case).
+  //   2. Email availability: NULL ("unknown") -> 'available' when a usable email
+  //      is on file. With an email present the two mean the same thing, so this
+  //      is the flag catching up to the email, not a decision.
+  // Add future representation-only cleanups here; genuine data changes never go
+  // through this branch.
+  if (field === 'cleanup') {
+    const patch: Partial<CustomerContactRow> = {}
+
+    // (1) Address — normalize only when a non-null part is present and its
+    // canonical form differs from what is stored. A missing part is left null
+    // (cleanup never invents address data).
+    const curStreet = storedStreet(before)
+    const normStreet = normalizeStreet(curStreet)
+    if (curStreet != null && (normStreet ?? null) !== (curStreet ?? null)) {
+      patch.street = normStreet
+    }
+    const normCity = normalizeCity(before.city)
+    if (before.city != null && (normCity ?? null) !== (before.city ?? null)) {
+      patch.city = normCity
+    }
+    const normState = normalizeState(before.state)
+    if (before.state != null && (normState ?? null) !== (before.state ?? null)) {
+      patch.state = normState
+    }
+
+    // (2) Email availability derivation — only the NULL -> 'available' catch-up
+    // when a usable email is on file. Never flips a recorded reason.
+    const usableEmail = !!(before.email && before.email.trim())
+    if (usableEmail && (before.email_availability ?? null) === null) {
+      patch.email_availability = 'available'
+    }
+
+    // Already clean: write nothing, record nothing.
+    if (Object.keys(patch).length === 0) {
+      return respondWithContact(supabase, before)
+    }
+
+    const { data, error: updErr } = await supabase
+      .from('customers')
+      .update(patch)
+      .eq('id', customerId)
+      .eq('is_test', false)
+      .select(SELECT)
+      .maybeSingle<CustomerContactRow>()
+    if (updErr) {
+      console.error('customer contact cleanup error:', updErr)
+      return Response.json({ error: updErr.message }, { status: 500 })
+    }
+    if (!data) return Response.json({ error: 'Customer not found.' }, { status: 404 })
+    // No history: representation cleanup is not an audited change.
+    return respondWithContact(supabase, data)
   }
 
   // ── UNIFIED CONTACT UPDATE (one save, one history entry) ──────────────────
