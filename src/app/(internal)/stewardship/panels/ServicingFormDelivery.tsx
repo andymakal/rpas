@@ -1,0 +1,192 @@
+'use client'
+
+/**
+ * Shared servicing-agent form delivery control. Used wherever the authorization
+ * form is produced and sent — from Ready to Email AND after a reached call —
+ * so the two paths behave identically: a delivery chooser (email / postal),
+ * generation of the filled PDF (postal adds a cover page), the matching
+ * directive, and a confirm button. The caller supplies what the confirm button
+ * fires and its label, since the resulting queue transition differs by context.
+ * Choosing a channel persists it (set-delivery-method), so the form-sent /
+ * email-sent touch the server records reflects the delivery method accurately.
+ */
+
+import { useState } from 'react'
+import { Check, CircleAlert, ExternalLink, FileText, SkipForward } from 'lucide-react'
+import { WorkflowButton, PrimaryAction } from '@/components/workflow'
+import { buildMailto } from '@/lib/templates'
+import type { Detail, Holding } from '../types'
+import {
+  streetLine, saEmailBody, saFollowUpEmailBody, SA_SUBJECT, openMailto,
+  EVERLAKE_CARRIER_PATTERN,
+} from '../shared'
+import { FormAttachmentDirective } from './FormAttachmentDirective'
+
+export function ServicingFormDelivery({
+  detail, request, name, busy, act, confirmLabelFor, onConfirm, emailOnly = false, onSkip,
+}: {
+  detail: Detail
+  request: Holding[]
+  name: string
+  busy: boolean
+  act: (action: unknown, successNote?: string) => void
+  /** Confirm-button label, given the chosen method. */
+  confirmLabelFor: (method: 'email' | 'postal') => string
+  /** Fires the queue transition once the worker confirms the form went out. */
+  onConfirm: (method: 'email' | 'postal') => void
+  /** Email-only mode (Send Introductory Emails): fix the channel to email and
+   * hide the delivery chooser. */
+  emailOnly?: boolean
+  /** When supplied (Send Introductory Emails fast flow), render a "Skip for now"
+   * control beneath the confirm. It moves to the next available customer WITHOUT
+   * sending or recording anything and sends this one to the back of the working
+   * sequence. It is always enabled (not gated on form generation), since
+   * skipping is explicitly the "do nothing with this one yet" path. */
+  onSkip?: () => void
+}) {
+  const [preparing, setPreparing] = useState(false)
+  const [prepError, setPrepError] = useState<string | null>(null)
+  const [generated, setGenerated] = useState(false)
+  // In email-only mode the channel is fixed to email (no chooser). Otherwise it
+  // starts from the persisted delivery method and the worker can switch it.
+  const [method, setMethod] = useState<'email' | 'postal'>(
+    emailOnly ? 'email' : (detail.form_delivery_method ?? 'email'),
+  )
+  const customerHasAddress = !!(streetLine(detail.customer) && detail.customer.city && detail.customer.state && detail.customer.zip)
+
+  const everlake = request.filter(h => h.carrier && EVERLAKE_CARRIER_PATTERN.test(h.carrier))
+  const formPolicies = everlake.length > 0 ? everlake : request
+  const contractNumbers = formPolicies.map(h => h.policy_number).filter(Boolean)
+  const canGenerate = contractNumbers.length > 0
+
+  // The introductory activity (emailOnly) sends the full-explanation
+  // introductory email; every other caller reaches this component AFTER a live
+  // conversation (reached-by-phone, the guided-call "Agreed to authorize"), so
+  // it uses the shorter "as we discussed" form-delivery body instead of
+  // repeating the Everlake explanation the customer already heard.
+  const emailBody = emailOnly
+    ? saEmailBody(detail.customer.first_name)
+    : saFollowUpEmailBody(detail.customer.first_name)
+  const mailto = buildMailto(detail.customer.email, SA_SUBJECT, emailBody)
+
+  function chooseMethod(next: 'email' | 'postal') {
+    if (next === method) return
+    setMethod(next)
+    setPrepError(null)
+    act({ type: 'set-delivery-method', method: next })
+  }
+
+  async function prepareAndOpen() {
+    setPrepError(null)
+    if (canGenerate) {
+      setPreparing(true)
+      try {
+        const params = new URLSearchParams()
+        params.set('customer_id', detail.customer.id)
+        params.set('owner_name', name)
+        params.set('contracts', contractNumbers.join(','))
+        if (method === 'postal') params.set('delivery', 'postal')
+        const res = await fetch(`/api/servicing-agent-change?${params.toString()}`)
+        if (!res.ok) {
+          const json = await res.json().catch(() => ({}))
+          throw new Error(json.error ?? 'Could not generate the servicing-agent form.')
+        }
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        const safe = name.trim().replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '')
+        a.download = `${safe || 'Customer'}-Servicing-Agent-Change${method === 'postal' ? '-Postal-Packet' : ''}.pdf`
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        URL.revokeObjectURL(url)
+        setGenerated(true)
+      } catch (err) {
+        setPrepError(err instanceof Error ? err.message : 'Could not generate the servicing-agent form.')
+        setPreparing(false)
+        return
+      }
+      setPreparing(false)
+    }
+    if (method === 'email') openMailto(mailto)
+  }
+
+  const genLabel = preparing
+    ? (method === 'postal' ? 'Preparing packet\u2026' : 'Preparing form\u2026')
+    : (method === 'postal' ? 'Generate Postal Packet' : 'Generate Form & Open Email')
+
+  return (
+    <div className="space-y-3">
+      {/* Delivery channel chooser. Operational, so it is prominent. Hidden in
+          email-only mode (Send Introductory Emails), which is fixed to email. */}
+      {!emailOnly && (
+        <div className="space-y-2">
+          <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">Delivery</p>
+          <div className="flex flex-wrap gap-2">
+            <WorkflowButton selected={method === 'email'} disabled={busy || preparing} onClick={() => chooseMethod('email')}>
+              {method === 'email' && <Check className="size-4" aria-hidden />}
+              Email
+            </WorkflowButton>
+            <WorkflowButton selected={method === 'postal'} disabled={busy || preparing} onClick={() => chooseMethod('postal')}>
+              {method === 'postal' && <Check className="size-4" aria-hidden />}
+              Postal mail
+            </WorkflowButton>
+          </div>
+          {method === 'postal' && !customerHasAddress && (
+            <div className="flex items-start gap-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-3 text-sm text-status-attention-strong">
+              <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <span>No complete mailing address on file. Add one on the customer record before generating a postal packet.</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      <PrimaryAction
+        icon={ExternalLink}
+        label={genLabel}
+        onClick={prepareAndOpen}
+        disabled={preparing || !canGenerate || (method === 'postal' && !customerHasAddress)}
+      />
+      {!canGenerate && (
+        <p className="text-sm text-ink-supporting">No request policy numbers to put on the form yet.</p>
+      )}
+      {prepError && (
+        <div className="flex items-start gap-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-3 text-sm text-status-attention-strong">
+          <CircleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span>{prepError}</span>
+        </div>
+      )}
+      {method === 'email' ? (
+        <FormAttachmentDirective request={formPolicies} />
+      ) : (
+        <div className="flex items-start gap-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-3 text-sm text-status-attention-strong">
+          <FileText className="mt-0.5 size-4 shrink-0" aria-hidden />
+          <span>The packet includes a cover letter addressed to the customer and the authorization form. Print it, enclose a return envelope, and mail it.</span>
+        </div>
+      )}
+      <WorkflowButton
+        icon={Check}
+        selected
+        disabled={busy || !generated}
+        onClick={() => onConfirm(method)}
+      >
+        {confirmLabelFor(method)}
+      </WorkflowButton>
+      {/* Skip for now (Send Introductory Emails fast flow): move to the next
+          available customer without sending or recording anything. Sits beneath
+          the confirm as a quiet secondary action and is always available, since
+          skipping is the deliberate "not this one yet" path. */}
+      {onSkip && (
+        <WorkflowButton
+          icon={SkipForward}
+          disabled={busy}
+          onClick={onSkip}
+          className="w-full justify-center"
+        >
+          Skip for now
+        </WorkflowButton>
+      )}
+    </div>
+  )
+}
