@@ -22,7 +22,8 @@ import {
   QueueSection, QueueRow, QueueListHeader, CustomerQueueCard, QueueEmptyState,
   TaskShell, SlimTaskHeader, ContextHeader, type ContextField,
   ActionPanel, PrimaryAction, WorkflowButton, NextNote, OperationalTag,
-  ExternalActionConfirm, SpokenScriptCard, CallButton, SkipForNowButton, CallContextCard,
+  ExternalActionConfirm, CallButton, SkipForNowButton, CallContextCard,
+  CallMentorCap, TalkPathCard,
   CustomerContactCard, GatewayLookup,
   PolicySummaryList, type PolicySummary,
   CustomerHistoryCard, NextHistoryEntry, HistoryNotesField, Divider,
@@ -2470,6 +2471,26 @@ function callOpeningScript(firstName: string, senderName: string | null): string
 }
 
 /**
+ * The "why you're calling" mentoring content for THIS workbench — the
+ * servicing-agent outreach situation. It explains why this specific call is
+ * being made on this workflow so a worker who opens the cap understands the
+ * reason, not just the instruction. It is fed into the CallMentorCap Lego as
+ * content; the Lego owns only display. This is the content seam: today the
+ * situation's text is resolved here (first name interpolated); later the same
+ * prop can be filled by a situation/ZEN-selected catalog entry without any
+ * change to the Lego or the panel layout.
+ */
+function callMentorBody(firstName: string | null): string {
+  const possessive = firstName ? `${firstName}\u2019s` : 'the customer\u2019s'
+  return (
+    `Our office lost access to ${possessive} life insurance policy when Allstate\u2019s life business moved to ` +
+    'Everlake, because we are not listed as the servicing agent. The servicing-agent authorization simply ' +
+    'restores our access to help with questions and servicing. It does not change the policy or coverage, and ' +
+    'it needs a wet (ink) signature.'
+  )
+}
+
+/**
  * The guided calling flow. Two modes:
  *
  *   - Board task (workbench=false): the established compact outcome recorder for
@@ -2688,6 +2709,13 @@ function OutreachCallPanel({
   const [decision, setDecision] = useState<null | 'agreed' | 'callback' | 'not-interested'>(reached ? 'agreed' : null)
   const [callbackWhen, setCallbackWhen] = useState('')
 
+  // The pre-call Talk Path (up by the Call button) is collapsed by default — a
+  // worker can open it to read what they will say before dialing. It is
+  // controlled here so that reaching the customer collapses this top copy and
+  // the lower copy (under the reach decision) opens, keeping the talk path
+  // visible in exactly one place at a time.
+  const [talkPathTopOpen, setTalkPathTopOpen] = useState(false)
+
   // ── Optional Call Notes ────────────────────────────────────────────────────
   // One free-text field, saved WITH the completed interaction (appended to the
   // recorded touch), never a separate history entry. The text is OWNED BY THE
@@ -2803,8 +2831,10 @@ function OutreachCallPanel({
   function chooseReached() {
     if (reach === 'reached') { setReach(null); setDecision(null); setCallbackWhen(''); return }
     setReach('reached')
-    // Entering Reached: drop any Didn't-Reach channel selections.
+    // Entering Reached: drop any Didn't-Reach channel selections and collapse
+    // the top Talk Path, since the reached branch shows the Talk Path below.
     setVoicemailLeft(null); setTextSent(false); setEmailSent(false)
+    setTalkPathTopOpen(false)
   }
   function chooseNotReached() {
     if (reach === 'not-reached') { setReach(null); setVoicemailLeft(null); setTextSent(false); setEmailSent(false); return }
@@ -2813,9 +2843,22 @@ function OutreachCallPanel({
     setDecision(null); setCallbackWhen('')
   }
 
+  const talkPathBody = callOpeningScript(c.first_name ?? 'there', senderName)
+
   return (
-    <ActionPanel heading={`Call ${name}`}>
+    // The panel heading is rendered by CallMentorCap below (so the cap can sit
+    // beside the instruction), not by ActionPanel's own heading.
+    <ActionPanel>
       {noteBox}
+
+      {/* The call instruction with the mentoring cap beside it: "Call <name>"
+          plus a standalone graduation cap. If the worker is unsure WHY this
+          call on this workflow, they tap the cap and the reason opens inline.
+          Content is fed in (callMentorBody) — the Lego owns only display. */}
+      <CallMentorCap heading={`Call ${name}`}>
+        {callMentorBody(c.first_name)}
+      </CallMentorCap>
+
       <CallContext detail={detail} />
 
       {/* 1. Dial + Skip share the top line as EQUAL halves (grid-cols-2) when a
@@ -2833,6 +2876,20 @@ function OutreachCallPanel({
         </div>
       ) : (
         <CallButton phone={phone} />
+      )}
+
+      {/* The Talk Path, collapsed, sits right under the Call button BEFORE the
+          reach decision, so the worker can read what they will say before they
+          dial. Reaching the customer collapses this copy and opens the one
+          below the reach decision, so the talk path is never shown twice. It is
+          hidden entirely once the call is reached (the lower copy takes over). */}
+      {reach !== 'reached' && (
+        <TalkPathCard
+          body={talkPathBody}
+          open={talkPathTopOpen}
+          onOpenChange={setTalkPathTopOpen}
+          className="mt-3"
+        />
       )}
 
       {/* 2. With Skip moved up, this line holds only the two real outcomes of an
@@ -2958,32 +3015,19 @@ function OutreachCallPanel({
       {/* ── REACHED ──────────────────────────────────────────────────────────── */}
       {reach === 'reached' && (
         <><Divider className="my-4" /><div className="space-y-4">
-          {/* The reason-for-calling mentoring and the opening script are the
-              guidance for HAVING the conversation, so they show only until the
-              caller records what the customer decided. Once a decision is
-              selected (Agreed / Callback / Not interested) both are hidden to
-              keep the column focused on the decision's next actions; clearing
-              the decision brings them back. Mentoring sits ABOVE the script. */}
+          {/* The Talk Path is the guidance for HAVING the conversation, so it
+              shows only until the caller records what the customer decided. Once
+              a decision is selected (Agreed / Callback / Not interested) it is
+              hidden to keep the column focused on the decision's next actions;
+              clearing the decision brings it back. The "why you're calling"
+              mentoring is NOT repeated here — it lives on the cap beside the
+              call instruction at the top of the panel. This lower Talk Path is
+              the same Lego as the top one, forced open (this is the worker's
+              next step, so it opens rather than waiting for a click), and the
+              top copy is collapsed whenever the call is reached, so the talk
+              path is shown in exactly one place. */}
           {decision === null && (
-            <>
-              {/* Reason for calling + the servicing-agent authorization
-                  explanation, as a mentoring section: the global Mentoring
-                  toggle sets its default open/closed, and the caller can expand
-                  or collapse it independently (the shared MentorGuidance
-                  behavior). Apostrophes are real characters here, not \u2019
-                  escapes in JSX text. */}
-              <MentorGuidance label="Why you're calling">
-                Our office lost access to {c.first_name ? `${c.first_name}’s` : 'the customer’s'} life insurance
-                policy when Allstate’s life business moved to Everlake, because we are not listed as the servicing
-                agent. The servicing-agent authorization simply restores our access to help with questions and
-                servicing. It does not change the policy or coverage, and it needs a wet (ink) signature.
-              </MentorGuidance>
-
-              {/* The approved opening script, read aloud on the line, with the
-                  employee + customer names filled in. The spoken-script card (no
-                  Copy), not the copy-to-paste CallScriptCard. */}
-              <SpokenScriptCard label={SERVICING_CALL_SCRIPTS.opening.label} body={callOpeningScript(c.first_name ?? 'there', senderName)} bodySizeClassName="text-lg" />
-            </>
+            <TalkPathCard body={talkPathBody} open onOpenChange={() => {}} />
           )}
 
           {/* Capture the customer’s actual decision. Each choice toggles: picking
