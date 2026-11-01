@@ -2155,7 +2155,7 @@ export function CustomerCardClient({
                         {m.first_name} {m.last_name}
                       </p>
                       <div className="flex items-center gap-3 mt-0.5">
-                        {m.phone && <span className="text-xs text-slate-500">{m.phone}</span>}
+                        {m.phone && <span className="text-xs text-slate-500">{formatPhone(m.phone)}</span>}
                         {m.email && <span className="text-xs text-slate-500">{m.email}</span>}
                       </div>
                     </div>

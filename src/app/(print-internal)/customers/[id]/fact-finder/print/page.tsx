@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { formatPhoneDisplay } from '@/lib/contact-input'
 
 export const dynamic = 'force-dynamic'
 
@@ -325,7 +326,7 @@ export default async function FactFinderPrintPage({ params }: { params: Promise<
           <div className="row">
             <div className="field">
               <span className="field-label">Phone</span>
-              <span className={`field-line${customer.phone ? ' filled' : ''}`}>{customer.phone}</span>
+              <span className={`field-line${customer.phone ? ' filled' : ''}`}>{formatPhoneDisplay(customer.phone)}</span>
             </div>
             <div className="field" style={{ flex: 2 }}>
               <span className="field-label">Email</span>

@@ -23,9 +23,11 @@ Normalization (form + server), each returning a structured result
 - `normalizePhoneInput(raw)` — accepts pasted input with spaces, punctuation,
   a leading country code of 1, or surrounding explanatory text, and extracts
   exactly 10 US digits when the input is unambiguous. Returns the canonical
-  display form as `value`. Anything that is not an unambiguous 10 US digits
-  (too few, too many, extra stray digits from pasted text, an extension) is
-  `invalid` with a reason. It is NEVER silently truncated or saved.
+  STORED form as `value`: bare 10 digits, no punctuation. Display formatting to
+  `(XXX) XXX-XXXX` happens only on render via `formatPhoneDisplay`. Anything that
+  is not an unambiguous 10 US digits (too few, too many, extra stray digits from
+  pasted text, an extension) is `invalid` with a reason. It is NEVER silently
+  truncated or saved.
 - `normalizeEmailInput(raw)` — trims and lowercases (reusing `normalizeEmail`
   from `./fmt`), rejects an obviously malformed address as `invalid`.
 - `normalizeNameInput(raw)` — collapses internal whitespace and trims while
@@ -34,25 +36,33 @@ Normalization (form + server), each returning a structured result
 
 Display:
 
-- `formatPhoneDisplay(raw)` — the IPF phone display standard `(XXX) XXX-XXXX`.
-  The one phone formatter in the app. `src/lib/format-phone.ts` re-exports it as
-  `formatPhone` for historical imports; new code imports from
-  `./contact-input` directly.
+- `formatPhoneDisplay(raw)` — the phone display standard `(XXX) XXX-XXXX`. The
+  one phone formatter in the app. It strips its input to digits first, so it
+  renders the bare-digit stored form (or any legacy formatted value) identically.
+  `src/lib/format-phone.ts` re-exports it as `formatPhone` for historical
+  imports; new code imports from `./contact-input` directly.
 - `formatPhoneAsTyped(raw)` — same formatting for an editable field; call it in
   the input `onChange` so the operator always sees the standard format while
   typing.
 
 ## Rules
 
-- Phone display is ALWAYS `(XXX) XXX-XXXX`, everywhere, including editable
-  fields, served by the shared formatter. No ad-hoc or component-local phone
+- Phone STORAGE is bare 10 digits (e.g. `2155550100`), no punctuation, across
+  every phone column (`customers.phone`, `agencies.contact_phone`,
+  `producers.phone`, `service_policies.owner_phone`, `households.phone_*`,
+  `team_members.phone`). A write path persists `normalizePhoneInput(raw).value`
+  (or `normalizePhone` from `./fmt`), both of which return bare digits. Never
+  store punctuation in a phone column. Do not split a column into display and
+  digit variants: one bare-digit column, formatted on render.
+- Phone DISPLAY is ALWAYS `(XXX) XXX-XXXX`, everywhere, including editable
+  fields, served by `formatPhoneDisplay` / `formatPhoneAsTyped`. Never render a
+  raw phone column directly (`{customer.phone}`) — wrap it in the shared
+  formatter, or the operator sees bare digits. No ad-hoc or component-local phone
   formatting.
-- Phone STORAGE keeps Right Path's existing convention: the normalized value in
-  `(XXX) XXX-XXXX` form (a validated 10-digit US number rendered in the standard
-  format). Do NOT introduce digits-only storage; the existing formatted
-  convention is correct and consistent across the `phone`/`contact_phone`
-  columns, and phone-based matching already compares on stripped digits. Do not
-  split a column into two formats and do not run a backfill migration.
+- Phone MATCHING / SEARCH compares on stripped digits on both sides. Because
+  storage is already bare digits, `.eq('phone', normalizePhone(x))` matches
+  directly; a substring search must strip the query to digits too so a user who
+  types punctuation still matches.
 - Validation is preserved end to end. A changed contact field with content must
   be `valid` before it can be saved. The form blocks save and shows the reason;
   the API route re-runs the same normalization and returns 400 on `invalid`, so

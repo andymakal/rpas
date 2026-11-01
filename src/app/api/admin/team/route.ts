@@ -1,6 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest } from 'next/server'
-import { normalizeEmail } from '@/lib/fmt'
+import { normalizeEmail, normalizePhone } from '@/lib/fmt'
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://right-path-agency-system.vercel.app'
 
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
     email,
   }
   if (body.title)             producerInsert.title             = body.title.trim()
-  if (body.phone)             producerInsert.phone             = body.phone.trim()
+  if (body.phone)             producerInsert.phone             = normalizePhone(body.phone) ?? body.phone.trim()
   if (body.allstate_id)       producerInsert.allstate_id       = body.allstate_id.trim()
   if (body.npn)               producerInsert.npn               = body.npn.trim()
   if (body.sub_producer_code) producerInsert.sub_producer_code = body.sub_producer_code.trim()

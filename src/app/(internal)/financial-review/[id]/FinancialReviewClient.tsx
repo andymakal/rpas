@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, ExternalLink, Save, Loader2, Printer, CheckCircle, Trash2, Plus, FileText, Link2 } from 'lucide-react'
 import type { FinancialReviewDetail, RpasPolicy, HouseholdMember, ParsedContract, UploadedDocument, ContractFlag } from './page'
+import { formatPhoneDisplay } from '@/lib/contact-input'
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -581,7 +582,7 @@ export function FinancialReviewClient({
                 {c.first_name} {c.last_name}
                 <ExternalLink className="w-3 h-3" />
               </Link>
-              {c.phone && <p className="text-slate-400 text-xs">{c.phone}</p>}
+              {c.phone && <p className="text-slate-400 text-xs">{formatPhoneDisplay(c.phone)}</p>}
               {c.email && <p className="text-slate-400 text-xs">{c.email}</p>}
             </div>
           </div>

@@ -7,6 +7,7 @@ import {
   Loader2, ChevronRight, X, Table, SkipForward,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { normalizePhone } from '@/lib/fmt'
 
 // ── Shared types ──────────────────────────────────────────────────────────────
 
@@ -277,7 +278,7 @@ function parseRow(row: Record<string, unknown>): PolicyRow | null {
     insured_dob_month:    insuredDobParts.insured_dob_month,
     insured_dob_precision: insuredDobParts.insured_dob_precision,
     insured_state:        insuredState,
-    owner_phone:          str(col(row,'OwnerPhoneNumber','PhoneNumber','Phone Number','Phone','OwnerPhone')),
+    owner_phone:          normalizePhone(str(col(row,'OwnerPhoneNumber','PhoneNumber','Phone Number','Phone','OwnerPhone'))),
     owner_dob_approx:     parseDob(rawOwnerDob),
     writing_agent_name:   str(col(row,'WritingAgentFullName','WritingAgent','Writing Agent','AgentName')),
     coverage_status:      coverageStatus,

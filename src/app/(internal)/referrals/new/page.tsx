@@ -203,7 +203,7 @@ export default function NewReferralPage() {
     setShowMatchPanel(false)
     setCustomerMatches([])
     // Pre-fill phone so the form displays it (field is hidden when linked, no validation needed)
-    if (match.phone) setPhone(match.phone)
+    if (match.phone) setPhone(formatPhone(match.phone))
   }
 
   function handleUnlinkCustomer() {
@@ -477,7 +477,7 @@ export default function NewReferralPage() {
                         <p className="text-sm font-semibold text-white">{m.first_name} {m.last_name}</p>
                         <p className="text-xs text-slate-400 mt-0.5">
                           DOB {maskDob(m.date_of_birth)}
-                          {m.phone && <> · {m.phone}</>}
+                          {m.phone && <> · {formatPhone(m.phone)}</>}
                           {(m.city || m.state) && <> · {[m.city, m.state].filter(Boolean).join(', ')}</>}
                           {m.case_count > 0 && <> · {m.case_count} previous case{m.case_count !== 1 ? 's' : ''}</>}
                         </p>
