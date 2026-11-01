@@ -20,7 +20,7 @@ import {
 import {
   WorkflowPage, WorkflowPageHeader, WorkflowBackLink,
   QueueSection, QueueRow, QueueListHeader, CustomerQueueCard, QueueEmptyState,
-  TaskShell, SlimTaskHeader, ContextHeader, type ContextField,
+  TaskShell, SlimTaskHeader,
   ActionPanel, PrimaryAction, WorkflowButton, NextNote, OperationalTag,
   ExternalActionConfirm, CallButton, SkipForNowButton,
   CallMentorCap, TalkPathCard, CallOutcomeChoice,
@@ -1325,13 +1325,11 @@ function StewardshipContextPanel({
   // The shared Customer Contact card is the ONE standard contact surface across
   // every stewardship working screen (Introductory Emails, Make Due Calls, Call
   // Reachable Customers, Customer Interaction, Servicing Access, Research
-  // Needed). It is always the card now — the legacy read-only CustomerContext is
-  // no longer used — so contact information looks and behaves identically
-  // everywhere. The card runs in the approved Overview/Edit presentation and
+  // Needed). It is the shared card everywhere, so contact information looks and
+  // behaves identically. The card runs in the approved Overview/Edit presentation and
   // starts COLLAPSED (the compact Overview) on EVERY surface, matching the rest
   // of Right Path. The worker clicks Edit to open the fields; Save and Cancel
   // return it to the Overview. No surface forces it open.
-  const useCard = true
 
   // Policy Summary on the working screens replaces the raw holdings list in the
   // center column. Summarize the servicing-request policies when the request
@@ -1352,15 +1350,13 @@ function StewardshipContextPanel({
           <span>Confirm or correct the customer&apos;s phone number, email address, and mailing address.</span>
         </div>
       )}
-      {useCard ? (
-        // Writes straight to the customer record via the shared route and keeps
-        // the surrounding task in sync through onChange. Approved Overview/Edit
-        // presentation; collapsed by default on every surface — the worker
-        // clicks Edit to open the fields.
-        <StewardshipCustomerContact detail={detail} setDetail={setDetail} reload={reload} onContactPreviewChange={onContactPreviewChange} />
-      ) : (
-        <CustomerContext detail={detail} busy={busy} act={act} showVerification />
-      )}
+      {/* The one standard contact surface on every stewardship working screen.
+          Writes straight to the customer record via the shared route and keeps
+          the surrounding task in sync through onChange. Approved Overview/Edit
+          presentation; collapsed by default on every surface — the worker
+          clicks Edit to open the fields. */}
+      <StewardshipCustomerContact detail={detail} setDetail={setDetail} reload={reload} onContactPreviewChange={onContactPreviewChange} />
+
       {/* The record-an-attempt tool belongs to the general call/research view,
           not the fast-send Introductory Emails flow, the find-contact Research
           flow (which records no contact attempt), nor the guided calling
@@ -3712,125 +3708,6 @@ function RequiredSignatureConfirm({
 // ─────────────────────────────────────────────────────────────────────────────
 // Context panels
 // ─────────────────────────────────────────────────────────────────────────────
-
-function CustomerContext({
-  detail, busy, act, showVerification = true,
-}: {
-  detail: Detail
-  busy: boolean
-  act: (action: unknown, successNote?: string) => void
-  /** Whether to show the customer-verified contact checkboxes. Hidden on the
-   *  Introductory Emails activity, where verification is not part of the task. */
-  showVerification?: boolean
-}) {
-  const c = detail.customer
-  // The complete mailing address, as separate lines so it stays legible and is
-  // never truncated (street on one line; city, state, ZIP on the next). It is
-  // shown in a dedicated block below the compact header fields, because the
-  // header's field cells truncate to a single line by design.
-  const street = streetLine(c)
-  const cityStateZip = [[c.city, c.state].filter(Boolean).join(', '), c.zip].filter(Boolean).join(' ')
-  const addrLines = [street, cityStateZip].filter(Boolean)
-  const hasAddress = addrLines.length > 0
-  // A customer-verified value reads as green ("confirmed"); on file but
-  // unverified reads as amber ("on file, not confirmed"); missing reads red.
-  const fieldStatus = (present: boolean, verifiedAt: string | null) =>
-    verifiedAt ? { tone: 'confirmed' as const, label: 'Customer verified' }
-      : present ? { tone: 'known' as const, label: 'On file' }
-      : { tone: 'missing' as const, label: 'Missing' }
-  const emailS = fieldStatus(!!c.email, detail.email_verified_at)
-  const phoneS = fieldStatus(!!c.phone, detail.phone_verified_at)
-  const addrS = fieldStatus(hasAddress, detail.address_verified_at)
-  const fields: ContextField[] = [
-    {
-      label: 'Email', value: c.email ?? 'Not on file', empty: !c.email,
-      statusTone: emailS.tone, statusIcon: Mail, statusLabel: emailS.label,
-    },
-    {
-      label: 'Phone', value: c.phone ?? 'Not on file', empty: !c.phone,
-      statusTone: phoneS.tone, statusIcon: Phone, statusLabel: phoneS.label,
-    },
-    {
-      // Compact summary in the header grid; the full address is shown in full
-      // below so it is never truncated.
-      label: 'Address', value: hasAddress ? 'See below' : 'Not on file', empty: !hasAddress,
-      statusTone: addrS.tone, statusIcon: Building2, statusLabel: addrS.label,
-    },
-  ]
-  return (
-    <>
-      <ContextHeader eyebrow="Stewardship" title={fullName(c)} fields={fields} />
-      {/* Complete mailing address, legible and on multiple lines. */}
-      <div className="rounded-xl border border-surface-border bg-surface-card p-4">
-        <p className="flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-ink-supporting">
-          <Building2 className="size-4 text-ink-supporting" aria-hidden /> Mailing address
-        </p>
-        {hasAddress ? (
-          <address className="mt-2 not-italic text-base leading-relaxed text-ink">
-            {addrLines.map((line, i) => (
-              <span key={i} className="block">{line}</span>
-            ))}
-          </address>
-        ) : (
-          <p className="mt-2 text-base italic text-ink-muted">No mailing address on file.</p>
-        )}
-      </div>
-      {showVerification && <ContactVerification detail={detail} busy={busy} act={act} />}
-    </>
-  )
-}
-
-/**
- * Simple customer-verified checkboxes for phone, email, and address. Checking a
- * box records that the customer confirmed that value is correct (a distinct fact
- * from the value merely being on file). It never changes the queue. A box is
- * disabled when there is no value on file to verify.
- */
-function ContactVerification({
-  detail, busy, act,
-}: {
-  detail: Detail
-  busy: boolean
-  act: (action: unknown, successNote?: string) => void
-}) {
-  const c = detail.customer
-  const hasAddress = !!(streetLine(c) && c.city && c.state && c.zip)
-  const rows: { field: 'phone' | 'email' | 'address'; label: string; present: boolean; verifiedAt: string | null }[] = [
-    { field: 'phone', label: 'Phone', present: !!c.phone, verifiedAt: detail.phone_verified_at },
-    { field: 'email', label: 'Email', present: !!c.email, verifiedAt: detail.email_verified_at },
-    { field: 'address', label: 'Mailing address', present: hasAddress, verifiedAt: detail.address_verified_at },
-  ]
-  return (
-    <div className="rounded-xl border border-surface-border bg-surface-card p-4">
-      <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">Customer-verified contact</p>
-      <p className="mt-1 text-sm text-ink-secondary">
-        Check each value the customer confirms is correct. This records a verification, separate from the
-        value simply being on file.
-      </p>
-      <div className="mt-3 space-y-2">
-        {rows.map(r => (
-          <label
-            key={r.field}
-            className={`flex items-center gap-2.5 text-base font-medium ${r.present ? 'cursor-pointer text-ink' : 'cursor-not-allowed text-ink-muted'}`}
-          >
-            <input
-              type="checkbox"
-              checked={!!r.verifiedAt}
-              disabled={busy || !r.present}
-              onChange={e => act(
-                { type: 'verify-contact', field: r.field, verified: e.target.checked },
-                e.target.checked ? `${r.label} marked customer-verified.` : `${r.label} verification cleared.`,
-              )}
-              className="size-4 rounded border-slate-400 text-teal-600 focus:ring-teal-500 disabled:opacity-40"
-            />
-            <span>{r.label} {r.present ? '' : <span className="text-sm font-normal text-ink-muted">(nothing on file)</span>}</span>
-            {r.verifiedAt && <Check className="size-4 text-emerald-600" aria-hidden />}
-          </label>
-        ))}
-      </div>
-    </div>
-  )
-}
 
 /**
  * Record ONE outreach attempt across multiple channels at once. A single attempt
