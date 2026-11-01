@@ -199,24 +199,24 @@ type ContactFieldKey = 'email' | 'phone' | 'address'
 /** Which color a recolorable element takes. `status` = the field's green/amber/
  * red status token (the production default for the icons); `black` = plain
  * black, independent of status. */
-export type ColorChoice = 'status' | 'black'
+type ColorChoice = 'status' | 'black'
 
 /** A font-weight choice for a text role. `default` leaves the component's own
  * weight class in place (so production output is unchanged). */
-export type WeightChoice = 'default' | 'normal' | 'medium' | 'semibold' | 'bold'
+type WeightChoice = 'default' | 'normal' | 'medium' | 'semibold' | 'bold'
 
 /** Where the Customer Verified checkbox sits relative to its field. `heading` =
  * the production placement, on the label line at the right. `value` = beneath
  * the value. `bottom` = pulled to a shared bottom row with Edit. */
-export type VerifiedPlacement = 'heading' | 'value' | 'bottom'
+type VerifiedPlacement = 'heading' | 'value' | 'bottom'
 
 /** Where the Edit control sits. `value` = the production placement, beside the
  * value at the right. `row` = on its own row beneath the value. `bottom` = a
  * shared bottom row with Verified. */
-export type EditPlacement = 'value' | 'row' | 'bottom'
+type EditPlacement = 'value' | 'row' | 'bottom'
 
 /** Horizontal alignment of a field's content. */
-export type AlignChoice = 'left' | 'center' | 'right'
+type AlignChoice = 'left' | 'center' | 'right'
 
 /**
  * Optional presentation configuration for the card. Purely cosmetic: it changes
@@ -238,7 +238,7 @@ export type AlignChoice = 'left' | 'center' | 'right'
  * analogous `appearance` prop and reuse the Storybook control factory in
  * `./playground-controls` so the next playground is assembly, not reinvention.
  */
-export interface ContactCardAppearance {
+interface ContactCardAppearance {
   // ── Visibility (each element independently shown/hidden) ──────────────────
   showStatusIndicator?: boolean
   showContactIcon?: boolean
@@ -792,9 +792,6 @@ interface SelfContainedProps {
    * toggle in place afterward. Default 'collapsed'. */
   initialMode?: ContactCardMode
   className?: string
-  /** Presentation-only overrides (Design Playground). Omit for the production
-   * appearance. Never affects behavior, data, or persistence. */
-  appearance?: ContactCardAppearance
   /** Optional: notified with the authoritative record after any successful write
    * (contact edit, verification, name correction, alert, texting change), so a
    * host can keep a surrounding view in sync WITHOUT owning the card's data.
@@ -816,15 +813,13 @@ interface SelfContainedProps {
 }
 
 /** The legacy, host-assembled invocation: the host passes a fully resolved
- * `customer` record and optionally its own header/appearance. Preserved
- * unchanged so Storybook, the playgrounds, and any remaining host keep working
- * exactly as before. */
+ * `customer` record and optionally its own header. Preserved so any remaining
+ * host (and injectable persistence) keeps working exactly as before. */
 interface LegacyProps {
   customer: CustomerContact
   onChange?: (updated: CustomerContact) => void
   onPersist?: (customerId: string, payload: ContactPersistPayload) => Promise<CustomerContact>
   className?: string
-  appearance?: ContactCardAppearance
   header?: ReactNode
   showName?: boolean
   showMentoring?: boolean
@@ -878,7 +873,6 @@ function SelfContainedContactCard({
   customerId,
   initialMode = 'collapsed',
   className,
-  appearance,
   onChange,
   onModeChange,
   onPendingChange,
@@ -959,7 +953,6 @@ function SelfContainedContactCard({
     <ContactCardView
       customer={record}
       className={className}
-      appearance={appearance}
       // The card owns the identity header now: the uniform name + calculated age
       // heading with the Edit Name control shown only in the expanded view.
       showName={false}
@@ -1016,7 +1009,6 @@ function ContactCardView({
   onChange,
   onPersist,
   className,
-  appearance,
   header,
   showName = true,
   showMentoring = true,
@@ -1037,10 +1029,6 @@ function ContactCardView({
    * with the full updated record. */
   onPersist?: (customerId: string, payload: ContactPersistPayload) => Promise<CustomerContact>
   className?: string
-  /** Presentation-only overrides. Omit for the production appearance. Used by the
-   * Design Playground to tune the REAL card. Never affects behavior, data, or
-   * `onPersist` payloads. */
-  appearance?: ContactCardAppearance
   /** Optional content rendered across the TOP of the card, with the single
    * Overview/Edit toggle at its right end (when `collapsible`). A host uses this
    * to place the customer identity (name, age, status, classification) inside
@@ -1078,7 +1066,10 @@ function ContactCardView({
    * signal with the card's busy flag, so a host never re-derives either. */
   onPendingStateChange?: (pending: boolean) => void
 }) {
-  const ap = useMemo(() => resolveAppearance(appearance), [appearance])
+  // The card renders its one approved look. (The former Storybook-driven
+  // `appearance` override subsystem was removed with Storybook; `resolveAppearance`
+  // with no argument returns exactly that approved design.)
+  const ap = useMemo(() => resolveAppearance(), [])
   // The card holds the current record locally so the display updates the instant
   // a write returns, without the host round-tripping a reload.
   const [record, setRecord] = useState<CustomerContact>(customer)

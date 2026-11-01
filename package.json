@@ -10,9 +10,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "test:dd": "node --test-reporter=spec scripts/run-dd-tests.mjs",
-    "storybook": "storybook dev -p 6006",
-    "build-storybook": "storybook build"
+    "test:dd": "node --test-reporter=spec scripts/run-dd-tests.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.125.0",
@@ -35,9 +33,6 @@
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@storybook/addon-mcp": "10.6.1",
-    "@storybook/nextjs-vite": "10.6.1",
-    "@storybook/react": "10.6.1",
     "@tailwindcss/postcss": "^4",
     "@types/luxon": "3.7.1",
     "@types/node": "^20",
@@ -45,7 +40,6 @@
     "@types/react-dom": "^19",
     "eslint": "^9",
     "eslint-config-next": "16.3.8",
-    "storybook": "10.6.1",
     "tailwindcss": "^4",
     "typescript": "^5"
   }
