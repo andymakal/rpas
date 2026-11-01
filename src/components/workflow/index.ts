@@ -29,6 +29,7 @@ export { CallButton } from './CallButton'
 export { SkipForNowButton } from './SkipForNowButton'
 export { CallContextCard } from './CallContextCard'
 export { HistoryNotesField } from './HistoryNotesField'
+export { Divider, DividerStack } from './Divider'
 
 export { type TaskColumnRatio } from './TaskColumns'
 

@@ -93,6 +93,7 @@ import { PhoneFields, usePhoneDraft } from './ContactPhone'
 import { DobFields, useDobDraft } from './ContactDob'
 import { AddressFields, useAddressDraft } from './ContactAddress'
 import { AlertBanner, AlertField, useAlertDraft } from './ContactAlert'
+import { DividerStack } from './Divider'
 
 // ── Data shape ───────────────────────────────────────────────────────────────
 
@@ -1287,7 +1288,7 @@ function ContactCardView({
               button opens the unified editor. The section separators use the
               SAME standard as the editor (2px slate-500 section divider), so
               display and edit read identically. */}
-          <div className="mt-3 divide-y-2 divide-surface-border-section">
+          <DividerStack className="mt-3">
             <OverviewRow
               contactIcon={Mail}
               label="Email"
@@ -1311,7 +1312,7 @@ function ContactCardView({
               present={addrPresent}
               last
             />
-          </div>
+          </DividerStack>
 
           {/* Bottom bar of the compact Overview: the status key on the left so
               the green/amber/red icons above read clearly, and the single Edit
@@ -1652,7 +1653,7 @@ function UnifiedContactEditor({
 
   return (
     <form onSubmit={submit} className="mt-3">
-      <div className="divide-y-2 divide-surface-border-section">
+      <DividerStack>
         {/* Name — the ONE shared Person Name field group (First, Middle, Last,
             Suffix dropdown; Goes by + the suffix-in-familiar checkbox) with its
             compact live familiar + greeting preview. Exactly the implementation
@@ -1754,7 +1755,7 @@ function UnifiedContactEditor({
             </div>
           </div>
         )}
-      </div>
+      </DividerStack>
 
       {/* One Save and one Cancel at the bottom of the whole editor. */}
       <div className="mt-3 flex items-center gap-2 border-t border-surface-border-strong pt-3">

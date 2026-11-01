@@ -40,7 +40,7 @@
   --brand:            oklch(0.6 0.118 184.704);  /* teal-600 */
   --brand-hover:      oklch(0.511 0.096 186.391); /* teal-700 */
   --brand-foreground: oklch(1 0 0);               /* white text on teal */
-  --brand-subtle:     oklch(0.968 0.035 181); /* softened teal-100 surface (one step lighter, easier to read on; still clearly teal) */
+  --brand-subtle:     oklch(0.977 0.025 181); /* softened teal wash (two steps lighter than teal-100; reads easily, still clearly teal) */
   --brand-subtle-foreground: oklch(0.437 0.078 188.216); /* teal-800 text on subtle */
   --brand-wash:       oklch(0.984 0.014 180.72);  /* teal-50, hover/selected wash */
   --brand-ring:       oklch(0.855 0.138 181.071); /* teal-300, hover border/ring */
@@ -106,7 +106,7 @@
   --status-missing-strong:     oklch(0.455 0.188 13.697); /* rose-800 text */
 
   /* ── Operational tag tones (fill + border + text) ──────────────────────── */
-  --tag-reason-fill:    oklch(0.968 0.035 181); /* softened teal-100 (one step lighter, to match brand-subtle) */
+  --tag-reason-fill:    oklch(0.977 0.025 181); /* softened teal wash (matches brand-subtle) */
   --tag-reason-border:  oklch(0.91 0.096 180.426);  /* teal-200 */
   --tag-reason-text:    oklch(0.386 0.063 188.416); /* teal-900 */
 

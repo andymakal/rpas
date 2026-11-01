@@ -50,19 +50,26 @@ For new or changed LIGHT-theme screens:
   Reach for a literal shade like `bg-teal-600` or `text-slate-700` only when no
   token expresses what you mean.
 - Dividers that separate STEPS or SECTIONS must be visible, and there is ONE
-  standard for them: the `surface-border-section` token (a deliberately visible
-  slate-500) at 2px weight — `border-t-2 border-surface-border-section` for a
-  single rule, `divide-y-2 divide-surface-border-section` for a stacked set.
-  Use it for any line that marks a boundary between one unit of work and the
-  next (the contact card's field sections, the Outreach Call Panel's step
-  boundaries, and the like), and use it IDENTICALLY in both display and edit
-  states of the same component so a card never looks different collapsed vs
+  divider used by DROPPING IN A COMPONENT, never by hand-writing border classes:
+  the `Divider` / `DividerStack` Lego from `@/components/workflow`. `<Divider />`
+  is a single rule between two blocks; `<DividerStack>` wraps a set of siblings
+  to place the same rule between each. The standard it encodes (2px weight + the
+  deliberately visible `surface-border-section` token, currently slate-500) lives
+  in that one component, so changing the look once there — or the token —
+  propagates everywhere and no screen can drift. Use it for any boundary between
+  one unit of work and the next (contact-card field sections, the Outreach Call
+  Panel's step boundaries, and the like), and use it IDENTICALLY in display and
+  edit states of the same component so a card never looks different collapsed vs
   expanded. The bold 2px line is the deliberate "these are stacked Legos" signal.
-  Never use the pale `surface-divider` (slate-100) for a boundary that needs to
-  read — a line an operator cannot see is not a divider — and do not fall back to
-  the thinner `surface-border-strong` for a section boundary. The pale
-  `surface-border` (slate-200) hairline is for fine internal rules inside dense
-  content (e.g. table row lines) only, not for step/section boundaries.
+  Do NOT hand-write `border-t-2 border-surface-border-section` /
+  `divide-y-2 divide-surface-border-section` on a page — that copy-paste recipe
+  is exactly what drifts; render the Lego instead. Never use the pale
+  `surface-divider` (slate-100) or the thinner `surface-border-strong` for a
+  section boundary. The pale `surface-border` (slate-200) hairline is for fine
+  internal rules inside dense content (e.g. table row lines) only.
+  Existing hand-written dividers on the light pages are migrated to the Lego as
+  each screen is touched (and in a dedicated consistency sweep), not left as a
+  mix.
 - Make changes to shared LIGHT-theme visual elements at the token or
   shared-component level so they propagate across light-theme screens. Do not
   fork the look with page-specific styling or local overrides that drift from

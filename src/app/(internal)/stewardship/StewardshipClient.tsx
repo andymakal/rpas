@@ -25,7 +25,7 @@ import {
   ExternalActionConfirm, SpokenScriptCard, CallButton, SkipForNowButton, CallContextCard,
   CustomerContactCard, GatewayLookup,
   PolicySummaryList, type PolicySummary,
-  CustomerHistoryCard, NextHistoryEntry, HistoryNotesField,
+  CustomerHistoryCard, NextHistoryEntry, HistoryNotesField, Divider,
 } from '@/components/workflow'
 import { CustomerSearch } from '@/components/CustomerSearch'
 import {
@@ -2839,7 +2839,8 @@ function OutreachCallPanel({
           outbound call — Reached and Didn\u2019t Reach — as EQUAL halves filling
           the box (two options, two halves). The opening script stays hidden
           until Reached is chosen, so the worker decides the outcome first. */}
-      <div className="border-t-2 border-surface-border-section pt-4">
+      <Divider className="my-4" />
+      <div>
         <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-supporting">Did you reach the customer?</p>
         <div className="grid grid-cols-2 gap-2">
           <WorkflowButton icon={PhoneCall} selected={reach === 'reached'} disabled={busy}
@@ -2862,7 +2863,7 @@ function OutreachCallPanel({
 
       {/* ── DIDN\u2019T REACH ─────────────────────────────────────────────────── */}
       {reach === 'not-reached' && (
-        <div className="space-y-4 border-t-2 border-surface-border-section pt-4">
+        <><Divider className="my-4" /><div className="space-y-4">
           {/* Voicemail. The approved script is READ ALOUD, so the card shows no
               Copy (hideCopy). The script asks the customer to call back at the
               callback number, so it can only be read when that number resolves.
@@ -2950,12 +2951,12 @@ function OutreachCallPanel({
               Bad number
             </WorkflowButton>
           </div>
-        </div>
+        </div></>
       )}
 
       {/* ── REACHED ──────────────────────────────────────────────────────────── */}
       {reach === 'reached' && (
-        <div className="space-y-4 border-t-2 border-surface-border-section pt-4">
+        <><Divider className="my-4" /><div className="space-y-4">
           {/* The reason-for-calling mentoring and the opening script are the
               guidance for HAVING the conversation, so they show only until the
               caller records what the customer decided. Once a decision is
@@ -3081,7 +3082,7 @@ function OutreachCallPanel({
               </WorkflowButton>
             </div>
           )}
-        </div>
+        </div></>
       )}
 
     </ActionPanel>
