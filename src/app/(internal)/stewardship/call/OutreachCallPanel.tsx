@@ -279,7 +279,15 @@ export function OutreachCallPanel({
     setDecision(null); setCallbackWhen('')
   }
 
-  const talkPathBody = callOpeningScript(c.first_name ?? 'there', senderName)
+  // The situation content comes from the resolved (project type, phase) catalog
+  // when the GET route supplied it (detail.call_context), and falls back to the
+  // panel's built-in servicing-agent wording otherwise. This is the content
+  // seam the panel was built around: the Legos and the layout are unchanged;
+  // only the source of the reason / talk path moves from local constants to the
+  // catalog. The catalog values arrive already interpolated with the caller and
+  // customer identity by the resolver, so no further filling happens here.
+  const resolvedReason = detail.call_context?.reason ?? callMentorBody(c.first_name)
+  const talkPathBody = detail.call_context?.talkPath ?? callOpeningScript(c.first_name ?? 'there', senderName)
 
   return (
     // The panel heading is rendered by CallMentorCap below (so the cap can sit
@@ -292,7 +300,7 @@ export function OutreachCallPanel({
           call on this workflow, they tap the cap and the reason opens inline.
           Content is fed in (callMentorBody) — the Lego owns only display. */}
       <CallMentorCap heading={`Call ${name}`}>
-        {callMentorBody(c.first_name)}
+        {resolvedReason}
       </CallMentorCap>
 
       <CallContext detail={detail} />
