@@ -193,3 +193,66 @@ page-local formatting remains for those either.
 - Commit, push `development`, `vercel deploy --force --scope
   makal-financial-services-llc`, alias `bobdev.therightpathagency.com` to the new
   deployment, confirm with `vercel inspect`. Development preview only.
+
+---
+
+# NEXT EFFORT (separate task): reconcile production's migration ledger drift
+
+Status date: 2026-11-01. This is a DIFFERENT effort from the contact-card Lego
+work above; it is appended, not replacing it. This is the "fix it first" item.
+
+## The problem (verified live, not from memory)
+
+`supabase db push` against PRODUCTION cannot apply new migrations by the normal
+path. It reports "Found local migration files to be inserted before the last
+migration on remote database. Rerun ... with --include-all" and lists dozens of
+OLD files. Running `--include-all` would try to replay the entire early history
+against production and is NOT safe. This has been recurring on every release.
+
+## Exact diagnosis (measured on 2026-11-01)
+
+- Repo has 118 migration files under `supabase/migrations/`.
+- Production's ledger (`supabase_migrations.schema_migrations`) has 64 rows.
+- Production's ledger is a CLEAN contiguous subset: it starts at
+  `20261007182159` (name `remote_schema`, a squash/baseline snapshot) and runs
+  unbroken to `20261126000003`. There are ZERO ledger-only / re-stamped /
+  orphaned versions on production — nothing is corrupted.
+- The drift is exactly the 54 PRE-BASELINE repo files dated `20260515000001`
+  through `20260927000003`. Their schema is already contained in the
+  `20261007182159` baseline, but they were never recorded as individual ledger
+  rows, so `db push` thinks they are unapplied and wants to insert them
+  mid-history. All 54 sort before prod's last version, which is what triggers
+  the `--include-all` demand.
+
+NOTE: this is production's drift. The development CLONE's ledger is messier
+(it has re-stamped rows where `name` holds a different filename than `version`,
+e.g. version `20261019212304` / name `20261107000001_rename_...`). The dev clone
+and production are NOT the same shape — verify each independently before acting.
+
+## Recommended fix (the clean, low-risk option)
+
+Backfill the 54 missing pre-baseline versions into production's ledger as
+ALREADY-APPLIED, WITHOUT running their SQL (their schema is already present via
+the `20261007182159` baseline). That makes `db push`'s view match reality and
+removes the `--include-all` trigger permanently. Mechanically this is an insert
+of the 54 `(version, name)` rows into `supabase_migrations.schema_migrations`;
+`supabase migration repair --status applied <version>` is the supported way to
+do exactly this per version (it records applied without executing the file).
+
+Before doing it, RE-VERIFY against the live DB (do not trust this file's
+numbers): recompute the repo-vs-ledger diff, and spot-check that the schema the
+pre-baseline files create actually exists in production (it should, via the
+baseline) so marking them applied is truthful, not a cover-up of missing schema.
+
+Do NOT "fix" this by deleting the 54 old repo files — they are real history and
+other environments/tools may rely on them. Reconcile the LEDGER to the files,
+not the files to the ledger.
+
+## Why it kept coming up
+
+Each release's new migrations sit after prod's last version, but because the 54
+old files sort BEFORE it, `db push` refuses the whole batch and demands
+`--include-all`. Until the ledger is backfilled, every release has to apply its
+own migrations surgically (direct SQL in the SQL Editor + manual ledger rows),
+which is what the contact-card/DOB release above did (see
+`private/PRODUCTION_RELEASE_contact_card_dob_name.sql` for the pattern).
