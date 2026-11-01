@@ -163,3 +163,24 @@ Skip advanced and cleared). Deployed to the preview.
 REMAINING OPEN (unchanged): inline + delete the ~450-line internal appearance
 resolver in `CustomerContactCard.tsx` (needs a preview look — resolved values
 listed earlier in this file).
+
+## UPDATE — CustomerContactCard appearance resolver inlined & removed
+
+The last open item is done. Inlined the one approved look at its three
+consumers and deleted the ~445-line dead appearance subsystem
+(ContactCardAppearance, ResolvedAppearance, resolveAppearance,
+DEFAULT_APPEARANCE/APPROVED_DEFAULTS, textStyle/iconStyle/colorClass/weight
+helpers). `CustomerContactCard.tsx`: 2168 → 1723 lines. Approved values inlined:
+- Name heading: 33px, bold, color var(--brand) (ContactMentoring).
+- Card chrome: 1px solid var(--text-secondary) border, 16px radius + padding,
+  white surface (section wrapper). Only the border color differed from the base
+  Tailwind classes.
+- Status key: green/amber/red icons at size-4 / text-sm — matches the base
+  classes, so no inline style needed.
+
+tsc + eslint + next build all clean. Deployed to the preview. NEEDS a cosmetic
+eyeball on `bobdev.therightpathagency.com`: the self-contained Customer Contact
+card (on a stewardship task screen and the customer record) should look
+unchanged — bold teal name, slate-700 card border, the status key colors.
+
+No open refactor items remain from this effort.
