@@ -15,7 +15,7 @@ import {
   Mail, Phone, Search, Inbox, FileText, Building2, Check, ExternalLink,
   Clock, CircleAlert, Play, PenLine, MailX, Hand, UserCheck,
   ShieldCheck, ShieldAlert, Copy, Voicemail, MessageSquare, PhoneCall, PhoneOff,
-  Upload, Download, Loader2, SkipForward, ArrowLeft,
+  Upload, Download, Loader2, SkipForward, ArrowLeft, Shuffle,
 } from 'lucide-react'
 import {
   WorkflowPage, WorkflowPageHeader, WorkflowBackLink,
@@ -23,7 +23,7 @@ import {
   TaskShell, SlimTaskHeader, ContextHeader, type ContextField,
   ActionPanel, PrimaryAction, WorkflowButton, NextNote, OperationalTag,
   ExternalActionConfirm, CallButton, SkipForNowButton, CallContextCard,
-  CallMentorCap, TalkPathCard,
+  CallMentorCap, TalkPathCard, CallOutcomeChoice,
   CustomerContactCard, GatewayLookup,
   PolicySummaryList, type PolicySummary,
   CustomerHistoryCard, NextHistoryEntry, HistoryNotesField, Divider,
@@ -2706,7 +2706,21 @@ function OutreachCallPanel({
   const [emailSent, setEmailSent] = useState(false)
 
   // ── Reached sub-state ────────────────────────────────────────────────────
-  const [decision, setDecision] = useState<null | 'agreed' | 'callback' | 'not-interested'>(reached ? 'agreed' : null)
+  // The reached outcome is one of the four UNIVERSAL call outcomes, laid out as
+  // a 2x2: Advance / Decline on the top row (the clean yes/no), Defer / Divert
+  // on the bottom (the "not a clean yes/no" pair). This fixed four-way set is
+  // situation-INDEPENDENT; a future situation table supplies each button's LABEL
+  // and its downstream action, but the four categories and their positions never
+  // change (see the post-reach-outcome discussion / ui-composition-vocabulary:
+  // the post-reach branch is workbench-specific). Storage stays concrete for
+  // now — each category maps onto the EXISTING recorded action, so history and
+  // reporting are undisturbed until the stored-disposition model is settled:
+  //   Advance → the servicing-agent authorization-form delivery (form-sent)
+  //   Defer   → promised-callback date capture (record-attempt call=callback)
+  //   Decline → the reversible not-interested stop (record-attempt call=not-interested)
+  //   Divert  → "something else is the right move" — placeholder, no action
+  //             wired yet; the situation table will supply the diversions.
+  const [decision, setDecision] = useState<null | 'advance' | 'decline' | 'defer' | 'divert'>(reached ? 'advance' : null)
   const [callbackWhen, setCallbackWhen] = useState('')
 
   // The pre-call Talk Path (up by the Call button) is collapsed by default — a
@@ -2724,6 +2738,18 @@ function OutreachCallPanel({
   // action and the live preview.
   const noteForAction = callNote.trim() || null
 
+  // Map the universal UI outcome onto the CONCRETE disposition the history layer
+  // records. Storage/reporting stays concrete (see the decision-state note):
+  // Advance→agreed (the reached authorization), Defer→callback, Decline→not
+  // -interested. Divert has no wired action yet, so it reports no disposition
+  // (null) and the preview shows a plain "Reached" until the situation table
+  // gives Divert its own recorded outcomes.
+  const decisionDisposition: 'agreed' | 'callback' | 'not-interested' | null =
+    decision === 'advance' ? 'agreed'
+    : decision === 'defer' ? 'callback'
+    : decision === 'decline' ? 'not-interested'
+    : null
+
   // Report the live selection up so the Next History Entry column previews
   // exactly what completing this call will record, combined into one concise
   // entry, updating as the worker proceeds. The reached authorization form is
@@ -2736,7 +2762,7 @@ function OutreachCallPanel({
       voicemailLeft,
       textSent,
       emailSent,
-      decision,
+      decision: decisionDisposition,
       callbackDate: callbackWhen || null,
       // The reached · agreed completion sends the form and records the reached
       // call together. It is NOT "sent" merely because the customer was reached
@@ -2750,7 +2776,7 @@ function OutreachCallPanel({
       formDeliveryMethod: detail.form_delivery_method ?? null,
       note: callNote.trim() || null,
     })
-  }, [onSelectionChange, reach, voicemailLeft, textSent, emailSent, decision, callbackWhen, detail.form_delivery_method, callNote])
+  }, [onSelectionChange, reach, voicemailLeft, textSent, emailSent, decisionDisposition, callbackWhen, detail.form_delivery_method, callNote])
 
   const nextSuffix = hasNextInActivity ? ' Next customer.' : ''
 
@@ -3034,26 +3060,17 @@ function OutreachCallPanel({
               the one already selected clears it, which restores the script and
               mentoring above. Clearing never un-records an already-recorded
               reached attempt (that call happened); it only reopens the choice. */}
-          <div>
-            <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-supporting">What did the customer decide?</p>
-            <div className="flex flex-wrap gap-2">
-              <WorkflowButton icon={Check} selected={decision === 'agreed'} disabled={busy}
-                onClick={() => setDecision(decision === 'agreed' ? null : 'agreed')}>
-                Agreed to authorize
-              </WorkflowButton>
-              <WorkflowButton icon={Clock} selected={decision === 'callback'} disabled={busy}
-                onClick={() => setDecision(decision === 'callback' ? null : 'callback')}>
-                Wants a callback
-              </WorkflowButton>
-              <WorkflowButton icon={CircleAlert} selected={decision === 'not-interested'} disabled={busy}
-                onClick={() => setDecision(decision === 'not-interested' ? null : 'not-interested')}>
-                Not interested
-              </WorkflowButton>
-            </div>
-          </div>
+          {/* The four universal reached-call outcomes (CallOutcomeChoice Lego):
+              Advance / Decline on top, Defer / Divert below. Labels here are the
+              structural PLACEHOLDERS; a situation table will later pass the real
+              per-situation wording (e.g. Advance → "Agreed to authorize" on this
+              servicing call, "Agreed to an appointment" on a referral) and the
+              host still owns each outcome's downstream action below. */}
+          <CallOutcomeChoice selected={decision} onSelect={setDecision} disabled={busy} />
 
-          {/* Agreed -> the established authorization-form process. */}
-          {decision === 'agreed' && (
+          {/* Advance -> the established authorization-form process (this
+              situation's Advance action). */}
+          {decision === 'advance' && (
             <div className="space-y-2 rounded-xl border border-status-confirmed-border bg-status-confirmed-soft p-4">
               <p className="text-base font-semibold text-ink">Send the servicing-agent authorization form</p>
               {/* The procedural guidance that used to sit beneath the confirm
@@ -3088,8 +3105,9 @@ function OutreachCallPanel({
             </div>
           )}
 
-          {/* Callback -> capture the promised DATE (date only, no clock time). */}
-          {decision === 'callback' && (
+          {/* Defer -> capture the promised callback DATE (date only, no clock
+              time) — this situation's Defer action. */}
+          {decision === 'defer' && (
             <div className="space-y-2 rounded-xl border border-surface-border bg-surface-card p-4">
               <label htmlFor="wb-cb" className="flex items-center gap-2 text-base font-medium text-ink">
                 <Clock className="size-4 text-ink-supporting" aria-hidden /> Promised callback date
@@ -3110,8 +3128,9 @@ function OutreachCallPanel({
             </div>
           )}
 
-          {/* Not interested -> the established reversible stop. */}
-          {decision === 'not-interested' && (
+          {/* Decline -> the established reversible stop (this situation's
+              Decline action). */}
+          {decision === 'decline' && (
             <div className="space-y-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-4">
               <p className="text-base text-ink-secondary">
                 Records an explicit decline. Outreach stops until someone deliberately reopens it. Nothing is
@@ -3125,6 +3144,26 @@ function OutreachCallPanel({
                 )}>
                 Record not interested
               </WorkflowButton>
+            </div>
+          )}
+
+          {/* Divert -> "something else is the right next move." PLACEHOLDER: the
+              structure is here, but the actual diversions (e.g. email a quote,
+              reopen as a different review, hand to another workflow) come from
+              the situation table and can route into their own rules. For now it
+              records nothing and wires no action, so no disposition is written
+              from an unfinished branch; it only explains what Divert is for. */}
+          {decision === 'divert' && (
+            <div className="space-y-2 rounded-xl border border-dashed border-surface-border-strong bg-surface-muted p-4">
+              <p className="flex items-center gap-1.5 text-base font-semibold text-ink">
+                <Shuffle className="size-4 text-ink-supporting" aria-hidden /> Something else is the right next move
+              </p>
+              <p className="text-sm text-ink-supporting">
+                The customer is still engaged, but the right next step isn’t Advance, Decline, or Defer (for
+                example: email a quote instead, or reopen this as a different kind of review). The specific
+                diversions for this call will come from the situation table. No action is wired to Divert yet, so
+                nothing is recorded from here.
+              </p>
             </div>
           )}
         </div></>

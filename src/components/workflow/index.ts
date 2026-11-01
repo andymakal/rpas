@@ -30,6 +30,11 @@ export { SkipForNowButton } from './SkipForNowButton'
 export { CallContextCard } from './CallContextCard'
 export { CallMentorCap } from './CallMentorCap'
 export { TalkPathCard } from './TalkPathCard'
+export {
+  CallOutcomeChoice,
+  type CallOutcomeChoiceValue,
+  type CallOutcomeLabels,
+} from './CallOutcomeChoice'
 export { HistoryNotesField } from './HistoryNotesField'
 export { Divider, DividerStack } from './Divider'
 
