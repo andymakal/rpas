@@ -19,9 +19,14 @@ Shared Legos that now EXIST — reuse, do not rebuild (all in
 `src/components/workflow/`, exported from the barrel): `CallButton`,
 `SkipForNowButton`, `CallContextCard`, `HistoryNotesField`, `Divider` /
 `DividerStack`, plus the earlier contact-field set (`PersonName`, `ContactEmail`,
-`ContactPhone`, `ContactDob`, `ContactAddress`, `ContactAlert`). The Outreach
-Call Panel (`OutreachCallPanel` in `StewardshipClient.tsx`) is the outbound call
-panel of the call workbench.
+`ContactPhone`, `ContactDob`, `ContactAddress`, `ContactAlert`). NEW this
+session: `CallMentorCap` (the standalone graduation cap beside the "Call <name>"
+instruction; fed-in mentoring), `TalkPathCard` (collapsible, controllable
+talk-path box; label + body), and `CallOutcomeChoice` (the four universal
+reached-call outcomes as a fixed 2x2 — Advance/Decline top, Defer/Divert bottom;
+fed per-situation labels + a select handler, host owns each outcome's action).
+The Outreach Call Panel (`OutreachCallPanel` in `StewardshipClient.tsx`) is the
+outbound call panel of the call workbench and now uses all three.
 
 Contact card self-heals representation ON VIEW (silent `{ field: 'cleanup' }`
 PATCH: address case/whitespace + `email_availability` NULL→available when a
@@ -34,6 +39,36 @@ per session). `email_availability` backfill is DONE on BOTH dev and prod
 
 - CALL PANEL not finished: work through the Outreach Call Panel step by step
   (each reach/branch step). Resume on `development`, reusing the Legos above.
+- CALL-OUTCOME SITUATION TABLE (agreed design, NOT built yet): a ZEN/GoRules
+  table keyed on the call SITUATION supplies, per situation AND per universal
+  outcome (Advance/Decline/Defer/Divert), all of:
+  (1) the button LABEL (e.g. Advance → "Agreed to authorize" on a servicing
+      call, "Agreed to an appointment" on a referral),
+  (2) the MENTORING content ("what you're doing"), fed to `CallMentorCap`,
+  (3) the TALK PATH content ("how you explain it"), fed to `TalkPathCard`,
+  (4) the downstream ACTION the outcome runs, and
+  (5) the HISTORY ENTRY that action records ON COMPLETION — its wording and the
+      resulting status move (e.g. Advance → "authorization form sent, moved to
+      Waiting for Form"; Decline → "recorded not interested, outreach stopped").
+  Division of labor stays fixed: ZEN picks label/content/action/history over
+  normalized facts; TypeScript resolves prose + time/names and performs the
+  action. CONTENT SEAMS already in place: `CallOutcomeChoice` takes `labels`;
+  `CallMentorCap`/`TalkPathCard` take fed-in content; the panel currently
+  resolves this situation's content locally (`callMentorBody`,
+  `SERVICING_CALL_SCRIPTS.opening`) — that local resolve is what the table
+  replaces. IMPORTANT: history is written at the outcome's COMPLETION (form
+  actually sent, callback saved, not-interested confirmed), never on button
+  press — do not write history from a half-finished branch. `Divert` has NO
+  wired action/history yet (placeholder); the table will give it its own
+  diversions, which may route into their own rules.
+- STORED-DISPOSITION MODEL (pending decision, the "do both" item): decide
+  whether the RECORDED disposition becomes the four-category model
+  (advance/decline/defer/divert + situation as context) or stays the concrete
+  action with the four categories as a UI/label layer only. TODAY it stays
+  concrete: the panel maps advance→agreed, defer→callback, decline→not-interested
+  when reporting the history preview (`decisionDisposition` in
+  `OutreachCallPanel`), and `divert` reports none. This choice affects history +
+  reporting; settle it before/with the table.
 - HISTORY column rebuild (deferred, agreed): the right column (Next history entry
   + Additional notes + Customer history) still displays inconsistently; rebuild
   it as one cohesive customer-history panel Lego rather than patching it.
