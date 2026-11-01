@@ -7,6 +7,7 @@ import type { ServiceRequestDetail, AgencyOption, AgentOption, SRNote, RelatedRe
 import { NotesLog } from '@/components/NotesLog'
 import type { NoteEntry } from '@/components/NotesLog'
 import { fmtDate as fmt } from '@/lib/fmt'
+import { formatPhoneDisplay } from '@/lib/contact-input'
 import { useNavList } from '@/lib/nav-list'
 import { addRecentItem } from '@/lib/recent-items'
 import { RATE_CLASSES } from '@/lib/constants/rate-classes'
@@ -354,7 +355,7 @@ export function ServiceRequestClient({
                 <a href={`tel:${policy.customers.phone}`}
                   className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors">
                   <Phone className="w-3 h-3" />
-                  {policy.customers.phone}
+                  {formatPhoneDisplay(policy.customers.phone)}
                 </a>
               )}
               {policy.customers.email && (

@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest, NextResponse } from 'next/server'
+import { formatPhoneDisplay } from '@/lib/contact-input'
 
 const DURATIONS: Record<string, number> = {
   call:      30,
@@ -102,7 +103,7 @@ export async function GET(
   const agent     = c.agents    as unknown as { first_name: string; last_name: string; email: string | null } | null
 
   const clientName  = customer ? `${customer.first_name} ${customer.last_name}` : 'Client'
-  const clientPhone = customer?.phone ?? ''
+  const clientPhone = formatPhoneDisplay(customer?.phone ?? '')
   const agencyName  = agency?.display_name ?? agency?.name ?? ''
   const lspName     = agent ? `${agent.first_name} ${agent.last_name}` : ''
   const lspEmail    = agent?.email ?? ''

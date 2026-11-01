@@ -1480,7 +1480,7 @@ export function ReferralEditClient({
                 <div>
                   <label className="block text-xs text-slate-500 mb-1">Phone</label>
                   <input
-                    type="tel" value={cPhone} placeholder="(555) 555-5555"
+                    type="tel" value={formatPhone(cPhone)} placeholder="(555) 555-5555"
                     onChange={e => setCPhone(formatPhone(e.target.value))}
                     className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 placeholder-slate-600"
                   />
@@ -1525,7 +1525,7 @@ export function ReferralEditClient({
                 <div className="flex items-center gap-2.5">
                   <Phone className="w-4 h-4 text-slate-500 flex-shrink-0" />
                   {cPhone ? (
-                    <a href={`tel:${cPhone}`} className="text-blue-400 hover:text-blue-300 text-sm transition-colors">{cPhone}</a>
+                    <a href={`tel:${cPhone}`} className="text-blue-400 hover:text-blue-300 text-sm transition-colors">{formatPhone(cPhone)}</a>
                   ) : (
                     <button onClick={() => setEditingContact(true)} className="text-sm text-slate-600 hover:text-slate-400 italic transition-colors">No phone — add one</button>
                   )}

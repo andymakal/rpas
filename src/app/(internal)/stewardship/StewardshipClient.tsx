@@ -2518,7 +2518,7 @@ function CallBoardAction({
           call happened — the worker records the outcome below. */}
       {phone ? (
         <a href={`tel:${phone}`} className="block">
-          <PrimaryAction icon={Phone} label={`Call ${phone}`} />
+          <PrimaryAction icon={Phone} label={`Call ${formatPhoneDisplay(phone)}`} />
         </a>
       ) : (
         <PrimaryAction icon={Phone} label="No phone on file" disabled />

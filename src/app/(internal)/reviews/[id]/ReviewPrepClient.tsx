@@ -15,6 +15,7 @@ import {
 import type { PolicyForPrep, ReviewFlag } from '@/lib/reviews/prep'
 import type { ReviewDetail, ReviewNote, RelatedSR } from './page'
 import { fmtDate as fmt } from '@/lib/fmt'
+import { formatPhoneDisplay } from '@/lib/contact-input'
 import { NotesLog, type NoteEntry } from '@/components/NotesLog'
 import { useNavList } from '@/lib/nav-list'
 import { addRecentItem } from '@/lib/recent-items'
@@ -469,7 +470,7 @@ export function ReviewPrepClient({
                 <a href={`tel:${policy.customers.phone}`}
                   className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors">
                   <Phone className="w-3 h-3" />
-                  {policy.customers.phone}
+                  {formatPhoneDisplay(policy.customers.phone)}
                 </a>
               )}
               {policy.customers.email && (

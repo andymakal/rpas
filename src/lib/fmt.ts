@@ -69,16 +69,17 @@ export function normalizeState(raw: string | null | undefined): string | null {
 }
 
 /**
- * Normalize a US phone number to (XXX) XXX-XXXX.
+ * Normalize a US phone number to its STORED form: bare 10 digits.
  * Strips all non-digit characters, drops a leading country code of 1,
- * and formats if exactly 10 digits remain. Returns the trimmed original
- * if the number can't be reduced to 10 digits (e.g. extensions).
+ * and returns the 10 bare digits. Returns the trimmed original if the
+ * number can't be reduced to 10 digits (e.g. extensions). Display
+ * formatting to (XXX) XXX-XXXX happens on render via formatPhoneDisplay.
  *
- *   "8148087526"     → "(814) 808-7526"
- *   "814-808-7526"   → "(814) 808-7526"
- *   "(814) 808-7526" → "(814) 808-7526"   idempotent
- *   "1-814-808-7526" → "(814) 808-7526"   strips country code
- *   "+18148087526"   → "(814) 808-7526"
+ *   "8148087526"     → "8148087526"
+ *   "814-808-7526"   → "8148087526"
+ *   "(814) 808-7526" → "8148087526"   strips punctuation
+ *   "1-814-808-7526" → "8148087526"   strips country code
+ *   "+18148087526"   → "8148087526"
  */
 /**
  * Normalize an email address — lowercase and trimmed.
@@ -94,7 +95,7 @@ export function normalizePhone(raw: string | null | undefined): string | null {
   const digits = raw.replace(/\D/g, '')
   const d = digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits
   if (d.length !== 10) return raw.trim()   // can't normalize — return trimmed original
-  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`
+  return d   // bare 10 digits; display formats on render
 }
 
 /**

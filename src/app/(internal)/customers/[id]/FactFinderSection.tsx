@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { formatPhoneDisplay } from '@/lib/contact-input'
 import {
   ClipboardList, ChevronDown, ChevronUp,
   Check, AlertTriangle, Plus, Trash2, ShieldCheck, Printer,
@@ -365,7 +366,7 @@ function RelatedPersonPicker({
             className="w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 transition-colors"
           >
             {[c.first_name, c.last_name].filter(Boolean).join(' ')}
-            {c.phone && <span className="text-slate-500 text-xs ml-2">{c.phone}</span>}
+            {c.phone && <span className="text-slate-500 text-xs ml-2">{formatPhoneDisplay(c.phone)}</span>}
           </button>
         )}
       />

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { formatPhoneDisplay } from '@/lib/contact-input'
 import {
   ArrowLeft, CheckCircle, ShieldOff, FileQuestion, Send,
   AlertTriangle, ChevronRight, X, Building2, User,
@@ -957,7 +958,7 @@ export function PolicyDetailClient({
                       className="w-full text-left px-3 py-2 hover:bg-slate-700 text-sm text-slate-200 transition-colors"
                     >
                       <span className="font-medium">{c.last_name}</span>, {c.first_name}
-                      {c.phone && <span className="text-slate-500 text-xs ml-2">{c.phone}</span>}
+                      {c.phone && <span className="text-slate-500 text-xs ml-2">{formatPhoneDisplay(c.phone)}</span>}
                     </button>
                   )}
                 />

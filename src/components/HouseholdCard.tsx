@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Users, Link2, Unlink, ExternalLink, X, Loader2, UserPlus } from 'lucide-react'
 import { CustomerSearch, type CustomerSearchHit } from '@/components/CustomerSearch'
+import { formatPhoneDisplay } from '@/lib/contact-input'
 
 export type HouseholdMember = {
   id: string
@@ -238,7 +239,7 @@ export function HouseholdCard({
                     {m.first_name} {m.last_name}
                   </p>
                   {m.phone && (
-                    <p className="text-xs text-slate-500 truncate">{m.phone}</p>
+                    <p className="text-xs text-slate-500 truncate">{formatPhoneDisplay(m.phone)}</p>
                   )}
                 </div>
                 {lc && (
@@ -306,7 +307,7 @@ export function HouseholdCard({
                       <p className="text-sm text-slate-200 font-medium">
                         {r.first_name} {r.last_name}
                       </p>
-                      {r.phone && <p className="text-xs text-slate-500">{r.phone}</p>}
+                      {r.phone && <p className="text-xs text-slate-500">{formatPhoneDisplay(r.phone)}</p>}
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
                       {latestCase?.stage_translations && (

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { User, Link2, Plus, CheckCircle, ChevronRight, Loader2, X } from 'lucide-react'
 import { CustomerSearch } from '@/components/CustomerSearch'
+import { formatPhoneDisplay } from '@/lib/contact-input'
 
 const supabase = createClient()
 
@@ -167,7 +168,7 @@ export default function LinkCustomersPage() {
                             <p className="text-sm font-medium text-slate-200">{m.first_name} {m.last_name}</p>
                             {(m.phone || m.date_of_birth) && (
                               <p className="text-xs text-slate-500 mt-0.5">
-                                {m.phone}{m.phone && m.date_of_birth ? ' · ' : ''}{maskDob(m.date_of_birth)}
+                                {formatPhoneDisplay(m.phone)}{m.phone && m.date_of_birth ? ' · ' : ''}{maskDob(m.date_of_birth)}
                               </p>
                             )}
                           </div>

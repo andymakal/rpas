@@ -7,10 +7,16 @@
  * customer-contact form behaves identically and invalid formatting cannot slip
  * past the UI into the database.
  *
+ * Storage standard (system-wide): a phone is STORED as bare 10 digits (no
+ * punctuation); it is formatted to `(XXX) XXX-XXXX` only on display, via
+ * `formatPhoneDisplay`. `normalizePhoneInput` therefore returns the bare
+ * 10-digit value as its canonical `value`, and `normalizePhone` in `./fmt`
+ * returns the same bare-digit form for best-effort server coercion.
+ *
  * The behavior is adapted from IPF's established contact handling and is kept
  * consistent with Right Path's existing utilities:
- *   - Phone display formatting matches `normalizePhone` in `./fmt` exactly
- *     ((XXX) XXX-XXXX, country-code 1 dropped).
+ *   - Phone display formatting lives in `formatPhoneDisplay` ((XXX) XXX-XXXX,
+ *     country-code 1 dropped), the one display formatter in the app.
  *   - Email handling matches `normalizeEmail` in `./fmt` (trim + lowercase).
  * The difference here is that these functions return a STRUCTURED result with a
  * validity signal, so a form can refuse to save an invalid phone instead of
@@ -51,8 +57,9 @@ const invalid = (reason: string): ContactFieldResult => ({ status: 'invalid', va
  *
  * Accepts numbers with spaces, punctuation, a leading country code of 1, or
  * surrounding explanatory text, and extracts exactly 10 US digits when the
- * input is unambiguous. The result is the canonical display form the rest of
- * the app uses: `(XXX) XXX-XXXX`.
+ * input is unambiguous. The result is the canonical STORED form the rest of
+ * the app uses: bare 10 digits (no punctuation). Display formatting to
+ * `(XXX) XXX-XXXX` is applied only at render time via `formatPhoneDisplay`.
  *
  * Unambiguous means the input contains exactly one plausible US number:
  *   - exactly 10 digits, or
@@ -61,11 +68,12 @@ const invalid = (reason: string): ContactFieldResult => ({ status: 'invalid', va
  * surrounding text) is treated as INVALID rather than guessed at, so a bad
  * number is never silently truncated or saved.
  *
- *   "215-555-0100"                  → valid  "(215) 555-0100"
- *   "(215) 555-0100"                → valid  "(215) 555-0100"  (idempotent)
- *   "1 215 555 0100"                → valid  "(215) 555-0100"  (country code)
- *   "+1 (215) 555-0100"             → valid  "(215) 555-0100"
- *   "call her at 215.555.0100 pls"  → valid  "(215) 555-0100"  (text stripped)
+ *   "215-555-0100"                  → valid  "2155550100"
+ *   "(215) 555-0100"                → valid  "2155550100"  (punctuation stripped)
+ *   "2155550100"                    → valid  "2155550100"  (idempotent)
+ *   "1 215 555 0100"                → valid  "2155550100"  (country code)
+ *   "+1 (215) 555-0100"             → valid  "2155550100"
+ *   "call her at 215.555.0100 pls"  → valid  "2155550100"  (text stripped)
  *   "2155550"                       → invalid (only 7 digits)
  *   "215-555-0100 x204"             → invalid (13 digits, ambiguous)
  *   ""                              → empty
@@ -91,7 +99,9 @@ export function normalizePhoneInput(raw: string | null | undefined): ContactFiel
     )
   }
 
-  return valid(formatPhoneDisplay(national))
+  // The canonical value is the bare 10 digits — the stored form. Display is
+  // formatted on render via `formatPhoneDisplay`, never stored with punctuation.
+  return valid(national)
 }
 
 /**

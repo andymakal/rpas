@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { formatPhoneDisplay } from '@/lib/contact-input'
 import {
   UserPlus, Trash2, CheckCircle, Clock,
   ChevronDown, ChevronUp, Pencil, Check, X, KeyRound,
@@ -409,7 +410,7 @@ export function TeamClient({ members }: { members: Producer[] }) {
                         <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-8 gap-y-3 text-sm">
                           <InfoRow label="Email"            value={m.auth_email} />
                           <InfoRow label="Title"            value={m.title} />
-                          <InfoRow label="Phone"            value={m.phone} />
+                          <InfoRow label="Phone"            value={m.phone ? formatPhoneDisplay(m.phone) : m.phone} />
                           <InfoRow label="Allstate ID"      value={m.allstate_id} />
                           <InfoRow label="NPN"              value={m.npn} />
                           <InfoRow label="Sub-Producer Code" value={m.sub_producer_code} />
