@@ -22,7 +22,8 @@ Shared Legos that now EXIST — reuse, do not rebuild (all in
 `ContactPhone`, `ContactDob`, `ContactAddress`, `ContactAlert`). NEW this
 session: `CallMentorCap` (the standalone graduation cap beside the "Call <name>"
 instruction; fed-in mentoring), `TalkPathCard` (collapsible, controllable
-talk-path box; label + body), and `CallOutcomeChoice` (the four universal
+talk-path box; label + body; used in BOTH spots — by the Call button and under
+Reached — each independently collapsible and starting collapsed), and `CallOutcomeChoice` (the four universal
 reached-call outcomes as a fixed 2x2 — Advance/Decline top, Defer/Divert bottom;
 fed per-situation labels + a select handler, host owns each outcome's action).
 The Outreach Call Panel (`OutreachCallPanel` in `StewardshipClient.tsx`) is the

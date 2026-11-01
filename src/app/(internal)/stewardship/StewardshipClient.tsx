@@ -2723,12 +2723,14 @@ function OutreachCallPanel({
   const [decision, setDecision] = useState<null | 'advance' | 'decline' | 'defer' | 'divert'>(reached ? 'advance' : null)
   const [callbackWhen, setCallbackWhen] = useState('')
 
-  // The pre-call Talk Path (up by the Call button) is collapsed by default — a
-  // worker can open it to read what they will say before dialing. It is
-  // controlled here so that reaching the customer collapses this top copy and
-  // the lower copy (under the reach decision) opens, keeping the talk path
-  // visible in exactly one place at a time.
+  // The Talk Path appears in two places and each is independently collapsible,
+  // identical behavior: start collapsed, click to open, click to close, so an
+  // experienced caller can leave it shut while a newer one opens it. The TOP
+  // copy sits by the Call button (read before dialing); the LOWER copy sits
+  // under the reach decision once Reached. Only one is ever shown at a time
+  // (the top is hidden once reached), so they never both display.
   const [talkPathTopOpen, setTalkPathTopOpen] = useState(false)
+  const [talkPathReachedOpen, setTalkPathReachedOpen] = useState(false)
 
   // ── Optional Call Notes ────────────────────────────────────────────────────
   // One free-text field, saved WITH the completed interaction (appended to the
@@ -2857,10 +2859,12 @@ function OutreachCallPanel({
   function chooseReached() {
     if (reach === 'reached') { setReach(null); setDecision(null); setCallbackWhen(''); return }
     setReach('reached')
-    // Entering Reached: drop any Didn't-Reach channel selections and collapse
-    // the top Talk Path, since the reached branch shows the Talk Path below.
+    // Entering Reached: drop any Didn't-Reach channel selections, collapse the
+    // top Talk Path (the lower copy takes over), and start the lower Talk Path
+    // collapsed so it opens only if the caller wants it.
     setVoicemailLeft(null); setTextSent(false); setEmailSent(false)
     setTalkPathTopOpen(false)
+    setTalkPathReachedOpen(false)
   }
   function chooseNotReached() {
     if (reach === 'not-reached') { setReach(null); setVoicemailLeft(null); setTextSent(false); setEmailSent(false); return }
@@ -3053,7 +3057,11 @@ function OutreachCallPanel({
               top copy is collapsed whenever the call is reached, so the talk
               path is shown in exactly one place. */}
           {decision === null && (
-            <TalkPathCard body={talkPathBody} open onOpenChange={() => {}} />
+            <TalkPathCard
+              body={talkPathBody}
+              open={talkPathReachedOpen}
+              onOpenChange={setTalkPathReachedOpen}
+            />
           )}
 
           {/* Capture the customer’s actual decision. Each choice toggles: picking
