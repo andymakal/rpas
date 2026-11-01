@@ -54,7 +54,7 @@
  *     production look exactly — see `resolveAppearance`/`isDefault`.
  */
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Mail, Phone, MapPin, Pencil, Check, X, Loader2,
   ShieldQuestion, CheckCircle2, AlertTriangle, CalendarDays,
@@ -93,6 +93,7 @@ import { PhoneFields, usePhoneDraft } from './ContactPhone'
 import { DobFields, useDobDraft } from './ContactDob'
 import { AddressFields, useAddressDraft } from './ContactAddress'
 import { AlertBanner, AlertField, useAlertDraft } from './ContactAlert'
+import { Divider, DividerStack } from './Divider'
 
 // ── Data shape ───────────────────────────────────────────────────────────────
 
@@ -1171,6 +1172,43 @@ function ContactCardView({
     }
   }, [persist, onChange, onAlertChange, setExpandedState])
 
+  // The self-sweeping floor: the first time this record is VIEWED (the card
+  // mounts with the record, display or edit state alike — not only when the
+  // editor is opened), ask the server to heal representation-only
+  // inconsistencies (address case, email-availability derivation) on the STORED
+  // value — silently, with no history. Working a customer cleans them up, so a
+  // record a reviewer only ever looks at still heals instead of staying dirty
+  // forever. Guards that keep it cheap and safe:
+  //   - once per customer per session (cleanedKeyRef), so re-renders and
+  //     expand/collapse never re-fire it;
+  //   - the server writes NOTHING when the record is already canonical, so a
+  //     clean customer costs one no-op request and an already-swept floor is
+  //     never swept again;
+  //   - best-effort and silent: a failure is ignored (the display already
+  //     normalizes) and never blocks viewing or editing;
+  //   - skipped entirely when a host injects persistence (Storybook).
+  const cleanedKeyRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (onPersist) return
+    if (cleanedKeyRef.current === record.id) return
+    cleanedKeyRef.current = record.id
+    void (async () => {
+      try {
+        const res = await fetch(`/api/customers/${record.id}/contact`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ field: 'cleanup' }),
+        })
+        if (!res.ok) return
+        const json = await res.json()
+        const cleaned = json.data as CustomerContact | undefined
+        if (cleaned) { setRecord(cleaned); onChange?.(cleaned) }
+      } catch {
+        // Best-effort: leave the stored value un-healed and try again next view.
+      }
+    })()
+  }, [onPersist, record.id, onChange])
+
   const emailPresent = !!record.email?.trim()
   const phonePresent = !!record.phone?.trim()
   const addrPresent = addressUsable(record)
@@ -1247,8 +1285,10 @@ function ContactCardView({
         <>
           {/* Overview mode — a compact, read-only summary of the same three
               fields, reusing the status tones and value rendering. One Edit
-              button opens the unified editor. */}
-          <div className="mt-3 divide-y divide-surface-border-strong">
+              button opens the unified editor. The section separators use the
+              SAME standard as the editor (2px slate-500 section divider), so
+              display and edit read identically. */}
+          <DividerStack className="mt-3">
             <OverviewRow
               contactIcon={Mail}
               label="Email"
@@ -1272,12 +1312,13 @@ function ContactCardView({
               present={addrPresent}
               last
             />
-          </div>
+          </DividerStack>
 
           {/* Bottom bar of the compact Overview: the status key on the left so
               the green/amber/red icons above read clearly, and the single Edit
               button on the right that opens the unified editor. */}
-          <div className="mt-3 flex items-center justify-between gap-3 border-t border-surface-border-strong pt-2.5">
+          <Divider className="my-2.5" />
+          <div className="flex items-center justify-between gap-3">
             <ContactStatusKey appearance={ap} inline />
             {collapsible && (
               <ModeToggleButton
@@ -1613,7 +1654,7 @@ function UnifiedContactEditor({
 
   return (
     <form onSubmit={submit} className="mt-3">
-      <div className="divide-y-2 divide-surface-border-section">
+      <DividerStack>
         {/* Name — the ONE shared Person Name field group (First, Middle, Last,
             Suffix dropdown; Goes by + the suffix-in-familiar checkbox) with its
             compact live familiar + greeting preview. Exactly the implementation
@@ -1715,10 +1756,11 @@ function UnifiedContactEditor({
             </div>
           </div>
         )}
-      </div>
+      </DividerStack>
 
       {/* One Save and one Cancel at the bottom of the whole editor. */}
-      <div className="mt-3 flex items-center gap-2 border-t border-surface-border-strong pt-3">
+      <Divider className="my-3" />
+      <div className="flex items-center gap-2">
         <button type="submit" disabled={busy || nameInvalid}
           className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-base font-semibold text-brand-foreground hover:bg-brand-hover disabled:opacity-50">
           {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
@@ -2102,9 +2144,10 @@ function ContactStatusKey({ appearance, inline = false }: { appearance: Resolved
     <div
       className={cn(
         'flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-supporting',
-        // Standalone: its own top divider + spacing (the original look). Inline:
-        // it sits inside a shared bottom bar that already owns the border.
-        !inline && 'mt-3 border-t border-surface-border-strong pt-2.5',
+        // Standalone: its own top divider + spacing (the shared section-divider
+        // standard). Inline: it sits inside a shared bottom bar that already owns
+        // the divider.
+        !inline && 'mt-3 border-t-2 border-surface-border-section pt-2.5',
       )}
       style={textStyle(appearance, appearance.statusKeyFontPx, appearance.statusKeyColor)}
     >

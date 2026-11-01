@@ -255,10 +255,24 @@ export async function buildContactHistoryFacts(
     })
   }
 
-  // Email availability — skip the purely-automatic transition to "available"
-  // that always rides a saved usable email (the value change already conveys it).
+  // Email availability — skip the purely-automatic/derived transitions that
+  // carry no new information, so only an operator's real availability decision
+  // is reported:
+  //   - the 'available' that rides a saved usable email (the value change says
+  //     it), and
+  //   - the NULL<->'available' derivation when a usable email is present on both
+  //     sides. With an email on file, NULL ("unknown") and 'available' MEAN the
+  //     same thing ("on file"); flipping between them is the flag catching up to
+  //     the email, not a change. (This is the same cleanup the backfill performs
+  //     in bulk and the card performs on open.)
   if ((before.email_availability ?? null) !== (after.email_availability ?? null)) {
-    const automaticAvailable = after.email_availability === 'available' && emailChanged
+    const usableEmailAfter = !!trimOrNull(after.email)
+    const usableEmailBefore = !!trimOrNull(before.email)
+    const nullAvailablePair =
+      (before.email_availability ?? null) === null && after.email_availability === 'available' ||
+      before.email_availability === 'available' && (after.email_availability ?? null) === null
+    const derivedAvailability = nullAvailablePair && usableEmailAfter && usableEmailBefore
+    const automaticAvailable = (after.email_availability === 'available' && emailChanged) || derivedAvailability
     if (!automaticAvailable) {
       pending.push({
         order: 2,

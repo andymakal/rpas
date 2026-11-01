@@ -6,6 +6,12 @@ in production).
 
 ## What this effort is
 
+> Vocabulary note (added 2026-10-31): the "Lego" concept, and the tiers above
+> it (Panel → Workbench/Screen → Workflow), plus the one-file-per-Lego file rule,
+> are now defined authoritatively in the always-included steering file
+> `.kiro/steering/ui-composition-vocabulary.md`. That steering is the source of
+> truth; the description below is the original contact-card application of it.
+
 We are turning the shared Customer Contact card's edit sections into a set of
 self-contained, reusable "Lego" components. Each field group (Name, Email,
 Phone, Date of birth, Mailing address) should be ONE shared component that owns
@@ -196,63 +202,292 @@ page-local formatting remains for those either.
 
 ---
 
-# NEXT EFFORT (separate task): reconcile production's migration ledger drift
+# DONE (2026-11-01): production migration-ledger drift reconciled
 
-Status date: 2026-11-01. This is a DIFFERENT effort from the contact-card Lego
-work above; it is appended, not replacing it. This is the "fix it first" item.
+The pre-baseline ledger drift is FIXED on production and needs no further work.
+The 54 pre-baseline versions (`20260515000001` … `20260927000003`) were
+backfilled into `supabase_migrations.schema_migrations` as already-applied,
+without running their SQL. Verified live after the fix: 54 pre-baseline rows
+present, ledger runs `20260515000001` → `20261126000003`, total 118 rows =
+the 118 repo files, baseline `20261007182159` present. `db push` no longer
+demands `--include-all`; future releases apply normally.
 
-## The problem (verified live, not from memory)
+Accuracy was confirmed against live prod before marking applied: the schema AND
+the seed/correction data of the 54 files are present (the `20261007182159`
+baseline was snapshotted 2026-10-07, after these 54 had built the DB). The
+script used was `private/PRODUCTION_LEDGER_RECONCILE_prebaseline.sql` (single
+idempotent transaction, `ON CONFLICT (version) DO NOTHING`). Kept for reference;
+it is safe to re-run (inserts nothing on a second run).
 
-`supabase db push` against PRODUCTION cannot apply new migrations by the normal
-path. It reports "Found local migration files to be inserted before the last
-migration on remote database. Rerun ... with --include-all" and lists dozens of
-OLD files. Running `--include-all` would try to replay the entire early history
-against production and is NOT safe. This has been recurring on every release.
+Note for future releases: the surgical per-release workaround described in the
+contact-card/DOB release pattern is no longer necessary for this cause.
 
-## Exact diagnosis (measured on 2026-11-01)
+---
 
-- Repo has 118 migration files under `supabase/migrations/`.
-- Production's ledger (`supabase_migrations.schema_migrations`) has 64 rows.
-- Production's ledger is a CLEAN contiguous subset: it starts at
-  `20261007182159` (name `remote_schema`, a squash/baseline snapshot) and runs
-  unbroken to `20261126000003`. There are ZERO ledger-only / re-stamped /
-  orphaned versions on production — nothing is corrupted.
-- The drift is exactly the 54 PRE-BASELINE repo files dated `20260515000001`
-  through `20260927000003`. Their schema is already contained in the
-  `20261007182159` baseline, but they were never recorded as individual ledger
-  rows, so `db push` thinks they are unapplied and wants to insert them
-  mid-history. All 54 sort before prod's last version, which is what triggers
-  the `--include-all` demand.
+# Phone normalization (SHIPPED) + dev DB refresh (BLOCKED on authorization)
 
-NOTE: this is production's drift. The development CLONE's ledger is messier
-(it has re-stamped rows where `name` holds a different filename than `version`,
-e.g. version `20261019212304` / name `20261107000001_rename_...`). The dev clone
-and production are NOT the same shape — verify each independently before acting.
+Status date: 2026-11-01. Two separate efforts from this session.
 
-## Recommended fix (the clean, low-risk option)
+## A. Phone storage normalization — COMPLETE and in PRODUCTION
 
-Backfill the 54 missing pre-baseline versions into production's ledger as
-ALREADY-APPLIED, WITHOUT running their SQL (their schema is already present via
-the `20261007182159` baseline). That makes `db push`'s view match reality and
-removes the `--include-all` trigger permanently. Mechanically this is an insert
-of the 54 `(version, name)` rows into `supabase_migrations.schema_migrations`;
-`supabase migration repair --status applied <version>` is the supported way to
-do exactly this per version (it records applied without executing the file).
+Decision: phone numbers are STORED as bare 10 digits everywhere and formatted to
+`(XXX) XXX-XXXX` only on display (via `formatPhoneDisplay`). This reversed the
+older "store formatted" standard and fixed a spurious "Customer Contact Updated"
+history entry that fired when a stored phone differed only in punctuation.
 
-Before doing it, RE-VERIFY against the live DB (do not trust this file's
-numbers): recompute the repo-vs-ledger diff, and spot-check that the schema the
-pre-baseline files create actually exists in production (it should, via the
-baseline) so marking them applied is truthful, not a cover-up of missing schema.
+What shipped (commit 207d58b, merged to `main` via PR #23, `main` at 74c6cd9;
+`development` fast-forwarded to match):
+- `normalizePhoneInput` / `normalizePhone` (in `src/lib/contact-input.ts` and
+  `src/lib/fmt.ts`) now return bare 10 digits. `formatPhoneDisplay` /
+  `formatPhoneAsTyped` unchanged (they strip-to-digits, so they format either
+  stored form).
+- Display sites wrapped in `formatPhoneDisplay` across light + dark pages, the
+  fact-finder print page, the agency portal, and the `.ics` calendar export.
+  Triage search compares on stripped digits.
+- Import write paths store digits (lead-import `firstPhone`, admin/team,
+  policy-import `owner_phone`).
+- Steering standard `.kiro/steering/contact-input-standard.md` rewritten to
+  codify digits-only storage + format-on-display + digit matching. AGENTS.md has
+  no phone bullet (defers to that steering file).
 
-Do NOT "fix" this by deleting the 54 old repo files — they are real history and
-other environments/tools may rely on them. Reconcile the LEDGER to the files,
-not the files to the ledger.
+Data: production backfill was run by the OWNER (not the agent): all 11,079 prod
+phones now 10 digits, 14 damaged rows left unchanged, 17 phone-verification
+timestamps preserved. Dev clone was backfilled by the agent earlier. The
+idempotent SQL + the 14-row damaged exception list are in
+`private/phone_digits_backfill.md`.
 
-## Why it kept coming up
+REMAINING (minor, optional): the 14 damaged phone numbers need a human decision
+(correct or clear) — e.g. Travis Veillon `(000) 000-000`, the `0-XXX-XXXX`
+service_policies rows, Andy Makal's own producer number. Not urgent.
 
-Each release's new migrations sit after prod's last version, but because the 54
-old files sort BEFORE it, `db push` refuses the whole batch and demands
-`--include-all`. Until the ledger is backfilled, every release has to apply its
-own migrations surgically (direct SQL in the SQL Editor + manual ledger rows),
-which is what the contact-card/DOB release above did (see
-`private/PRODUCTION_RELEASE_contact_card_dob_name.sql` for the pattern).
+Also fixed en route: the dev clone was missing `cases.replaced_by_case_id` /
+`replaces_case_id` (migration `20261027000002` never applied to the clone),
+which blanked the case-detail page on the preview. Agent applied that one
+migration to the DEV clone. Production already had those columns.
+
+## B. Dev database refresh from production — BLOCKED (authorization)
+
+Goal: refresh the EXISTING development Supabase project so it accurately
+reflects production (schema + data + migration history), using supported tooling
+only, no new project, no production changes. NOT a schema-only patch.
+
+Findings (read-only; full detail in `private/dev_refresh_access_findings.md` and
+`private/dev_refresh_findings.md`):
+- Projects: prod `erbvssfcglhnelfelbfi` (right-path-agency-system), dev
+  `buoztddompdsuccfcixk`. Git is harmonized; only the DATABASES diverged.
+- Migration ledgers have FORKED both ways: prod has ~21 daily migrations
+  (Nov 6-26) dev lacks; dev has ~30 dev-branch migrations prod never recorded.
+  Table list is identical (72 tables); drift is at column level.
+- Data counts differ (dev is a stale snapshot): prod 11,534 customers / 1,797
+  cases vs dev 11,408 / 1,668.
+- Auth: the 12 real users share identical auth IDs + producer IDs across both
+  (dev was cloned from prod). Dev has ONE extra login that must be preserved/
+  recreated across any refresh: `dulce.test@rpas-dev.local` (auth
+  `974410c2-...`, producer `8ffbd977-...`, "Dulce (TEST)").
+- No in-database cron jobs on either side (scheduled work is Vercel cron →
+  `/api/cron/*`, gated by CRON_SECRET; preview uses a dummy secret).
+
+THE BLOCKER (authorization, needs the owner): the logged-in Supabase CLI account
+is NOT an owner/admin of the org that holds the dev project. It can read dev's
+API keys and list dev backups, but privileged management is denied (`branches
+list` → 403). The CLI has no cross-project restore command, and the pg_dump
+route needs the dev DB password (out of scope for the agent). So a supported
+managed refresh needs ONE owner action, entirely in the dashboard:
+  1. Supabase dashboard → dev project `buoztddompdsuccfcixk` → Settings →
+     General: note the owning org.
+  2. That org → Team: grant the working CLI account Owner/Admin — OR the owner
+     runs the restore from that project's dashboard directly.
+Once the account owns dev's org, the agent can drive the supported refresh and
+the schema+ledger reconcile automatically (a physical restore from prod makes
+dev's schema AND ledger equal prod's in one shot — preferred over hand-applying
+migrations, since ledger rows do not prove effects exist).
+
+SECURITY ITEM: a dev `service_role` key was echoed to a session transcript. It
+is the SAME dev key already in plaintext in `.env.local` (dev-only, not prod),
+so low severity, but rotate it when convenient. Rotation = dashboard (dev
+project → Settings → API → rotate JWT secret), then update
+`NEXT_PUBLIC_SUPABASE_ANON_KEY` + `SUPABASE_SERVICE_ROLE_KEY` in `.env.local` and
+the Vercel Preview env, then redeploy preview. Consumers: anon key in
+`client.ts`/`server.ts`/`proxy.ts`/`auth/callback`; service_role only in
+`src/lib/supabase/admin.ts`.
+
+## Cleanup note
+Temporary repro scaffolding from the case-blank diagnosis was deleted. The
+`private/*.md` files referenced above are intentional local runbooks (private/
+is gitignored).
+
+---
+
+# SUPERSEDES §B above — dev DB rebuilt + migration workflow built (2026-10-31)
+
+This section supersedes "B. Dev database refresh from production — BLOCKED".
+That blocker is RESOLVED. Two efforts completed this session, in order:
+(1) the development database was rebuilt from production, (2) a standard
+migration-deployment workflow was committed to `development`. Production was
+never touched; the Vercel preview is unchanged and serving (HTTP 200 at
+`https://bobdev.therightpathagency.com`).
+
+## 1. Development database rebuilt from production — DONE
+
+Dev `buoztddompdsuccfcixk` was rebuilt to match prod `erbvssfcglhnelfelbfi`
+using the documented Supabase logical dump/restore (`supabase db dump` →
+`psql`), NOT PITR and NOT a new project. The earlier org-membership blocker was
+sidestepped: the restore authenticates at the DATABASE level, not the
+management API. DB auth came from the CLI-minted ephemeral `cli_login_postgres`
+role (via `supabase db dump --project-ref <ref> --dry-run`, which prints a
+connection env) — no password was ever typed in chat, and no stable DB password
+is needed for a one-off restore.
+
+How it was done (reproducible; artifacts in `private/restore_rebuild/`, gitignored):
+- Dumped prod (read-only): `01_roles.sql`, `02_schema.sql`, `03_data.sql`
+  (COPY, 14 MB, public+auth+storage), ledger captured separately.
+- Captured a dev pre-restore rollback snapshot first: `rollback/dev_*`.
+- Reset dev `public` (DROP SCHEMA CASCADE + recreate + grants) and TRUNCATEd
+  auth/storage data — via the dev MCP, which connects as `postgres`.
+- Loaded schema then data with Dockerized `psql` (image `postgres:17`) over the
+  dev Session pooler. KEY GOTCHA: a huge single piped session drops on the
+  pooler; the reliable recipe is autocommit `-f` with keepalives
+  (`keepalives=1 keepalives_idle=10 ...`) and `SET ROLE postgres;` prepended.
+  `--single-transaction` on that pooler is unreliable (behaves transaction-mode).
+- Reset sequences (setval max+1). Loaded the 118-row ledger via the dev MCP
+  (the `cli_login_postgres` role CANNOT touch `supabase_migrations`; the MCP's
+  `postgres` role can).
+
+Verified dev == prod: tables 72, views 1, enums 18, functions 48, constraints
+286, indexes 243, triggers 26, RLS tables 72, policies 90, ledger 118
+(`20260515000001`→`20261126000003`). Data exact: customers 11534, cases 1797,
+service_policies 10150, case_touches 6030, producers 12. Zero FK orphans. All 12
+real prod logins restored verbatim (passwords+identities intact).
+
+Dulce (TEST) recreated — her old dev-only work_function/project ids no longer
+exist, so capabilities were re-mapped to PROD's real ids, mirroring the real
+Dulce (`dvelazquez2`): `outreach` (agency-wide), `operations_prep` + `research`
+(both project `205c934d` "Q4 1035 Review"). Login:
+`dulce.test@rpas-dev.local` / password in
+`private/restore_rebuild/DULCE_TEST_LOGIN.md` (gitignored). Password-grant
+against dev GoTrue verified 200. Note: dev has one extra extension `pg_net`
+(dev-only, pre-existing, benign — left as-is).
+
+## 2. Migration deployment workflow — COMMITTED to `development`, NOT yet live
+
+Files (on `development`, latest commit `0a754f7`; also `0931bf7`):
+- `.github/workflows/supabase-migrations.yml`
+- `.kiro/steering/migration-deployment.md` (always-included; the routine)
+
+Design: push to `development` touching `supabase/migrations/**` →
+`supabase db push` applies committed migrations to the DEV database (plain repo
+secret `SUPABASE_DB_URL_DEVELOPMENT`, no Environment needed). A drift guard
+(`supabase migration list` + a verified regex) and non-zero `db push` exit both
+STOP the deploy — no silent partial apply. Production is NEVER touched on a push:
+the prod job runs only via manual `workflow_dispatch` (`target=production` +
+typed `production` confirm), bound to the existing `Production` GitHub
+Environment whose required-reviewer gate is the authorization; it dry-runs
+before applying. No Vercel change, no data sync, nothing scheduled. A `dry_run`
+dispatch input exists for a safe dev smoke test.
+
+Verified non-destructively: the dev-job body was rehearsed against the real dev
+DB — `migration list` clean (118/118), drift guard PASS, `db push --dry-run` =
+"Remote database is up to date". YAML parses; drift regex tested (catches a
+remote-only row, no false positive on clean).
+
+Production cannot execute today, confirmed live 3 ways: workflow not on default
+branch `main` (dispatch → HTTP 404), 0 repo secrets, 0 `Production` env secrets
++ 0 protection rules.
+
+### REMAINING — all require the OWNER / repo ADMIN (agent token is WRITE only)
+
+The agent CAN set plain repo secrets but did NOT, to avoid handling DB
+credentials. Creating/editing GitHub Environments + reviewer rules returned 403
+(needs admin). Exact steps for Bob:
+1. Promote the workflow to `main` via a normal reviewed PR (this is what makes
+   the manual "Run workflow" button + the production path exist). Merging to
+   `main` is a production action — left unauthorized on purpose.
+2. Repo secret `SUPABASE_DB_URL_DEVELOPMENT` = dev project → Connect → Session
+   pooler string (includes DB password). After this + step 1, dev auto-deploy
+   is live.
+3. On the existing `Production` GitHub Environment: add a required reviewer, and
+   add env-scoped secret `SUPABASE_DB_URL_PRODUCTION` = prod Session-pooler
+   string. Then the reviewer-gated production promotion is available.
+
+### Housekeeping noticed (not acted on)
+- Stale orphaned workflow `migration-replay.yml` ("Migration Replay (temporary)",
+  id 377426300) is still REGISTERED from a 2026-10-07 experiment but its file is
+  gone from all active branches — inert, no conflict. Bob may delete it.
+- Still-open from §A: 14 damaged prod phone numbers need a human correct/clear
+  decision (see `private/phone_digits_backfill.md`). Unchanged, not urgent.
+- Data refreshes remain ON DEMAND by design (no scheduled sync). The restore
+  runbook + rollback snapshot live in `private/restore_rebuild/` if dev needs
+  rebuilding again; safe to delete once confidence is high.
+
+Git state at wrap: branch `development` at `0a754f7`; `origin/main` unchanged at
+`74c6cd9`. Working tree has only the usual untracked local items
+(`.kiro/settings/`, `supabase/.temp/`) plus this handoff edit.
+
+---
+
+# Outreach Call Panel + UI composition vocabulary (SHIPPED 2026-10-31)
+
+Branch `development`; live on the preview `https://bobdev.therightpathagency.com`
+(development clone only, nothing in production). Commits `e239239` and `dca950f`.
+
+## What this effort established
+
+1. A permanent UI composition vocabulary, now the always-included steering file
+   `.kiro/steering/ui-composition-vocabulary.md`:
+   - Four tiers: Lego (one self-contained field/control component) → Panel (one
+     composed unit on a workbench) → Workbench/Screen (interchangeable; one step
+     of the work, holds one or more panels) → Workflow (ordered path through
+     screens).
+   - File rule: each Lego / named reusable component gets its OWN file in
+     `src/components/workflow/`, exported through the barrel `index.ts`.
+     `primitives.tsx` is FROZEN to generic shared controls/helpers — no new
+     Legos there. Breaking `primitives.tsx` apart into per-component files is an
+     agreed FUTURE refactor, to be done deliberately as its own reviewed change.
+   - Call workbenches are situation-specific: the Outreach Call Panel is the
+     OUTBOUND outreach (marketing) call (dial → "did we reach them" = two
+     outcomes). Inbound is a different, future workbench. The post-reach branch
+     is panel-specific, never a global outcome set.
+
+2. The guided outbound call panel is named `OutreachCallPanel` (was
+   `CallWorkbenchAction`) in `StewardshipClient.tsx`. It is the LEFT panel of the
+   outbound call workbench (the "Make the Calls That Are Due" /
+   "Call Other Reachable Customers" screen); the center is the customer contact
+   panel and the right is the history panels. Its sibling compact board recorder
+   is still `CallBoardAction`.
+
+3. Three new Legos (each its own file under `src/components/workflow/`, exported
+   from `index.ts`):
+   - `CallButton.tsx` — dials a HOST-SUPPLIED phone via `tel:` (RingCentral),
+     shows `(XXX) XXX-XXXX`, disabled "No phone on file" when empty. No fetching.
+   - `SkipForNowButton.tsx` — fixed label + meaning everywhere: record nothing,
+     change nothing, send to back, advance to next. Host supplies `onSkip`.
+   - `CallContextCard.tsx` — the "what is this call + what happened last" block
+     (call-number tag + one reason line). PRESENTATIONAL: takes `label` +
+     `reason` strings; the client still maps the task `Detail` to those strings
+     (reason/number logic stays host-side with the internal types).
+
+4. Outreach Call Panel layout: Call / Skip for now are EQUAL halves
+   (`grid-cols-2`), Call solid teal primary, Skip quiet outline (Call fills the
+   row when no skip handler). Reached / Didn't reach are EQUAL halves filling the
+   box. The panel is a "pick your own adventure": each step reveals the next on
+   the SAME scrolling panel (not literal separate screens), so the worker never
+   loses the customer context while on the phone.
+
+5. Workbench columns: added a `wide-work` ratio preset (46/27/27) to
+   `TaskColumns.tsx` and applied it to the outbound call workbench
+   (`columns={forceCall ? 'wide-work' : 'even'}` on the `TaskShell` in
+   `StewardshipClient.tsx`). Work column wider; customer context + history each
+   narrower. Other working screens keep `even` (equal thirds). Existing presets:
+   `even`, `wide-context` (27/46/27).
+
+Verified each step: `npx tsc --noEmit`, `npx eslint` on changed files, and
+`npm run build` all clean; deployed to the preview and confirmed the `bobdev`
+alias with `vercel inspect`.
+
+## Open / next (not yet done)
+
+- Eyeball the 46/27/27 workbench and the two 50/50 rows on the preview; tune if
+  the proportions or Skip emphasis want adjusting.
+- Going forward, new call surfaces should reuse `CallButton`,
+  `SkipForNowButton`, and `CallContextCard` rather than re-implementing them, per
+  the vocabulary steering.

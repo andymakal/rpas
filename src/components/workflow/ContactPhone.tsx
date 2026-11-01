@@ -267,7 +267,7 @@ function SmsAvailabilityControls({
   onToggleUndeliverable: () => void
 }) {
   return (
-    <fieldset className="mt-3 border-t border-surface-border-strong pt-3">
+    <fieldset className="mt-3 border-t-2 border-surface-border-section pt-3">
       <legend className="text-sm font-semibold text-ink-secondary">Text-message availability</legend>
       <p className="mt-0.5 text-sm text-ink-muted">
         {SMS_AVAILABILITY_HELP[display]}

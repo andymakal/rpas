@@ -77,12 +77,17 @@ const FIT_TOLERANCE = 2
  *   wide-context  — 27/46/27, a wider CENTER for screens where the center
  *                   column (customer context) carries the weight and the left
  *                   action is mostly click-through.
+ *   wide-work     — 46/27/27, a wider LEFT for screens where the action/work
+ *                   column is the focus (the outbound call workbench): the
+ *                   customer context and the history each take a narrower track,
+ *                   and the history can fade to the edge.
  */
-export type TaskColumnRatio = 'even' | 'wide-context'
+export type TaskColumnRatio = 'even' | 'wide-context' | 'wide-work'
 
 const COLUMN_TEMPLATES: Record<TaskColumnRatio, string> = {
   even: 'repeat(3,minmax(0,1fr))',
   'wide-context': 'minmax(0,27fr) minmax(0,46fr) minmax(0,27fr)',
+  'wide-work': 'minmax(0,46fr) minmax(0,27fr) minmax(0,27fr)',
 }
 
 export function TaskColumns({

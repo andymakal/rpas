@@ -1256,13 +1256,24 @@ function diffContact(before: ContactSnapshot, after: ContactSnapshot): ContactCh
   }
 
   // Email availability (the durable fact), reported when it moved and is not
-  // merely the automatic "available" that accompanies saving a usable email.
+  // merely a derived/automatic transition that carries no new information.
   if ((before.email_availability ?? null) !== (after.email_availability ?? null)) {
     const fromLabel = before.email_availability ? EMAIL_AVAILABILITY_PROSE[before.email_availability] : 'unknown'
     const toLabel = after.email_availability ? EMAIL_AVAILABILITY_PROSE[after.email_availability] : 'unknown'
-    // Skip the purely-automatic transition to "available" that always rides with
-    // a saved usable email — the email change sentence already conveys it.
-    const automaticAvailable = after.email_availability === 'available' && emailChanged
+    // Skip two no-information transitions so only a real operator decision is
+    // recorded: (1) the 'available' that always rides a saved usable email (the
+    // email change sentence conveys it), and (2) the NULL<->'available'
+    // derivation when a usable email is present on both sides — with an email on
+    // file, "unknown" and "on file" mean the same thing, so the flag catching up
+    // to the email is not a change. (Same cleanup the backfill does in bulk and
+    // the card does on open.)
+    const usableEmailAfter = !!(after.email && after.email.trim())
+    const usableEmailBefore = !!(before.email && before.email.trim())
+    const nullAvailablePair =
+      (before.email_availability ?? null) === null && after.email_availability === 'available' ||
+      before.email_availability === 'available' && (after.email_availability ?? null) === null
+    const derivedAvailability = nullAvailablePair && usableEmailAfter && usableEmailBefore
+    const automaticAvailable = (after.email_availability === 'available' && emailChanged) || derivedAvailability
     if (!automaticAvailable) {
       changes.push({
         order: 2,
