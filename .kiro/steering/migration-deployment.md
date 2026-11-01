@@ -65,20 +65,27 @@ manual dispatch + Environment approval is deliberately the only production path.
   logical dump/restore runbook), never scheduled.
 - It does not run on a schedule. Nothing here is a daily job.
 
-## One-time setup (GitHub repository secrets)
+## One-time setup (owner/admin actions)
 
-The workflow authenticates to each database with a stored connection string.
-These are standard database connection strings (Session pooler, with the
-database password), set once as repository secrets. Only an owner can read these
-passwords from the Supabase dashboard; they are never printed in chat or
-committed:
+The workflow authenticates to each database with a stored connection string: a
+standard Session-pooler connection string including the database password. Only
+an owner can read these passwords from the Supabase dashboard (each project →
+Connect → Session pooler); they are never printed in chat or committed.
 
-- `SUPABASE_DB_URL_DEVELOPMENT` — dev project Connect → Session pooler string.
-- `SUPABASE_DB_URL_PRODUCTION` — prod project Connect → Session pooler string.
-  Treat this as a production credential: set it only inside the `production`
-  GitHub Environment (not as a plain repo secret), so it is reachable only by
-  the reviewer-gated production job.
+1. The workflow file must exist on the default branch (`main`) for the manual
+   "Run workflow" button (and thus the production path) to be available at all.
+   Promote it to `main` through the normal reviewed pull request.
+2. Development secret — a plain repository secret:
+   `SUPABASE_DB_URL_DEVELOPMENT` = the dev project's Session-pooler string. The
+   dev job reads it directly; no GitHub Environment is required for dev.
+3. Production gate + secret — requires repository admin:
+   - On the existing `Production` GitHub Environment, add a required reviewer
+     (Settings → Environments → Production → Required reviewers). That reviewer
+     approval is the production authorization control; keep it in place.
+   - Add `SUPABASE_DB_URL_PRODUCTION` = the prod project's Session-pooler string
+     as an environment secret scoped to `Production` (not a plain repo secret),
+     so it is reachable only by the reviewer-gated production job.
 
-Also create two GitHub Environments: `development` and `production`, and add a
-required reviewer to `production`. That reviewer gate is the production
-authorization control; keep it in place.
+Note: creating/editing GitHub Environments and their protection rules requires
+admin on the repo; a WRITE collaborator can set plain repo secrets but cannot
+configure the environment reviewer gate.
