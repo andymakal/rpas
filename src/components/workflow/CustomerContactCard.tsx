@@ -43,10 +43,11 @@
  *   - Provide `onPersist` (e.g. in a test) to intercept writes.
  *
  * Appearance
- *   - The card renders one approved look. `resolveAppearance()` (called with no
- *     argument) returns that fixed design; the internal resolver is a leftover
- *     from a removed presentation-override subsystem and is a candidate for
- *     being inlined to its resolved constants.
+ *   - The card renders one approved look, inlined directly where it is used:
+ *     a 33px bold teal (var(--brand)) customer name, a 1px slate-700 card
+ *     border at 16px radius/padding, and the green/amber/red status key. There
+ *     is no appearance-override layer (the former Storybook-driven subsystem
+ *     was removed with Storybook).
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
@@ -188,427 +189,6 @@ export interface CustomerContact {
 }
 
 type ContactFieldKey = 'email' | 'phone' | 'address'
-
-// ── Appearance (internal; resolves to the one approved look) ─────────────────
-
-/** Which color a recolorable element takes. `status` = the field's green/amber/
- * red status token (the production default for the icons); `black` = plain
- * black, independent of status. */
-type ColorChoice = 'status' | 'black'
-
-/** A font-weight choice for a text role. `default` leaves the component's own
- * weight class in place (so production output is unchanged). */
-type WeightChoice = 'default' | 'normal' | 'medium' | 'semibold' | 'bold'
-
-/** Where the Customer Verified checkbox sits relative to its field. `heading` =
- * the production placement, on the label line at the right. `value` = beneath
- * the value. `bottom` = pulled to a shared bottom row with Edit. */
-type VerifiedPlacement = 'heading' | 'value' | 'bottom'
-
-/** Where the Edit control sits. `value` = the production placement, beside the
- * value at the right. `row` = on its own row beneath the value. `bottom` = a
- * shared bottom row with Verified. */
-type EditPlacement = 'value' | 'row' | 'bottom'
-
-/** Horizontal alignment of a field's content. */
-type AlignChoice = 'left' | 'center' | 'right'
-
-/**
- * Optional presentation configuration for the card. Purely cosmetic: it changes
- * visibility, color assignment, typography, icon sizing, layout arrangement, and
- * chrome — never behavior, data, or the payloads sent to `onPersist`. Any field
- * left out falls back to the component's APPROVED permanent defaults (see
- * `APPROVED_DEFAULTS`), so omitting the whole prop (as production call sites do)
- * renders the approved design. It exists so the Design Playground can drive the
- * REAL component through Storybook controls without a fork, and so the approved
- * look is expressed once as data rather than scattered across screens.
- *
- * Mentoring is deliberately NOT configurable here: it is settled behavior (the
- * one shared MentorGuidance, always shown, expanded when the global Mentoring
- * preference is on and collapsed when off, independently toggleable), not an
- * appearance choice.
- *
- * Convention for reuse: this is the shared shape for a workflow component's
- * presentation lab. A sibling component (e.g. Customer History) should expose an
- * analogous `appearance` prop and reuse the Storybook control factory in
- * `./playground-controls` so the next playground is assembly, not reinvention.
- */
-interface ContactCardAppearance {
-  // ── Visibility (each element independently shown/hidden) ──────────────────
-  showStatusIndicator?: boolean
-  showContactIcon?: boolean
-  showFieldLabel?: boolean
-  showVerifiedCheckbox?: boolean
-  showEditButton?: boolean
-  showStatusKey?: boolean
-
-  // ── Colors (status token vs plain black, independently) ───────────────────
-  statusIndicatorColor?: ColorChoice
-  contactIconColor?: ColorChoice
-  fieldLabelColor?: ColorChoice
-
-  // ── Typography ────────────────────────────────────────────────────────────
-  /** CSS font-family applied to the whole card. Default: the component's own. */
-  fontFamily?: string
-  /** Master multiplier applied to every scalable text role. Default 1. */
-  fontScale?: number
-  /** Per-role size multipliers (on top of the master scale). Default 1 each. */
-  nameScale?: number
-  labelScale?: number
-  valueScale?: number
-  controlScale?: number
-  verifyScale?: number
-  mentoringScale?: number
-  statusKeyScale?: number
-  /** Per-role weight overrides. Default `default` (leave existing weight). */
-  nameWeight?: WeightChoice
-  labelWeight?: WeightChoice
-  valueWeight?: WeightChoice
-  controlWeight?: WeightChoice
-  /** Per-role color overrides as any CSS color. Omit to keep the role default. */
-  nameColor?: string
-  valueColor?: string
-  verifyColor?: string
-  mentoringColor?: string
-  statusKeyColor?: string
-
-  // ── Icon sizing ───────────────────────────────────────────────────────────
-  /** Master icon multiplier. Icons scale with their associated text by default;
-   * this scales every icon on top of that. Default 1. */
-  iconScale?: number
-  /** Independent override (px) for the status/contact heading icons. When set it
-   * replaces the text-proportional size. */
-  statusIconPxOverride?: number
-  contactIconPxOverride?: number
-  /** Independent override (px) for the Verified checkbox box. Default scales with
-   * the verify label. */
-  verifyBoxPxOverride?: number
-  /** Independent override (px) for the Edit pencil icon. Default scales with the
-   * Edit button text. */
-  editIconPxOverride?: number
-
-  // ── Layout ────────────────────────────────────────────────────────────────
-  verifiedPlacement?: VerifiedPlacement
-  editPlacement?: EditPlacement
-  fieldAlign?: AlignChoice
-  /** Vertical gap (px) between the stacked parts within a field. Default 6. */
-  fieldSpacingPx?: number
-  /** Vertical padding (px) above/below each field section. Default 12. */
-  sectionPaddingPx?: number
-
-  // ── Appearance / chrome ───────────────────────────────────────────────────
-  /** Card border width (px). Default 1. 0 removes the border. */
-  cardBorderPx?: number
-  /** Card border color (any CSS color). Default: the surface-border token. */
-  cardBorderColor?: string
-  /** Card corner radius (px). Default 16 (rounded-2xl). */
-  cardRadiusPx?: number
-  /** Card inner padding (px). Default 16 (p-4). */
-  cardPaddingPx?: number
-  /** Card background (any CSS color). Default: the surface-card token (white). */
-  cardBackground?: string
-  /** Show the dividers between field sections. Default true. */
-  showDividers?: boolean
-  /** Divider color (any CSS color). Default: the surface-border-strong token. */
-  dividerColor?: string
-  /** Border on the Edit / control buttons (px). Default 1. */
-  controlBorderPx?: number
-  /** Control corner radius (px). Default 8 (rounded-lg). */
-  controlRadiusPx?: number
-}
-
-/** The neutral scalar baseline (the original plain-Tailwind look). The approved
- * design layers over this via `APPROVED_DEFAULTS`; it is kept separate so
- * `isDefault` can still recognize the untouched Tailwind baseline (no inline
- * styles) when the Playground is reset all the way to neutral. */
-const DEFAULT_APPEARANCE: Required<Omit<ContactCardAppearance,
-  'fontFamily' | 'statusIconPxOverride' | 'contactIconPxOverride' |
-  'verifyBoxPxOverride' | 'editIconPxOverride' | 'cardBorderColor' |
-  'cardBackground' | 'dividerColor' | 'nameColor' | 'valueColor' |
-  'verifyColor' | 'mentoringColor' | 'statusKeyColor'>> = {
-  showStatusIndicator: true,
-  showContactIcon: true,
-  showFieldLabel: true,
-  showVerifiedCheckbox: true,
-  showEditButton: true,
-  showStatusKey: true,
-  statusIndicatorColor: 'status',
-  contactIconColor: 'status',
-  fieldLabelColor: 'black',
-  fontScale: 1,
-  nameScale: 1,
-  labelScale: 1,
-  valueScale: 1,
-  controlScale: 1,
-  verifyScale: 1,
-  mentoringScale: 1,
-  statusKeyScale: 1,
-  nameWeight: 'default',
-  labelWeight: 'default',
-  valueWeight: 'default',
-  controlWeight: 'default',
-  iconScale: 1,
-  verifiedPlacement: 'heading',
-  editPlacement: 'value',
-  fieldAlign: 'left',
-  fieldSpacingPx: 6,
-  sectionPaddingPx: 12,
-  cardBorderPx: 1,
-  cardRadiusPx: 16,
-  cardPaddingPx: 16,
-  showDividers: true,
-  controlBorderPx: 1,
-  controlRadiusPx: 8,
-}
-
-/**
- * The APPROVED permanent default appearance for the shared card. This is the
- * single source of truth for the production look; every call site that passes
- * no `appearance` renders exactly this, and the Playground opens on it.
- *
- * Color choices use Right Path CSS color tokens (not literal Tailwind class
- * names): `--brand` is the teal-600 brand accent, `--text-secondary` is the
- * slate-700 ink tier. The copied design named Tailwind palette steps; those map
- * to these existing tokens rather than being pasted as literal color strings.
- *
- * Values the approved design pins (everything else inherits the neutral
- * baseline, so values/controls/other spacing are unchanged):
- *   - Status indicator hidden; contact icons kept with green/amber/red status
- *     color; field labels black.
- *   - Customer name 150% of its 22px base (→ 33px), bold, teal-600 (`--brand`).
- *   - Card border 1px slate-700; section dividers slate-700; radius 16; padding
- *     16; field spacing 6; section padding 12.
- */
-const BRAND_TOKEN = 'var(--brand)' // teal-600
-const SLATE_700_TOKEN = 'var(--text-secondary)' // slate-700
-
-const APPROVED_DEFAULTS: ContactCardAppearance = {
-  showStatusIndicator: false,
-  nameScale: 1.5,
-  nameWeight: 'bold',
-  nameColor: BRAND_TOKEN,
-  cardBorderPx: 1,
-  cardBorderColor: SLATE_700_TOKEN,
-  cardRadiusPx: 16,
-  cardPaddingPx: 16,
-  fieldSpacingPx: 6,
-  sectionPaddingPx: 12,
-  showDividers: true,
-  dividerColor: SLATE_700_TOKEN,
-}
-
-/** The resolved view the component renders from. When the appearance equals the
- * default, `isDefault` is true and the component renders exactly as before: no
- * inline styles, no overrides, byte-identical to the current production output. */
-interface ResolvedAppearance {
-  // visibility
-  showStatusIndicator: boolean
-  showContactIcon: boolean
-  showFieldLabel: boolean
-  showVerifiedCheckbox: boolean
-  showEditButton: boolean
-  showStatusKey: boolean
-  // colors
-  statusIndicatorColor: ColorChoice
-  contactIconColor: ColorChoice
-  fieldLabelColor: ColorChoice
-  nameColor?: string
-  valueColor?: string
-  verifyColor?: string
-  mentoringColor?: string
-  statusKeyColor?: string
-  // typography
-  fontFamily?: string
-  nameFontPx: number
-  labelFontPx: number
-  valueFontPx: number
-  controlFontPx: number
-  verifyFontPx: number
-  mentoringFontPx: number
-  mentoringOverridden: boolean
-  statusKeyFontPx: number
-  supportingFontPx: number
-  nameWeight: WeightChoice
-  labelWeight: WeightChoice
-  valueWeight: WeightChoice
-  controlWeight: WeightChoice
-  // icon sizing (resolved px, already including iconScale)
-  statusIconPx: number
-  contactIconPx: number
-  verifyBoxPx: number
-  editIconPx: number
-  // layout
-  verifiedPlacement: VerifiedPlacement
-  editPlacement: EditPlacement
-  fieldAlign: AlignChoice
-  fieldSpacingPx: number
-  sectionPaddingPx: number
-  // chrome
-  cardBorderPx: number
-  cardBorderColor?: string
-  cardRadiusPx: number
-  cardPaddingPx: number
-  cardBackground?: string
-  showDividers: boolean
-  dividerColor?: string
-  controlBorderPx: number
-  controlRadiusPx: number
-  isDefault: boolean
-}
-
-// Baseline px per role, mirroring the Tailwind utilities the card uses:
-// name text-[22px], label text-base (16), value text-lg (18),
-// control text-base (16), supporting/status-key text-sm (14).
-const BASE = { name: 22, label: 16, value: 18, control: 16, supporting: 14 }
-// Baseline icon px, mirroring size-5 (20) headings, size-4 (16) checkbox,
-// size-3.5 (14) edit pencil.
-const ICON_BASE = { status: 20, contact: 20, verify: 16, edit: 14 }
-
-function resolveAppearance(a?: ContactCardAppearance): ResolvedAppearance {
-  // Merge order: neutral Tailwind baseline, then the APPROVED permanent design,
-  // then any explicit override (the Playground). Omitting `appearance` therefore
-  // yields the approved design, which is the production look.
-  const m = { ...DEFAULT_APPEARANCE, ...APPROVED_DEFAULTS, ...a }
-
-  // `isDefault` means "resolves to the untouched plain-Tailwind baseline", used
-  // only to skip inline styling. The approved design differs from that baseline
-  // (hidden status indicator, teal bold name, slate-700 chrome), so this is true
-  // only when the Playground is reset all the way back to neutral.
-  const isDefault =
-    m.showStatusIndicator && m.showContactIcon && m.showFieldLabel &&
-    m.showVerifiedCheckbox && m.showEditButton && m.showStatusKey &&
-    m.statusIndicatorColor === 'status' && m.contactIconColor === 'status' &&
-    m.fieldLabelColor === 'black' &&
-    m.fontFamily === undefined &&
-    m.fontScale === 1 && m.nameScale === 1 && m.labelScale === 1 &&
-    m.valueScale === 1 && m.controlScale === 1 && m.verifyScale === 1 &&
-    m.mentoringScale === 1 && m.statusKeyScale === 1 &&
-    m.nameWeight === 'default' && m.labelWeight === 'default' &&
-    m.valueWeight === 'default' && m.controlWeight === 'default' &&
-    m.nameColor === undefined && m.valueColor === undefined &&
-    m.verifyColor === undefined && m.mentoringColor === undefined &&
-    m.statusKeyColor === undefined &&
-    m.iconScale === 1 &&
-    m.statusIconPxOverride === undefined && m.contactIconPxOverride === undefined &&
-    m.verifyBoxPxOverride === undefined && m.editIconPxOverride === undefined &&
-    m.verifiedPlacement === 'heading' && m.editPlacement === 'value' &&
-    m.fieldAlign === 'left' && m.fieldSpacingPx === 6 && m.sectionPaddingPx === 12 &&
-    m.cardBorderPx === 1 && m.cardBorderColor === undefined &&
-    m.cardRadiusPx === 16 && m.cardPaddingPx === 16 &&
-    m.cardBackground === undefined && m.showDividers &&
-    m.dividerColor === undefined && m.controlBorderPx === 1 &&
-    m.controlRadiusPx === 8
-
-  const labelPx = BASE.label * m.fontScale * m.labelScale
-  const controlPx = BASE.control * m.fontScale * m.controlScale
-  const verifyPx = BASE.control * m.fontScale * m.verifyScale
-
-  return {
-    showStatusIndicator: m.showStatusIndicator,
-    showContactIcon: m.showContactIcon,
-    showFieldLabel: m.showFieldLabel,
-    showVerifiedCheckbox: m.showVerifiedCheckbox,
-    showEditButton: m.showEditButton,
-    showStatusKey: m.showStatusKey,
-    statusIndicatorColor: m.statusIndicatorColor,
-    contactIconColor: m.contactIconColor,
-    fieldLabelColor: m.fieldLabelColor,
-    nameColor: m.nameColor,
-    valueColor: m.valueColor,
-    verifyColor: m.verifyColor,
-    mentoringColor: m.mentoringColor,
-    statusKeyColor: m.statusKeyColor,
-    fontFamily: m.fontFamily,
-    nameFontPx: BASE.name * m.fontScale * m.nameScale,
-    labelFontPx: labelPx,
-    valueFontPx: BASE.value * m.fontScale * m.valueScale,
-    controlFontPx: controlPx,
-    verifyFontPx: verifyPx,
-    // Mentoring body matches the shared MentorGuidance body (text-base, 16px).
-    mentoringFontPx: 16 * m.fontScale * m.mentoringScale,
-    // True only when a mentoring-specific presentation override is active, so the
-    // approved default leaves the shared Mentoring tip visually untouched.
-    mentoringOverridden:
-      m.mentoringColor !== undefined || m.mentoringScale !== 1 || m.fontScale !== 1,
-    statusKeyFontPx: BASE.supporting * m.fontScale * m.statusKeyScale,
-    supportingFontPx: BASE.supporting * m.fontScale * m.labelScale,
-    nameWeight: m.nameWeight,
-    labelWeight: m.labelWeight,
-    valueWeight: m.valueWeight,
-    controlWeight: m.controlWeight,
-    // Icons scale proportionally with their associated text unless an explicit
-    // px override is given. The master iconScale multiplies either way.
-    statusIconPx: (m.statusIconPxOverride ?? ICON_BASE.status * (labelPx / BASE.label)) * m.iconScale,
-    contactIconPx: (m.contactIconPxOverride ?? ICON_BASE.contact * (labelPx / BASE.label)) * m.iconScale,
-    verifyBoxPx: (m.verifyBoxPxOverride ?? ICON_BASE.verify * (verifyPx / BASE.control)) * m.iconScale,
-    editIconPx: (m.editIconPxOverride ?? ICON_BASE.edit * (controlPx / BASE.control)) * m.iconScale,
-    verifiedPlacement: m.verifiedPlacement,
-    editPlacement: m.editPlacement,
-    fieldAlign: m.fieldAlign,
-    fieldSpacingPx: m.fieldSpacingPx,
-    sectionPaddingPx: m.sectionPaddingPx,
-    cardBorderPx: m.cardBorderPx,
-    cardBorderColor: m.cardBorderColor,
-    cardRadiusPx: m.cardRadiusPx,
-    cardPaddingPx: m.cardPaddingPx,
-    cardBackground: m.cardBackground,
-    showDividers: m.showDividers,
-    dividerColor: m.dividerColor,
-    controlBorderPx: m.controlBorderPx,
-    controlRadiusPx: m.controlRadiusPx,
-    isDefault,
-  }
-}
-
-const WEIGHT_CLASS: Record<Exclude<WeightChoice, 'default'>, string> = {
-  normal: 'font-normal',
-  medium: 'font-medium',
-  semibold: 'font-semibold',
-  bold: 'font-bold',
-}
-
-/** Weight class override for a role, or '' to leave the existing class in place. */
-function weightClass(w: WeightChoice): string {
-  return w === 'default' ? '' : WEIGHT_CLASS[w]
-}
-
-/** Numeric CSS font-weight for a role, or undefined to leave the base class.
- * Emitting the weight inline (rather than only a utility class) guarantees it
- * overrides a role's base `font-semibold`/`font-medium` class regardless of
- * stylesheet order. */
-const WEIGHT_VALUE: Record<Exclude<WeightChoice, 'default'>, number> = {
-  normal: 400, medium: 500, semibold: 600, bold: 700,
-}
-function weightValue(w: WeightChoice): number | undefined {
-  return w === 'default' ? undefined : WEIGHT_VALUE[w]
-}
-
-/** A text style for a role: inline font-size (plus optional color/weight) when
- * appearance is non-default, else undefined so the Tailwind size class alone
- * governs. */
-function textStyle(
-  ap: ResolvedAppearance, px: number, color?: string, weight?: WeightChoice,
-): React.CSSProperties | undefined {
-  if (ap.isDefault) return undefined
-  const s: React.CSSProperties = { fontSize: `${px.toFixed(3)}px` }
-  if (color) s.color = color
-  const w = weight && weightValue(weight)
-  if (w) s.fontWeight = w
-  return s
-}
-
-
-/** Icon style: an explicit px size when non-default, else undefined so the
- * size-* class governs. */
-function iconStyle(ap: ResolvedAppearance, px: number): React.CSSProperties | undefined {
-  return ap.isDefault ? undefined : { width: `${px.toFixed(2)}px`, height: `${px.toFixed(2)}px` }
-}
-
-/** Resolve an icon/label color: the status token color (`statusColor`) when the
- * choice is `status`, or an explicit black override when the choice is `black`. */
-function colorClass(choice: ColorChoice, statusColor: string): string {
-  return choice === 'black' ? 'text-black' : statusColor
-}
 
 /** The changed fields of a unified contact save. Every key is optional: the
  * card includes ONLY the facts the operator actually changed, so the route
@@ -1061,10 +641,6 @@ function ContactCardView({
    * signal with the card's busy flag, so a host never re-derives either. */
   onPendingStateChange?: (pending: boolean) => void
 }) {
-  // The card renders its one approved look. (The former Storybook-driven
-  // `appearance` override subsystem was removed with Storybook; `resolveAppearance`
-  // with no argument returns exactly that approved design.)
-  const ap = useMemo(() => resolveAppearance(), [])
   // The card holds the current record locally so the display updates the instant
   // a write returns, without the host round-tripping a reload.
   const [record, setRecord] = useState<CustomerContact>(customer)
@@ -1205,14 +781,17 @@ function ContactCardView({
         'rounded-2xl border border-surface-border bg-surface-card p-4 font-workflow',
         className,
       )}
-      style={ap.isDefault ? undefined : {
-        fontFamily: ap.fontFamily,
-        borderWidth: `${ap.cardBorderPx}px`,
+      // The approved card chrome: a 1px slate-700 (var(--text-secondary))
+      // border at 16px radius/padding on the white surface. Only the border
+      // COLOR differs from the base classes (which use the paler surface-border),
+      // so it is set inline; the rest matches rounded-2xl / border / p-4.
+      style={{
+        borderWidth: '1px',
         borderStyle: 'solid',
-        borderColor: ap.cardBorderColor ?? 'var(--surface-border)',
-        borderRadius: `${ap.cardRadiusPx}px`,
-        padding: `${ap.cardPaddingPx}px`,
-        background: ap.cardBackground ?? 'var(--surface-card)',
+        borderColor: 'var(--text-secondary)',
+        borderRadius: '16px',
+        padding: '16px',
+        background: 'var(--surface-card)',
       }}
     >
       {/* Optional header slot across the top of the card: the host's identity
@@ -1233,7 +812,6 @@ function ContactCardView({
           control. `showName` / `showMentoring` let a host suppress either. */}
       {showName && (
         <ContactMentoring
-          appearance={ap}
           name={fullName(record)}
           showMentoring={showMentoring}
         />
@@ -1305,7 +883,7 @@ function ContactCardView({
               button on the right that opens the unified editor. */}
           <Divider className="my-2.5" />
           <div className="flex items-center justify-between gap-3">
-            <ContactStatusKey appearance={ap} inline />
+            <ContactStatusKey inline />
             {collapsible && (
               <ModeToggleButton
                 label="Edit"
@@ -1775,9 +1353,8 @@ function UnifiedContactEditor({
  * appearance is the untouched neutral baseline the body renders verbatim.
  */
 function ContactMentoring({
-  appearance, name, showMentoring = true,
+  name, showMentoring = true,
 }: {
-  appearance: ResolvedAppearance
   name: string
   /** Render the mentoring cap/panel. Default true (the existing behavior). When
    * false, only the name heading renders and no mentoring appears. */
@@ -1790,24 +1367,15 @@ function ContactMentoring({
 
   const { open, setOpen } = useMentorDisclosure()
 
-  // Presentation-only overrides for the coaching body (size / color); the cap
-  // icon itself keeps its standard purple identity. Only applied when a
-  // mentoring-specific override is active, so the neutral baseline is untouched.
-  const bodyStyle: React.CSSProperties | undefined = appearance.mentoringOverridden
-    ? {
-        fontSize: `${appearance.mentoringFontPx.toFixed(3)}px`,
-        ...(appearance.mentoringColor ? { color: appearance.mentoringColor } : {}),
-      }
-    : undefined
-
   // The name is read-only here: it is corrected inside the one unified editor
   // (the shared Person Name fields). This heading never carries its own editor.
+  // The approved look: 33px bold teal (var(--brand)) name.
   return (
     <>
       <div className="flex items-center gap-2">
         <h3
-          className={cn('text-[22px] font-semibold leading-tight text-ink', weightClass(appearance.nameWeight))}
-          style={textStyle(appearance, appearance.nameFontPx, appearance.nameColor, appearance.nameWeight)}
+          className="text-[22px] font-bold leading-tight text-ink"
+          style={{ fontSize: '33px', color: 'var(--brand)' }}
         >
           {name}
         </h3>
@@ -1817,7 +1385,7 @@ function ContactMentoring({
       </div>
       {showMentoring && open && (
         <MentorCapPanel className="mt-2" onClose={() => setOpen(false)}>
-          <span style={bodyStyle}>{body}</span>
+          <span>{body}</span>
         </MentorCapPanel>
       )}
     </>
@@ -2124,7 +1692,7 @@ function ModeToggleButton({
 
 /** The compact status key at the foot of the card: the same Lucide icons and
  * colors as the field headings, so green / amber / red read consistently. */
-function ContactStatusKey({ appearance, inline = false }: { appearance: ResolvedAppearance; inline?: boolean }) {
+function ContactStatusKey({ inline = false }: { inline?: boolean }) {
   const order: Tone[] = ['confirmed', 'known', 'missing']
   return (
     <div
@@ -2135,20 +1703,13 @@ function ContactStatusKey({ appearance, inline = false }: { appearance: Resolved
         // the divider.
         !inline && 'mt-3 border-t-2 border-surface-border-section pt-2.5',
       )}
-      style={textStyle(appearance, appearance.statusKeyFontPx, appearance.statusKeyColor)}
     >
       {order.map((tone) => {
         const meta = STATUS_META[tone]
         const Icon = meta.icon
-        // The key repeats the status indicator, so it follows the status-indicator
-        // color choice.
         return (
           <span key={tone} className="inline-flex items-center gap-1.5">
-            <Icon
-              className={cn('size-4 shrink-0', colorClass(appearance.statusIndicatorColor, meta.color))}
-              style={iconStyle(appearance, appearance.statusIconPx * 0.8)}
-              aria-hidden
-            />
+            <Icon className={cn('size-4 shrink-0', meta.color)} aria-hidden />
             {meta.label}
           </span>
         )
