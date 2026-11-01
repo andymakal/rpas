@@ -2,7 +2,8 @@ import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
-import { normalizeEmailInput, normalizePhoneInput, normalizeNameInput } from '@/lib/contact-input'
+import { normalizeEmailInput, normalizePhoneInput } from '@/lib/contact-input'
+import { validatePersonName } from '@/lib/person-name'
 import {
   type EmailAvailability,
   type SelectableEmailAvailability,
@@ -17,6 +18,16 @@ import {
   buildContactUpdateHistoryNote,
   type ContactSnapshot,
 } from '@/lib/stewardship/customer-history'
+import {
+  normalizeDobParts,
+  wouldDowngradeExactDob,
+  formatDobParts,
+  formatDobDisplay,
+  dobPrecisionFromToken,
+  readStoredDob,
+  type DobParts,
+  type DobSourceParts,
+} from '@/lib/stewardship/dob'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
@@ -81,6 +92,14 @@ type CustomerContactRow = {
   id: string
   first_name: string | null
   last_name: string | null
+  /** Recorded middle name(s). */
+  middle_name: string | null
+  /** Generational suffix as typed ("Jr", "III"). */
+  suffix: string | null
+  /** The name the customer is called ("Goes by" / preferred first). */
+  goes_by: string | null
+  /** Preference for the suffix in the familiar name (null = include). */
+  suffix_in_familiar: boolean | null
   email: string | null
   phone: string | null
   street: string | null
@@ -95,12 +114,18 @@ type CustomerContactRow = {
   contact_alert: string | null
   /** Do Not Text — the durable customer-level texting opt-out. */
   sms_opt_out: boolean | null
+  /** Exact date of birth (YYYY-MM-DD) when fully known, else null. */
+  date_of_birth: string | null
+  /** Partial date of birth (masked 'MM/xx/YYYY' / 'xx/xx/YYYY', no day) when the
+   * exact date is not fully known, else null. */
+  date_of_birth_approx: string | null
 }
 
 const SELECT =
-  'id, first_name, last_name, email, phone, street, address_line1, city, state, zip, ' +
+  'id, first_name, last_name, middle_name, suffix, goes_by, suffix_in_familiar, ' +
+  'email, phone, street, address_line1, city, state, zip, ' +
   'email_verified_at, phone_verified_at, address_verified_at, email_availability, contact_alert, ' +
-  'sms_opt_out'
+  'sms_opt_out, date_of_birth, date_of_birth_approx'
 
 /** The stable machine marker that identifies a case_touches 'workflow' note as
  * an email-availability change, carrying the new status. Bracketed so the
@@ -193,44 +218,6 @@ async function recordEmailAvailabilityHistory(
   }
 }
 
-/** Display a stored name component for the history sentence, or a placeholder
- * when it is empty, so the prior/new values read clearly even when one side is
- * blank. */
-function nameForHistory(name: string | null): string {
-  return name && name.trim() ? name : '(none)'
-}
-
-/**
- * Record ONE name correction in the single durable history system
- * (case_touches, 'workflow'), naming the prior and new full name so the previous
- * value is preserved. Attributed to the acting employee with a timestamp.
- * Best-effort: a history-write failure is logged but never fails the save (the
- * durable fact on the customer row is the source of truth). The caller
- * guarantees this is only invoked when the name ACTUALLY changed. The bracketed
- * marker is hidden by the Customer History display while the sentence shows.
- */
-async function recordNameChangeHistory(
-  admin: AdminClient,
-  customerId: string,
-  before: { first_name: string | null; last_name: string | null },
-  after: { first_name: string | null; last_name: string | null },
-): Promise<void> {
-  const touchedBy = await resolveEmployeeName(admin)
-  const priorFull = `${nameForHistory(before.first_name)} ${nameForHistory(before.last_name)}`.trim()
-  const newFull = `${nameForHistory(after.first_name)} ${nameForHistory(after.last_name)}`.trim()
-  const { error } = await admin.from('case_touches').insert({
-    customer_id: customerId,
-    case_id: null,
-    touch_type: 'workflow',
-    notes: `Customer name corrected: "${priorFull}" changed to "${newFull}". [name-change]`,
-    touched_at: new Date().toISOString(),
-    touched_by: touchedBy,
-  })
-  if (error) {
-    console.error('name-change history record error:', error)
-  }
-}
-
 /** Collapse internal whitespace and trim; null when nothing meaningful remains. */
 function cleanLine(raw: unknown): string | null {
   if (typeof raw !== 'string') return null
@@ -267,8 +254,102 @@ function addressUsable(street: string | null, city: string | null, state: string
  * always present and consistent.
  */
 async function respondWithContact(admin: AdminClient, row: CustomerContactRow) {
-  const text_undeliverable = await isTextUndeliverableForCurrentNumber(admin, row.id, row.phone)
-  return Response.json({ data: { ...row, text_undeliverable } })
+  const [text_undeliverable, ageInfo, dobInfo] = await Promise.all([
+    isTextUndeliverableForCurrentNumber(admin, row.id, row.phone),
+    // Re-derive the best-available-precision age on every write so the identity
+    // header stays correct after a DOB edit (or any edit) — age only, never a
+    // DOB/day. Matches the GET half so initial and post-write display agree.
+    resolveCustomerAge(admin, row.id),
+    // Re-resolve the best-available-precision DOB for the card display on every
+    // write, so a just-saved DOB (or one promoted from a linked policy) shows at
+    // its true precision. Matches the GET half.
+    resolveCustomerDob(admin, row),
+  ])
+  return Response.json({ data: { ...row, text_undeliverable, ...ageInfo, ...dobInfo } })
+}
+
+/** The resolved DOB the card displays, at its best available precision. */
+export interface DobDisplayInfo {
+  /** The DOB formatted for display ("MM/DD/YYYY" / "MM/YYYY" / "YYYY"), or null
+   * when nothing usable is on file. The card's scoped full-DOB exception. */
+  dob_display: string | null
+  /** Where the displayed DOB came from. 'exact'/'customer_partial' are stored on
+   * the customer; 'linked_policy' is the reliable owner-DOB consensus across the
+   * customer's policies (never the policy insured); 'none' = nothing to show. */
+  dob_source: DobSourceParts['source']
+  /** True when the displayed DOB is NOT a confirmed exact date stored on the
+   * customer (a partial, or one derived from linked policies), so the card can
+   * label it as not-yet-confirmed — mirroring the approximate-age treatment. */
+  dob_approximate: boolean
+  /** The resolved parts for seeding the editor. A partial/linked source carries
+   * a blank day; the operator confirms and saves it onto the customer. */
+  dob_month: number | null
+  dob_day: number | null
+  dob_year: number | null
+}
+
+/**
+ * Resolve the customer's best-available-precision DOB for the shared card's
+ * display, reusing the SQL resolver project_customer_dob_display: exact
+ * customers.date_of_birth (the only source with a day), else
+ * customers.date_of_birth_approx (month/year), else the reliable consensus of
+ * the customer's linked owner_dob_approx (single agreed year, month only if all
+ * agree; conflicting years => none). Owner source only — never the policy
+ * insured. No day is ever fabricated from a partial source.
+ *
+ * On any failure it falls back to the DOB stored directly on the row (exact
+ * date / partial approx), so the card still shows what is on the customer even
+ * if the linked-policy resolver is unavailable, never a wrong value.
+ */
+async function resolveCustomerDob(
+  admin: AdminClient,
+  row: CustomerContactRow,
+): Promise<DobDisplayInfo> {
+  try {
+    const { data } = await admin.rpc('project_customer_dob_display', { p_customer_id: row.id })
+    const r = (data ?? [])[0] as
+      | { dob_year: number | null; dob_month: number | null; dob_day: number | null; dob_precision: string; dob_source: string }
+      | undefined
+    if (r) {
+      const parts: DobSourceParts = {
+        year: r.dob_year,
+        month: r.dob_month,
+        day: r.dob_day,
+        precision: dobPrecisionFromToken(r.dob_precision),
+        source: (r.dob_source as DobSourceParts['source']) ?? 'none',
+      }
+      return {
+        dob_display: formatDobParts(parts),
+        dob_source: parts.source,
+        dob_approximate: parts.source === 'customer_partial' || parts.source === 'linked_policy',
+        dob_month: parts.month,
+        dob_day: parts.day,
+        dob_year: parts.year,
+      }
+    }
+  } catch (e) {
+    console.error('customer contact dob resolve error:', e)
+  }
+  // Fallback: what is stored directly on the customer row.
+  const fallback = readStoredDobFallback(row.date_of_birth, row.date_of_birth_approx)
+  return fallback
+}
+
+/** DOB display derived ONLY from the stored customer columns, used when the
+ * linked-policy resolver is unavailable. */
+function readStoredDobFallback(
+  exact: string | null,
+  approx: string | null,
+): DobDisplayInfo {
+  const s = readStoredDob(exact, approx)
+  return {
+    dob_display: formatDobDisplay(exact, approx),
+    dob_source: s.precision === 'exact' ? 'exact' : s.precision === 'none' ? 'none' : 'customer_partial',
+    dob_approximate: s.precision !== 'exact' && s.precision !== 'none',
+    dob_month: s.month,
+    dob_day: s.day,
+    dob_year: s.year,
+  }
 }
 
 /**
@@ -337,12 +418,7 @@ export async function GET(
     return Response.json({ error: 'Customer not found.' }, { status: 404 })
   }
 
-  const [text_undeliverable, ageInfo] = await Promise.all([
-    isTextUndeliverableForCurrentNumber(supabase, row.id, row.phone),
-    resolveCustomerAge(supabase, row.id),
-  ])
-
-  return Response.json({ data: { ...row, text_undeliverable, ...ageInfo } })
+  return respondWithContact(supabase, row)
 }
 
 export async function PATCH(
@@ -417,20 +493,98 @@ export async function PATCH(
     const patch: Partial<CustomerContactRow> = {}
     let changed = false
 
-    // ── Name ──
-    if (has('first_name') || has('last_name')) {
-      const rawFirst = has('first_name') ? body.first_name : before.first_name
-      const rawLast = has('last_name') ? body.last_name : before.last_name
-      if ((rawFirst != null && !str(rawFirst)) || (rawLast != null && !str(rawLast))) {
-        return Response.json({ error: 'first_name and last_name must be strings or null.' }, { status: 400 })
+    // ── Name (first, middle, last, suffix, goes-by, suffix-in-familiar) ──
+    // The SAME centralized normalization and validation the form applies runs
+    // here so invalid input cannot bypass the UI: capitalization/accents and
+    // multi-word names are preserved, nothing is inferred, and BOTH first and
+    // last name are required. Save-only-changed per column; an omitted field
+    // keeps its stored value. The suffix-in-familiar preference is accepted as
+    // boolean|null (null = no preference / include).
+    const nameTouched =
+      has('first_name') || has('last_name') || has('middle_name') ||
+      has('suffix') || has('goes_by') || has('suffix_in_familiar')
+    if (nameTouched) {
+      const rawPart = (key: string, stored: string | null): string | null => {
+        const v = (body as Record<string, unknown>)[key]
+        return has(key) ? (str(v) ? v : null) : stored
       }
-      const nextFirst = normalizeNameInput(str(rawFirst) ? rawFirst : null).value
-      const nextLast = normalizeNameInput(str(rawLast) ? rawLast : null).value
-      if (!nextFirst && !nextLast) {
-        return Response.json({ error: 'A first or last name is required.' }, { status: 400 })
+      for (const key of ['first_name', 'last_name', 'middle_name', 'suffix', 'goes_by']) {
+        const v = (body as Record<string, unknown>)[key]
+        if (has(key) && v != null && !str(v)) {
+          return Response.json({ error: `${key} must be a string or null.` }, { status: 400 })
+        }
       }
-      if ((nextFirst ?? null) !== (before.first_name ?? null)) { patch.first_name = nextFirst; changed = true }
-      if ((nextLast ?? null) !== (before.last_name ?? null)) { patch.last_name = nextLast; changed = true }
+      const rawPref = (body as Record<string, unknown>).suffix_in_familiar
+      if (has('suffix_in_familiar') && rawPref != null && typeof rawPref !== 'boolean') {
+        return Response.json({ error: 'suffix_in_familiar must be a boolean or null.' }, { status: 400 })
+      }
+      const result = validatePersonName({
+        firstName: rawPart('first_name', before.first_name),
+        middleName: rawPart('middle_name', before.middle_name),
+        lastName: rawPart('last_name', before.last_name),
+        suffix: rawPart('suffix', before.suffix),
+        goesBy: rawPart('goes_by', before.goes_by),
+        suffixInFamiliar: has('suffix_in_familiar')
+          ? (rawPref as boolean | null)
+          : (before.suffix_in_familiar ?? null),
+      })
+      if (result.status === 'invalid') {
+        return Response.json({ error: result.reason }, { status: 400 })
+      }
+      const v = result.value
+      // The familiar-suffix preference is only meaningful with a suffix on file.
+      const nextPref = v.suffix ? v.suffixInFamiliar : null
+      if ((v.firstName ?? null) !== (before.first_name ?? null)) { patch.first_name = v.firstName; changed = true }
+      if ((v.lastName ?? null) !== (before.last_name ?? null)) { patch.last_name = v.lastName; changed = true }
+      if ((v.middleName ?? null) !== (before.middle_name ?? null)) { patch.middle_name = v.middleName; changed = true }
+      if ((v.suffix ?? null) !== (before.suffix ?? null)) { patch.suffix = v.suffix; changed = true }
+      if ((v.goesBy ?? null) !== (before.goes_by ?? null)) { patch.goes_by = v.goesBy; changed = true }
+      if ((nextPref ?? null) !== (before.suffix_in_familiar ?? null)) { patch.suffix_in_familiar = nextPref; changed = true }
+    }
+
+    // ── Date of birth (entered as separate month / day / year parts) ──
+    // The card sends the three raw parts; the SAME normalization the form
+    // applies runs here so invalid formatting cannot bypass the UI. An exact
+    // date (all three parts) targets date_of_birth; a partial date (year, and
+    // optionally month, with a blank day) targets date_of_birth_approx — the
+    // two are mutually exclusive, so storing one clears the other and a known
+    // exact DOB is never downgraded to a less precise value. An all-blank entry
+    // is a valid clear (both columns null). The day is never fabricated or
+    // stored on the approx column. Save-only-changed per column.
+    if (has('dob_month') || has('dob_day') || has('dob_year')) {
+      const partOf = (k: string): string => {
+        const v = (body as Record<string, unknown>)[k]
+        return typeof v === 'string' ? v : v == null ? '' : String(v)
+      }
+      const parts: DobParts = {
+        month: has('dob_month') ? partOf('dob_month') : '',
+        day: has('dob_day') ? partOf('dob_day') : '',
+        year: has('dob_year') ? partOf('dob_year') : '',
+      }
+      const dob = normalizeDobParts(parts)
+      if (dob.status === 'invalid') {
+        return Response.json({ error: dob.reason }, { status: 400 })
+      }
+      // Never silently downgrade a known EXACT DOB to partial info: reject a
+      // partial entry when the record already holds a full date. Correcting an
+      // exact DOB (to another exact date) or clearing it entirely is allowed.
+      if (wouldDowngradeExactDob(
+        { date_of_birth: before.date_of_birth ?? null, date_of_birth_approx: before.date_of_birth_approx ?? null },
+        dob,
+      )) {
+        return Response.json(
+          { error: 'A full date of birth is already on file and cannot be replaced with a partial date. Enter the complete date, or clear it.' },
+          { status: 400 },
+        )
+      }
+      if ((dob.date_of_birth ?? null) !== (before.date_of_birth ?? null)) {
+        patch.date_of_birth = dob.date_of_birth
+        changed = true
+      }
+      if ((dob.date_of_birth_approx ?? null) !== (before.date_of_birth_approx ?? null)) {
+        patch.date_of_birth_approx = dob.date_of_birth_approx
+        changed = true
+      }
     }
 
     // ── Email value + availability ──
@@ -637,6 +791,10 @@ export async function PATCH(
     const snapshot = (row: CustomerContactRow, undeliverable: boolean): ContactSnapshot => ({
       first_name: row.first_name,
       last_name: row.last_name,
+      middle_name: row.middle_name,
+      suffix: row.suffix,
+      goes_by: row.goes_by,
+      suffix_in_familiar: row.suffix_in_familiar,
       email: row.email,
       phone: row.phone,
       street: storedStreet(row),
@@ -648,6 +806,8 @@ export async function PATCH(
       address_verified_at: row.address_verified_at,
       email_availability: row.email_availability,
       sms_opt_out: row.sms_opt_out ?? false,
+      date_of_birth: row.date_of_birth,
+      date_of_birth_approx: row.date_of_birth_approx,
       text_undeliverable: undeliverable,
       contact_alert: row.contact_alert,
     })
@@ -672,34 +832,60 @@ export async function PATCH(
   }
 
   // ── CORRECT THE CUSTOMER NAME ─────────────────────────────────────────────
-  // Body: { field: 'name', first_name: string | null, last_name: string | null }
-  // First and last are corrected IN PLACE on the customers row, INDEPENDENTLY.
-  // Capitalization is preserved exactly as typed (McAndrew, DeLuca) and
-  // multiword surnames (La Bar, van der Berg) are kept whole — normalizeNameInput
-  // only collapses whitespace and trims; it never title-cases or splits a name.
-  // Save-only-changed: a field matching the stored value is not rewritten. The
-  // correction (prior -> new) is recorded once in Customer History. A request
-  // that would leave BOTH names empty is rejected — a customer keeps at least
-  // one name component.
+  // Body: { field: 'name', first_name, last_name, middle_name?, suffix?,
+  //         goes_by?, suffix_in_familiar? }
+  // Every recorded part is corrected IN PLACE on the customers row. The SAME
+  // centralized normalization/validation the form applies runs here so invalid
+  // input cannot bypass the UI: capitalization is preserved exactly as typed
+  // (McAndrew, DeLuca), multiword names stay whole (La Bar, van der Berg), and
+  // nothing is inferred. Save-only-changed: a field matching the stored value
+  // is not rewritten. A request that would leave BOTH first and last empty is
+  // rejected — a customer keeps at least one name component. The change
+  // (prior -> new) is recorded once in Customer History, naming the full
+  // recorded name (or the familiar name when only the goes-by/preference moved).
   if (field === 'name') {
-    const rawFirst = body.first_name
-    const rawLast = body.last_name
-    if (
-      (rawFirst != null && typeof rawFirst !== 'string') ||
-      (rawLast != null && typeof rawLast !== 'string')
-    ) {
-      return Response.json({ error: 'first_name and last_name must be strings or null.' }, { status: 400 })
+    const b = body as Record<string, unknown>
+    const str = (v: unknown): v is string => typeof v === 'string'
+    const has = (k: string) => Object.prototype.hasOwnProperty.call(b, k)
+    const rawPart = (key: string, stored: string | null): string | null => {
+      const v = b[key]
+      return has(key) ? (str(v) ? v : null) : stored
     }
-    const nextFirst = normalizeNameInput(typeof rawFirst === 'string' ? rawFirst : null).value
-    const nextLast = normalizeNameInput(typeof rawLast === 'string' ? rawLast : null).value
+    for (const key of ['first_name', 'last_name', 'middle_name', 'suffix', 'goes_by']) {
+      const v = b[key]
+      if (has(key) && v != null && !str(v)) {
+        return Response.json({ error: `${key} must be a string or null.` }, { status: 400 })
+      }
+    }
+    const rawPref = b.suffix_in_familiar
+    if (has('suffix_in_familiar') && rawPref != null && typeof rawPref !== 'boolean') {
+      return Response.json({ error: 'suffix_in_familiar must be a boolean or null.' }, { status: 400 })
+    }
 
-    if (!nextFirst && !nextLast) {
-      return Response.json({ error: 'A first or last name is required.' }, { status: 400 })
+    const result = validatePersonName({
+      firstName: rawPart('first_name', before.first_name),
+      middleName: rawPart('middle_name', before.middle_name),
+      lastName: rawPart('last_name', before.last_name),
+      suffix: rawPart('suffix', before.suffix),
+      goesBy: rawPart('goes_by', before.goes_by),
+      suffixInFamiliar: has('suffix_in_familiar')
+        ? (rawPref as boolean | null)
+        : (before.suffix_in_familiar ?? null),
+    })
+    if (result.status === 'invalid') {
+      return Response.json({ error: result.reason }, { status: 400 })
     }
+    const v = result.value
+    // The familiar-suffix preference is only meaningful when a suffix is on file.
+    const nextPref = v.suffix ? v.suffixInFamiliar : null
 
     const patch: Partial<CustomerContactRow> = {}
-    if ((nextFirst ?? null) !== (before.first_name ?? null)) patch.first_name = nextFirst
-    if ((nextLast ?? null) !== (before.last_name ?? null)) patch.last_name = nextLast
+    if ((v.firstName ?? null) !== (before.first_name ?? null)) patch.first_name = v.firstName
+    if ((v.lastName ?? null) !== (before.last_name ?? null)) patch.last_name = v.lastName
+    if ((v.middleName ?? null) !== (before.middle_name ?? null)) patch.middle_name = v.middleName
+    if ((v.suffix ?? null) !== (before.suffix ?? null)) patch.suffix = v.suffix
+    if ((v.goesBy ?? null) !== (before.goes_by ?? null)) patch.goes_by = v.goesBy
+    if ((nextPref ?? null) !== (before.suffix_in_familiar ?? null)) patch.suffix_in_familiar = nextPref
 
     // Nothing actually changed: return the current record unchanged.
     if (Object.keys(patch).length === 0) {
@@ -719,13 +905,44 @@ export async function PATCH(
     }
     if (!updated) return Response.json({ error: 'Customer not found.' }, { status: 404 })
 
-    // Preserve the prior name and the correction in Customer History.
-    await recordNameChangeHistory(
-      supabase,
-      customerId,
-      { first_name: before.first_name, last_name: before.last_name },
-      { first_name: updated.first_name, last_name: updated.last_name },
-    )
+    // Record the correction (prior -> new) once in Customer History, reusing the
+    // shared contact-update note builder so every name part is captured.
+    const nameSnapshot = (row: CustomerContactRow): ContactSnapshot => ({
+      first_name: row.first_name,
+      last_name: row.last_name,
+      middle_name: row.middle_name,
+      suffix: row.suffix,
+      goes_by: row.goes_by,
+      suffix_in_familiar: row.suffix_in_familiar,
+      email: row.email,
+      phone: row.phone,
+      street: storedStreet(row),
+      city: row.city,
+      state: row.state,
+      zip: row.zip,
+      email_verified_at: row.email_verified_at,
+      phone_verified_at: row.phone_verified_at,
+      address_verified_at: row.address_verified_at,
+      email_availability: row.email_availability,
+      sms_opt_out: row.sms_opt_out ?? false,
+      date_of_birth: row.date_of_birth,
+      date_of_birth_approx: row.date_of_birth_approx,
+      text_undeliverable: false,
+      contact_alert: row.contact_alert,
+    })
+    const note = buildContactUpdateHistoryNote(nameSnapshot(before), nameSnapshot(updated))
+    if (note) {
+      const touchedBy = await resolveEmployeeName(supabase)
+      const { error: hErr } = await supabase.from('case_touches').insert({
+        customer_id: customerId,
+        case_id: null,
+        touch_type: 'workflow',
+        notes: note,
+        touched_at: new Date().toISOString(),
+        touched_by: touchedBy,
+      })
+      if (hErr) console.error('name-change history record error:', hErr)
+    }
     return respondWithContact(supabase, updated)
   }
 

@@ -178,10 +178,12 @@ export async function GET(request: NextRequest) {
       if (ids.length === 0) return Response.json({ data: [] })
       listQuery = listQuery.in('id', ids)
     } else {
-      // Name / email / source_client_id: each word must appear somewhere
+      // Name / email / source_client_id: each word must appear somewhere. The
+      // "Goes by" name is matched alongside first/last so a familiar name finds
+      // the record.
       for (const word of words) {
         listQuery = listQuery.or(
-          `first_name.ilike.%${word}%,last_name.ilike.%${word}%,email.ilike.%${word}%,source_client_id.ilike.%${word}%`
+          `first_name.ilike.%${word}%,last_name.ilike.%${word}%,goes_by.ilike.%${word}%,email.ilike.%${word}%,source_client_id.ilike.%${word}%`
         )
       }
     }
@@ -221,10 +223,11 @@ export async function GET(request: NextRequest) {
       if (ids.length === 0) return Response.json({ data: [] })
       query = query.in('id', ids)
     } else {
-      // Name search: each space-separated word must appear in first or last name
+      // Name search: each space-separated word must appear in first, last, or
+      // the "Goes by" name.
       const words = q.split(/\s+/).filter(Boolean).slice(0, 2)
       for (const word of words) {
-        query = query.or(`first_name.ilike.%${word}%,last_name.ilike.%${word}%`)
+        query = query.or(`first_name.ilike.%${word}%,last_name.ilike.%${word}%,goes_by.ilike.%${word}%`)
       }
     }
 
@@ -320,8 +323,10 @@ export async function GET(request: NextRequest) {
 
   const words = q.split(/\s+/).filter(Boolean).slice(0, 3)
   const applyNameOr = <Q extends { or: (f: string) => Q }>(b: Q): Q => {
-    // Each word must appear in first OR last name (chained .or ⇒ AND across words).
-    for (const word of words) b = b.or(`first_name.ilike.%${word}%,last_name.ilike.%${word}%`)
+    // Each word must appear in first OR last OR the "Goes by" name (chained .or
+    // ⇒ AND across words). Matching goes_by lets a search for the name the
+    // customer is actually called ("Bob") find a record recorded as "Robert".
+    for (const word of words) b = b.or(`first_name.ilike.%${word}%,last_name.ilike.%${word}%,goes_by.ilike.%${word}%`)
     return b
   }
 

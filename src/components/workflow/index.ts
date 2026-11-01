@@ -25,6 +25,8 @@ export {
   SpokenScriptCard,
 } from './primitives'
 
+export { type TaskColumnRatio } from './TaskColumns'
+
 export {
   QueueSection,
   QueueRow,
@@ -66,3 +68,68 @@ export {
   type EditPlacement,
   type AlignChoice,
 } from './CustomerContactCard'
+
+export {
+  PersonNameDisplay,
+  PersonNameEditor,
+  PersonNameFields,
+  usePersonNameDraft,
+  nameFromDraft,
+  type PersonNameDraft,
+  type PersonNameDraftApi,
+} from './PersonName'
+
+export {
+  EmailDisplay,
+  EmailEditor,
+  EmailFields,
+  useEmailDraft,
+  type EmailDraft,
+  type EmailDraftApi,
+  type EmailRecord,
+  type EmailEditResult,
+} from './ContactEmail'
+
+export {
+  PhoneDisplay,
+  PhoneEditor,
+  PhoneFields,
+  usePhoneDraft,
+  type PhoneDraft,
+  type PhoneDraftApi,
+  type PhoneRecord,
+  type PhoneEditResult,
+} from './ContactPhone'
+
+export {
+  DobDisplay,
+  DobEditor,
+  DobFields,
+  useDobDraft,
+  type DobDraftApi,
+  type DobRecord,
+  type DobEditResult,
+} from './ContactDob'
+
+export {
+  AddressDisplay,
+  AddressEditor,
+  AddressFields,
+  useAddressDraft,
+  addressLines,
+  addressUsable,
+  type AddressDraft,
+  type AddressDraftApi,
+  type AddressRecord,
+  type AddressEditResult,
+} from './ContactAddress'
+
+export {
+  AlertBanner,
+  AlertEditor,
+  AlertField,
+  useAlertDraft,
+  type AlertDraftApi,
+  type AlertRecord,
+  type AlertEditResult,
+} from './ContactAlert'

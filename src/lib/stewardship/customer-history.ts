@@ -33,6 +33,8 @@ import {
   type OutreachChannel,
   type ChannelOutcome,
 } from './outreach-attempts'
+import { dobChanged, readStoredDob, dobPrecisionLabel } from './dob'
+import { fullRecordedName, familiarName } from '@/lib/person-name'
 
 /** The direction of a recorded communication, for presentations that title an
  * event by who initiated it. Derived from the stored note (the inbound marker
@@ -1095,6 +1097,15 @@ export const CONTACT_UPDATE_MARKER = '[contact-update]'
 export interface ContactSnapshot {
   first_name: string | null
   last_name: string | null
+  /** Recorded middle name(s); part of the full recorded name. Optional so
+   * existing callers that don't track it still satisfy the type. */
+  middle_name?: string | null
+  /** Generational suffix; part of the full recorded name. Optional. */
+  suffix?: string | null
+  /** The "Goes by" / preferred first name; drives the familiar name. Optional. */
+  goes_by?: string | null
+  /** Preference for the suffix in the familiar name (null = include). Optional. */
+  suffix_in_familiar?: boolean | null
   email: string | null
   phone: string | null
   street: string | null
@@ -1108,6 +1119,12 @@ export interface ContactSnapshot {
   sms_opt_out: boolean
   text_undeliverable: boolean
   contact_alert: string | null
+  /** The customer's EXACT date of birth (YYYY-MM-DD) when all three parts are
+   * known, else null. Only ever rendered MASKED in history (day never shown). */
+  date_of_birth: string | null
+  /** The customer's PARTIAL date of birth (masked "MM/xx/YYYY" / "xx/xx/YYYY")
+   * when the exact date is not fully known, else null. Already dayless. */
+  date_of_birth_approx: string | null
 }
 
 /** The email-availability values the snapshot carries. Kept as a local string
@@ -1134,8 +1151,30 @@ function trimOrNull(v: string | null): string | null {
   return t.length ? t : null
 }
 
-function fullNameOf(s: Pick<ContactSnapshot, 'first_name' | 'last_name'>): string {
-  const n = `${trimOrNull(s.first_name) ?? ''} ${trimOrNull(s.last_name) ?? ''}`.trim()
+function fullNameOf(s: ContactSnapshot): string {
+  const n = fullRecordedName({
+    firstName: trimOrNull(s.first_name),
+    middleName: trimOrNull(s.middle_name ?? null),
+    lastName: trimOrNull(s.last_name),
+    suffix: trimOrNull(s.suffix ?? null),
+    goesBy: trimOrNull(s.goes_by ?? null),
+    suffixInFamiliar: s.suffix_in_familiar ?? null,
+  })
+  return n || '(none)'
+}
+
+/** The familiar (everyday) name for a snapshot, naming the "Goes by" name and
+ * the suffix per preference. Used to describe a change to the goes-by / suffix
+ * preference in audit prose. */
+function familiarOf(s: ContactSnapshot): string {
+  const n = familiarName({
+    firstName: trimOrNull(s.first_name),
+    middleName: trimOrNull(s.middle_name ?? null),
+    lastName: trimOrNull(s.last_name),
+    suffix: trimOrNull(s.suffix ?? null),
+    goesBy: trimOrNull(s.goes_by ?? null),
+    suffixInFamiliar: s.suffix_in_familiar ?? null,
+  })
   return n || '(none)'
 }
 
@@ -1179,15 +1218,30 @@ interface ContactChange {
 function diffContact(before: ContactSnapshot, after: ContactSnapshot): ContactChange[] {
   const changes: ContactChange[] = []
 
-  // Name (first/last considered together as the displayed full name).
-  if (
+  // Name — every recorded part (first, middle, last, suffix, goes-by) plus the
+  // suffix-in-familiar preference considered together. A change to the recorded
+  // parts is described by the full recorded name; a change limited to the
+  // goes-by name or the suffix preference is described by the familiar name, so
+  // the audit sentence names what actually changed.
+  const recordedChanged =
     (trimOrNull(before.first_name) ?? null) !== (trimOrNull(after.first_name) ?? null) ||
-    (trimOrNull(before.last_name) ?? null) !== (trimOrNull(after.last_name) ?? null)
-  ) {
+    (trimOrNull(before.middle_name ?? null) ?? null) !== (trimOrNull(after.middle_name ?? null) ?? null) ||
+    (trimOrNull(before.last_name) ?? null) !== (trimOrNull(after.last_name) ?? null) ||
+    (trimOrNull(before.suffix ?? null) ?? null) !== (trimOrNull(after.suffix ?? null) ?? null)
+  const familiarChanged = familiarOf(before) !== familiarOf(after)
+  if (recordedChanged) {
     changes.push({
       order: 0,
       label: 'name',
       sentence: `Name changed from "${fullNameOf(before)}" to "${fullNameOf(after)}".`,
+    })
+  } else if (familiarChanged) {
+    // Only the goes-by name or the suffix-in-familiar preference moved, so the
+    // full recorded name is unchanged; name the familiar form.
+    changes.push({
+      order: 0,
+      label: 'name',
+      sentence: `Familiar name changed from "${familiarOf(before)}" to "${familiarOf(after)}".`,
     })
   }
 
@@ -1292,6 +1346,28 @@ function diffContact(before: ContactSnapshot, after: ContactSnapshot): ContactCh
     (trimOrNull(before.phone) ?? null) !== (trimOrNull(after.phone) ?? null),
   )
   verifyField(9, 'Address', before.address_verified_at, after.address_verified_at, addrChanged)
+
+  // Date of birth — detected on the TRUE stored values (exact date + partial
+  // string), NOT a day-masked form, so an actual correction INCLUDING a
+  // day-only change is recorded. Routine history never prints the day: the
+  // audit sentence states that the DOB was added/corrected/cleared and names
+  // the PRECISION ("a full date", "month and year", "year only"), never the
+  // value. Ordered just after the name (identity data), before contact fields.
+  if (dobChanged(
+    before.date_of_birth, before.date_of_birth_approx,
+    after.date_of_birth, after.date_of_birth_approx,
+  )) {
+    const had = readStoredDob(before.date_of_birth, before.date_of_birth_approx).precision !== 'none'
+    const has = readStoredDob(after.date_of_birth, after.date_of_birth_approx).precision !== 'none'
+    const afterPrecision = dobPrecisionLabel(after.date_of_birth, after.date_of_birth_approx)
+    changes.push({
+      order: 0.5,
+      label: !had && has ? 'date of birth added' : !has ? 'date of birth cleared' : 'date of birth corrected',
+      sentence: !has
+        ? 'Date of birth was cleared.'
+        : `Date of birth ${had ? 'corrected' : 'added'} (${afterPrecision}).`,
+    })
+  }
 
   // Customer alert.
   if ((trimOrNull(before.contact_alert) ?? null) !== (trimOrNull(after.contact_alert) ?? null)) {

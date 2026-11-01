@@ -206,8 +206,9 @@ worker needs to see what is missing and what must happen next.
 - Muted teal primary accent.
 - Accessible status colors, and never color alone: pair tone with an icon or text.
 - Modern sans-serif typography (no serif in workflow UI).
-- Desktop-first working width, roughly 1280-1400px. Task screens use a
-  context-left / action-right two-column layout that stacks on narrow screens.
+- Desktop-first working width, roughly 1280-1400px. Task screens use an
+  action-left / context-right two-column layout (the action in the left column,
+  supporting context on the right) that stacks on narrow screens.
 
 ## Reuse the shared workflow component layer
 
@@ -228,7 +229,9 @@ components rather than restyling per screen. The durable layer lives in
 - `ContextHeader` — customer/task identity + field-status header, with a
   built-in compact `VerificationKey`.
 - `FieldStatusDot` — field-level verification/status treatment (icon + text).
-- `TaskShell` — desktop task layout with context left and action right.
+- `TaskShell` — desktop task layout with action left and context right (a third
+  column, customer history, is added on the right when supplied, giving
+  work · context · history).
 - `ActionPanel` / `ContextLabel` — the action-first panel with a large action
   heading, and the small uppercase column label.
 - `PrimaryAction` — the single unmistakable primary action button.

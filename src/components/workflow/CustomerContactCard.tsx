@@ -57,14 +57,12 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
   Mail, Phone, MapPin, Pencil, Check, X, Loader2,
-  ShieldQuestion, CheckCircle2, AlertTriangle,
-  Ban, MessageSquareOff,
+  ShieldQuestion, CheckCircle2, AlertTriangle, CalendarDays,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useMentorDisclosure, MentorCapButton, MentorCapPanel } from '@/lib/mentoring/MentorUi'
 import {
-  normalizeEmailInput, normalizePhoneInput, normalizeNameInput, formatPhoneAsTyped, formatPhoneDisplay,
-  type ContactFieldResult,
+  formatPhoneDisplay,
 } from '@/lib/contact-input'
 import {
   normalizeEmail, normalizeStreet, normalizeCity, normalizeState,
@@ -73,13 +71,10 @@ import {
   type EmailAvailability,
   type SelectableEmailAvailability,
   EMAIL_AVAILABILITY_LABEL,
-  SELECTABLE_EMAIL_AVAILABILITY_VALUES,
   resolveEmailAvailabilityDisplay,
 } from '@/lib/email-availability'
 import {
-  type SmsAvailabilityDisplay,
   SMS_AVAILABILITY_LABEL,
-  SMS_AVAILABILITY_HELP,
   resolveSmsAvailabilityDisplay,
 } from '@/lib/sms-availability'
 import {
@@ -87,6 +82,17 @@ import {
   type ContactSnapshot,
   type NextHistoryEntryPreview,
 } from '@/lib/stewardship/customer-history'
+import { formatDobDisplay } from '@/lib/stewardship/dob'
+import {
+  type PersonName,
+  familiarName as personFamiliarName,
+} from '@/lib/person-name'
+import { PersonNameDisplay, PersonNameEditor, PersonNameFields, usePersonNameDraft } from './PersonName'
+import { EmailFields, useEmailDraft } from './ContactEmail'
+import { PhoneFields, usePhoneDraft } from './ContactPhone'
+import { DobFields, useDobDraft } from './ContactDob'
+import { AddressFields, useAddressDraft } from './ContactAddress'
+import { AlertBanner, AlertField, useAlertDraft } from './ContactAlert'
 
 // ── Data shape ───────────────────────────────────────────────────────────────
 
@@ -96,6 +102,18 @@ export interface CustomerContact {
   id: string
   first_name: string | null
   last_name: string | null
+  /** Recorded middle name(s), kept whole. NULL = none. Optional so existing
+   * callers that don't select it still satisfy the type. */
+  middle_name?: string | null
+  /** Generational suffix as typed ("Jr", "III"). NULL = none. Optional. */
+  suffix?: string | null
+  /** The name the customer is called ("Goes by" / preferred first). NULL = none
+   * and the familiar/greeting names fall back to first_name. Optional. */
+  goes_by?: string | null
+  /** Preference for showing the suffix in the FAMILIAR name. NULL = no
+   * preference (defaults to include); false suppresses it from the familiar
+   * name only. Optional. */
+  suffix_in_familiar?: boolean | null
   email: string | null
   phone: string | null
   /** Mailing street. Mirrors the app convention: `street`, falling back to the
@@ -143,6 +161,34 @@ export interface CustomerContact {
    * date_of_birth, so the identity header labels it approximate ("~N (approx.)").
    * Optional; defaults to exact. */
   age_approximate?: boolean
+  /** The customer's EXACT date of birth (YYYY-MM-DD) when all three parts are
+   * known, else null. Shown MASKED only (day never rendered) beneath the name,
+   * alongside age, and editable in the expanded editor. Optional so existing
+   * callers that don't select it still satisfy the type. */
+  date_of_birth?: string | null
+  /** The customer's PARTIAL date of birth (masked 'MM/xx/YYYY' / 'xx/xx/YYYY',
+   * no day) when the exact date is not fully known, else null. Optional. */
+  date_of_birth_approx?: string | null
+  /** The best-available-precision DOB resolved for display ("MM/DD/YYYY" /
+   * "MM/YYYY" / "YYYY"), drawn from the exact date, the customer's own partial
+   * DOB, or the reliable owner-DOB consensus across the customer's LINKED
+   * POLICIES (never the policy insured). Null when nothing usable is on file.
+   * Supplied by /api/customers/[id]/contact. The card's scoped full-DOB
+   * exception; prefer this over formatting the stored columns directly so a
+   * linked-policy partial DOB is also shown. */
+  dob_display?: string | null
+  /** Where `dob_display` came from: 'exact'/'customer_partial' stored on the
+   * customer, 'linked_policy' derived from the customer's policies, 'none'. */
+  dob_source?: 'exact' | 'customer_partial' | 'linked_policy' | 'none'
+  /** True when `dob_display` is NOT a confirmed exact date on the customer (a
+   * partial, or derived from linked policies), so it is labeled not-yet-
+   * confirmed — mirroring the approximate-age treatment. */
+  dob_approximate?: boolean
+  /** The resolved DOB parts for seeding the editor (a partial/linked source has
+   * a blank day). Numbers, or null when unknown. */
+  dob_month?: number | null
+  dob_day?: number | null
+  dob_year?: number | null
 }
 
 type ContactFieldKey = 'email' | 'phone' | 'address'
@@ -555,10 +601,6 @@ function textStyle(
   return s
 }
 
-/** Backwards-compatible helper kept for the value/address renderers. */
-function fontStyle(ap: ResolvedAppearance, px: number): React.CSSProperties | undefined {
-  return ap.isDefault ? undefined : { fontSize: `${px.toFixed(3)}px` }
-}
 
 /** Icon style: an explicit px size when non-default, else undefined so the
  * size-* class governs. */
@@ -581,6 +623,10 @@ function colorClass(choice: ColorChoice, statusColor: string): string {
 export interface ContactUpdatePayload {
   first_name?: string | null
   last_name?: string | null
+  middle_name?: string | null
+  suffix?: string | null
+  goes_by?: string | null
+  suffix_in_familiar?: boolean | null
   email?: string | null
   phone?: string | null
   street?: string | null
@@ -594,6 +640,13 @@ export interface ContactUpdatePayload {
   do_not_text?: boolean
   mark_undeliverable?: boolean
   alert?: string | null
+  /** Date of birth, sent as the three raw parts the operator entered. Any part
+   * may be blank (unknown); the route normalizes them with the same rules the
+   * form applies and stores an exact or partial DOB accordingly. Present only
+   * when the DOB actually changed. */
+  dob_month?: string
+  dob_day?: string
+  dob_year?: string
 }
 
 /** The request the card would send. Exposed so a host (or Storybook) can supply
@@ -604,7 +657,15 @@ export type ContactPersistPayload =
   // "Customer Contact Updated" history entry. This is what the single Save on
   // the card sends.
   | ({ field: 'contact' } & ContactUpdatePayload)
-  | { field: 'name'; first_name: string | null; last_name: string | null }
+  | {
+      field: 'name'
+      first_name: string | null
+      last_name: string | null
+      middle_name?: string | null
+      suffix?: string | null
+      goes_by?: string | null
+      suffix_in_familiar?: boolean | null
+    }
   | { field: 'email'; email: string | null }
   | { field: 'phone'; phone: string | null }
   | { field: 'address'; street: string | null; city: string | null; state: string | null; zip: string | null }
@@ -623,8 +684,27 @@ type Tone = 'confirmed' | 'known' | 'missing'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
-function fullName(c: Pick<CustomerContact, 'first_name' | 'last_name'>): string {
-  return `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim() || 'Unknown customer'
+/** Build the shared PersonName shape from a customer-contact record, so the
+ * card reuses the centralized familiar/greeting/full-recorded presentation. */
+function personNameOf(
+  c: Pick<CustomerContact, 'first_name' | 'last_name' | 'middle_name' | 'suffix' | 'goes_by' | 'suffix_in_familiar'>,
+): PersonName {
+  return {
+    firstName: c.first_name ?? null,
+    middleName: c.middle_name ?? null,
+    lastName: c.last_name ?? null,
+    suffix: c.suffix ?? null,
+    goesBy: c.goes_by ?? null,
+    suffixInFamiliar: c.suffix_in_familiar ?? null,
+  }
+}
+
+/** The customer's familiar name (the everyday name), via the shared rules. Used
+ * where a single-line name string is needed (Overview, mentoring heading). */
+function fullName(
+  c: Pick<CustomerContact, 'first_name' | 'last_name' | 'middle_name' | 'suffix' | 'goes_by' | 'suffix_in_familiar'>,
+): string {
+  return personFamiliarName(personNameOf(c)) || 'Unknown customer'
 }
 
 function streetOf(c: CustomerContact): string {
@@ -842,6 +922,12 @@ function SelfContainedContactCard({
       ...updated,
       age: updated.age ?? prev?.age ?? null,
       age_approximate: updated.age_approximate ?? prev?.age_approximate ?? false,
+      // The resolved DOB display travels with every PATCH response now (so a
+      // just-saved or just-promoted DOB shows at its true precision); keep the
+      // prior resolution if a response ever omits it.
+      dob_display: updated.dob_display ?? prev?.dob_display ?? null,
+      dob_source: updated.dob_source ?? prev?.dob_source,
+      dob_approximate: updated.dob_approximate ?? prev?.dob_approximate ?? false,
     }))
     onChange?.(updated)
   }, [onChange])
@@ -890,12 +976,22 @@ function SelfContainedContactCard({
           customerId={record.id}
           firstName={record.first_name}
           lastName={record.last_name}
-          className="text-[33px] font-bold leading-tight tracking-tight text-brand"
+          middleName={record.middle_name ?? null}
+          suffix={record.suffix ?? null}
+          goesBy={record.goes_by ?? null}
+          suffixInFamiliar={record.suffix_in_familiar ?? null}
+          className="text-[26px] font-bold leading-tight tracking-tight text-brand"
           // Name is corrected inside the one unified editor now, so the heading
           // never shows its own Edit name control (expanded=false hides it).
           expanded={false}
           age={record.age ?? null}
           ageApproximate={record.age_approximate === true}
+          // Prefer the resolved best-available DOB (which includes a reliable
+          // partial DOB consensus from the customer's LINKED POLICIES) over the
+          // DOB stored directly on the row, falling back to the stored columns
+          // if the resolver did not run. The card's scoped full-DOB exception.
+          dob={record.dob_display ?? formatDobDisplay(record.date_of_birth, record.date_of_birth_approx)}
+          dobApproximate={record.dob_approximate === true}
           onSaved={handleChange}
         />
       }
@@ -1106,7 +1202,7 @@ function ContactCardView({
       {/* The customer alert banner near the top, shown in the compact Overview
           whenever an alert exists. In the editor the alert is one of the fields,
           so the banner is not shown there. */}
-      {alertText && !isExpanded && <AlertBanner text={alertText} />}
+      {alertText && !isExpanded && <AlertBanner alert={alertText} className="mt-3" />}
 
       {/* The customer's name heading (read-only here). Name is corrected inside
           the one unified editor, so the heading never carries its own Edit name
@@ -1232,39 +1328,74 @@ function UnifiedContactEditor({
 }) {
   // ── Drafts, seeded from the current record (display-normalized where the
   // read view shows a normalized value, so the operator edits what they saw). ──
-  const [first, setFirst] = useState(record.first_name ?? '')
-  const [last, setLast] = useState(record.last_name ?? '')
-  const [email, setEmail] = useState(record.email ?? '')
-  const [emailResult, setEmailResult] = useState<ContactFieldResult | null>(null)
-  // A staged "no usable email" reason selected in this session; mutually
-  // exclusive with a typed email, exactly like the former per-field editor.
-  const [emailReason, setEmailReason] = useState<SelectableEmailAvailability | null>(null)
-  const [phone, setPhone] = useState(formatPhoneAsTyped(record.phone ?? ''))
-  const [phoneResult, setPhoneResult] = useState<ContactFieldResult | null>(null)
-  const [doNotText, setDoNotText] = useState(record.sms_opt_out === true)
-  const [markUndeliverable, setMarkUndeliverable] = useState(
-    record.text_undeliverable === true && !!record.phone?.trim(),
-  )
-  const [street, setStreet] = useState(streetDisplay(record))
-  const [city, setCity] = useState(normalizeCity(record.city) ?? '')
-  const [stateVal, setStateVal] = useState(normalizeState(record.state) ?? '')
-  const [zip, setZip] = useState(record.zip ?? '')
-  // Verified reflects the value that will be on file. An edited value clears its
-  // own verification; the checkbox follows that below.
-  const [emailVerified, setEmailVerified] = useState(!!record.email_verified_at)
-  const [phoneVerified, setPhoneVerified] = useState(!!record.phone_verified_at)
-  const [addressVerified, setAddressVerified] = useState(!!record.address_verified_at)
-  const [alertDraft, setAlertDraft] = useState(record.contact_alert ?? '')
+  // Name is edited through the ONE shared Person Name field group + validation
+  // (usePersonNameDraft / PersonNameFields), the same implementation the
+  // standalone editor uses — no duplicated name-field logic here. Seeded from
+  // the record's recorded parts.
+  const nameApi = usePersonNameDraft({
+    firstName: record.first_name ?? null,
+    middleName: record.middle_name ?? null,
+    lastName: record.last_name ?? null,
+    suffix: record.suffix ?? null,
+    goesBy: record.goes_by ?? null,
+    suffixInFamiliar: record.suffix_in_familiar ?? null,
+  })
+  // Defer the inline name error until a Save attempt, like the standalone editor.
+  const [nameAttempted, setNameAttempted] = useState(false)
+  // Email — the ONE shared Email field group (input + the three mutually-
+  // exclusive availability reasons + the Verified checkbox), driven by the
+  // shared draft hook so validation and resolution match everywhere.
+  const emailApi = useEmailDraft({
+    email: record.email,
+    email_availability: record.email_availability ?? null,
+    email_verified_at: record.email_verified_at,
+  })
+  // Defer the inline email error until a Save attempt, like the name section.
+  const [emailAttempted, setEmailAttempted] = useState(false)
+  // Phone — the ONE shared Phone field group (number + the Text-message
+  // availability controls Do Not Text / Text Undeliverable + the Verified
+  // checkbox), driven by the shared draft hook so validation, texting gating,
+  // and resolution match everywhere.
+  const phoneApi = usePhoneDraft({
+    phone: record.phone,
+    sms_opt_out: record.sms_opt_out === true,
+    text_undeliverable: record.text_undeliverable === true,
+    phone_verified_at: record.phone_verified_at,
+  })
+  // Defer the inline phone error until a Save attempt, like the name section.
+  const [phoneAttempted, setPhoneAttempted] = useState(false)
+  // Defer the inline DOB error until a Save attempt, like the name section.
+  const [dobAttempted, setDobAttempted] = useState(false)
+  // Date of birth — the ONE shared DOB field group (month / day / year with the
+  // exact-vs-partial rules and the downgrade guard). Seeded from the resolved
+  // best-available parts (which may be a linked-policy consensus) when present,
+  // else the stored columns; the Lego persists only on a genuine edit away from
+  // that seed, so merely opening the editor never writes a derived DOB.
+  const dobApi = useDobDraft({
+    date_of_birth: record.date_of_birth ?? null,
+    date_of_birth_approx: record.date_of_birth_approx ?? null,
+    seed_month: record.dob_month ?? null,
+    seed_day: record.dob_day ?? null,
+    seed_year: record.dob_year ?? null,
+  })
+  // Mailing address — the ONE shared Address field group (street / city / state
+  // / ZIP + the Address Verified checkbox), driven by the shared draft hook so
+  // normalization, resolution, and verified gating match everywhere.
+  const addressApi = useAddressDraft({
+    street: record.street,
+    address_line1: record.address_line1 ?? null,
+    city: record.city,
+    state: record.state,
+    zip: record.zip,
+    address_verified_at: record.address_verified_at,
+  })
+  // Customer alert — the ONE shared Alert field group (a single free-text note).
+  const alertApi = useAlertDraft({ contact_alert: record.contact_alert ?? null })
 
-  // The number that WILL be on file after Save, so the texting controls and the
-  // address verifiability reflect the pending state, not the stored one.
-  const stagedPhone = normalizePhoneInput(phone)
-  const willHaveNumber = stagedPhone.status !== 'empty' && stagedPhone.status !== 'invalid'
-  const numberUnchanged =
-    (stagedPhone.value ?? null) === (record.phone ? (normalizePhoneInput(record.phone).value ?? null) : null)
-  // Text Undeliverable clears only by replacing the number, so when the number
-  // is unchanged and already undeliverable the control is locked on.
-  const lockedUndeliverable = record.text_undeliverable === true && !!record.phone?.trim() && numberUnchanged && willHaveNumber
+  // The number/texting state that WILL be on file after Save lives in the shared
+  // Phone Lego draft (`phoneApi.willHaveNumber` / `numberUnchanged` /
+  // `lockedUndeliverable` / `willMarkUndeliverable`), so the card no longer
+  // derives it; the mailing-address verifiability still reads it from there.
 
   // Build the minimal payload of ONLY changed facts, plus the before/after
   // snapshots for the live preview. Verification reflects the value that will be
@@ -1273,38 +1404,69 @@ function UnifiedContactEditor({
   const buildChange = useCallback((): { payload: ContactUpdatePayload; after: ContactSnapshot; before: ContactSnapshot } => {
     const payload: ContactUpdatePayload = {}
 
-    const nf = normalizeNameInput(first).value
-    const nl = normalizeNameInput(last).value
+    // Name — the live, normalized parts from the shared draft. Save-only-changed
+    // per column.
+    const ln = nameApi.liveName
+    const nf = ln.firstName
+    const nl = ln.lastName
+    const nm = ln.middleName
+    const nsuf = ln.suffix
+    const ngb = ln.goesBy
     if ((nf ?? null) !== (record.first_name ?? null)) payload.first_name = nf
     if ((nl ?? null) !== (record.last_name ?? null)) payload.last_name = nl
-
-    // Email: a staged reason wins (clears the email); else the typed value.
-    let nextEmail: string | null = record.email
-    let nextAvailability = (record.email_availability ?? null)
-    if (emailReason) {
-      payload.email_availability = emailReason
-      nextEmail = null
-      nextAvailability = emailReason === 'missing' ? null : emailReason
-    } else {
-      const er = normalizeEmailInput(email)
-      if (er.status !== 'invalid' && (er.value ?? null) !== (record.email ?? null)) {
-        payload.email = er.value
-        nextEmail = er.value ?? null
-        if (er.value) nextAvailability = 'available'
-      }
+    if ((nm ?? null) !== (record.middle_name ?? null)) payload.middle_name = nm
+    if ((nsuf ?? null) !== (record.suffix ?? null)) payload.suffix = nsuf
+    if ((ngb ?? null) !== (record.goes_by ?? null)) payload.goes_by = ngb
+    // The suffix-in-familiar preference. Only meaningful when a suffix will be
+    // on file; otherwise there is nothing to show or hide, so don't write it.
+    const nextPref = nsuf ? ln.suffixInFamiliar : (record.suffix_in_familiar ?? null)
+    if ((nextPref ?? null) !== (record.suffix_in_familiar ?? null)) {
+      payload.suffix_in_familiar = nextPref
     }
 
-    const pr = normalizePhoneInput(phone)
-    let nextPhone: string | null = record.phone
-    if (pr.status !== 'invalid' && (pr.value ?? null) !== (record.phone ?? null)) {
-      payload.phone = pr.value
-      nextPhone = pr.value ?? null
+    // DOB: the shared DOB Lego resolves whether the operator actually edited the
+    // date away from its seed and whether that edit changes the stored columns
+    // (never a downgrade of a known exact date, never a policy-derived seed
+    // written on a plain save). Send the three raw parts only on a genuine
+    // change; the route re-normalizes them identically.
+    const nextDob =
+      dobApi.willChange
+        ? { date_of_birth: dobApi.result.date_of_birth, date_of_birth_approx: dobApi.result.date_of_birth_approx }
+        : { date_of_birth: record.date_of_birth ?? null, date_of_birth_approx: record.date_of_birth_approx ?? null }
+    if (dobApi.willChange) {
+      payload.dob_month = dobApi.parts.month
+      payload.dob_day = dobApi.parts.day
+      payload.dob_year = dobApi.parts.year
     }
 
-    const ns = normalizeStreet(street)
-    const nc = normalizeCity(city)
-    const nst = normalizeState(stateVal)
-    const nz = ((): string | null => { const t = zip.replace(/\s+/g, ' ').trim(); return t.length ? t : null })()
+    // Email: the shared Email Lego resolves the value and availability that will
+    // be on file (a staged reason clears the email; a usable address flips
+    // availability to 'available'; "Missing" resets it to null). Send only what
+    // actually changed. A staged reason always writes the availability it
+    // resolved, so a "no usable email" disposition records even when the stored
+    // email was already empty.
+    const nextEmail = emailApi.resolvedEmail
+    const nextAvailability = emailApi.resolvedAvailability
+    if ((nextEmail ?? null) !== (record.email ?? null)) {
+      payload.email = nextEmail
+    }
+    if (emailApi.draft.reason != null) {
+      payload.email_availability = emailApi.draft.reason
+    }
+
+    // Phone: the shared Phone Lego resolves the number that will be on file.
+    // Send it only when it actually changed.
+    const nextPhone = phoneApi.resolvedPhone
+    if ((nextPhone ?? null) !== (record.phone ?? null)) {
+      payload.phone = nextPhone
+    }
+
+    // Mailing address: the shared Address Lego resolves the four normalized
+    // values that will be on file. Send the group only when any of them changed.
+    const ns = addressApi.resolved.street
+    const nc = addressApi.resolved.city
+    const nst = addressApi.resolved.state
+    const nz = addressApi.resolved.zip
     const beforeStreet = (record.street ?? record.address_line1 ?? '').trim() || null
     const addrChanged =
       (ns ?? null) !== (beforeStreet ?? null) ||
@@ -1315,15 +1477,17 @@ function UnifiedContactEditor({
       payload.street = ns; payload.city = nc; payload.state = nst; payload.zip = nz
     }
 
-    // Do Not Text / Text Undeliverable.
+    // Do Not Text / Text Undeliverable — both resolved by the Phone Lego. Send
+    // the opt-out only when it changed; request a delivery-failure record only
+    // when the Lego says one should be recorded (staged, a number on file, not
+    // already-and-unchanged). A failure is never cleared here.
+    const doNotText = phoneApi.draft.doNotText
+    const willMarkUndeliverable = phoneApi.willMarkUndeliverable
     if (doNotText !== (record.sms_opt_out === true)) payload.do_not_text = doNotText
-    const willMarkUndeliverable =
-      markUndeliverable && willHaveNumber && !lockedUndeliverable &&
-      !((numberUnchanged) && record.text_undeliverable === true)
     if (willMarkUndeliverable) payload.mark_undeliverable = true
 
-    // Alert.
-    const nextAlert = alertDraft.trim().length ? alertDraft.trim() : null
+    // Alert: the shared Alert Lego resolves the trimmed note (null to clear).
+    const nextAlert = alertApi.resolved
     if ((nextAlert ?? null) !== ((record.contact_alert ?? '').trim() ? record.contact_alert : null)) {
       payload.alert = nextAlert
     }
@@ -1339,9 +1503,9 @@ function UnifiedContactEditor({
     const emailVerifiedAfter = emailEdited ? false : !!record.email_verified_at
     const phoneVerifiedAfter = phoneEdited ? false : !!record.phone_verified_at
     const addrVerifiedAfter = addrEdited ? false : !!record.address_verified_at
-    const wantEmailVerified = emailVerified && emailUsableAfter
-    const wantPhoneVerified = phoneVerified && phoneUsableAfter
-    const wantAddrVerified = addressVerified && addrUsableAfter
+    const wantEmailVerified = emailApi.draft.verified && emailApi.canVerify && emailUsableAfter
+    const wantPhoneVerified = phoneApi.draft.verified && phoneApi.canVerify && phoneUsableAfter
+    const wantAddrVerified = addressApi.draft.verified && addressApi.canVerify && addrUsableAfter
     if (wantEmailVerified !== emailVerifiedAfter) payload.email_verified = wantEmailVerified
     if (wantPhoneVerified !== phoneVerifiedAfter) payload.phone_verified = wantPhoneVerified
     if (wantAddrVerified !== addrVerifiedAfter) payload.address_verified = wantAddrVerified
@@ -1349,6 +1513,10 @@ function UnifiedContactEditor({
     const toSnapshot = (): ContactSnapshot => ({
       first_name: record.first_name,
       last_name: record.last_name,
+      middle_name: record.middle_name ?? null,
+      suffix: record.suffix ?? null,
+      goes_by: record.goes_by ?? null,
+      suffix_in_familiar: record.suffix_in_familiar ?? null,
       email: record.email,
       phone: record.phone,
       street: beforeStreet,
@@ -1360,6 +1528,8 @@ function UnifiedContactEditor({
       address_verified_at: record.address_verified_at,
       email_availability: record.email_availability ?? null,
       sms_opt_out: record.sms_opt_out === true,
+      date_of_birth: record.date_of_birth ?? null,
+      date_of_birth_approx: record.date_of_birth_approx ?? null,
       text_undeliverable: record.text_undeliverable === true && !!record.phone?.trim(),
       contact_alert: record.contact_alert ?? null,
     })
@@ -1367,6 +1537,10 @@ function UnifiedContactEditor({
     const after: ContactSnapshot = {
       first_name: nf,
       last_name: nl,
+      middle_name: nm,
+      suffix: nsuf,
+      goes_by: ngb,
+      suffix_in_familiar: nextPref,
       email: nextEmail,
       phone: nextPhone,
       street: ns,
@@ -1378,14 +1552,23 @@ function UnifiedContactEditor({
       address_verified_at: wantAddrVerified ? (record.address_verified_at ?? 'pending') : null,
       email_availability: nextAvailability,
       sms_opt_out: doNotText,
-      text_undeliverable: willMarkUndeliverable || (numberUnchanged && record.text_undeliverable === true && willHaveNumber),
+      date_of_birth: nextDob.date_of_birth,
+      date_of_birth_approx: nextDob.date_of_birth_approx,
+      text_undeliverable: willMarkUndeliverable || (phoneApi.numberUnchanged && record.text_undeliverable === true && phoneApi.willHaveNumber),
       contact_alert: nextAlert,
     }
     return { payload, before, after }
   }, [
-    first, last, email, emailReason, phone, doNotText, markUndeliverable,
-    street, city, stateVal, zip, emailVerified, phoneVerified, addressVerified,
-    alertDraft, willHaveNumber, lockedUndeliverable, numberUnchanged, record,
+    nameApi.liveName,
+    emailApi.resolvedEmail, emailApi.resolvedAvailability, emailApi.draft.reason,
+    emailApi.draft.verified, emailApi.canVerify,
+    phoneApi.resolvedPhone, phoneApi.draft.doNotText, phoneApi.draft.verified,
+    phoneApi.willMarkUndeliverable, phoneApi.willHaveNumber, phoneApi.numberUnchanged,
+    phoneApi.canVerify,
+    dobApi.willChange, dobApi.result, dobApi.parts,
+    addressApi.resolved, addressApi.draft.verified, addressApi.canVerify,
+    alertApi.resolved,
+    record,
   ])
 
   // Report the live preview of the pending change AND whether the drafts are
@@ -1405,185 +1588,131 @@ function UnifiedContactEditor({
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault()
-    // Block Save on an invalid typed value (unless the email is being replaced
-    // by a staged reason). Validation mirrors the server, so bad formatting
-    // cannot slip through.
-    if (!emailReason) {
-      const er = normalizeEmailInput(email)
-      if (er.status === 'invalid') { setEmailResult(er); return }
-    }
-    const pr = normalizePhoneInput(phone)
-    if (pr.status === 'invalid') { setPhoneResult(pr); return }
-    const nf = normalizeNameInput(first)
-    const nl = normalizeNameInput(last)
-    if (nf.status === 'empty' && nl.status === 'empty') { return }
+    // Block Save on an invalid typed email (an empty email with no reason is a
+    // valid clear; a staged reason always resolves valid). The shared Email Lego
+    // reports validity, mirroring the server, so bad formatting cannot slip
+    // through; surface the inline message on attempt.
+    if (!emailApi.valid) { setEmailAttempted(true); return }
+    // Phone: the shared Phone Lego reports validity (an empty number is a valid
+    // clear). Block Save and surface the inline message on an invalid number.
+    if (!phoneApi.valid) { setPhoneAttempted(true); return }
+    // Name: First and Last both required (Other needs a custom suffix). The
+    // shared draft reports validity; block Save and surface the inline errors.
+    if (!nameApi.valid) { setNameAttempted(true); return }
+    // Block Save on an invalid DOB, or on a downgrade of a known exact DOB to
+    // partial info (same guards the route enforces); the shared DOB Lego reports
+    // both as not-valid. Surface the inline message on attempt.
+    if (!dobApi.valid) { setDobAttempted(true); return }
     onSave(buildChange().payload)
   }
 
-  const selectReason = (choice: SelectableEmailAvailability) => {
-    setEmailResult(null)
-    setEmailReason((prev) => {
-      const next = prev === choice ? null : choice
-      setEmail(next ? '' : (record.email ?? ''))
-      if (next) setEmailVerified(false)
-      return next
-    })
-  }
-
-  const nameInvalid =
-    normalizeNameInput(first).status === 'empty' && normalizeNameInput(last).status === 'empty'
-
-  const draftSmsDisplay: SmsAvailabilityDisplay = resolveSmsAvailabilityDisplay({
-    smsOptOut: doNotText,
-    textUndeliverable: markUndeliverable && willHaveNumber,
-  })
+  // Name validity comes from the shared draft hook (First and Last both
+  // required; Other requires a custom suffix) — the same rule the server
+  // enforces. The inline field errors/preview live inside PersonNameFields.
+  const nameInvalid = !nameApi.valid
 
   return (
     <form onSubmit={submit} className="mt-3">
-      <div className="divide-y divide-surface-border-strong">
-        {/* Name */}
+      <div className="divide-y-2 divide-surface-border-section">
+        {/* Name — the ONE shared Person Name field group (First, Middle, Last,
+            Suffix dropdown; Goes by + the suffix-in-familiar checkbox) with its
+            compact live familiar + greeting preview. Exactly the implementation
+            the standalone editor uses, so there is no duplicated name-field
+            logic. A bold section heading (matching the other sections) marks
+            Name as its own section; the inline required-field error shows only
+            after a Save attempt. */}
         <div className="py-3 first:pt-0">
-          <p className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
+          <p className="flex items-center gap-1.5 text-base font-bold text-ink">
             <Pencil className="size-4" aria-hidden /> Name
           </p>
-          <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <div>
-              <label htmlFor="uc-first" className="text-sm font-medium text-ink-secondary">First name</label>
-              <input id="uc-first" type="text" value={first} disabled={busy}
-                onChange={(e) => setFirst(e.target.value)}
-                onBlur={() => setFirst((v) => normalizeNameInput(v).value ?? '')}
-                placeholder="First name" className={cn('mt-1', inputCls(false))} />
-            </div>
-            <div>
-              <label htmlFor="uc-last" className="text-sm font-medium text-ink-secondary">Last name</label>
-              <input id="uc-last" type="text" value={last} disabled={busy}
-                onChange={(e) => setLast(e.target.value)}
-                onBlur={() => setLast((v) => normalizeNameInput(v).value ?? '')}
-                placeholder="Last name" className={cn('mt-1', inputCls(false))} />
-            </div>
+          <div className="mt-1.5">
+            <PersonNameFields
+              api={nameApi}
+              busy={busy}
+              idPrefix="uc-name"
+              autoFocus={false}
+              showError={nameAttempted}
+            />
           </div>
-          {nameInvalid && (
-            <p className="mt-1.5 text-base text-status-missing-strong">Enter at least a first or last name.</p>
-          )}
         </div>
 
-        {/* Email + availability + verification */}
+        {/* Date of birth — the ONE shared DOB field group (month / day / year
+            with the exact-vs-partial rules and the exact-DOB downgrade guard).
+            The inline invalid/downgrade message shows only after a Save
+            attempt. */}
         <div className="py-3">
-          <label htmlFor="uc-email" className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
+          <p className="flex items-center gap-1.5 text-base font-bold text-ink">
+            <CalendarDays className="size-4" aria-hidden /> Date of birth
+          </p>
+          <div className="mt-1.5">
+            <DobFields
+              api={dobApi}
+              busy={busy}
+              idPrefix="uc-dob"
+              showError={dobAttempted}
+            />
+          </div>
+        </div>
+
+        {/* Email — the ONE shared Email field group (input + the three
+            mutually-exclusive availability reasons + the Verified checkbox) with
+            its inline validation. Exactly the implementation the standalone
+            Email editor uses, so there is no duplicated email logic; the inline
+            invalid message shows only after a Save attempt. */}
+        <div className="py-3">
+          <p className="flex items-center gap-1.5 text-base font-bold text-ink">
             <Mail className="size-4" aria-hidden /> Email
-          </label>
-          <input id="uc-email" type="email" value={email} disabled={busy || !!emailReason}
-            onChange={(e) => { setEmail(e.target.value); if (emailResult) setEmailResult(null) }}
-            onBlur={() => { if (!emailReason) setEmailResult(normalizeEmailInput(email)) }}
-            placeholder={emailReason ? EMAIL_AVAILABILITY_LABEL[emailReason] : 'name@example.com'}
-            aria-invalid={emailResult?.status === 'invalid' || undefined}
-            className={cn('mt-1.5', inputCls(emailResult?.status === 'invalid'), emailReason && 'opacity-50')} />
-          {emailResult?.status === 'invalid' && emailResult.reason && (
-            <p className="mt-1.5 text-base text-status-missing-strong">{emailResult.reason}</p>
-          )}
-          <div className="mt-2 flex flex-wrap gap-2">
-            {SELECTABLE_EMAIL_AVAILABILITY_VALUES.map((choice) => {
-              const selected = emailReason === choice
-              return (
-                <button key={choice} type="button" disabled={busy} aria-pressed={selected}
-                  onClick={() => selectReason(choice)}
-                  className={cn(
-                    'inline-flex items-center rounded-lg border px-2.5 py-1 text-sm font-medium disabled:opacity-60',
-                    selected
-                      ? 'border-status-missing-border bg-status-missing-soft text-status-missing-strong'
-                      : 'border-surface-border-strong bg-surface-card text-ink-secondary hover:bg-surface-muted',
-                  )}>
-                  {EMAIL_AVAILABILITY_LABEL[choice]}
-                </button>
-              )
-            })}
-          </div>
-          <div className="mt-2">
-            <VerifiedToggle label="Email verified" checked={emailVerified}
-              disabled={busy || !!emailReason || !normalizeEmailInput(email).value}
-              onChange={setEmailVerified} />
+          </p>
+          <div className="mt-1.5">
+            <EmailFields
+              api={emailApi}
+              busy={busy}
+              idPrefix="uc-email"
+              showError={emailAttempted}
+            />
           </div>
         </div>
 
-        {/* Phone + texting restrictions + verification */}
+        {/* Phone — the ONE shared Phone field group (number + the Text-message
+            availability controls Do Not Text / Text Undeliverable + the Verified
+            checkbox) with its inline validation. Exactly the implementation the
+            standalone Phone editor uses, so there is no duplicated phone/texting
+            logic; the inline invalid message shows only after a Save attempt. */}
         <div className="py-3">
-          <label htmlFor="uc-phone" className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
+          <p className="flex items-center gap-1.5 text-base font-bold text-ink">
             <Phone className="size-4" aria-hidden /> Phone
-          </label>
-          <input id="uc-phone" type="tel" value={phone} disabled={busy}
-            onChange={(e) => { setPhone(formatPhoneAsTyped(e.target.value)); if (phoneResult) setPhoneResult(null) }}
-            onBlur={() => setPhoneResult(normalizePhoneInput(phone))}
-            placeholder="(215) 555-0100" aria-invalid={phoneResult?.status === 'invalid' || undefined}
-            className={cn('mt-1.5', inputCls(phoneResult?.status === 'invalid'))} />
-          {phoneResult?.status === 'invalid' && phoneResult.reason && (
-            <p className="mt-1.5 text-base text-status-missing-strong">{phoneResult.reason}</p>
-          )}
-          <SmsAvailabilityControls
-            display={draftSmsDisplay}
-            hasNumber={willHaveNumber}
-            doNotText={doNotText}
-            undeliverable={markUndeliverable && willHaveNumber}
-            lockedUndeliverable={lockedUndeliverable}
-            busy={busy}
-            onToggleDoNotText={() => setDoNotText((v) => !v)}
-            onToggleUndeliverable={() => { if (!lockedUndeliverable) setMarkUndeliverable((v) => !v) }}
-          />
-          <div className="mt-2">
-            <VerifiedToggle label="Phone verified" checked={phoneVerified}
-              disabled={busy || !normalizePhoneInput(phone).value}
-              onChange={setPhoneVerified} />
+          </p>
+          <div className="mt-1.5">
+            <PhoneFields
+              api={phoneApi}
+              busy={busy}
+              idPrefix="uc-phone"
+              showError={phoneAttempted}
+            />
           </div>
         </div>
 
-        {/* Mailing address + verification */}
-        <div className="py-3 last:pb-0">
-          <p className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
+        {/* Mailing address — the ONE shared Address field group (street / city /
+            state / ZIP + the Address Verified checkbox). */}
+        <div className={cn('py-3', !alertEditable && 'last:pb-0')}>
+          <p className="flex items-center gap-1.5 text-base font-bold text-ink">
             <MapPin className="size-4" aria-hidden /> Mailing Address
           </p>
-          <div className="mt-1.5 space-y-2">
-            <div>
-              <label htmlFor="uc-street" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">Street</label>
-              <input id="uc-street" value={street} disabled={busy} onChange={(e) => setStreet(e.target.value)}
-                onBlur={() => setStreet((v) => normalizeStreet(v) ?? '')}
-                placeholder="123 Main St" className={cn('mt-1', inputCls(false))} />
-            </div>
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <label htmlFor="uc-city" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">City</label>
-                <input id="uc-city" value={city} disabled={busy} onChange={(e) => setCity(e.target.value)}
-                  onBlur={() => setCity((v) => normalizeCity(v) ?? '')}
-                  placeholder="Philadelphia" className={cn('mt-1', inputCls(false))} />
-              </div>
-              <div className="w-16">
-                <label htmlFor="uc-state" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">State</label>
-                <input id="uc-state" value={stateVal} disabled={busy} onChange={(e) => setStateVal(e.target.value.toUpperCase())}
-                  maxLength={2} placeholder="PA" className={cn('mt-1 uppercase', inputCls(false))} />
-              </div>
-              <div className="w-24">
-                <label htmlFor="uc-zip" className="text-sm font-medium uppercase tracking-wide text-ink-supporting">ZIP</label>
-                <input id="uc-zip" value={zip} disabled={busy} onChange={(e) => setZip(e.target.value)}
-                  placeholder="19103" className={cn('mt-1', inputCls(false))} />
-              </div>
-            </div>
-          </div>
-          <div className="mt-2">
-            <VerifiedToggle label="Address verified"
-              checked={addressVerified}
-              disabled={busy || !(normalizeStreet(street) && normalizeCity(city) && normalizeState(stateVal) && zip.trim())}
-              onChange={setAddressVerified} />
+          <div className="mt-1.5">
+            <AddressFields api={addressApi} busy={busy} idPrefix="uc-addr" />
           </div>
         </div>
 
-        {/* Customer alert — part of the one editing area. */}
+        {/* Customer alert — the ONE shared Alert field group (a single note),
+            part of the one editing area. */}
         {alertEditable && (
-          <div className="py-3">
-            <label htmlFor="uc-alert" className="flex items-center gap-1.5 text-base font-semibold text-status-known-strong">
+          <div className="py-3 last:pb-0">
+            <p className="flex items-center gap-1.5 text-base font-bold text-status-known-strong">
               <AlertTriangle className="size-4" aria-hidden /> Customer alert
-            </label>
-            <textarea id="uc-alert" rows={2} value={alertDraft} disabled={busy}
-              onChange={(e) => setAlertDraft(e.target.value)}
-              placeholder="Add a short alert shown at the top of this customer's card."
-              className="mt-1.5 w-full rounded-lg border border-surface-border-strong px-3 py-2 text-base text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-wash disabled:opacity-50" />
+            </p>
+            <div className="mt-1.5">
+              <AlertField api={alertApi} busy={busy} idPrefix="uc-alert" />
+            </div>
           </div>
         )}
       </div>
@@ -1604,31 +1733,6 @@ function UnifiedContactEditor({
   )
 }
 
-/** A compact Customer Verified checkbox used inside the unified editor. */
-function VerifiedToggle({
-  label, checked, disabled, onChange,
-}: {
-  label: string
-  checked: boolean
-  disabled: boolean
-  onChange: (v: boolean) => void
-}) {
-  return (
-    <label
-      className={cn(
-        'flex w-fit items-center gap-2 text-base font-medium',
-        disabled ? 'cursor-not-allowed text-ink-muted' : 'cursor-pointer text-ink-secondary',
-      )}
-      title={disabled ? 'A missing or unusable value cannot be marked verified.' : undefined}
-    >
-      <input type="checkbox" checked={checked} disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
-        className="size-4 rounded border-slate-400 text-teal-600 focus:ring-teal-500 disabled:opacity-40" />
-      <span>{label}</span>
-    </label>
-  )
-}
-
 /**
  * The customer-name heading with the inline graduation-cap mentoring control —
  * the same large purple cap used in My Work, replacing the former boxed
@@ -1644,24 +1748,12 @@ function VerifiedToggle({
  */
 function ContactMentoring({
   appearance, name, showMentoring = true,
-  firstName, lastName, nameEditing, nameBusy, onEditName, onCancelName, onSaveName,
 }: {
   appearance: ResolvedAppearance
   name: string
   /** Render the mentoring cap/panel. Default true (the existing behavior). When
    * false, only the name heading renders and no mentoring appears. */
   showMentoring?: boolean
-  /** The stored first/last name backing the inline name editor. */
-  firstName?: string | null
-  lastName?: string | null
-  /** Whether the inline name editor is open, and whether a save is in flight. */
-  nameEditing?: boolean
-  nameBusy?: boolean
-  /** Open / cancel the inline name editor, and save the corrected first/last.
-   * When these are omitted the name heading is read-only, exactly as before. */
-  onEditName?: () => void
-  onCancelName?: () => void
-  onSaveName?: (first: string | null, last: string | null) => void
 }) {
   const body =
     'Changes here update customer information throughout Right Path. Check Verified only when the ' +
@@ -1669,10 +1761,6 @@ function ContactMentoring({
     'response.'
 
   const { open, setOpen } = useMentorDisclosure()
-
-  // The name is editable only when the host wired the save handler (every
-  // on-card call site does). A read-only host keeps today's plain heading.
-  const nameEditable = !!onSaveName
 
   // Presentation-only overrides for the coaching body (size / color); the cap
   // icon itself keeps its standard purple identity. Only applied when a
@@ -1684,19 +1772,8 @@ function ContactMentoring({
       }
     : undefined
 
-  if (nameEditable && nameEditing) {
-    return (
-      <NameEditor
-        appearance={appearance}
-        firstName={firstName ?? null}
-        lastName={lastName ?? null}
-        busy={!!nameBusy}
-        onCancel={() => onCancelName?.()}
-        onSave={(first, last) => onSaveName?.(first, last)}
-      />
-    )
-  }
-
+  // The name is read-only here: it is corrected inside the one unified editor
+  // (the shared Person Name fields). This heading never carries its own editor.
   return (
     <>
       <div className="flex items-center gap-2">
@@ -1709,16 +1786,6 @@ function ContactMentoring({
         {showMentoring && !open && (
           <MentorCapButton onOpen={() => setOpen(true)} label="Show mentoring about these fields" />
         )}
-        {nameEditable && (
-          <button
-            type="button"
-            onClick={() => onEditName?.()}
-            aria-label="Edit customer name"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-2 py-1 text-sm font-medium text-ink-secondary hover:bg-surface-muted"
-          >
-            <Pencil className="size-3.5" aria-hidden /> Edit name
-          </button>
-        )}
       </div>
       {showMentoring && open && (
         <MentorCapPanel className="mt-2" onClose={() => setOpen(false)}>
@@ -1729,129 +1796,19 @@ function ContactMentoring({
   )
 }
 
-/**
- * The inline editor for the customer's first and last name, shown in place of
- * the name heading. Two independent fields; capitalization is preserved exactly
- * as typed (McAndrew, DeLuca) and multiword surnames (La Bar, van der Berg) are
- * kept whole — the shared `normalizeNameInput` only collapses whitespace and
- * trims, it never title-cases or splits. First and last are saved independently;
- * either may be cleared to empty. Save is blocked only when NOTHING would remain
- * (both blank), since a customer must keep at least one name.
- */
-function NameEditor({
-  appearance, firstName, lastName, busy, onCancel, onSave,
-}: {
-  appearance: ResolvedAppearance
-  firstName: string | null
-  lastName: string | null
-  busy: boolean
-  onCancel: () => void
-  onSave: (first: string | null, last: string | null) => void
-}) {
-  const [first, setFirst] = useState(firstName ?? '')
-  const [last, setLast] = useState(lastName ?? '')
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault()
-    // Normalize for storage: collapse internal whitespace and trim, preserving
-    // capitalization exactly as typed. Each field is independent; an empty field
-    // is a valid clear (null).
-    const f = normalizeNameInput(first)
-    const l = normalizeNameInput(last)
-    onSave(f.value, l.value)
-  }
-
-  // At least one name component must remain after normalization.
-  const nothingLeft =
-    normalizeNameInput(first).status === 'empty' && normalizeNameInput(last).status === 'empty'
-
-  return (
-    <form onSubmit={submit} className="py-1">
-      <p className="flex items-center gap-1.5 text-base font-semibold text-ink-secondary">
-        <Pencil className="size-4" aria-hidden /> Edit name
-      </p>
-      <div className="mt-1.5 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <div>
-          <label htmlFor="cc-first-name" className="text-sm font-medium text-ink-secondary">First name</label>
-          <input
-            id="cc-first-name"
-            type="text"
-            autoFocus
-            value={first}
-            disabled={busy}
-            onChange={(e) => setFirst(e.target.value)}
-            onBlur={() => setFirst((v) => normalizeNameInput(v).value ?? '')}
-            placeholder="First name"
-            className={cn('mt-1', inputCls(false))}
-          />
-        </div>
-        <div>
-          <label htmlFor="cc-last-name" className="text-sm font-medium text-ink-secondary">Last name</label>
-          <input
-            id="cc-last-name"
-            type="text"
-            value={last}
-            disabled={busy}
-            onChange={(e) => setLast(e.target.value)}
-            onBlur={() => setLast((v) => normalizeNameInput(v).value ?? '')}
-            placeholder="Last name"
-            className={cn('mt-1', inputCls(false))}
-          />
-        </div>
-      </div>
-      {nothingLeft && (
-        <p className="mt-1.5 text-base text-status-missing-strong">Enter at least a first or last name.</p>
-      )}
-      <div className="mt-2.5">
-        <NameEditActions busy={busy} disabled={nothingLeft} onCancel={onCancel} appearance={appearance} />
-      </div>
-    </form>
-  )
-}
-
-/** Save / Cancel for the name editor. Mirrors `EditActions` but allows the Save
- * button to be disabled independently (when both name fields are blank). */
-function NameEditActions({
-  busy, disabled, onCancel, appearance,
-}: {
-  busy: boolean
-  disabled: boolean
-  onCancel: () => void
-  appearance: ResolvedAppearance
-}) {
-  const style = fontStyle(appearance, appearance.controlFontPx)
-  return (
-    <div className="flex items-center gap-2">
-      <button
-        type="submit"
-        disabled={busy || disabled}
-        style={style}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-base font-semibold text-brand-foreground hover:bg-brand-hover disabled:opacity-50"
-      >
-        {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
-        Save
-      </button>
-      <button
-        type="button"
-        onClick={onCancel}
-        disabled={busy}
-        style={style}
-        className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-3 py-1.5 text-base font-medium text-ink-secondary hover:bg-surface-muted disabled:opacity-40"
-      >
-        <X className="size-3.5" aria-hidden /> Cancel
-      </button>
-    </div>
-  )
-}
+/* The legacy inline first/last NameEditor and NameEditActions were removed: the
+   one shared Person Name field group (PersonNameFields / usePersonNameDraft,
+   used by the unified editor and the standalone PersonNameEditor) is now the
+   single name-editing implementation. */
 
 /**
  * A standalone, editable customer-name heading for hosts that render their OWN
  * name heading beside the shared CustomerContactCard (Contact Research, the
  * calling workbench, and other stewardship surfaces that pass `showName={false}`
- * and supply a `header`). It renders the host's existing heading text — with the
- * host's own className/style, so there is NO duplicate heading and the look is
- * unchanged — and adds the same "Edit name" control and inline first/last editor
- * the card heading uses.
+ * and supply a `header`). It renders the familiar name prominently (with the
+ * full recorded name beneath when it differs) via the shared `PersonNameDisplay`
+ * and adds an "Edit name" control that opens the shared `PersonNameEditor` — the
+ * same name UI, validation, and rules the card's unified editor uses.
  *
  * It persists through the SAME shared route the card uses
  * (`PATCH /api/customers/[id]/contact`, `{ field: 'name' }`), so capitalization
@@ -1866,17 +1823,31 @@ export function CustomerNameHeading({
   customerId,
   firstName,
   lastName,
+  middleName = null,
+  suffix = null,
+  goesBy = null,
+  suffixInFamiliar = null,
   className,
   style,
   expanded = true,
   age = null,
   ageApproximate = false,
+  dob = null,
+  dobApproximate = false,
   onPersist,
   onSaved,
 }: {
   customerId: string
   firstName: string | null
   lastName: string | null
+  /** Recorded middle name(s); shown only in the full recorded name. */
+  middleName?: string | null
+  /** Generational suffix; shown in the familiar name per the preference. */
+  suffix?: string | null
+  /** The name the customer is called; drives the familiar and greeting names. */
+  goesBy?: string | null
+  /** Preference for the suffix in the familiar name (null = include). */
+  suffixInFamiliar?: boolean | null
   /** Applied to the heading text so it matches the host's existing name style. */
   className?: string
   style?: React.CSSProperties
@@ -1893,6 +1864,17 @@ export function CustomerNameHeading({
   /** True when `age` came from the masked policy fallback rather than an exact
    * date_of_birth, so it is labeled approximate ("~N (approx.)"). */
   ageApproximate?: boolean
+  /** The customer's date of birth, ALREADY FORMATTED for display by the caller
+   * ("MM/DD/YYYY" when the exact date is known, "MM/YYYY" or "YYYY" when only
+   * those parts are known). Shown beneath the name alongside age. Null omits it.
+   * This is the shared card's scoped exception to the DOB-masking rule (it shows
+   * the day when known); see AGENTS.md and src/lib/stewardship/dob.ts. */
+  dob?: string | null
+  /** True when `dob` is NOT a confirmed exact date stored on the customer (a
+   * partial, or one derived from the customer's linked policies), so it is
+   * labeled "(unconfirmed)" — the operator can open Edit to confirm and save it
+   * onto the customer. Mirrors the approximate-age treatment. */
+  dobApproximate?: boolean
   /** Inject persistence. Omit to PATCH /api/customers/[id]/contact. Must resolve
    * with the full updated record. */
   onPersist?: (customerId: string, payload: ContactPersistPayload) => Promise<CustomerContact>
@@ -1900,17 +1882,34 @@ export function CustomerNameHeading({
    * the host can refresh the displayed name throughout the workflow. */
   onSaved?: (updated: CustomerContact) => void
 }) {
-  const ap = useMemo(() => resolveAppearance(undefined), [])
   const [editing, setEditing] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const display = `${firstName ?? ''} ${lastName ?? ''}`.trim() || 'Unknown customer'
+  const personName: PersonName = useMemo(
+    () => ({
+      firstName,
+      middleName,
+      lastName,
+      suffix,
+      goesBy,
+      suffixInFamiliar,
+    }),
+    [firstName, middleName, lastName, suffix, goesBy, suffixInFamiliar],
+  )
 
-  const save = useCallback(async (first: string | null, last: string | null) => {
+  const save = useCallback(async (value: PersonName) => {
     setBusy(true); setError(null)
     try {
-      const payload: ContactPersistPayload = { field: 'name', first_name: first, last_name: last }
+      const payload: ContactPersistPayload = {
+        field: 'name',
+        first_name: value.firstName,
+        last_name: value.lastName,
+        middle_name: value.middleName,
+        suffix: value.suffix,
+        goes_by: value.goesBy,
+        suffix_in_familiar: value.suffixInFamiliar,
+      }
       let updated: CustomerContact
       if (onPersist) {
         updated = await onPersist(customerId, payload)
@@ -1933,43 +1932,51 @@ export function CustomerNameHeading({
     }
   }, [customerId, onPersist, onSaved])
 
-  // The age line beneath the name, shown uniformly in both modes. Omitted when
-  // age is unknown; an approximate age (from the masked policy fallback) is
-  // marked "~N (approx.)" with a clarifying tooltip. Shared by both the editing
-  // and read states so every workflow screen reads identically.
-  const ageSubline = age != null ? (
-    <div className="mt-0.5">
-      <span
-        className="text-base font-medium text-ink-supporting"
-        title={ageApproximate ? 'Approximate age, estimated from policy records' : undefined}
-      >
-        Age {ageApproximate ? `~${age}` : age}
-        {ageApproximate && <span className="ml-1 text-ink-muted">(approx.)</span>}
-      </span>
+  // The DOB + age line beneath the name, shown uniformly in both modes. The DOB
+  // is shown MASKED (the day is never rendered) alongside the calculated age; an
+  // approximate age (from the masked policy fallback or a partial DOB) is marked
+  // "~N (approx.)" with a clarifying tooltip. Each part is omitted when unknown,
+  // never guessed. Shared by both the editing and read states so every workflow
+  // screen reads identically.
+  const ageSubline = (dob || age != null) ? (
+    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-base font-medium text-ink-supporting">
+      {dob && (
+        <span title={dobApproximate ? 'Partial or derived from linked records — open Edit to confirm' : undefined}>
+          DOB <span className="font-mono text-ink-secondary">{dob}</span>
+          {dobApproximate && <span className="ml-1 text-ink-muted">(unconfirmed)</span>}
+        </span>
+      )}
+      {dob && age != null && <span aria-hidden className="text-ink-muted">·</span>}
+      {age != null && (
+        <span title={ageApproximate ? 'Approximate age, estimated from available records' : undefined}>
+          Age {ageApproximate ? `~${age}` : age}
+          {ageApproximate && <span className="ml-1 text-ink-muted">(approx.)</span>}
+        </span>
+      )}
     </div>
   ) : null
 
   if (editing) {
     return (
       <div>
-        <NameEditor
-          appearance={ap}
-          firstName={firstName}
-          lastName={lastName}
+        <PersonNameEditor
+          name={personName}
           busy={busy}
+          error={error}
           onCancel={() => { setError(null); setEditing(false) }}
           onSave={save}
         />
         {ageSubline}
-        {error && <p className="mt-1.5 text-base text-status-missing-strong">{error}</p>}
       </div>
     )
   }
 
   return (
     <div>
-      <div className="flex items-center gap-2">
-        <h2 className={className} style={style}>{display}</h2>
+      <div className="flex items-start gap-2">
+        {/* The familiar name shown prominently (host className), with the full
+            recorded name beneath it only when it differs — the shared rule. */}
+        <PersonNameDisplay name={personName} className={className} style={style} />
         {/* Uniform rule for every workflow screen: Edit name only in expanded
             Edit mode, hidden in the compact Overview. */}
         {expanded && (
@@ -1977,7 +1984,7 @@ export function CustomerNameHeading({
             type="button"
             onClick={() => { setError(null); setEditing(true) }}
             aria-label="Edit customer name"
-            className="inline-flex items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-2 py-1 text-sm font-medium text-ink-secondary hover:bg-surface-muted"
+            className="mt-1 inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-surface-border-strong bg-surface-card px-2 py-1 text-sm font-medium text-ink-secondary hover:bg-surface-muted"
           >
             <Pencil className="size-3.5" aria-hidden /> Edit name
           </button>
@@ -2067,31 +2074,6 @@ function OverviewRow({
 }
 
 /**
- * The prominent customer-alert banner near the top of the card. One short,
- * high-contrast amber band (the known/amber status tokens, same family the
- * card already uses) so the alert reads at a glance. Display-only; the text
- * wraps and preserves line breaks from the editor.
- */
-function AlertBanner({ text }: { text: string }) {
-  return (
-    <div
-      role="alert"
-      className="mt-3 flex items-start gap-2.5 rounded-xl border border-status-known-border bg-status-known-fill px-3 py-2.5"
-    >
-      <AlertTriangle className="mt-0.5 size-5 shrink-0 text-status-known-strong" aria-hidden />
-      <p className="min-w-0 whitespace-pre-line break-words text-base font-medium text-status-known-strong">
-        {text}
-      </p>
-    </div>
-  )
-}
-
-/**
- * The multiline alert editor with Save and Cancel. Reuses the card's input and
- * button chrome (the same tokens as the field editors) so it feels native to
- * the card. Empty text on Save clears the alert.
- */
-/**
  * The single control that opens the unified editor from the compact Overview.
  */
 function ModeToggleButton({
@@ -2146,97 +2128,7 @@ function ContactStatusKey({ appearance, inline = false }: { appearance: Resolved
   )
 }
 
-const inputCls = (invalid: boolean) =>
-  cn(
-    'w-full rounded-lg border px-3 py-2 text-lg text-ink focus:outline-none focus:ring-2',
-    invalid
-      ? 'border-status-missing-border focus:border-status-missing-border focus:ring-status-missing-soft'
-      : 'border-surface-border-strong focus:border-brand-ring focus:ring-brand-wash',
-  )
-
-// ── Phone texting-availability controls (used by the unified editor) ─────────
-
-/** The Text-message availability controls inside the phone section. Two
- * restrictions, each a STAGED toggle that is part of the phone editor's single
- * Save/Cancel operation — clicking only flips the pending selection, nothing
- * persists until Save, and Cancel discards it. The parent owns the staged state:
- *   - Do Not Text stages the durable customer opt-out (customers.sms_opt_out).
- *     Togglable even with no number on file, since it follows the customer.
- *   - Text Undeliverable stages a delivery-failure record for the NUMBER that
- *     will be on file. Needs a number; an ordinary unsent text is not a failure,
- *     so this is a deliberate opt-in. Replacing the number restores availability.
- * Both disable texting only; telephone calls are never affected. */
-function SmsAvailabilityControls({
-  display, hasNumber, doNotText, undeliverable, lockedUndeliverable, busy,
-  onToggleDoNotText, onToggleUndeliverable,
-}: {
-  /** The STAGED status (from the pending toggles), for the help/preview line. */
-  display: SmsAvailabilityDisplay
-  /** Whether a usable number will be on file after Save. */
-  hasNumber: boolean
-  /** The staged Do Not Text selection. */
-  doNotText: boolean
-  /** The staged Text Undeliverable selection (already gated on hasNumber). */
-  undeliverable: boolean
-  /** The number on file is already undeliverable and unchanged, so the mark
-   * cannot be cleared here (it clears only by replacing the number). The toggle
-   * shows pressed and is locked. */
-  lockedUndeliverable: boolean
-  busy: boolean
-  onToggleDoNotText: () => void
-  onToggleUndeliverable: () => void
-}) {
-  return (
-    <fieldset className="mt-3 border-t border-surface-border-strong pt-3">
-      <legend className="text-sm font-semibold text-ink-secondary">Text-message availability</legend>
-      <p className="mt-0.5 text-sm text-ink-muted">
-        {SMS_AVAILABILITY_HELP[display]}
-      </p>
-      <div className="mt-1.5 flex flex-wrap gap-2">
-        <button
-          type="button"
-          disabled={busy}
-          aria-pressed={doNotText}
-          onClick={onToggleDoNotText}
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-sm font-medium disabled:opacity-60',
-            doNotText
-              ? 'border-status-missing-border bg-status-missing-soft text-status-missing-strong'
-              : 'border-surface-border-strong bg-surface-card text-ink-secondary hover:bg-surface-muted',
-          )}
-        >
-          <Ban className="size-3.5 shrink-0" aria-hidden />
-          Do Not Text
-        </button>
-        <button
-          type="button"
-          // A delivery failure is recorded against the number that will be on
-          // file, so it needs a number and is moot while Do Not Text already
-          // disables texting. It is also locked ON when the current number is
-          // already undeliverable (it clears only by replacing the number).
-          // Disabled (not hidden) so the control stays legible.
-          disabled={busy || !hasNumber || doNotText || lockedUndeliverable}
-          aria-pressed={undeliverable}
-          onClick={onToggleUndeliverable}
-          title={
-            !hasNumber ? 'Enter a phone number first.'
-            : doNotText ? 'Do Not Text already disables texting.'
-            : lockedUndeliverable ? 'Already undeliverable. Replace the number to restore texting.'
-            : 'Mark that a text to this number failed to deliver (saved on Save).'
-          }
-          className={cn(
-            'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-sm font-medium disabled:opacity-60',
-            undeliverable && !doNotText
-              ? 'border-status-missing-border bg-status-missing-soft text-status-missing-strong'
-              : 'border-surface-border-strong bg-surface-card text-ink-secondary hover:bg-surface-muted',
-          )}
-        >
-          <MessageSquareOff className="size-3.5 shrink-0" aria-hidden />
-          Text Undeliverable
-        </button>
-      </div>
-    </fieldset>
-  )
-}
+// The Text-message availability controls (Do Not Text / Text Undeliverable) now
+// live in the shared Phone Lego (`./ContactPhone`), rendered by `PhoneFields`.
 
 

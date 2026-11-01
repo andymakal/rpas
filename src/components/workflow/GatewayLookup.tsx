@@ -59,7 +59,7 @@ export function GatewayLookup({
 
   return (
     <div className="space-y-2 rounded-xl border border-surface-border bg-surface-muted/40 p-4">
-      <p className="text-base font-semibold text-ink-secondary">Search Gateway</p>
+      <p className="text-xl font-bold leading-tight tracking-tight text-brand">Search Gateway</p>
       <p className="text-sm text-ink-supporting">
         Select Other locations, then search by last name and policy number.
       </p>
@@ -72,7 +72,7 @@ export function GatewayLookup({
           onClick={() => copyValue('last', lastDisplay)}
           disabled={!lastDisplay}
         >
-          {copied === 'last' ? 'Last name copied' : 'Copy Last Name'}
+          {copied === 'last' ? 'Copied' : 'Copy'}
         </WorkflowButton>
       </div>
 
@@ -89,7 +89,7 @@ export function GatewayLookup({
                 selected={copied === `policy-${i}`}
                 onClick={() => copyValue(`policy-${i}`, policy)}
               >
-                {copied === `policy-${i}` ? 'Policy number copied' : 'Copy Policy Number'}
+                {copied === `policy-${i}` ? 'Copied' : 'Copy'}
               </WorkflowButton>
             </div>
           ))}

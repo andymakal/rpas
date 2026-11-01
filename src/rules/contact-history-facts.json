@@ -1,0 +1,158 @@
+{
+  "_comment": "Right Path — CONTACT HISTORY FACTS decision. Part of the established GoRules ZEN decision layer (same pattern as src/rules/next-best-action.json and src/rules/contact-options.json). This decision OWNS THE EMPLOYEE-FACING HISTORY WORDING for a single customer-contact change: given the normalized SHAPE of a change (a changeType plus the before/after presence of a value), it returns BOTH the classified changeKind AND the agreed wording as templates — the summary label and the one-line description sentence — so the phrasing lives here as data rather than being hardcoded in TypeScript. The TypeScript layer (src/lib/stewardship/contact-history-facts.ts) only substitutes two placeholders into the returned templates: {field} (the field label, e.g. Email / Phone / Date of birth) and {detail} (an optional trailing detail the layer supplies — the alert text for an alert, or the resulting email-availability state in plain words). No sensitive VALUE is ever fed to ZEN: ZEN sees only the shape, and the DOB day is never part of any template. ZEN never queries the database. 'first' hit policy: the first matching row wins. Changing the agreed wording is an edit to the templates in THIS file.",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "inputNode",
+      "name": "Contact change fact",
+      "position": { "x": 0, "y": 150 },
+      "content": {}
+    },
+    {
+      "id": "contact-history-facts-table",
+      "type": "decisionTableNode",
+      "name": "History fact wording",
+      "position": { "x": 300, "y": 150 },
+      "content": {
+        "hitPolicy": "first",
+        "inputs": [
+          { "id": "i1", "name": "Change type", "field": "changeType" },
+          { "id": "i2", "name": "Had a value before", "field": "hadValue" },
+          { "id": "i3", "name": "Has a value after", "field": "hasValue" }
+        ],
+        "outputs": [
+          { "id": "o1", "name": "Change kind", "field": "changeKind" },
+          { "id": "o2", "name": "Summary label", "field": "label" },
+          { "id": "o3", "name": "Description template", "field": "template" }
+        ],
+        "rules": [
+          {
+            "_id": "r_value_added",
+            "_description": "A value field that had nothing before and has a value now: ADDED.",
+            "i1": "\"value\"",
+            "i2": "false",
+            "i3": "true",
+            "o1": "\"added\"",
+            "o2": "\"{field} added\"",
+            "o3": "\"{field} added.\""
+          },
+          {
+            "_id": "r_value_cleared",
+            "_description": "A value field that had a value and now has none: CLEARED (an empty value is a valid clear, never an error).",
+            "i1": "\"value\"",
+            "i2": "true",
+            "i3": "false",
+            "o1": "\"cleared\"",
+            "o2": "\"{field} cleared\"",
+            "o3": "\"{field} cleared.\""
+          },
+          {
+            "_id": "r_value_corrected",
+            "_description": "A value field that had a value and still has one, but a DIFFERENT one (the TS layer only emits a 'value' fact when the normalized value actually changed): CORRECTED.",
+            "i1": "\"value\"",
+            "i2": "true",
+            "i3": "true",
+            "o1": "\"corrected\"",
+            "o2": "\"{field} corrected\"",
+            "o3": "\"{field} corrected.\""
+          },
+          {
+            "_id": "r_verified",
+            "_description": "A field marked customer verified.",
+            "i1": "\"verified\"",
+            "i2": "",
+            "i3": "",
+            "o1": "\"verified\"",
+            "o2": "\"{field} verified\"",
+            "o3": "\"{field} verified.\""
+          },
+          {
+            "_id": "r_verification_cleared",
+            "_description": "A field's customer-verified confirmation cleared (a deliberate operator act, not the automatic clear that rides a value edit — the TS layer suppresses the automatic case before it reaches here).",
+            "i1": "\"verification_cleared\"",
+            "i2": "",
+            "i3": "",
+            "o1": "\"verification_cleared\"",
+            "o2": "\"{field} verification cleared\"",
+            "o3": "\"{field} verification cleared.\""
+          },
+          {
+            "_id": "r_restriction_set",
+            "_description": "A contact restriction turned ON (Do Not Text, Text Undeliverable).",
+            "i1": "\"restriction_set\"",
+            "i2": "",
+            "i3": "",
+            "o1": "\"restriction_set\"",
+            "o2": "\"{field} set\"",
+            "o3": "\"{field} set.\""
+          },
+          {
+            "_id": "r_restriction_cleared",
+            "_description": "A contact restriction turned OFF.",
+            "i1": "\"restriction_cleared\"",
+            "i2": "",
+            "i3": "",
+            "o1": "\"restriction_cleared\"",
+            "o2": "\"{field} cleared\"",
+            "o3": "\"{field} cleared.\""
+          },
+          {
+            "_id": "r_availability_changed",
+            "_description": "The durable email-availability fact moved (e.g. to No Usable Email / Undeliverable / unknown). {detail} carries the resulting state in plain words; the TS layer suppresses the automatic 'available' that rides a saved usable email.",
+            "i1": "\"availability_changed\"",
+            "i2": "",
+            "i3": "",
+            "o1": "\"availability_changed\"",
+            "o2": "\"email availability changed\"",
+            "o3": "\"Email availability changed to {detail}.\""
+          },
+          {
+            "_id": "r_alert_added",
+            "_description": "A customer alert added where there was none. {detail} is the actual alert text — the one place a value is shown, because the alert text IS the employee-facing fact.",
+            "i1": "\"alert\"",
+            "i2": "false",
+            "i3": "true",
+            "o1": "\"alert_added\"",
+            "o2": "\"alert added\"",
+            "o3": "\"Alert added: {detail}\""
+          },
+          {
+            "_id": "r_alert_cleared",
+            "_description": "A customer alert cleared.",
+            "i1": "\"alert\"",
+            "i2": "true",
+            "i3": "false",
+            "o1": "\"alert_cleared\"",
+            "o2": "\"alert cleared\"",
+            "o3": "\"Alert cleared.\""
+          },
+          {
+            "_id": "r_alert_updated",
+            "_description": "A customer alert changed from one text to another. {detail} is the new alert text.",
+            "i1": "\"alert\"",
+            "i2": "true",
+            "i3": "true",
+            "o1": "\"alert_updated\"",
+            "o2": "\"alert updated\"",
+            "o3": "\"Alert updated: {detail}\""
+          }
+        ],
+        "passThrough": false,
+        "inputField": null,
+        "outputPath": null,
+        "executionMode": "single"
+      }
+    },
+    {
+      "id": "output",
+      "type": "outputNode",
+      "name": "Response",
+      "position": { "x": 600, "y": 150 },
+      "content": {}
+    }
+  ],
+  "edges": [
+    { "id": "e1", "sourceId": "input", "targetId": "contact-history-facts-table", "sourceHandle": null, "type": "edge" },
+    { "id": "e2", "sourceId": "contact-history-facts-table", "targetId": "output", "sourceHandle": null, "type": "edge" }
+  ]
+}
