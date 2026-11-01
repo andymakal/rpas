@@ -1,8 +1,81 @@
-# Handoff: contact-card "Lego" components (ALL FIVE FIELD LEGOS DONE)
+# CURRENT STATE (2026-10-31) — read this first
 
-Status date: 2026-10-31. Branch: `development`. All work below is live on the
-preview `https://bobdev.therightpathagency.com` (development clone only; nothing
-in production).
+This top section is the live status. Sections further down are historical
+reference for completed efforts; read them only if you need the detail. The
+permanent rules live in steering (`.kiro/steering/*`) and `AGENTS.md` and load
+automatically — this handoff does NOT restate them, it records only in-flight
+state and the next steps.
+
+## Shipped to PRODUCTION this session (PR #24)
+
+All of the session's work was merged `development` → `main` (PR #24; `main` at
+`522b950`) and is LIVE in production (Vercel prod deploy Ready). `development` is
+back in sync with `main` (0 ahead). The `bobdev` preview and production run the
+same code against DIFFERENT databases (dev clone vs prod). This was a CODE
+deploy, not a schema migration — zero files under `supabase/migrations/` changed.
+
+What shipped:
+- Outreach Call Panel (the left panel of the outbound call workbench; renamed
+  from `CallWorkbenchAction` → `OutreachCallPanel` in `StewardshipClient.tsx`).
+  Call/Skip and Reached/Didn't-reach are 50/50 rows; the workbench uses the
+  `wide-work` 46/27/27 column preset.
+- New shared Legos (each its own file in `src/components/workflow/`, exported
+  from the barrel) — REUSE these, do not rebuild:
+  `CallButton`, `SkipForNowButton`, `CallContextCard`, `HistoryNotesField`
+  (generic "Additional notes for history"), and `Divider`/`DividerStack`.
+- UI composition vocabulary steering (Lego/Panel/Workbench/Workflow + one file
+  per Lego) and the divider standard (slate-500, 2px, via the Divider Lego,
+  display == edit) — both in steering; dividers swept across the light pages.
+- Teal background WASH softened at the token level (`brand-subtle`,
+  `tag-reason-fill`); text/buttons/ring unchanged.
+- Contact card self-heals representation ON VIEW: a silent `{ field: 'cleanup' }`
+  PATCH normalizes address case/whitespace (`normalizeStreet/City/State`) and
+  derives `email_availability` NULL→available when a usable email exists —
+  computed from the STORED value, NO history, once per customer per session,
+  best-effort. Cancel does nothing. The diff engines
+  (`customer-history.ts`, `contact-history-facts.ts`) also suppress the
+  NULL↔available phantom. Verified live (Linda Koenig healed on view, no history
+  row).
+- The Supabase migration workflow + its steering are now on `main` (the one-time
+  setup; production migration path exists, still manual + reviewer-gated).
+
+## Database state (both verified live)
+
+`email_availability` backfill is DONE on BOTH dev and prod: `available` set
+wherever a usable email exists and the flag was NULL. Verified identical
+(available+email 3830, NULL+no-email 7700, undeliverable 4; 0 target rows
+remaining on each). Idempotent runbook: `private/email_availability_backfill.sql`
+(gitignored). Do not re-run; safe if you do.
+
+## Next steps / unfinished
+
+- The CALL PANEL is not finished: the owner wants to work through the Outreach
+  Call Panel step by step (each reach/branch step). Resume there, on
+  `development`, reusing the Legos above.
+- KNOWN FOLLOW-UP: the right-hand HISTORY column (Next history entry + Additional
+  notes + Customer history) still displays inconsistently and should be REBUILT
+  as a proper Lego (one cohesive customer-history panel with its own internal
+  section treatment), not patched. Owner agreed to defer this.
+- Loose ends: (1) `status-attention-*` classes are used in `StewardshipClient.tsx`
+  but no such token exists (latent no-color bug, predates this work — did not
+  propagate; new code uses the real amber `status-known-*`). (2) History-event
+  and policy-summary row lists intentionally keep the subtle `surface-border-strong`
+  hairline (list rows, not section boundaries) — leave them.
+
+## Delivery reminder (mechanics in steering)
+
+Completed, verified work on `development` is committed, pushed, AND deployed to
+the `bobdev` preview automatically (`vercel deploy` + alias `bobdev` + `vercel
+inspect`). Only `main`/production needs explicit owner authorization. Note: only
+Bob works on `development` (it is Bob's dev line; the `bobdev` alias reflects
+that) — Andy works on `main` and would use his own dev branch.
+
+---
+
+# Handoff: contact-card "Lego" components (ALL FIVE FIELD LEGOS DONE) — HISTORICAL
+
+Status date: 2026-10-31. This effort is COMPLETE and shipped (it rode to prod in
+PR #24 above). Kept below for reference on the contact-field Lego pattern.
 
 ## What this effort is
 
