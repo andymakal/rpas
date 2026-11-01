@@ -15,7 +15,7 @@ import {
   Mail, Phone, Search, Inbox, FileText, Building2, Check, ExternalLink,
   Clock, CircleAlert, Play, PenLine, MailX, Hand, UserCheck,
   ShieldCheck, ShieldAlert, Copy, Voicemail, MessageSquare, PhoneCall, PhoneOff,
-  Upload, Download, Loader2, SkipForward, StickyNote, ArrowLeft,
+  Upload, Download, Loader2, SkipForward, ArrowLeft,
 } from 'lucide-react'
 import {
   WorkflowPage, WorkflowPageHeader, WorkflowBackLink,
@@ -25,7 +25,7 @@ import {
   ExternalActionConfirm, SpokenScriptCard, CallButton, SkipForNowButton, CallContextCard,
   CustomerContactCard, GatewayLookup,
   PolicySummaryList, type PolicySummary,
-  CustomerHistoryCard, NextHistoryEntry,
+  CustomerHistoryCard, NextHistoryEntry, HistoryNotesField,
 } from '@/components/workflow'
 import { CustomerSearch } from '@/components/CustomerSearch'
 import {
@@ -1281,6 +1281,15 @@ export function StewardshipTask({
   // from a prior customer never leaks onto the next one.
   useEffect(() => { setCallSelection(null) }, [itemId])
 
+  // The optional Call Notes text, LIFTED to the task so it can live in the
+  // history column (the HistoryNotesField Lego, where its output goes) while the
+  // Outreach Call Panel in the action column still consumes it to fold into the
+  // recorded interaction. One free-text field, saved WITH the completed outcome,
+  // never a standalone history entry; nothing is recorded if no outcome is
+  // completed. Reset on item change so a note never leaks to the next customer.
+  const [callNote, setCallNote] = useState('')
+  useEffect(() => { setCallNote('') }, [itemId])
+
   // The action column reports its live selection up through this callback on
   // every render (via an effect in OutreachCallPanel), each time with a FRESH
   // object literal. Writing that straight into state would re-render this task
@@ -1442,6 +1451,7 @@ export function StewardshipTask({
               hasNextInActivity={hasNextInActivity} forceCall={forceCall}
               onSkip={onSkip}
               onCallSelectionChange={reportCallSelection}
+              callNote={callNote}
             />
           )
         }
@@ -1468,6 +1478,8 @@ export function StewardshipTask({
               forceServicingAccess={forceServicingAccess}
               forceCustomerInteraction={forceCustomerInteraction}
               contactPreview={contactPreview}
+              callNote={callNote}
+              onCallNoteChange={setCallNote}
             />
           : undefined}
       />
@@ -1540,7 +1552,7 @@ function sameInteractionSelection(a: InteractionSelection | null, b: Interaction
 
 function StewardshipHistoryColumn({
   detail, forceCall, callSelection, interactionSelection = null, forceServicingAccess = false, forceCustomerInteraction = false,
-  contactPreview = null,
+  contactPreview = null, callNote = '', onCallNoteChange,
 }: {
   detail: Detail
   forceCall: boolean
@@ -1564,6 +1576,12 @@ function StewardshipHistoryColumn({
    * Entry preview (built from the single prepared action) above the one shared
    * Customer History card. */
   forceCustomerInteraction?: boolean
+  /** The optional Call Notes text + setter (task-owned). On the guided call
+   * screen the HistoryNotesField for these renders here, between the Next
+   * History Entry preview and the Customer History, once a reach outcome is
+   * chosen. */
+  callNote?: string
+  onCallNoteChange?: (next: string) => void
 }) {
   // Customer Interaction uses the ONE shared history presentation, the same
   // Next History Entry preview + Customer History card every other working
@@ -1604,6 +1622,16 @@ function StewardshipHistoryColumn({
           contact card's live unified-edit preview takes precedence while it is
           open, so editing contact facts previews exactly what Save will log. */}
       <NextHistoryEntry preview={contactPreview ?? preview} />
+      {/* Optional notes for the history entry — on the guided call screen, shown
+          BETWEEN the Next History Entry preview and the Customer History once a
+          reach outcome is chosen (an outcome is being recorded, so the note has
+          something to ride along with). The task owns the text; the Outreach
+          Call Panel folds it into the recorded outcome. The generic
+          HistoryNotesField Lego keeps the label and treatment consistent for
+          any future surface that records a note. */}
+      {activity === 'calling' && callSelection?.reach && onCallNoteChange && (
+        <HistoryNotesField value={callNote} onChange={onCallNoteChange} />
+      )}
       <CustomerHistoryCard events={detail.customer_history ?? []} />
     </>
   )
@@ -1863,7 +1891,7 @@ function StewardshipCustomerContact({
  */
 function TaskAction({
   detail, request, busy, note, act, hasNextInActivity = false, forceCall = false,
-  onSkip, onCallSelectionChange,
+  onSkip, onCallSelectionChange, callNote = '',
 }: {
   detail: Detail
   request: Holding[]
@@ -1871,6 +1899,9 @@ function TaskAction({
   note: string | null
   act: (action: unknown, successNote?: string, opts?: { advanceToNext?: boolean }) => void
   hasNextInActivity?: boolean
+  /** The optional Call Notes text (owned by the task, edited in the history
+   * column). The guided call panel reads it to fold into the recorded outcome. */
+  callNote?: string
   /** Force the guided call flow regardless of the stored queue (the Call
    * Reachable Customers workbench). */
   forceCall?: boolean
@@ -1917,6 +1948,7 @@ function TaskAction({
           workbench hasNextInActivity={hasNextInActivity}
           onSkip={onSkip}
           onSelectionChange={onCallSelectionChange}
+          callNote={callNote}
         />
       )
     }
@@ -1934,6 +1966,7 @@ function TaskAction({
             detail={detail} request={request} busy={busy} noteBox={noteBox} act={act}
             workbench={forceCall} hasNextInActivity={hasNextInActivity}
             onSelectionChange={onCallSelectionChange}
+            callNote={callNote}
           />
         )
       case 'research-needed':
@@ -2454,7 +2487,7 @@ function callOpeningScript(firstName: string, senderName: string | null): string
  */
 function CallAction({
   detail, request, busy, noteBox, act, workbench = false, hasNextInActivity = false,
-  onSkip, onSelectionChange,
+  onSkip, onSelectionChange, callNote = '',
 }: {
   detail: Detail
   request: Holding[]
@@ -2474,6 +2507,9 @@ function CallAction({
   onSkip?: () => void
   /** Report the live guided-call selection up for the history-column preview. */
   onSelectionChange?: (selection: CallSelection | null) => void
+  /** The optional Call Notes text (task-owned, edited in the history column);
+   * the workbench panel reads it to fold into the recorded outcome. */
+  callNote?: string
 }) {
   if (workbench) {
     return (
@@ -2482,6 +2518,7 @@ function CallAction({
         hasNextInActivity={hasNextInActivity}
         onSkip={onSkip}
         onSelectionChange={onSelectionChange}
+        callNote={callNote}
       />
     )
   }
@@ -2608,6 +2645,7 @@ type ReachChoice = null | 'reached' | 'not-reached'
  */
 function OutreachCallPanel({
   detail, request, busy, noteBox, act, hasNextInActivity, onSkip, onSelectionChange,
+  callNote,
 }: {
   detail: Detail
   request: Holding[]
@@ -2623,6 +2661,10 @@ function OutreachCallPanel({
   /** Report the live selection up so the history column previews the entry this
    * call will record, built dynamically as the worker proceeds. */
   onSelectionChange?: (selection: CallSelection | null) => void
+  /** The optional Call Notes text, now OWNED BY THE TASK and EDITED in the
+   * history column (HistoryNotesField). The panel only READS it, to fold into
+   * the recorded interaction and the live preview. */
+  callNote: string
 }) {
   const c = detail.customer
   const name = fullName(c)
@@ -2647,11 +2689,11 @@ function OutreachCallPanel({
   const [callbackWhen, setCallbackWhen] = useState('')
 
   // ── Optional Call Notes ────────────────────────────────────────────────────
-  // One free-text field, available for EVERY recorded call outcome. It is saved
-  // WITH the completed interaction (appended to the recorded touch), never as a
-  // separate history entry. Empty by default; the employee documents only what
-  // the system does not already know.
-  const [callNote, setCallNote] = useState('')
+  // One free-text field, saved WITH the completed interaction (appended to the
+  // recorded touch), never a separate history entry. The text is OWNED BY THE
+  // TASK and edited in the history column (HistoryNotesField); this panel only
+  // consumes it. `noteForAction` is the trimmed value folded into the recorded
+  // action and the live preview.
   const noteForAction = callNote.trim() || null
 
   // Report the live selection up so the Next History Entry column previews
@@ -2797,7 +2839,7 @@ function OutreachCallPanel({
           outbound call — Reached and Didn\u2019t Reach — as EQUAL halves filling
           the box (two options, two halves). The opening script stays hidden
           until Reached is chosen, so the worker decides the outcome first. */}
-      <div className="border-t border-surface-divider pt-4">
+      <div className="border-t border-surface-border-section pt-4">
         <p className="mb-2 text-sm font-semibold uppercase tracking-wide text-ink-supporting">Did you reach the customer?</p>
         <div className="grid grid-cols-2 gap-2">
           <WorkflowButton icon={PhoneCall} selected={reach === 'reached'} disabled={busy}
@@ -2811,31 +2853,16 @@ function OutreachCallPanel({
         </div>
       </div>
 
-      {/* Optional Call Notes — available for EVERY recorded call outcome. The
-          system already records what happened (reached, voicemail, callback,
-          bad number); this captures anything extra the employee wants on the
-          record. It is saved WITH the completed interaction, never as a separate
-          history entry, and nothing is recorded until an outcome is completed.
-          Skip for now and selecting an outcome record nothing, so a note typed
-          here is only saved when the worker completes a real outcome. */}
-      <div className="border-t border-surface-divider pt-4">
-        <label htmlFor="wb-call-note" className="mb-2 flex items-center gap-1.5 text-sm font-semibold uppercase tracking-wide text-ink-supporting">
-          <StickyNote className="size-4" aria-hidden /> Call notes (optional)
-        </label>
-        <textarea
-          id="wb-call-note"
-          value={callNote}
-          onChange={e => setCallNote(e.target.value)}
-          disabled={busy}
-          rows={2}
-          placeholder="Anything extra worth recording. The outcome itself is logged automatically."
-          className="w-full rounded-lg border border-surface-border-strong bg-surface-card px-3 py-2 text-base text-ink placeholder:text-ink-muted focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-ring/40"
-        />
-      </div>
+      {/* Optional Call Notes now live in the HISTORY column (HistoryNotesField),
+          next to the Next History Entry preview they contribute to, so the work
+          column stays focused on the call steps. The task owns the text; this
+          panel only reads it (noteForAction) to fold into the recorded outcome.
+          The behavior is unchanged: the note is saved WITH the completed outcome
+          and nothing is recorded if no outcome is completed. */}
 
       {/* ── DIDN\u2019T REACH ─────────────────────────────────────────────────── */}
       {reach === 'not-reached' && (
-        <div className="space-y-4 border-t border-surface-divider pt-4">
+        <div className="space-y-4 border-t border-surface-border-section pt-4">
           {/* Voicemail. The approved script is READ ALOUD, so the card shows no
               Copy (hideCopy). The script asks the customer to call back at the
               callback number, so it can only be read when that number resolves.
@@ -2928,7 +2955,7 @@ function OutreachCallPanel({
 
       {/* ── REACHED ──────────────────────────────────────────────────────────── */}
       {reach === 'reached' && (
-        <div className="space-y-4 border-t border-surface-divider pt-4">
+        <div className="space-y-4 border-t border-surface-border-section pt-4">
           {/* The reason-for-calling mentoring and the opening script are the
               guidance for HAVING the conversation, so they show only until the
               caller records what the customer decided. Once a decision is
