@@ -4,7 +4,7 @@
  * parts, preserving whatever precision the operator actually knows without
  * inventing anything.
  *
- * Storage model (see migration 20261030154658_customers_date_of_birth_approx):
+ * Storage model (see migration 20261126000001_customers_date_of_birth_approx):
  *   - An EXACT DOB (all three parts known) is stored in customers.date_of_birth
  *     as a real `date` (YYYY-MM-DD).
  *   - A PARTIAL DOB (year known, month optional, day blank/unknown) is stored in

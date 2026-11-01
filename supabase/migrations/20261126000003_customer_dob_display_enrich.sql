@@ -1,8 +1,8 @@
 -- =============================================================================
 -- Customer DOB display resolver — ENRICH by merging compatible precisions
--- Migration: 20261030170000_customer_dob_display_enrich.sql
+-- Migration: 20261126000003_customer_dob_display_enrich.sql
 --
--- Supersedes the body of project_customer_dob_display (20261030160000), which
+-- Supersedes the body of project_customer_dob_display (20261126000002), which
 -- picked exactly ONE source by precedence (exact -> customer partial -> linked
 -- consensus) and therefore could not COMBINE compatible information. The agreed
 -- behavior is to show the most complete RELIABLE DOB by merging across the

@@ -1,6 +1,6 @@
 -- =============================================================================
 -- Customer DOB display resolver for the shared Customer Contact Card
--- Migration: 20261030160000_customer_dob_display_resolver.sql
+-- Migration: 20261126000002_customer_dob_display_resolver.sql
 --
 -- The shared Customer Contact Card is the one deliberate, scoped place in Right
 -- Path that shows a customer's date of birth (every other surface shows age or
@@ -16,7 +16,7 @@
 -- This function resolves the customer's DOB to display at its BEST available
 -- precision, following the SAME precedence and the SAME no-guessing consensus
 -- rule the age engine uses (project_customer_age, 20261012000001 /
--- 20261013000001 / 20261030154658):
+-- 20261013000001 / 20261126000001):
 --
 --   1. exact customers.date_of_birth           -> source 'exact'  (full date)
 --   2. customers.date_of_birth_approx           -> source 'customer_partial'
@@ -45,12 +45,12 @@
 -- display resolver for the card. Development clone only.
 --
 -- NOTE: the single-source precedence BODY defined here is superseded by
--- 20261030170000_customer_dob_display_enrich.sql, which keeps the same signature
+-- 20261126000003_customer_dob_display_enrich.sql, which keeps the same signature
 -- and the same exact/owner-only guarantees but MERGES compatible precisions
 -- across the customer's own DOB and the linked owner consensus (e.g. a stored
 -- year plus a linked month+year for the same year yields month+year). This file
 -- is retained for migration history; the enrich migration is authoritative.
--- Depends on 20261012000001 / 20261013000001 / 20261030154658 (the masked-DOB
+-- Depends on 20261012000001 / 20261013000001 / 20261126000001 (the masked-DOB
 -- parsers and the precision-aware age/consensus logic).
 -- =============================================================================
 
