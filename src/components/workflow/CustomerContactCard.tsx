@@ -1171,16 +1171,24 @@ function ContactCardView({
     }
   }, [persist, onChange, onAlertChange, setExpandedState])
 
-  // Clean the floor when you're in the room: the first time the editor is
-  // opened for this record, ask the server to heal representation-only
+  // The self-sweeping floor: the first time this record is VIEWED (the card
+  // mounts with the record, display or edit state alike — not only when the
+  // editor is opened), ask the server to heal representation-only
   // inconsistencies (address case, email-availability derivation) on the STORED
-  // value — silently, with no history. It is best-effort: a failure is ignored
-  // (the display already normalizes), it never blocks opening or editing, and it
-  // runs at most once per open (guarded by cleanedKey) so re-renders don't
-  // re-fire it. Skipped entirely when a host injects persistence (Storybook).
+  // value — silently, with no history. Working a customer cleans them up, so a
+  // record a reviewer only ever looks at still heals instead of staying dirty
+  // forever. Guards that keep it cheap and safe:
+  //   - once per customer per session (cleanedKeyRef), so re-renders and
+  //     expand/collapse never re-fire it;
+  //   - the server writes NOTHING when the record is already canonical, so a
+  //     clean customer costs one no-op request and an already-swept floor is
+  //     never swept again;
+  //   - best-effort and silent: a failure is ignored (the display already
+  //     normalizes) and never blocks viewing or editing;
+  //   - skipped entirely when a host injects persistence (Storybook).
   const cleanedKeyRef = useRef<string | null>(null)
   useEffect(() => {
-    if (!isExpanded || onPersist) return
+    if (onPersist) return
     if (cleanedKeyRef.current === record.id) return
     cleanedKeyRef.current = record.id
     void (async () => {
@@ -1195,10 +1203,10 @@ function ContactCardView({
         const cleaned = json.data as CustomerContact | undefined
         if (cleaned) { setRecord(cleaned); onChange?.(cleaned) }
       } catch {
-        // Best-effort: leave the stored value un-healed and try again next open.
+        // Best-effort: leave the stored value un-healed and try again next view.
       }
     })()
-  }, [isExpanded, onPersist, record.id, onChange])
+  }, [onPersist, record.id, onChange])
 
   const emailPresent = !!record.email?.trim()
   const phonePresent = !!record.phone?.trim()
