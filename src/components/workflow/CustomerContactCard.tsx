@@ -1284,8 +1284,10 @@ function ContactCardView({
         <>
           {/* Overview mode — a compact, read-only summary of the same three
               fields, reusing the status tones and value rendering. One Edit
-              button opens the unified editor. */}
-          <div className="mt-3 divide-y divide-surface-border-strong">
+              button opens the unified editor. The section separators use the
+              SAME standard as the editor (2px slate-500 section divider), so
+              display and edit read identically. */}
+          <div className="mt-3 divide-y-2 divide-surface-border-section">
             <OverviewRow
               contactIcon={Mail}
               label="Email"
