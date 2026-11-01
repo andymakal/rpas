@@ -129,3 +129,37 @@ STILL OPEN (unchanged, both need a preview look — NOT Storybook-related):
 2. `StewardshipClient.tsx` (4521) panel/workbench extraction — not started;
    module-level `TaskChrome` no-remount hazard, `StewardshipTask` must stay
    exported.
+
+## UPDATE — StewardshipClient panel extraction COMPLETE
+
+`StewardshipClient.tsx`: 4521 → 1558 lines. Done in verified checkpoints on
+`development`, each tsc + eslint clean:
+- `types.ts` — shared Customer/BoardItem/Holding/Detail/OpenPopulation +
+  POPULATION_META/QUEUE_ICON/QUEUE_GROUPS.
+- `shared.tsx` — cross-cutting helpers + small shared components (openMailto,
+  saEmailBody/saFollowUpEmailBody, fullName, textActionAvailable, streetLine,
+  followUpLapsed, shortDate, currency, call-number/reason helpers, CallContext,
+  FollowUpChase, EVERLAKE_CARRIER_PATTERN).
+- Removed dead legacy CustomerContext/ContactVerification path (useCard was
+  hardcoded true).
+- `call/` — OutreachCallPanel (the guided outbound-call panel), CallAction +
+  CallBoardAction, CallScriptCard, ChannelUnavailable.
+- `panels/` — ServicingFormDelivery, FormAttachmentDirective, FormCoverage,
+  NonresponsiveNotice, ReadyToEmailAction, RefusedAction,
+  WaitingForResponseAction, CarrierAction (+CarrierPolicyRow), ResearchAction,
+  FormAction (+FormConfirmAndSubmit, RequiredSignatureConfirm),
+  ServicingAccessAction (+AuthorizationUpload, ServicingAccessSubmit),
+  CustomerInteractionAction, RecordAttemptPanel, HoldingsContext (+HoldingRow).
+
+The host is now the board/list/population view + StewardshipTask orchestrator +
+module-level TaskChrome (no-remount contract intact) + StewardshipContextPanel /
+StewardshipHistoryColumn / TaskAction assemblers. Named component = own file;
+single-parent children kept beside their panel.
+
+VERIFIED: `npx tsc --noEmit` clean, `npm run build` clean (exit 0). Guided-call
+state confirmed on the preview (Reached + Defer + date held across a re-render;
+Skip advanced and cleared). Deployed to the preview.
+
+REMAINING OPEN (unchanged): inline + delete the ~450-line internal appearance
+resolver in `CustomerContactCard.tsx` (needs a preview look — resolved values
+listed earlier in this file).
