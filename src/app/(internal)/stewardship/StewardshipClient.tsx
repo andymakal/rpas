@@ -2945,7 +2945,8 @@ function OutreachCallPanel({
           </div>
 
           {/* Bad number: a distinct recorded outcome, kept out of the way. */}
-          <div className="border-t border-surface-divider pt-3">
+          <Divider className="my-3" />
+          <div>
             <p className="mb-1 text-sm text-ink-supporting">Not a working number?</p>
             <WorkflowButton icon={PhoneOff} disabled={busy} onClick={recordBadNumber}>
               Bad number
@@ -3541,8 +3542,9 @@ function CustomerInteractionAction({
         {/* Record an explicit customer refusal → stop outreach (reversible). The
             refuse transition is channel-agnostic, so a refusal by email or text
             is recorded without a placed call. */}
+        <Divider className="my-3" />
         <div
-          className="space-y-1.5 border-t border-surface-divider pt-3"
+          className="space-y-1.5"
           onMouseEnter={() => setResolveIntent('refusal')}
           onMouseLeave={() => setResolveIntent(null)}
           onFocusCapture={() => setResolveIntent('refusal')}

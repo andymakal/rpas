@@ -61,6 +61,7 @@ import {
   type OperationalTone,
 } from './primitives'
 import { ContextHeader, AssistantPanel, type ContextField } from './panels'
+import { Divider } from './Divider'
 import {
   CustomerContactCard,
   type CustomerContact,
@@ -308,7 +309,9 @@ function OutcomeRecorder({
   const [callbackDate, setCallbackDate] = useState(initialCallbackDate ?? '')
 
   return (
-    <div className="space-y-3 border-t border-surface-divider pt-5">
+    <>
+      <Divider className="my-5" />
+      <div className="space-y-3">
       <ContextLabel>Record the outcome</ContextLabel>
       <div className="flex flex-wrap gap-2">
         {OUTCOME_ORDER.map((id) => {
@@ -349,7 +352,8 @@ function OutcomeRecorder({
       )}
 
       {outcome && <NextNote>{OUTCOME_NEXT[outcome]}</NextNote>}
-    </div>
+      </div>
+    </>
   )
 }
 

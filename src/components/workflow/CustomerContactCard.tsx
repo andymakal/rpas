@@ -93,7 +93,7 @@ import { PhoneFields, usePhoneDraft } from './ContactPhone'
 import { DobFields, useDobDraft } from './ContactDob'
 import { AddressFields, useAddressDraft } from './ContactAddress'
 import { AlertBanner, AlertField, useAlertDraft } from './ContactAlert'
-import { DividerStack } from './Divider'
+import { Divider, DividerStack } from './Divider'
 
 // ── Data shape ───────────────────────────────────────────────────────────────
 
@@ -1317,7 +1317,8 @@ function ContactCardView({
           {/* Bottom bar of the compact Overview: the status key on the left so
               the green/amber/red icons above read clearly, and the single Edit
               button on the right that opens the unified editor. */}
-          <div className="mt-3 flex items-center justify-between gap-3 border-t border-surface-border-strong pt-2.5">
+          <Divider className="my-2.5" />
+          <div className="flex items-center justify-between gap-3">
             <ContactStatusKey appearance={ap} inline />
             {collapsible && (
               <ModeToggleButton
@@ -1758,7 +1759,8 @@ function UnifiedContactEditor({
       </DividerStack>
 
       {/* One Save and one Cancel at the bottom of the whole editor. */}
-      <div className="mt-3 flex items-center gap-2 border-t border-surface-border-strong pt-3">
+      <Divider className="my-3" />
+      <div className="flex items-center gap-2">
         <button type="submit" disabled={busy || nameInvalid}
           className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-base font-semibold text-brand-foreground hover:bg-brand-hover disabled:opacity-50">
           {busy ? <Loader2 className="size-3.5 animate-spin" aria-hidden /> : <Check className="size-3.5" aria-hidden />}
@@ -2142,9 +2144,10 @@ function ContactStatusKey({ appearance, inline = false }: { appearance: Resolved
     <div
       className={cn(
         'flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-supporting',
-        // Standalone: its own top divider + spacing (the original look). Inline:
-        // it sits inside a shared bottom bar that already owns the border.
-        !inline && 'mt-3 border-t border-surface-border-strong pt-2.5',
+        // Standalone: its own top divider + spacing (the shared section-divider
+        // standard). Inline: it sits inside a shared bottom bar that already owns
+        // the divider.
+        !inline && 'mt-3 border-t-2 border-surface-border-section pt-2.5',
       )}
       style={textStyle(appearance, appearance.statusKeyFontPx, appearance.statusKeyColor)}
     >

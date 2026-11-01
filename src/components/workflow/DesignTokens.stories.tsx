@@ -24,7 +24,7 @@ import { ArrowRight } from 'lucide-react'
  *   --surface-muted    → bg-surface-muted                       (slate-50 inset)
  *   --surface-border   → border-surface-border                  (slate-200)
  *   --surface-border-strong → border-surface-border-strong      (slate-300)
- *   --surface-border-section → divide-surface-border-section     (slate-400)
+ *   --surface-border-section → divide-surface-border-section     (slate-500; the Divider Lego)
  *   --surface-divider  → divide-surface-divider                 (slate-100)
  *   --text-primary     → text-ink                               (slate-900)
  *   --text-secondary   → text-ink-secondary                     (slate-700)
@@ -87,7 +87,7 @@ export const Tokens: Story = {
             <Swatch cls="bg-surface-muted" name="Inset panel" token="--surface-muted / bg-surface-muted" note="Muted inset panel. slate-50." />
             <Swatch cls="bg-surface-border" name="Hairline border" token="--surface-border" note="Default card border. slate-200." />
             <Swatch cls="bg-surface-border-strong" name="Strong border" token="--surface-border-strong" note="Inputs / dashed. slate-300." />
-            <Swatch cls="bg-surface-border-section" name="Section divider" token="--surface-border-section / divide-surface-border-section" note="Darker dividers between editor sections. slate-400." />
+            <Swatch cls="bg-surface-border-section" name="Section divider" token="--surface-border-section / divide-surface-border-section" note="The visible step/section divider (use the Divider Lego). slate-500, 2px." />
             <Swatch cls="bg-surface-divider" name="Divider" token="--surface-divider" note="Row dividers. slate-100." />
           </div>
         </section>
