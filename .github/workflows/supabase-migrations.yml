@@ -1,0 +1,125 @@
+name: Supabase migrations
+
+# Right Path database deployment workflow.
+#
+# Development: migrations committed under supabase/migrations/** are applied to
+#   the DEVELOPMENT database automatically when they land on the `development`
+#   branch. A failed migration (or history drift) fails the job and stops the
+#   deployment rather than leaving an inconsistent database.
+#
+# Production: migrations are NEVER applied to production on a push. Production
+#   deploys only via an explicit, manually-dispatched promotion that is gated by
+#   the `production` GitHub Environment (which carries its own required-reviewer
+#   approval). This keeps production change behind an explicit authorization.
+#
+# Neither path touches application hosting (Vercel) or copies customer data.
+# Data refreshes stay on-demand; nothing here is scheduled.
+
+on:
+  push:
+    branches: [development]
+    paths: ['supabase/migrations/**']
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'Which database to push committed migrations to'
+        required: true
+        default: development
+        type: choice
+        options: [development, production]
+      confirm:
+        description: 'Type the target name again to confirm (guards against accidental production runs)'
+        required: true
+        type: string
+
+concurrency:
+  # Never let two migration pushes race against the same database.
+  group: supabase-migrations-${{ github.event_name == 'workflow_dispatch' && inputs.target || 'development' }}
+  cancel-in-progress: false
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # DEVELOPMENT — automatic on push to `development`, or an explicit dev dispatch.
+  # ---------------------------------------------------------------------------
+  deploy-development:
+    if: >-
+      github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && inputs.target == 'development')
+    runs-on: ubuntu-latest
+    environment: development
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard — confirmation must match on manual runs
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          if [ "${{ inputs.confirm }}" != "development" ]; then
+            echo "::error::Confirmation '${{ inputs.confirm }}' does not match target 'development'. Aborting."
+            exit 1
+          fi
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Detect migration history drift (stop before applying)
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL_DEVELOPMENT }}
+        run: |
+          # Fail loudly if the remote database carries applied migrations that are
+          # not tracked in the repo (out-of-band schema change = drift). This stops
+          # an untracked change from silently diverging the environment.
+          supabase migration list --db-url "$SUPABASE_DB_URL" > migration_state.txt 2>&1 || {
+            echo "::error::Could not read remote migration history."; cat migration_state.txt; exit 1;
+          }
+          cat migration_state.txt
+          # `migration list` prints `  LOCAL | REMOTE | TIME` rows, versions wrapped
+          # in backticks. A drift row is one where the REMOTE cell holds a version
+          # but the LOCAL cell is blank: the remote applied a migration with no
+          # tracked file. Match "<blank local> | `<14 digits>` |".
+          if grep -Eq '^[[:space:]]*\|[[:space:]]*`[0-9]{14}`[[:space:]]*\|' migration_state.txt; then
+            echo "::error::Remote database has applied migrations with no matching local file (drift). Reconcile the ledger before deploying."
+            exit 1
+          fi
+
+      - name: Apply committed migrations to DEVELOPMENT
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL_DEVELOPMENT }}
+        run: |
+          # `db push` applies only the migrations tracked in supabase/migrations.
+          # A failing migration makes this exit non-zero, which fails the job and
+          # stops the deployment — no silent partial apply.
+          supabase db push --db-url "$SUPABASE_DB_URL"
+
+  # ---------------------------------------------------------------------------
+  # PRODUCTION — explicit, authorized promotion only. Never runs on a push.
+  # The `production` Environment gates this with a required reviewer.
+  # ---------------------------------------------------------------------------
+  deploy-production:
+    if: >-
+      github.event_name == 'workflow_dispatch' && inputs.target == 'production'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Guard — confirmation must match
+        run: |
+          if [ "${{ inputs.confirm }}" != "production" ]; then
+            echo "::error::Confirmation '${{ inputs.confirm }}' does not match target 'production'. Aborting."
+            exit 1
+          fi
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Preview migrations that will apply to PRODUCTION
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL_PRODUCTION }}
+        run: supabase db push --db-url "$SUPABASE_DB_URL" --dry-run
+
+      - name: Apply committed migrations to PRODUCTION
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL_PRODUCTION }}
+        run: supabase db push --db-url "$SUPABASE_DB_URL"
