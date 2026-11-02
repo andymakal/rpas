@@ -166,6 +166,18 @@ export type Detail = BoardItem & {
    * servicing request (servicing-access working screen). Supplied by the GET
    * route from the shared document repository (policy_documents). */
   authorization_on_file?: boolean
+  /** The situation-specific CALL CONTENT for the outbound call panel, resolved
+   * server-side from the (project type, phase) catalog with the caller/customer
+   * identity already filled: the "why you're calling" reason the cap reveals,
+   * the opening talk path, and optional mentoring prose. The panel feeds these
+   * to the CallMentorCap / TalkPathCard Legos. Optional for back-compat: when
+   * absent (older payloads), the panel uses its built-in default wording. */
+  call_context?: {
+    reason: string
+    talkPath: string
+    mentoring: string | null
+    fromCatalog: boolean
+  } | null
 }
 
 export const QUEUE_ICON: Record<OutreachQueue, typeof Mail> = {

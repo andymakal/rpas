@@ -30,6 +30,7 @@ import { SERVICING_AUTHORIZATION_TYPE } from '@/lib/stewardship/authorization-do
 import { activeContactResearchProjectForCustomer } from '@/lib/projects/contact-review'
 import { loadGatewayPolicyNumbersForCustomer } from '@/lib/stewardship/gateway-policy-numbers'
 import { getCustomerEnrollmentEvents } from '@/lib/projects/customer-enrollments'
+import { resolveStewardshipCallContext } from '@/lib/projects/stewardship-call-context'
 import {
   applyAction,
   deriveEmailRouting,
@@ -461,6 +462,20 @@ export async function GET(
   // consolidated Contact Research task does.
   const gatewayPolicyNumbers = await loadGatewayPolicyNumbersForCustomer(supabase, customerId)
 
+  // The situation-specific CALL CONTENT (reason / talk path / mentoring) for the
+  // outbound call panel, resolved from the (project type, servicing-onboarding
+  // phase) catalog with the caller/customer identity filled. Falls back to the
+  // built-in servicing-agent default when the customer is not in a typed project
+  // or the catalog has no row, so the panel always has content.
+  const callContext = await resolveStewardshipCallContext(supabase, {
+    customerId,
+    identity: {
+      firstName: cust.first_name ?? null,
+      senderName: callActor?.first_name ?? null,
+      callbackPhone: callActor?.callback_phone ?? null,
+    },
+  })
+
   // requires that confirmation.
   return Response.json({
     data: {
@@ -524,6 +539,12 @@ export async function GET(
       // employee has no usable callback number; the workbench then renders the
       // callback-dependent channels as unavailable rather than a placeholder.
       call_actor: callActor,
+      // The situation-specific call content (why you're calling, the talk path,
+      // and the mentoring) for THIS customer's (project type, phase) coordinate.
+      // Resolved from the call-context catalog with identity filled; the panel
+      // feeds it to the CallMentorCap / TalkPathCard Legos. Built-in default
+      // when the coordinate has no catalog row.
+      call_context: callContext,
     },
   })
 }
