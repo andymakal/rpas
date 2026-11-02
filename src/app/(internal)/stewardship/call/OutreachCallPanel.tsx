@@ -32,7 +32,6 @@ import {
 import { hasExactTime, commitmentSummary, resolveDueDate } from '@/lib/calendar/callback-precision'
 import { deriveCustomerZone } from '@/lib/calendar/customer-zone'
 import { zoneAbbreviation, createTimeContext } from '@/lib/time'
-import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import { buildMailto, SERVICING_CALL_SCRIPTS, interpolate } from '@/lib/templates'
 import { formatPhoneDisplay } from '@/lib/contact-input'
 import { type CallSelection } from '@/lib/stewardship/customer-history'
@@ -634,16 +633,16 @@ export function OutreachCallPanel({
               situation's Advance action). */}
           {decision === 'advance' && (
             <div className="space-y-2 rounded-xl border border-status-confirmed-border bg-status-confirmed-soft p-4">
-              <p className="text-base font-semibold text-ink">Send the servicing-agent authorization form</p>
-              {/* The procedural guidance that used to sit beneath the confirm
-                  button now lives in the shared Mentoring disclosure at the top
-                  of this form-delivery section (HOW/why, above the steps it
-                  explains), leaving the action itself uncluttered. */}
-              <MentorGuidance label="How recording the form works">
+              {/* The "how recording the form works" coaching now lives behind the
+                  graduation cap beside this heading (CallMentorCap), matching the
+                  app's mentoring format and reclaiming the vertical space the old
+                  always-open purple disclosure box used. Cap closed by default
+                  (unless global Mentoring is on); the coaching opens inline. */}
+              <CallMentorCap heading="Send the servicing-agent authorization form">
                 Generate the form, send it (email or postal), then record it here. Recording the form sent is what
                 logs the reached call and moves the customer to Waiting for Form, then advances you to the next call.
                 Nothing is recorded until then, and nothing is auto-closed.
-              </MentorGuidance>
+              </CallMentorCap>
               <ServicingFormDelivery
                 detail={detail}
                 request={request}

@@ -12,7 +12,7 @@
  */
 
 import { useState } from 'react'
-import { Check, CircleAlert, ExternalLink, FileText, SkipForward } from 'lucide-react'
+import { Check, CircleAlert, ExternalLink, FileText, FileCheck, SkipForward } from 'lucide-react'
 import { WorkflowButton, PrimaryAction } from '@/components/workflow'
 import { buildMailto } from '@/lib/templates'
 import type { Detail, Holding } from '../types'
@@ -47,6 +47,15 @@ export function ServicingFormDelivery({
   const [preparing, setPreparing] = useState(false)
   const [prepError, setPrepError] = useState<string | null>(null)
   const [generated, setGenerated] = useState(false)
+  // The escape hatch from the generate-then-send step: the customer already has
+  // the form (e.g. it rode the introductory email), so there is nothing to
+  // generate. Marking it satisfies the confirm gate exactly as a generation
+  // does, so the worker can go straight to recording it sent. Choosing to
+  // generate instead clears it, so the two paths never both read as taken.
+  const [alreadyHasForm, setAlreadyHasForm] = useState(false)
+  // The confirm step is reachable once the form is either freshly generated OR
+  // already in the customer's hands.
+  const readyToConfirm = generated || alreadyHasForm
   // In email-only mode the channel is fixed to email (no chooser). Otherwise it
   // starts from the persisted delivery method and the worker can switch it.
   const [method, setMethod] = useState<'email' | 'postal'>(
@@ -73,11 +82,19 @@ export function ServicingFormDelivery({
     if (next === method) return
     setMethod(next)
     setPrepError(null)
+    // Switching channels invalidates a prior generation and the "already has it"
+    // shortcut (a postal packet is not an emailed form, and vice versa), so the
+    // worker re-affirms readiness on the new channel.
+    setGenerated(false)
+    setAlreadyHasForm(false)
     act({ type: 'set-delivery-method', method: next })
   }
 
   async function prepareAndOpen() {
     setPrepError(null)
+    // Generating is the primary path; it supersedes the "already has it"
+    // shortcut if that was chosen first.
+    setAlreadyHasForm(false)
     if (canGenerate) {
       setPreparing(true)
       try {
@@ -148,6 +165,20 @@ export function ServicingFormDelivery({
         onClick={prepareAndOpen}
         disabled={preparing || !canGenerate || (method === 'postal' && !customerHasAddress)}
       />
+      {/* The escape hatch: the customer already has the form (commonly it rode
+          the introductory email), so there is nothing to generate. This marks
+          the form in-hand and enables the confirm below, letting the worker
+          record it sent without re-generating. A quiet secondary beside the
+          primary generate, which stays the default choice. */}
+      <WorkflowButton
+        icon={alreadyHasForm ? Check : FileCheck}
+        selected={alreadyHasForm}
+        disabled={busy || preparing}
+        onClick={() => setAlreadyHasForm(v => !v)}
+        className="w-full justify-center"
+      >
+        {method === 'postal' ? 'Already has packet' : 'Already has form'}
+      </WorkflowButton>
       {!canGenerate && (
         <p className="text-sm text-ink-supporting">No request policy numbers to put on the form yet.</p>
       )}
@@ -157,18 +188,21 @@ export function ServicingFormDelivery({
           <span>{prepError}</span>
         </div>
       )}
-      {method === 'email' ? (
+      {/* The attach/print directives speak to the GENERATE-then-send path. When
+          the customer already has the form there is nothing to attach or print,
+          so the directive is suppressed and only the confirm remains. */}
+      {!alreadyHasForm && (method === 'email' ? (
         <FormAttachmentDirective request={formPolicies} />
       ) : (
         <div className="flex items-start gap-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-3 text-sm text-status-attention-strong">
           <FileText className="mt-0.5 size-4 shrink-0" aria-hidden />
           <span>The packet includes a cover letter addressed to the customer and the authorization form. Print it, enclose a return envelope, and mail it.</span>
         </div>
-      )}
+      ))}
       <WorkflowButton
         icon={Check}
         selected
-        disabled={busy || !generated}
+        disabled={busy || !readyToConfirm}
         onClick={() => onConfirm(method)}
       >
         {confirmLabelFor(method)}
