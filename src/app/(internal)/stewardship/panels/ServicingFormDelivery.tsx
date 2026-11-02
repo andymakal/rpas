@@ -38,7 +38,7 @@ import { FormAttachmentDirective } from './FormAttachmentDirective'
 
 export function ServicingFormDelivery({
   heading, coaching, directiveFormName = 'servicing-agent authorization form',
-  detail, request, name, busy, act, confirmLabelFor, onConfirm, onAlreadyHeldChange,
+  detail, request, name, busy, act, confirmLabelFor, onConfirm, onAlreadyHeldChange, onMethodChange,
   emailOnly = false, onSkip,
 }: {
   /** The unit's heading, rendered with the graduation-cap coaching beside it.
@@ -68,6 +68,12 @@ export function ServicingFormDelivery({
    * Next history entry) can describe the agreement accurately before confirm.
    * Optional — callers without a live preview can omit it. */
   onAlreadyHeldChange?: (alreadyHeld: boolean) => void
+  /** Reports the live delivery method up so a host preview reflects the chosen
+   * channel immediately — including the initial default (email) BEFORE the
+   * worker clicks anything. Without this the host would only learn the method
+   * from the persisted row, so the pre-selected default would not show in the
+   * preview until a click round-tripped it. Optional. */
+  onMethodChange?: (method: 'email' | 'postal') => void
   /** Email-only mode (Send Introductory Emails): fix the channel to email and
    * hide the delivery chooser. */
   emailOnly?: boolean
@@ -102,6 +108,12 @@ export function ServicingFormDelivery({
   const [method, setMethod] = useState<'email' | 'postal'>(
     emailOnly ? 'email' : (detail.form_delivery_method ?? 'email'),
   )
+  // Report the live method up so a host preview reflects the chosen channel
+  // immediately, including the initial default before any click. One place to
+  // report it, so it stays in sync however method changes.
+  useEffect(() => {
+    onMethodChange?.(method)
+  }, [method, onMethodChange])
   const customerHasAddress = !!(streetLine(detail.customer) && detail.customer.city && detail.customer.state && detail.customer.zip)
 
   const everlake = request.filter(h => h.carrier && EVERLAKE_CARRIER_PATTERN.test(h.carrier))

@@ -1094,6 +1094,7 @@ function sameCallSelection(a: CallSelection | null, b: CallSelection | null): bo
     a.callbackDate === b.callbackDate &&
     a.formSent === b.formSent &&
     a.formDeliveryMethod === b.formDeliveryMethod &&
+    a.formAlreadyHeld === b.formAlreadyHeld &&
     a.note === b.note
   )
 }

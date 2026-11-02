@@ -147,6 +147,12 @@ export function OutreachCallPanel({
   // History Entry preview so it reads "already has the form" rather than "to be
   // emailed", and into the recorded completion so the stored history matches.
   const [formAlreadyHeld, setFormAlreadyHeld] = useState(false)
+  // The live delivery method as reported by ServicingFormDelivery, so the Next
+  // History Entry preview reflects the CHOSEN channel immediately — including
+  // the box's initial default (email) before any click. Seeded from the
+  // persisted row so it is right on first render; the box reports its actual
+  // method up on mount and on every change, which is the source of truth.
+  const [formMethod, setFormMethod] = useState<'email' | 'postal'>(detail.form_delivery_method ?? 'email')
 
   // The promised-callback precision draft (exact time / days×bands windows /
   // any time that day). Replaces the old date-only input. The host resolves the
@@ -294,9 +300,10 @@ export function OutreachCallPanel({
       // the form as pending (Reached · Agreed) throughout this screen and never
       // claims an unsent form was sent.
       formSent: false,
-      // The chosen delivery method, so the pending preview names emailed vs
-      // mailed accurately. Persisted on the detail when the worker picks it.
-      formDeliveryMethod: detail.form_delivery_method ?? null,
+      // The chosen delivery method as reported live by the delivery box, so the
+      // pending preview names emailed vs mailed from what is actually selected
+      // on screen — including the initial default — not only the persisted row.
+      formDeliveryMethod: formMethod,
       // When the customer already has the form, the preview describes the
       // agreement to sign and return it rather than a pending send.
       formAlreadyHeld,
@@ -305,7 +312,7 @@ export function OutreachCallPanel({
   }, [
     onSelectionChange, reach, badNumber,
     vmOut.fragment, textOut.fragment, emailOut.fragment,
-    decisionDisposition, cbDraft.draft, callbackCtx, detail.form_delivery_method, formAlreadyHeld, callNote,
+    decisionDisposition, cbDraft.draft, callbackCtx, formMethod, formAlreadyHeld, callNote,
   ])
 
   // Fold any channel reason text ("Other") into the attempt note alongside the
@@ -666,6 +673,7 @@ export function OutreachCallPanel({
                       : `Form sent to customer.${nextSuffix}`
                 }
                 onAlreadyHeldChange={setFormAlreadyHeld}
+                onMethodChange={setFormMethod}
                 onConfirm={(_m, alreadyHeld) => act(
                   // The SINGLE completion of the Agreed path: record the reached
                   // call AND the form step together. `reached` folds the reached
