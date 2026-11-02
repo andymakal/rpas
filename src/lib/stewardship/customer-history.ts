@@ -29,12 +29,14 @@ import {
   parseOutcomeFromNote,
   noteIndicatesReached,
   noteIndicatesInbound,
+  unusableValueFromNote,
   type Communication,
   type OutreachChannel,
   type ChannelOutcome,
 } from './outreach-attempts'
 import { dobChanged, readStoredDob, dobPrecisionLabel } from './dob'
 import { fullRecordedName, familiarName } from '@/lib/person-name'
+import { formatPhoneDisplay } from '@/lib/contact-input'
 
 /** The direction of a recorded communication, for presentations that title an
  * event by who initiated it. Derived from the stored note (the inbound marker
@@ -156,7 +158,10 @@ function contactHeading(comms: HistoryCommunication[]): string | null {
       if (automated) return 'Automated Call Reply'
       if (incoming) return 'Incoming Call'
       if (lead.outcome === 'unusable') return 'Bad Number'
-      return 'No Answer'
+      // An attempted outbound call that did not reach. The heading says "Call
+      // Attempt", never "No Answer" — the grouped channel fragments
+      // (Voicemail / No voicemail / Texted / …) carry what happened.
+      return 'Call Attempt'
     case 'voicemail':
       return 'Voicemail Left'
     case 'email':
@@ -316,7 +321,10 @@ export const ACTIVITY_DESCRIPTIONS: Record<OutreachChannel, ChannelDescriptions>
   call: {
     reached: 'Reached',
     touch: 'Called',
-    no_contact: 'No Answer',
+    // An attempted outbound call that did not reach reads as "Call attempt",
+    // never "No Answer"; the grouped voicemail/text/email fragments say what
+    // happened on the attempt.
+    no_contact: 'Call attempt',
     unusable: 'Bad Number',
   },
   voicemail: {
@@ -384,7 +392,13 @@ const SYSTEM_OUTCOME_PHRASES: readonly RegExp[] = [
   /^Spoke with customer\.\s*Customer requested a callback(\s+on\s+\S+)?\.?/i,
   /^Spoke with customer\.\s*Customer declined servicing-agent authorization\.\s*Further outreach stopped unless deliberately reopened\.?/i,
   /^Spoke with customer\.\s*$/i,
-  // Didn't-reach call sentences (no-answer, with or without a voicemail left).
+  // Didn't-reach call sentences. The lead is "Call attempt" (an attempted
+  // outbound call), with or without a voicemail left, and the bad-number
+  // variant.
+  /^Call attempt\.(\s*Voicemail left\.)?\s*Next call scheduled\.?/i,
+  /^Call attempt\.\s*Number is not working\.\s*Customer referred to Contact Research\.?/i,
+  // Legacy "Called customer. No answer." sentences kept so existing history
+  // still cleans correctly.
   /^Called customer\.\s*No answer\.(\s*Voicemail left\.)?\s*Next call scheduled\.?/i,
   /^Called customer\.\s*Number is not working\.\s*Customer referred to Contact Research\.?/i,
   // Legacy sentences kept so existing history still cleans correctly.
@@ -509,19 +523,35 @@ const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = 
       'Spoke with customer. Customer declined servicing-agent authorization. Further outreach stopped unless deliberately reopened.',
   },
   {
-    // Didn't reach · voicemail left.
-    match: /^Called customer\.\s*No answer\.\s*Voicemail left\.\s*Next call scheduled\.?$/i,
-    describe: 'Called customer. No answer. Voicemail left. Next call scheduled.',
+    // Didn't reach · voicemail left. Lead is "Call attempt", never "No answer".
+    match: /^Call attempt\.\s*Voicemail left\.\s*Next call scheduled\.?$/i,
+    describe: 'Call attempt. Voicemail left. Next call scheduled.',
   },
   {
     // Didn't reach · no voicemail.
-    match: /^Called customer\.\s*No answer\.\s*Next call scheduled\.?$/i,
-    describe: 'Called customer. No answer. Next call scheduled.',
+    match: /^Call attempt\.\s*Next call scheduled\.?$/i,
+    describe: 'Call attempt. Next call scheduled.',
   },
   {
-    // Bad number.
+    // Bad number. The dialed digits are appended by describeHistoryNote from the
+    // value-scoped [channel-unusable:<digits>] marker, so research sees exactly
+    // which number failed.
+    match: /^Call attempt\.\s*Number is not working\.\s*Customer referred to Contact Research\.?$/i,
+    describe: 'Called. Number not working.',
+  },
+  // Legacy "Called customer. No answer." sentences, normalized to the new
+  // "Call attempt" wording so old history rows read consistently.
+  {
+    match: /^Called customer\.\s*No answer\.\s*Voicemail left\.\s*Next call scheduled\.?$/i,
+    describe: 'Call attempt. Voicemail left. Next call scheduled.',
+  },
+  {
+    match: /^Called customer\.\s*No answer\.\s*Next call scheduled\.?$/i,
+    describe: 'Call attempt. Next call scheduled.',
+  },
+  {
     match: /^Called customer\.\s*Number is not working\.\s*Customer referred to Contact Research\.?$/i,
-    describe: 'Called customer. Number is not working. Customer referred to Contact Research.',
+    describe: 'Called. Number not working.',
   },
   // ── The introductory / form-send confirmations ──────────────────────────────
   {
@@ -544,6 +574,19 @@ const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = 
     match: /^Servicing-agent authorization form sent to the customer by postal mail\.?$/i,
     describe: 'Servicing-agent authorization form sent by postal mail.',
   },
+  {
+    // The customer already had the form (it rode the introductory email) and
+    // agreed to sign and return it — the reached · agreed interaction with no
+    // send. The description names that reality rather than a mailing.
+    match: /^Spoke with customer\. Customer agreed to authorize our office as servicing agent\. Customer already has the authorization form and agreed to sign and return it\. Awaiting signed authorization\.?$/i,
+    describe: 'Spoke with customer. Customer agreed to authorize and already has the form to sign and return.',
+  },
+  {
+    // A re-send context where the customer already has the form (no reached
+    // completion attached).
+    match: /^Customer already has the servicing-agent authorization form and agreed to sign and return it\.?$/i,
+    describe: 'Customer already has the servicing-agent authorization form to sign and return.',
+  },
   // ── Legacy sentences (pre-standard history still reads meaningfully) ────────
   {
     match: /^Reached the customer\.?$/i,
@@ -551,11 +594,11 @@ const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = 
   },
   {
     match: /^Left a voicemail\.?(\s*Follow-up auto-scheduled\.?)?$/i,
-    describe: 'Called customer. No answer. Voicemail left. Next call scheduled.',
+    describe: 'Call attempt. Voicemail left. Next call scheduled.',
   },
   {
     match: /^Bad number\.?(\s*Moved to Research Needed\.?)?$/i,
-    describe: 'Called customer. Number is not working. Customer referred to Contact Research.',
+    describe: 'Called. Number not working.',
   },
   {
     match: /^Customer declined\.?(\s*Outreach stopped until deliberately reopened\.?)?$/i,
@@ -614,6 +657,20 @@ export function describeHistoryNote(note: string | null): string | null {
       if (/asked for a callback/i.test(describe) && m[2]) {
         const when = formatCallbackDate(m[2])
         return when ? `Customer asked for a callback on ${when}.` : describe
+      }
+      // Bad number: append the exact dialed digits recovered from the
+      // value-scoped [channel-unusable:<digits>] marker on the raw note, so
+      // research sees which number failed rather than just "number not working".
+      // Only genuine 10-digit US phone values are shown (a bare legacy marker,
+      // or a non-phone value, appends nothing); formatted via the one shared
+      // phone formatter.
+      if (describe === 'Called. Number not working.') {
+        const dialed = unusableValueFromNote(note)
+        const digits = dialed ? dialed.replace(/\D/g, '') : ''
+        if (digits.length === 10) {
+          return `${describe} ${formatPhoneDisplay(digits)}`
+        }
+        return describe
       }
       return describe
     }
@@ -813,10 +870,25 @@ function summarizeInteraction(
     return [lead, ...rest].join(' \u00b7 ')
   }
 
+  // A didn't-reach call grouped with other channels. The event heading already
+  // says "Call Attempt", so the secondary channels line must NOT echo it: drop
+  // the unanswered-call phrase and list only the OTHER channels actually
+  // completed (e.g. "Voicemail · Text · Email"). When the call is the only
+  // communication, the call phrase ("Call attempt") stands alone as the summary.
+  const unreachedCall = comms.find((c) => c.channel === 'call' && !c.reached)
+  if (unreachedCall) {
+    const others = comms.filter((c) => c !== unreachedCall)
+    const callPhrase = describeActivity('call', unreachedCall.outcome, false, overrides)
+    if (others.length === 0) return callPhrase
+    return others
+      .map((c) => describeActivity(c.channel, c.outcome, c.reached, overrides))
+      .join(' \u00b7 ')
+  }
+
   const phrases = comms.map((c) => describeActivity(c.channel, c.outcome, c.reached, overrides))
   if (phrases.length === 1) return phrases[0]
   // Join the attempt's channels into one concise line, e.g.
-  // "No Answer · Voicemail · Text".
+  // "Voicemail · Text · Email".
   return phrases.join(' \u00b7 ')
 }
 
@@ -1032,8 +1104,8 @@ export function describeNextHistoryEntry(
       const o = options?.callOutcome
       if (o === 'reached') return { summary: 'Reached' }
       if (o === 'callback') return { summary: 'Reached \u00b7 Callback Scheduled' }
-      if (o === 'bad-number') return { summary: 'No Answer \u00b7 Bad Number' }
-      return { summary: o === 'voicemail' ? 'No Answer \u00b7 Voicemail' : 'No Answer' }
+      if (o === 'bad-number') return { summary: 'Call attempt \u00b7 Bad number' }
+      return { summary: o === 'voicemail' ? 'Call attempt \u00b7 Voicemail' : 'Call attempt' }
     }
     case 'record-attempt':
     default:
@@ -1450,14 +1522,26 @@ export function buildContactUpdateHistoryNote(
 export interface CallSelection {
   /** The reach decision so far: not yet chosen, reached, or not reached. */
   reach: 'reached' | 'not-reached' | null
-  // Didn't-reach branch — only channels actually completed are previewed.
-  voicemailLeft?: boolean | null
-  textSent?: boolean
-  emailSent?: boolean
+  // Didn't-reach branch. The channel Legos (VoicemailAttempt / TextAttempt /
+  // EmailAttempt) own the wording, so the panel passes up the already-resolved
+  // history fragments ("Voicemail", "No voicemail, mailbox full", "Opted out of
+  // texting", "No email", …) and the touch count, rather than raw booleans the
+  // preview would have to re-interpret. This keeps the preview and the recorded
+  // attempt reading identically.
+  notReachedFragments?: string[]
   badNumber?: boolean
   // Reached branch — the customer's decision and, for a callback, the date.
   decision?: 'agreed' | 'callback' | 'not-interested' | null
   callbackDate?: string | null
+  /** A prebuilt callback/availability summary (e.g. "11/17/2026 at 2:00 PM" for
+   * an exact appointment, or "Mon, Tue, Wed · 3–6" for a recurring availability).
+   * When present it drives the preview wording instead of callbackDate alone, so
+   * the exact-time appointment shows its time and a recurring promise shows its
+   * days/bands. */
+  callbackLabel?: string | null
+  /** True when the callback is a specific-date exact-TIME appointment, so the
+   * preview reads "Appointment Scheduled …" rather than "Callback Scheduled …". */
+  callbackIsAppointment?: boolean
   /** Whether the authorization form has been confirmed sent on the reached ·
    * agreed path, so the preview can fold "Form Sent" into the entry. */
   formSent?: boolean
@@ -1465,6 +1549,11 @@ export interface CallSelection {
    * path, so the preview names the pending send accurately (emailed vs mailed)
    * WITHOUT claiming it has already gone out. */
   formDeliveryMethod?: 'email' | 'postal' | null
+  /** The customer ALREADY has the authorization form (it rode the introductory
+   * email), so there is nothing to send — the step is confirming they will sign
+   * and return it. When true the preview says so instead of "to be emailed/
+   * mailed", which would be inaccurate. */
+  formAlreadyHeld?: boolean
   /** The optional Call Notes the worker has typed, folded into the preview's
    * note so it reads exactly as what completion will record. */
   note?: string | null
@@ -1488,38 +1577,54 @@ export function describeCallSelection(
   // reflects exactly what completion will save with the interaction.
   const extraNote = (options?.note ?? selection.note)?.trim() || undefined
 
-  // Bad number is a distinct terminal outcome regardless of the reach choice.
-  // The description is the exact sentence the completion will record.
-  if (selection.badNumber) {
+  // A didn't-reach attempt (including a bad number). The TITLE is just the event
+  // type, "Call attempt" — matching "Email Sent" / "Reached" — never "No
+  // answer" and never the channel list. The channel fragments the Legos emit
+  // (and the bad-number fragment) go in the explanatory DESCRIPTION line, where
+  // the detail belongs. The touch count is NOT shown here: touches are counted
+  // as their own case_touches rows (one per completed channel), which is the
+  // queryable source for any per-customer / per-project touch total; echoing a
+  // number in the preview would only duplicate that and risk disagreeing with it.
+  if (selection.reach === 'not-reached' || selection.badNumber) {
+    const fragments = [...(selection.notReachedFragments ?? [])]
+    if (selection.badNumber) {
+      return {
+        summary: 'Call attempt',
+        description: [
+          fragments.length ? `${fragments.join('. ')}.` : null,
+          'Number not working.',
+        ].filter(Boolean).join(' '),
+        note: extraNote,
+      }
+    }
     return {
-      summary: 'No Answer · Bad Number',
-      description: 'Called customer. Number is not working. Customer referred to Contact Research.',
+      summary: 'Call attempt',
+      description: [
+        fragments.length ? `${fragments.join('. ')}.` : null,
+        'Next call scheduled.',
+      ].filter(Boolean).join(' '),
       note: extraNote,
     }
   }
 
-  if (selection.reach === 'not-reached') {
-    // Only completed channels are previewed, matching how the attempt records.
-    const parts = ['No Answer']
-    if (selection.voicemailLeft) parts.push('Voicemail')
-    if (selection.textSent) parts.push('Text')
-    if (selection.emailSent) parts.push('Email')
-    // The recorded call sentence is honest about whether a voicemail was left;
-    // the extra channels (text/email) are preserved alongside but the call line
-    // is the one the preview shows as the description.
-    const description = selection.voicemailLeft
-      ? 'Called customer. No answer. Voicemail left. Next call scheduled.'
-      : 'Called customer. No answer. Next call scheduled.'
-    return { summary: parts.join(' \u00b7 '), description, note: extraNote }
-  }
-
   if (selection.reach === 'reached') {
     if (selection.decision === 'callback') {
-      const when = selection.callbackDate ? formatCallbackDate(selection.callbackDate) : null
+      // Prefer the prebuilt label (carries the exact time, or the recurring
+      // days×bands availability); fall back to the plain date for older callers.
+      const label =
+        selection.callbackLabel?.trim() ||
+        (selection.callbackDate ? formatCallbackDate(selection.callbackDate) : null)
+      if (selection.callbackIsAppointment && label) {
+        return {
+          summary: `Reached · Appointment Scheduled ${label}`,
+          description: `Spoke with customer. Appointment set for ${label}.`,
+          note: extraNote,
+        }
+      }
       return {
-        summary: when ? `Reached · Callback Scheduled ${when}` : 'Reached · Callback Scheduled',
-        description: when
-          ? `Spoke with customer. Customer requested a callback on ${when}.`
+        summary: label ? `Reached · Callback Scheduled ${label}` : 'Reached · Callback Scheduled',
+        description: label
+          ? `Spoke with customer. Customer requested a callback: ${label}.`
           : 'Spoke with customer. Customer requested a callback.',
         note: extraNote,
       }
@@ -1544,6 +1649,20 @@ export function describeCallSelection(
       // The summary likewise distinguishes the still-pending agreement
       // ("Reached · Agreed") from the completed send ("Reached · Form Sent").
       const method = selection.formDeliveryMethod ?? null
+      // The customer already has the form (it rode the introductory email), so
+      // nothing is being sent — the agreement is to sign and return what they
+      // already have. This clause is accurate whether or not a delivery method
+      // was ever chosen, so it takes precedence over the send wording.
+      if (selection.formAlreadyHeld) {
+        return {
+          summary: 'Reached · Agreed',
+          description:
+            'Spoke with customer. Customer agreed to authorize our office as servicing agent. ' +
+            'Customer already has the authorization form and agreed to sign and return it. ' +
+            'Awaiting signed authorization.',
+          note: extraNote,
+        }
+      }
       const pendingClause =
         method === 'postal' ? ' Authorization form to be mailed.'
         : method === 'email' ? ' Authorization form to be emailed.'

@@ -91,7 +91,7 @@ AND the behavior is hard to get right (e.g. a measuring/scroll/focus/async
 interaction with a real convergence risk), OR (b) the user explicitly asks for
 automated proof. Otherwise do not:
 
-- Rebuilding Storybook plus scripting a headless browser (Playwright).
+- Scripting a headless browser (Playwright) to drive the app for a visual check.
 - Writing a throwaway verification script and iterating on it.
 - Running multiple rounds of browser tests.
 - Context-gathering subagents or broad re-reads for a change whose blast radius
@@ -106,3 +106,24 @@ If you believe a change genuinely warrants the expensive tier, say so in one
 sentence and let the user decide BEFORE spending it, rather than proceeding and
 explaining afterward. When unsure whether verification is proportional, do less
 and ask.
+
+## Prefer off-the-shelf over bespoke
+
+Before building a non-trivial capability by hand, check whether a proven,
+license-compatible library or an existing primitive already does it, and adopt
+or adapt that instead. This is the same instinct already applied across the
+stack: shadcn/Radix for components rather than hand-rolled controls, GoRules ZEN
+for decision rules rather than imperative branching, Luxon for timezone and
+interval math rather than manual date arithmetic, a maintained ICS generator
+rather than a hand-written RFC 5545 serializer. Reuse Right Path's own shared
+modules (e.g. `@/lib/time`, the contact-input utilities) over re-deriving their
+logic locally.
+
+Hand-roll only when nothing on the shelf fits, the fit would cost more than
+building, or a dependency would carry unacceptable risk. Before adding a new
+dependency, check it for license compatibility and maintenance health (recent
+releases, active maintenance, reasonable transitive footprint), pin it to an
+exact version, and prefer a small focused library over a large framework. A
+genuinely new dependency is a scope signal (see the new-table/subsystem rule
+above): name it and the alternative you considered, rather than adding it
+silently.

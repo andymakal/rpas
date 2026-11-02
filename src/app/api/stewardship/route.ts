@@ -18,7 +18,7 @@ import { buildCustomerHistory, type HistoryTouchRow } from '@/lib/stewardship/cu
  * subset of Ready to Email. Each opens EXACTLY the customers My Work counted,
  * gated by the same capability + claim rules.
  */
-type PopulationFilter = 'calls-due' | 'available-to-call' | 'introductory-emails' | 'servicing-access' | 'customer-interaction'
+type PopulationFilter = 'calls-due' | 'available-to-call' | 'introductory-emails' | 'servicing-access' | 'customer-interaction' | 'declined'
 
 /**
  * GET /api/stewardship
@@ -58,7 +58,8 @@ export async function GET(request: NextRequest) {
     populationParam === 'available-to-call' ||
     populationParam === 'introductory-emails' ||
     populationParam === 'servicing-access' ||
-    populationParam === 'customer-interaction'
+    populationParam === 'customer-interaction' ||
+    populationParam === 'declined'
       ? populationParam
       : null
 
@@ -87,6 +88,84 @@ export async function GET(request: NextRequest) {
       ) as Record<OutreachQueue, number>
       return Response.json({ data: { items: [], counts: emptyCounts } })
     }
+  }
+
+  // DECLINED BASIN — a dedicated, read-only view of customers who explicitly
+  // declined outreach (refused_at set). This is the OPPOSITE of every other
+  // read: instead of SUPPRESSING refused items, it returns ONLY them, so "we
+  // offered, they said no" is a trackable roster rather than work that silently
+  // vanished. It never runs the follow-up / phone-return housekeeping below
+  // (that is for active outreach), and it creates nothing. Project scope, when
+  // set, limits the roster to that project's members. Reopening (the Reopen
+  // action on each row) clears refused_at and returns the customer to active
+  // outreach, so this basin is the one place to find and deliberately reverse a
+  // decline.
+  if (populationFilter === 'declined') {
+    const declinedQuery = supabase
+      .from('stewardship_outreach')
+      .select(`
+        id, prereview_id, queue, last_call_outcome, refused_at,
+        customer_prereviews!inner (
+          id, customer_id, decision,
+          customers!inner ( id, first_name, last_name, email, phone )
+        )
+      `)
+      .not('refused_at', 'is', null)
+      .order('refused_at', { ascending: false })
+
+    const { data: declinedData, error: declinedErr } = await declinedQuery
+    if (declinedErr) {
+      console.error('stewardship declined basin query error:', declinedErr)
+      return Response.json({ error: declinedErr.message }, { status: 500 })
+    }
+
+    type DeclinedRow = {
+      id: string
+      prereview_id: string
+      queue: OutreachQueue
+      last_call_outcome: string | null
+      refused_at: string | null
+      customer_prereviews: {
+        id: string
+        customer_id: string
+        decision: string | null
+        customers: { id: string; first_name: string; last_name: string; email: string | null; phone: string | null }
+      }
+    }
+
+    const declinedItems = ((declinedData ?? []) as unknown as DeclinedRow[])
+      // Only OPEN work items (decision still null) belong in the basin: a decided
+      // pre-review has already left stewardship. A project scope limits the
+      // roster to that project's members.
+      .filter(r => r.customer_prereviews?.decision == null)
+      .filter(r => !projectCustomerIds || projectCustomerIds.has(r.customer_prereviews.customer_id))
+      .map(r => ({
+        id: r.id,
+        queue: r.queue,
+        call_reason: null,
+        research_reason: null,
+        last_call_outcome: r.last_call_outcome,
+        callback_date: null,
+        email_sent_at: null,
+        follow_up_due: null,
+        form_received_at: null,
+        submitted_at: null,
+        carrier_correction: null,
+        refused_at: r.refused_at,
+        prereview_id: r.prereview_id,
+        customer: r.customer_prereviews.customers,
+        customer_id: r.customer_prereviews.customers.id,
+      }))
+
+    return Response.json({
+      data: {
+        items: declinedItems,
+        counts: Object.fromEntries(
+          (Object.keys(QUEUE_META) as OutreachQueue[]).map(q => [q, 0]),
+        ) as Record<OutreachQueue, number>,
+        population_counts: { declined: declinedItems.length },
+      },
+    })
   }
 
   // Deterministic follow-up routing: promote overdue waiting-for-response items

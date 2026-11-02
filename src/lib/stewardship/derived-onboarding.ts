@@ -86,8 +86,10 @@ export async function projectRunsOnboarding(
  * Returns the project members who are actionable onboarding outreach from facts
  * alone: they have at least one known non-test policy, their applicable
  * permanent servicing access is NOT yet confirmed (onboarding still open), they
- * are not in `excludeCustomerIds` (already represented by a real outreach row),
- * and they are not a test record. Each carries its recommended opening action.
+ * are not in `excludeCustomerIds` (already represented by a real OPEN outreach
+ * row), they have NOT explicitly declined (a refused outreach row is a
+ * deliberate stop and is excluded here, not just by the caller), and they are
+ * not a test record. Each carries its recommended opening action.
  *
  * Empty array when the project does not run onboarding, has no members, or every
  * member is already recorded / complete. No writes.
@@ -107,6 +109,39 @@ export async function deriveOnboardingPopulation(
   const memberIds = Array.from(new Set(options.memberCustomerIds)).filter((id) => !exclude.has(id))
   if (memberIds.length === 0) return []
 
+  // REFUSED members are a deliberate dead stop, not derivable work. A declined
+  // customer keeps a real stewardship_outreach row with refused_at set; that row
+  // is (correctly) filtered out of the recorded/open board set, which means it
+  // is also absent from the caller's excludeCustomerIds. Without this guard the
+  // derivation would treat the member as "no record yet" and REGENERATE them as
+  // a fresh virtual opening item (e.g. Ready to Email when an email is on file),
+  // resurfacing a customer who explicitly said no. Reading the refused rows for
+  // the member set here — the one place every consumer (board list, board
+  // counts, My Work) shares — makes the refusal hold everywhere and can never
+  // drift. Reopening clears refused_at, so a reopened customer derives normally.
+  const refusedMemberIds = new Set<string>()
+  await chunked(memberIds, 300, async (chunk) => {
+    // Filter on customer_prereviews' own customer_id column (a direct column, so
+    // a plain .in works), and read each member's outreach refused_at through the
+    // embedded row. A member is refused when any of their outreach rows carries a
+    // refused_at. Prereviews with no outreach row (embed null) are simply not
+    // refused.
+    const { data: preRows } = await supabase
+      .from('customer_prereviews')
+      .select('customer_id, stewardship_outreach ( refused_at )')
+      .in('customer_id', chunk)
+    for (const p of (preRows ?? []) as unknown as {
+      customer_id: string
+      stewardship_outreach: { refused_at: string | null } | { refused_at: string | null }[] | null
+    }[]) {
+      const outreach = p.stewardship_outreach
+      const rows = Array.isArray(outreach) ? outreach : outreach ? [outreach] : []
+      if (rows.some((o) => o.refused_at != null)) refusedMemberIds.add(p.customer_id)
+    }
+  })
+  const activeMemberIds = memberIds.filter((id) => !refusedMemberIds.has(id))
+  if (activeMemberIds.length === 0) return []
+
   // Policy facts (onboarding completion + nothing-to-pursue guard) and contact
   // facts (the derived opening action), in batched passes. Test rows excluded.
   const policiesByCustomer = new Map<string, { product_type: string | null; sa_status: string | null }[]>()
@@ -114,7 +149,7 @@ export async function deriveOnboardingPopulation(
     string,
     { email: string | null; phone: string | null; first_name: string | null; last_name: string | null }
   >()
-  await chunked(memberIds, 300, async (chunk) => {
+  await chunked(activeMemberIds, 300, async (chunk) => {
     const [{ data: pols }, { data: custs }] = await Promise.all([
       supabase
         .from('service_policies')
@@ -140,7 +175,7 @@ export async function deriveOnboardingPopulation(
   })
 
   const out: DerivedOnboardingItem[] = []
-  for (const cid of memberIds) {
+  for (const cid of activeMemberIds) {
     const contact = contactByCustomer.get(cid)
     if (!contact) continue // test record or missing — not surfaced
     const policies = policiesByCustomer.get(cid) ?? []

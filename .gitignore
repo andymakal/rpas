@@ -17,12 +17,6 @@
 /.next/
 /out/
 
-# storybook
-/storybook-static/
-# Storybook is built into public/storybook at deploy time (preview only);
-# never commit the generated static output.
-/public/storybook/
-
 # production
 /build
 

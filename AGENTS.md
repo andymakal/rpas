@@ -55,7 +55,6 @@ reviews, and a read-only agency portal.
 - Next.js (App Router, 16.x — currently 16.3.8), React 19, TypeScript.
 - Supabase: Postgres + PostgREST + Supabase Auth, `@supabase/ssr`.
 - Tailwind CSS v4, shadcn, Radix, lucide-react.
-- Storybook.
 - Hosting: Vercel. Repo: `github.com/andymakal/rpas`.
 
 Next.js 16 note: request-interception middleware is `src/proxy.ts` exporting
@@ -172,11 +171,15 @@ efficient-execution).
   normalized facts and never queries the DB; TypeScript owns normalization, time
   math, capability resolution, and the operator-facing prose.
 - Shared-queue + optional-claim model: queue-owned work (structural candidacy,
-  scoped to no individual) with OPTIONAL per-callback claiming that is distinct
-  from episode assignment — a claim lives on the callback's `action_context`
-  (`claimedByTeamMemberId`), not on a generic episode assignee. An unclaimed
-  exact-time callback surfaces to every eligible worker as claimable; once
-  claimed it is that worker's commitment.
+  scoped to no individual) with OPTIONAL claiming that is distinct from episode
+  assignment — a lightweight soft lease recorded ON THE WORK ROW, not on a
+  generic episode assignee. In Right Path's re-homed implementation the claim is
+  the dedicated `stewardship_outreach.claimed_by_producer_id` column (plus
+  `claimed_at`), verified against the live schema and `POST
+  /api/stewardship/claim`; it is NOT an `action_context` key, and IPF's own
+  `claimedByTeamMemberId` shape does not exist in Right Path code. An unclaimed
+  item surfaces to every eligible worker as claimable; once claimed it is that
+  worker's commitment.
 - Promised-callback / preferred-window commitments, capability-based routing
   (work functions, primary/support), and an always-visible recommendation with
   separate, collapsible coaching.

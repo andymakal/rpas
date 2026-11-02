@@ -25,7 +25,7 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, derivePhoneRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, isCustomerInteraction, isEngaged, isServicingAccess, engagedAtOf, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
-import { createTimeContext } from '@/lib/time'
+import { createTimeContext, commitmentClocks } from '@/lib/time'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
 import { activeProjectsWithWorkflow, onboardingCompleteForPolicies } from '@/lib/projects/workflows'
@@ -55,6 +55,7 @@ import type {
   ActivityGroup,
   ActivityProjectCounts,
   FocusNote,
+  MyWorkAppointment,
   MyWorkState,
   PriorityBand,
   ResponsibilityItem,
@@ -388,6 +389,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       employeeName: null,
       noProfile: true,
       activities: [],
+      appointments: [],
       responsibilities: [],
       focusNotes: flattenFocus(focus, new Map()),
       quiet: true,
@@ -396,6 +398,44 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
 
   const myProducerId = profile.producerId
 
+  // 1b. The employee's upcoming EXACT-TIME appointments (calendar_blocks). These
+  // are genuine clock commitments — the highest-priority band (exact_time_
+  // commitment), surfaced as fixed-time commitments on the briefing. Layer A:
+  // appointments the producer owns (claimed to them), kind='appointment',
+  // has_time=true, still current, starting from the actor's "now" (today's and
+  // future ones; a just-passed one is dropped). Read on the actor's clock for
+  // display. This is what finally feeds the dormant hasExactTimeCommitment fact.
+  const { data: apptRows, error: apptErr } = await supabase
+    .from('calendar_blocks')
+    .select('id, starts_at, ends_at, stated_time_zone, customer_id, source_type, source_id, title, location')
+    .eq('kind', 'appointment')
+    .eq('has_time', true)
+    .eq('is_current', true)
+    .eq('producer_id', myProducerId)
+    .gte('starts_at', new Date(now.getTime() - 60 * 60 * 1000).toISOString()) // small grace: keep one just-started
+    .order('starts_at', { ascending: true })
+  if (apptErr) throw new Error(`MY WORK appointments read failed: ${apptErr.message}`)
+
+  const appointmentRows = (apptRows ?? []) as {
+    id: string
+    starts_at: string
+    ends_at: string
+    stated_time_zone: string
+    customer_id: string | null
+    source_type: string | null
+    source_id: string | null
+    title: string | null
+    location: string | null
+  }[]
+
+  // Customers I have an upcoming exact-time appointment with, so the outreach
+  // activity's exact-time fact fires only when the appointment is genuinely
+  // about outreach work the employee can act on.
+  const outreachApptCustomerIds = new Set(
+    appointmentRows
+      .filter((r) => r.source_type === 'stewardship_outreach' && r.customer_id)
+      .map((r) => r.customer_id as string),
+  )
   // 2. Seed one accumulator per catalog activity, so every activity appears
   // exactly once (even when it currently has zero items — those are dropped at
   // the end unless the employee is eligible and it is focus-elevated).
@@ -1013,13 +1053,31 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
 
       // Build per-project scopes for a call population: each entry opens exactly
       // that project's slice of the population on the board, counts matching.
+      // Both call sources are STANDING (always emitted for an outreach-eligible
+      // employee, even at zero), so like Customer Interaction / Servicing Access
+      // they carry a zero-count project scope for EVERY project the worker has
+      // outreach work in — keeping the project-scoped direct-working route
+      // reachable under the Project filter at zero — then override with the real
+      // per-project counts where they exist.
       const callScopes = (
         byProject: Map<string, number>,
         population: 'calls-due' | 'available-to-call',
         due: boolean,
       ): Record<string, WorkSourceProjectScope> | undefined => {
-        if (byProject.size === 0) return undefined
+        const routeFor = (pid: string) =>
+          population === 'available-to-call' ? availableToCallRoute(pid) : callsDueRoute(pid)
         const out: Record<string, WorkSourceProjectScope> = {}
+        for (const pid of outreach.projectIds) {
+          out[pid] = {
+            count: 0,
+            ownedByMe: 0,
+            availableToMe: 0,
+            claimedByOthers: 0,
+            notEligible: 0,
+            dueToMe: 0,
+            route: routeFor(pid),
+          }
+        }
         for (const [pid, n] of byProject) {
           if (n <= 0) continue
           out[pid] = {
@@ -1033,15 +1091,20 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
             // exactly this project's slice: Available to Call in its default
             // mode, Calls Due in due mode. Neither uses the board's intermediate
             // population list anymore.
-            route: population === 'available-to-call'
-              ? availableToCallRoute(pid)
-              : callsDueRoute(pid),
+            route: routeFor(pid),
           }
         }
         return Object.keys(out).length > 0 ? out : undefined
       }
 
-      if (callsDue > 0) {
+      // Both call sub-populations are STANDING steps, surfaced for any outreach-
+      // eligible employee even at zero, so the full outreach workflow stays
+      // visible and a 0 reads as "cleared — refresh the population" rather than
+      // the step vanishing. The count shown is the honest real figure; being
+      // informational, neither adds to the activity total or a ZEN band.
+      const callEligibleAnywhere =
+        agencyWideEligible('outreach') || scopedProjectsFor('outreach').size > 0
+      if (callsDue > 0 || callEligibleAnywhere) {
         outreach.sources.push({
           kind: 'stewardship',
           label: 'Shared Stewardship board — Calls Due',
@@ -1061,7 +1124,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
           projectScopes: callScopes(callsDueByProject, 'calls-due', true),
         })
       }
-      if (availableToCall > 0) {
+      if (availableToCall > 0 || callEligibleAnywhere) {
         outreach.sources.push({
           kind: 'stewardship',
           label: 'Shared Stewardship board — Available to Call',
@@ -1083,14 +1146,43 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
 
       // Introductory emails: the first-touch subset of Ready to Email, as an
       // informational source (it does NOT add to the activity total, which the
-      // per-queue ready-to-email tally already carries). It opens the Ready to
-      // Email queue — the same place the full email population is worked — so the
-      // recommendation is directly reachable. Per-project scopes let the Project
-      // filter show exactly a project's introductory emails.
-      if (introEmails > 0) {
+      // per-queue ready-to-email tally already carries). It opens the Send
+      // Introductory Emails direct working screen so the recommendation is
+      // directly reachable. Per-project scopes let the Project filter show
+      // exactly a project's introductory emails.
+      //
+      // ALWAYS surfaced as a reachable entry point for an outreach-eligible
+      // employee — even at zero first-touch emails right now — exactly like
+      // Servicing Access and Customer Interaction below. A customer becomes a
+      // first-touch introductory email the moment an email is added or a new
+      // member is populated, and the step is a fixed part of the outreach
+      // workflow, so a momentary zero must NOT make the step vanish. The count
+      // shown is the honest real number (0 when none); being informational it
+      // never adds to the activity total or invents a ZEN priority band.
+      const introEligibleAnywhere =
+        agencyWideEligible('outreach') || scopedProjectsFor('outreach').size > 0
+      if (introEmails > 0 || introEligibleAnywhere) {
         const introScopes = ((): Record<string, WorkSourceProjectScope> | undefined => {
-          if (introEmailsByProject.size === 0) return undefined
           const out: Record<string, WorkSourceProjectScope> = {}
+          // A STANDING project-scoped entry point for every project the worker
+          // has outreach work in — even at zero current introductory emails —
+          // so working within a selected project always reaches Send
+          // Introductory Emails WITH that project's id (matching how Customer
+          // Interaction and Servicing Access keep their project scope). Without
+          // it, the Project filter would drop the source at zero and the scoped
+          // link would be lost.
+          for (const pid of outreach.projectIds) {
+            out[pid] = {
+              count: 0,
+              ownedByMe: 0,
+              availableToMe: 0,
+              claimedByOthers: 0,
+              notEligible: 0,
+              dueToMe: 0,
+              route: introductoryEmailsRoute(pid),
+            }
+          }
+          // Override with the real first-touch counts where they exist.
           for (const [pid, n] of introEmailsByProject) {
             if (n <= 0) continue
             out[pid] = {
@@ -1736,9 +1828,14 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     const capabilityStatus = activityCapabilityStatus(a.workFunction, a.projectIds)
 
     const facts: ActivityFacts = {
-      // Right Path records no exact-time commitments yet; the band exists so the
-      // IPF distinction holds, but it is false today.
-      hasExactTimeCommitment: false,
+      // An exact-time appointment the employee owns is a genuine clock
+      // commitment and the highest-priority band. Layer A appointments are
+      // created from the outreach Defer path, so they raise the fact on the
+      // outreach activity (the work the appointment belongs to) when this
+      // employee has an upcoming one. Other activities stay false until they
+      // create their own appointments (later layers). The fact is no longer
+      // hard-coded off: it reflects real calendar_blocks data.
+      hasExactTimeCommitment: a.workFunction === 'outreach' && outreachApptCustomerIds.size > 0,
       isEligible: eligible,
       // Overqualified-assist and a confirmed license gap are mutually exclusive
       // with routable eligibility; they only steer the non-routable rows.
@@ -1817,10 +1914,57 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     for (const s of a.sources)
       if (s.projectId) projectNameById.set(s.projectId, s.label)
 
+  // Resolve display names for the appointment customers, then build the
+  // appointment rows on the ACTOR's clock (each employee sees the commitment in
+  // their own zone), with the customer-clock time carried too so the UI can show
+  // "2:00 PM (your 1:00 PM)" when the zones differ.
+  const apptCustomerIds = Array.from(
+    new Set(appointmentRows.map((r) => r.customer_id).filter((x): x is string => !!x)),
+  )
+  const apptCustomerNames = new Map<string, string>()
+  if (apptCustomerIds.length > 0) {
+    const { data: apptCustomers } = await supabase
+      .from('customers')
+      .select('id, first_name, last_name')
+      .in('id', apptCustomerIds)
+    for (const cst of (apptCustomers ?? []) as { id: string; first_name: string | null; last_name: string | null }[]) {
+      apptCustomerNames.set(cst.id, [cst.first_name, cst.last_name].filter(Boolean).join(' ').trim())
+    }
+  }
+
+  const appointments: MyWorkAppointment[] = appointmentRows.map((r) => {
+    const start = new Date(r.starts_at)
+    const apptCtx = createTimeContext({
+      now,
+      actorTimeZone: options.actorTimeZone,
+      customerTimeZone: r.stated_time_zone,
+    })
+    const clocks = commitmentClocks(apptCtx, start)
+    return {
+      id: r.id,
+      customerId: r.customer_id,
+      customerName: r.customer_id ? (apptCustomerNames.get(r.customer_id) || null) : null,
+      title: r.title,
+      location: r.location,
+      startsAt: r.starts_at,
+      endsAt: r.ends_at,
+      statedTimeZone: r.stated_time_zone,
+      sourceType: r.source_type,
+      sourceId: r.source_id,
+      // Ready-to-render clock labels (actor + customer), so the UI does no zone
+      // math. actorDateTime is the employee's own clock; customerDateTime is the
+      // customer's stated clock; differ flags a cross-zone appointment.
+      actorLabel: clocks.actorDateTime,
+      customerLabel: clocks.customerDateTime,
+      clocksDiffer: clocks.differ,
+    }
+  })
+
   return {
     employeeName: `${profile.firstName} ${profile.lastName}`.trim() || null,
     noProfile: false,
     activities,
+    appointments,
     responsibilities: buildResponsibilities(profile, workFunctions),
     focusNotes: flattenFocus(focus, buildActivityLabelMap(workFunctions), projectNameById),
     quiet,

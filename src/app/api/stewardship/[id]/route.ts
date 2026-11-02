@@ -30,6 +30,7 @@ import { SERVICING_AUTHORIZATION_TYPE } from '@/lib/stewardship/authorization-do
 import { activeContactResearchProjectForCustomer } from '@/lib/projects/contact-review'
 import { loadGatewayPolicyNumbersForCustomer } from '@/lib/stewardship/gateway-policy-numbers'
 import { getCustomerEnrollmentEvents } from '@/lib/projects/customer-enrollments'
+import { resolveStewardshipCallContext } from '@/lib/projects/stewardship-call-context'
 import {
   applyAction,
   deriveEmailRouting,
@@ -461,6 +462,20 @@ export async function GET(
   // consolidated Contact Research task does.
   const gatewayPolicyNumbers = await loadGatewayPolicyNumbersForCustomer(supabase, customerId)
 
+  // The situation-specific CALL CONTENT (reason / talk path / mentoring) for the
+  // outbound call panel, resolved from the (project type, servicing-onboarding
+  // phase) catalog with the caller/customer identity filled. Falls back to the
+  // built-in servicing-agent default when the customer is not in a typed project
+  // or the catalog has no row, so the panel always has content.
+  const callContext = await resolveStewardshipCallContext(supabase, {
+    customerId,
+    identity: {
+      firstName: cust.first_name ?? null,
+      senderName: callActor?.first_name ?? null,
+      callbackPhone: callActor?.callback_phone ?? null,
+    },
+  })
+
   // requires that confirmation.
   return Response.json({
     data: {
@@ -524,6 +539,12 @@ export async function GET(
       // employee has no usable callback number; the workbench then renders the
       // callback-dependent channels as unavailable rather than a placeholder.
       call_actor: callActor,
+      // The situation-specific call content (why you're calling, the talk path,
+      // and the mentoring) for THIS customer's (project type, phase) coordinate.
+      // Resolved from the call-context catalog with identity filled; the panel
+      // feeds it to the CallMentorCap / TalkPathCard Legos. Built-in default
+      // when the coordinate has no catalog row.
+      call_context: callContext,
     },
   })
 }
@@ -883,10 +904,13 @@ export async function PATCH(
     const voicemailLeft = action.voicemail === 'touch'
     const callLabel: Record<CallOutcome, string> = {
       reached: 'Spoke with customer.',
+      // A didn't-reach call leads with "Call attempt" — an attempted outbound
+      // call — never "No answer". Whether a voicemail was left is carried by the
+      // separate voicemail CHANNEL touch, not asserted in the call sentence.
       voicemail: voicemailLeft
-        ? 'Called customer. No answer. Voicemail left. Next call scheduled.'
-        : 'Called customer. No answer. Next call scheduled.',
-      'bad-number': 'Called customer. Number is not working. Customer referred to Contact Research.',
+        ? 'Call attempt. Voicemail left. Next call scheduled.'
+        : 'Call attempt. Next call scheduled.',
+      'bad-number': 'Call attempt. Number is not working. Customer referred to Contact Research.',
       'not-interested': 'Spoke with customer. Customer declined servicing-agent authorization. Further outreach stopped unless deliberately reopened.',
       callback: `Spoke with customer. Customer requested a callback${action.callback_date ? ` on ${action.callback_date}` : ''}.`,
     }
@@ -1058,6 +1082,7 @@ export async function PATCH(
     const touchedAt = new Date().toISOString()
     const isPostal = row.form_delivery_method === 'postal'
     const method = isPostal ? 'by postal mail' : 'by email'
+    const alreadyHeld = action.alreadyHeld === true
     const formNote = typeof action.note === 'string' ? action.note.trim() : ''
 
     // The guided "Agreed to authorize" completion records the reached call as
@@ -1087,10 +1112,18 @@ export async function PATCH(
     // instant they group into one interaction, and this sentence is the one the
     // history displays. The email/postal phrasing is matched centrally in
     // customer-history.ts so the displayed description reads exactly this.
-    const formSentence = isPostal
-      ? 'Spoke with customer. Customer agreed to authorize our office as servicing agent. Authorization form sent by postal mail. Awaiting signed authorization.'
-      : 'Spoke with customer. Customer agreed to authorize our office as servicing agent. Authorization form emailed. Awaiting signed authorization.'
-    const formBase = `Servicing-agent authorization form sent to the customer ${method}.`
+    // When the customer ALREADY has the form (it rode the introductory email),
+    // nothing is sent — the interaction is the agreement to sign and return what
+    // they have. The recorded sentence says exactly that rather than a
+    // fictitious "emailed/mailed", so customer history is accurate.
+    const formSentence = alreadyHeld
+      ? 'Spoke with customer. Customer agreed to authorize our office as servicing agent. Customer already has the authorization form and agreed to sign and return it. Awaiting signed authorization.'
+      : isPostal
+        ? 'Spoke with customer. Customer agreed to authorize our office as servicing agent. Authorization form sent by postal mail. Awaiting signed authorization.'
+        : 'Spoke with customer. Customer agreed to authorize our office as servicing agent. Authorization form emailed. Awaiting signed authorization.'
+    const formBase = alreadyHeld
+      ? 'Customer already has the servicing-agent authorization form and agreed to sign and return it.'
+      : `Servicing-agent authorization form sent to the customer ${method}.`
     // When the form send carries the reached completion, the required sentence
     // describes the whole interaction; otherwise (a re-send with no reached
     // completion) keep the plain form-sent sentence. The employee note, if any,
@@ -1711,19 +1744,37 @@ export async function PATCH(
     // A follow-up commitment recorded directly from a conversation is a genuine
     // engagement (the employee is in an active dialogue with the customer).
     action.type === 'set-follow-up'
-  if (engagingCall && engagedAtOf(row.action_context) == null) {
+  // A promised callback given as availability WINDOWS (days × time bands, no
+  // exact time) carries that availability on the raw action; persist it onto
+  // action_context as a soft fact (parallel to engagedAt) so a window-aware
+  // surface can honor it later. It is informational only here: Layer A reads no
+  // window; the exact-time case is an appointment, not a window, so it never
+  // sets this. Nullable/absent leaves action_context untouched.
+  const rawWindows =
+    action.type === 'record-attempt' && action.call === 'callback'
+      ? (body.action as { callback_windows?: unknown } | undefined)?.callback_windows
+      : undefined
+  const callbackWindows =
+    rawWindows && typeof rawWindows === 'object' && !Array.isArray(rawWindows) ? rawWindows : null
+
+  if ((engagingCall && engagedAtOf(row.action_context) == null) || callbackWindows) {
     const base =
       row.action_context && typeof row.action_context === 'object' && !Array.isArray(row.action_context)
         ? (row.action_context as Record<string, unknown>)
         : {}
+    const next: Record<string, unknown> = { ...base }
+    if (engagingCall && engagedAtOf(row.action_context) == null) {
+      next[ENGAGED_AT_KEY] = new Date().toISOString()
+    }
+    if (callbackWindows) next.callbackWindows = callbackWindows
     const { error: engErr } = await supabase
       .from('stewardship_outreach')
-      .update({ action_context: { ...base, [ENGAGED_AT_KEY]: new Date().toISOString() } })
+      .update({ action_context: next })
       .eq('id', id)
     if (engErr) {
-      // Non-fatal: the workflow transition already persisted. Engagement is a
-      // soft marker; log and continue.
-      console.error('stewardship engagement marker (reached/callback) update error:', engErr)
+      // Non-fatal: the workflow transition already persisted. These are soft
+      // markers; log and continue.
+      console.error('stewardship action_context (engagement / callback windows) update error:', engErr)
     }
   }
 

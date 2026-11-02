@@ -28,8 +28,48 @@ export {
 export { CallButton } from './CallButton'
 export { SkipForNowButton } from './SkipForNowButton'
 export { CallContextCard } from './CallContextCard'
+export { CallMentorCap } from './CallMentorCap'
+export { TalkPathCard } from './TalkPathCard'
+export {
+  CallOutcomeChoice,
+  type CallOutcomeChoiceValue,
+  type CallOutcomeLabels,
+} from './CallOutcomeChoice'
 export { HistoryNotesField } from './HistoryNotesField'
 export { Divider, DividerStack } from './Divider'
+
+export {
+  OTHER_REASON,
+  ChannelReasonPicker,
+  ChannelYesNo,
+  ChannelSection,
+  resolveChannelOutcome,
+  type ChannelOutcome,
+  type ChannelStatus,
+  type ChannelReason,
+} from './ChannelAttempt'
+export {
+  VoicemailAttempt,
+  useVoicemailDraft,
+  voicemailOutcome,
+  VOICEMAIL_REASONS,
+  type VoicemailDraft,
+} from './VoicemailAttempt'
+export {
+  TextAttempt,
+  useTextDraft,
+  textOutcome,
+  TEXT_REASONS,
+  type TextDraft,
+  type TextUnavailableReason,
+} from './TextAttempt'
+export {
+  EmailAttempt,
+  useFollowUpEmailDraft,
+  emailOutcome,
+  EMAIL_REASONS,
+  type FollowUpEmailDraft,
+} from './EmailAttempt'
 
 export { type TaskColumnRatio } from './TaskColumns'
 
@@ -67,12 +107,6 @@ export {
   CustomerNameHeading,
   type CustomerContact,
   type ContactPersistPayload,
-  type ContactCardAppearance,
-  type ColorChoice,
-  type WeightChoice,
-  type VerifiedPlacement,
-  type EditPlacement,
-  type AlignChoice,
 } from './CustomerContactCard'
 
 export {
@@ -139,3 +173,9 @@ export {
   type AlertRecord,
   type AlertEditResult,
 } from './ContactAlert'
+
+export {
+  CallbackPrecisionFields,
+  useCallbackPrecisionDraft,
+  type CallbackPrecisionDraftApi,
+} from './CallbackPrecision'
