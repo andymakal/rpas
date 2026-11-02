@@ -29,12 +29,14 @@ import {
   parseOutcomeFromNote,
   noteIndicatesReached,
   noteIndicatesInbound,
+  unusableValueFromNote,
   type Communication,
   type OutreachChannel,
   type ChannelOutcome,
 } from './outreach-attempts'
 import { dobChanged, readStoredDob, dobPrecisionLabel } from './dob'
 import { fullRecordedName, familiarName } from '@/lib/person-name'
+import { formatPhoneDisplay } from '@/lib/contact-input'
 
 /** The direction of a recorded communication, for presentations that title an
  * event by who initiated it. Derived from the stored note (the inbound marker
@@ -531,9 +533,11 @@ const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = 
     describe: 'Call attempt. Next call scheduled.',
   },
   {
-    // Bad number.
+    // Bad number. The dialed digits are appended by describeHistoryNote from the
+    // value-scoped [channel-unusable:<digits>] marker, so research sees exactly
+    // which number failed.
     match: /^Call attempt\.\s*Number is not working\.\s*Customer referred to Contact Research\.?$/i,
-    describe: 'Call attempt. Number is not working. Customer referred to Contact Research.',
+    describe: 'Called. Number not working.',
   },
   // Legacy "Called customer. No answer." sentences, normalized to the new
   // "Call attempt" wording so old history rows read consistently.
@@ -547,7 +551,7 @@ const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = 
   },
   {
     match: /^Called customer\.\s*Number is not working\.\s*Customer referred to Contact Research\.?$/i,
-    describe: 'Call attempt. Number is not working. Customer referred to Contact Research.',
+    describe: 'Called. Number not working.',
   },
   // ── The introductory / form-send confirmations ──────────────────────────────
   {
@@ -594,7 +598,7 @@ const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = 
   },
   {
     match: /^Bad number\.?(\s*Moved to Research Needed\.?)?$/i,
-    describe: 'Call attempt. Number is not working. Customer referred to Contact Research.',
+    describe: 'Called. Number not working.',
   },
   {
     match: /^Customer declined\.?(\s*Outreach stopped until deliberately reopened\.?)?$/i,
@@ -653,6 +657,20 @@ export function describeHistoryNote(note: string | null): string | null {
       if (/asked for a callback/i.test(describe) && m[2]) {
         const when = formatCallbackDate(m[2])
         return when ? `Customer asked for a callback on ${when}.` : describe
+      }
+      // Bad number: append the exact dialed digits recovered from the
+      // value-scoped [channel-unusable:<digits>] marker on the raw note, so
+      // research sees which number failed rather than just "number not working".
+      // Only genuine 10-digit US phone values are shown (a bare legacy marker,
+      // or a non-phone value, appends nothing); formatted via the one shared
+      // phone formatter.
+      if (describe === 'Called. Number not working.') {
+        const dialed = unusableValueFromNote(note)
+        const digits = dialed ? dialed.replace(/\D/g, '') : ''
+        if (digits.length === 10) {
+          return `${describe} ${formatPhoneDisplay(digits)}`
+        }
+        return describe
       }
       return describe
     }
@@ -1574,7 +1592,7 @@ export function describeCallSelection(
         summary: 'Call attempt',
         description: [
           fragments.length ? `${fragments.join('. ')}.` : null,
-          'Number is not working. Customer referred to Contact Research.',
+          'Number not working.',
         ].filter(Boolean).join(' '),
         note: extraNote,
       }
