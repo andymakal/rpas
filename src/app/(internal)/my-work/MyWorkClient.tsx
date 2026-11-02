@@ -76,7 +76,7 @@ import {
   WORK_MODE_NOTE,
   type WorkMode,
 } from '@/lib/my-work/guidance'
-import type { ActivityGroup, MyWorkState, PriorityBand } from '@/lib/my-work/types'
+import type { ActivityGroup, MyWorkAppointment, MyWorkState, PriorityBand } from '@/lib/my-work/types'
 import {
   ALL,
   applyWorkFilters,
@@ -431,6 +431,14 @@ function PrioritiesColumn({ state }: { state: MyWorkState }) {
     <section aria-label="Priorities" className="space-y-2.5">
       <ColumnHeader title="Priorities" />
 
+      {/* Exact-time appointments come FIRST: a specific clock commitment is the
+          highest-priority surface (the exact_time_commitment band), above
+          date-only promised callbacks. Only shown when the employee actually has
+          one on record. */}
+      {state.appointments.length > 0 && (
+        <AppointmentsCard appointments={state.appointments} />
+      )}
+
       {/* Commitments summary — real due callbacks, plus an honest Coming Soon
           for the kinds of commitment Right Path does not capture yet. */}
       <CommitmentsSummary dueTotal={dueTotal} items={commitmentActivities} />
@@ -457,7 +465,7 @@ function PrioritiesColumn({ state }: { state: MyWorkState }) {
       {/* When nothing in this column needs attention, say so plainly without
           implying the system has established there is no OTHER work. Ordinary
           available work being present is NOT a reason to flag attention. */}
-      {dueTotal === 0 && focusActivities.length === 0 && (
+      {dueTotal === 0 && focusActivities.length === 0 && state.appointments.length === 0 && (
         <div className="rounded-xl border border-surface-border bg-surface-card p-3">
           <p className="flex items-center gap-2 text-sm text-ink-secondary">
             <CheckCircle2 className="size-4 shrink-0 text-status-confirmed" aria-hidden />
@@ -532,17 +540,54 @@ function CommitmentsSummary({
         </ul>
       )}
 
-      {/* Capabilities not yet captured. Stated so a worker never reads this as
-          "you have no appointments" — Right Path simply does not record them. */}
+      {/* Preferred calling WINDOWS are captured on the callback now (days ×
+          bands) but not yet surfaced here as a priority; that read is a later
+          layer. Exact-time appointments ARE surfaced — see AppointmentsCard at
+          the top of this column. */}
       <div className="mt-2.5 space-y-1 pl-10">
         <ComingSoon>
-          exact-time appointments (a specific date and clock time) are not recorded
-          yet, so none are shown here.
-        </ComingSoon>
-        <ComingSoon>
-          preferred calling windows (9–12, 12–3, 3–6, after 6) are not captured yet.
+          preferred calling windows (9–12, 12–3, 3–6, after 6) are captured on the
+          callback but not yet shown as a priority here.
         </ComingSoon>
       </div>
+    </div>
+  )
+}
+
+/** Exact-time appointments the employee owns, the highest-priority commitment.
+ * Shows each on the employee's own clock, and when the appointment is in another
+ * zone (a customer in a different timezone) it shows the customer's stated time
+ * too, so "their 9:00" and "your 8:00" are both visible and unambiguous. */
+function AppointmentsCard({ appointments }: { appointments: MyWorkAppointment[] }) {
+  const t = TONE.critical
+  return (
+    <div className={cn('rounded-xl border p-3', t.card)}>
+      <div className="flex items-center gap-2">
+        <span
+          className={cn('flex size-8 shrink-0 items-center justify-center rounded-lg', t.badge)}
+          aria-hidden
+        >
+          <CalendarClock className="size-4" />
+        </span>
+        <p className={cn('text-2xl font-semibold leading-tight tracking-tight', t.label)}>
+          {appointments.length} appointment{appointments.length === 1 ? '' : 's'}
+        </p>
+      </div>
+      <ul className="mt-2.5 space-y-2 pl-10">
+        {appointments.map((ap) => (
+          <li key={ap.id} className="text-sm">
+            <span className="font-medium text-ink">
+              {ap.customerName || ap.title || 'Appointment'}
+            </span>
+            <span className="ml-1.5 text-ink-secondary">{ap.actorLabel}</span>
+            {ap.clocksDiffer && ap.customerLabel && (
+              <span className="ml-1.5 text-ink-supporting">
+                (customer&apos;s time {ap.customerLabel})
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

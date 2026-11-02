@@ -57,6 +57,7 @@ export default async function MyWorkPage({
       employeeName: null,
       noProfile: false,
       activities: [],
+      appointments: [],
       responsibilities: [],
       focusNotes: [],
       quiet: true,

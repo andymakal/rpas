@@ -19,31 +19,31 @@ the GoRules ZEN ordering). The following capabilities the redesign anticipates
 are not yet represented in the data model, so they are surfaced only as discreet
 "Coming soon" notes and are recorded here.
 
-### 1. Exact-time appointments (date + clock time)
+### 1. Exact-time appointments (date + clock time) — IMPLEMENTED (Calendar Layer A)
 
-- What's missing: Right Path records only DATE-ONLY promised callbacks
-  (`stewardship_outreach.callback_date`); there is no clock time. The ZEN band
-  `exact_time_commitment` (rank 1) and the fact `hasExactTimeCommitment` are
-  already defined end to end, but the composition hard-codes
-  `hasExactTimeCommitment: false` (`src/lib/my-work/composition.ts`), so the band
-  never fires.
-- UI marker: Priorities column, commitments summary ("Coming soon: exact-time
-  appointments …").
-- Would touch: a clock-time column/representation on the commitment, new
-  normalization in the composition to set `hasExactTimeCommitment`, and feeding
-  it into the existing ZEN decision (no new ranking system — the band exists).
+Implemented. A promised callback can now carry an EXACT time, which creates a
+first-class `calendar_blocks` appointment owned by the acting producer and
+surfaces on their My Work Priorities column (the `exact_time_commitment` band
+now fires from real data; `src/lib/my-work/composition.ts` sets
+`hasExactTimeCommitment` from the producer's upcoming appointments rather than
+the former hard-coded `false`). The appointment is stored as an absolute instant
+plus the stated IANA zone and emits an `.ics` invite the operator sends from
+Outlook. See `CALENDAR_DESIGN.md` (Layer A). Remaining calendar work (claim /
+reassign / escalate; declared working hours and slot booking) is Layers B–C
+there, not here.
 
 ### 2. Preferred calling windows (9–12, 12–3, 3–6, after 6)
 
-- What's missing: there is no time-of-day window concept anywhere (no column, no
-  fact, no derivation). The only "mode" notion is `WorkMode` ('quiet' vs 'calls')
-  in `src/lib/my-work/guidance.ts`, which is a kind of effort, not a scheduled
-  window.
+- Partially done: the window is now CAPTURED on a promised callback (the Defer
+  precision picker's "Time of day" option writes days × bands into
+  `stewardship_outreach.action_context.callbackWindows`), but it is NOT yet
+  SURFACED or acted on — no priority, no ordering, no window-aware due logic. The
+  Priorities column still shows a discreet "Coming soon" note for it.
 - UI marker: Priorities column, commitments summary ("Coming soon: preferred
   calling windows …").
-- Would touch: new data to capture a customer/commitment's preferred window,
-  normalization, and presentation. Whether it also influences ZEN ordering is a
-  product decision to make when it is designed.
+- Would touch: a read of the stored window, presentation, and the product
+  decision of whether an open/passed window influences due/ordering (the IPF
+  contact-opportunity model is the reference). This is Calendar Layer C territory.
 
 ### 3. Standing practice expectations (beyond Today's Focus)
 

@@ -173,3 +173,9 @@ export {
   type AlertRecord,
   type AlertEditResult,
 } from './ContactAlert'
+
+export {
+  CallbackPrecisionFields,
+  useCallbackPrecisionDraft,
+  type CallbackPrecisionDraftApi,
+} from './CallbackPrecision'

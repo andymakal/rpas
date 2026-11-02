@@ -27,7 +27,11 @@ import {
   VoicemailAttempt, useVoicemailDraft, voicemailOutcome,
   TextAttempt, useTextDraft, textOutcome, type TextUnavailableReason,
   EmailAttempt, useFollowUpEmailDraft, emailOutcome,
+  CallbackPrecisionFields, useCallbackPrecisionDraft,
 } from '@/components/workflow'
+import { hasExactTime, windowsSummary } from '@/lib/calendar/callback-precision'
+import { deriveCustomerZone } from '@/lib/calendar/customer-zone'
+import { zoneAbbreviation } from '@/lib/time'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import { buildMailto, SERVICING_CALL_SCRIPTS, interpolate } from '@/lib/templates'
 import { formatPhoneDisplay } from '@/lib/contact-input'
@@ -139,7 +143,17 @@ export function OutreachCallPanel({
   //   Divert  → "something else is the right move" — placeholder, no action
   //             wired yet; the situation table will supply the diversions.
   const [decision, setDecision] = useState<null | 'advance' | 'decline' | 'defer' | 'divert'>(reached ? 'advance' : null)
-  const [callbackWhen, setCallbackWhen] = useState('')
+
+  // The promised-callback precision draft (exact time / days×bands windows /
+  // any time that day). Replaces the old date-only input. The host resolves the
+  // exact case into a calendar appointment; windows/anytime record callback
+  // availability on the outreach row.
+  const cbDraft = useCallbackPrecisionDraft()
+  // Set when an exact-time appointment was just created, so the panel can offer
+  // the .ics download for the operator to attach in Outlook (the generate →
+  // send → confirm contract; Right Path never sends the invite itself).
+  const [apptSaving, setApptSaving] = useState(false)
+  const [apptError, setApptError] = useState<string | null>(null)
 
   // The Talk Path appears in two places and each is independently collapsible,
   // identical behavior: start collapsed, click to open, click to close, so an
@@ -171,6 +185,16 @@ export function OutreachCallPanel({
     : null
 
   const nextSuffix = hasNextInActivity ? ' Next customer.' : ''
+
+  // A short customer-zone label ("ET"/"CT"/"MT"/"PT") for the exact-time hint,
+  // so an operator in another zone sees whose clock the time is on. Derived from
+  // the customer's state (the same derivation the server uses to store the zone);
+  // null when the state is unknown, in which case the hint is simply omitted.
+  const callbackCustomerZoneLabel = (() => {
+    const derived = deriveCustomerZone(c.state ?? null)
+    if (!derived) return null
+    return zoneAbbreviation(derived.timeZone, new Date())
+  })()
 
   // The CALLER identity for the scripts, from the established producer source:
   // the signed-in employee's first name ("[Employee]") and their validated
@@ -248,7 +272,7 @@ export function OutreachCallPanel({
       badNumber,
       notReachedFragments: [vmOut.fragment, textOut.fragment, emailOut.fragment].filter(Boolean),
       decision: decisionDisposition,
-      callbackDate: callbackWhen || null,
+      callbackDate: cbDraft.draft.date || null,
       // The reached · agreed completion sends the form and records the reached
       // call together. It is NOT "sent" merely because the customer was reached
       // and agreed; the send is confirmed by the form-delivery confirm action,
@@ -264,7 +288,7 @@ export function OutreachCallPanel({
   }, [
     onSelectionChange, reach, badNumber,
     vmOut.fragment, textOut.fragment, emailOut.fragment,
-    decisionDisposition, callbackWhen, detail.form_delivery_method, callNote,
+    decisionDisposition, cbDraft.draft.date, detail.form_delivery_method, callNote,
   ])
 
   // Fold any channel reason text ("Other") into the attempt note alongside the
@@ -298,6 +322,87 @@ export function OutreachCallPanel({
     )
   }
 
+  // Save a promised callback at the drafted precision. Three shapes:
+  //   - exact:   create a calendar appointment (owned by the acting producer, so
+  //              it is their My Work appointment) via the calendar route, which
+  //              also returns an .ics for the operator to attach in Outlook; then
+  //              record the callback on the outreach row so the promise shows as
+  //              a due call. The appointment carries the exact time; the outreach
+  //              row keeps the date for the Calls Due surface.
+  //   - windows: record the callback on the date, carrying the days×bands
+  //              availability so a future surface can honor the window.
+  //   - anytime: the established date-only promised callback.
+  // The outreach record keeps working exactly as before (record-attempt
+  // call=callback); only the exact case additionally creates the appointment.
+  async function saveCallback() {
+    const cb = cbDraft.draft
+    setApptError(null)
+
+    if (hasExactTime(cb)) {
+      setApptSaving(true)
+      try {
+        const res = await fetch('/api/calendar/appointments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            customer_id: c.id,
+            date: cb.date,
+            clock: cb.clock,
+            source_type: 'stewardship_outreach',
+            source_id: detail.id,
+            location: phone ? formatPhoneDisplay(phone) : undefined,
+            notes: noteForAction ?? undefined,
+          }),
+        })
+        const json = await res.json()
+        if (!res.ok) {
+          setApptError(json.error ?? 'Could not save the appointment.')
+          setApptSaving(false)
+          return
+        }
+        // Hand the operator the .ics to attach in Outlook (generate → send →
+        // confirm; Right Path never sends it). A data: href triggers download
+        // without navigating away.
+        if (json.data?.ics) {
+          const a = document.createElement('a')
+          a.href = `data:text/calendar;charset=utf-8,${encodeURIComponent(json.data.ics)}`
+          a.download = json.data.ics_filename ?? 'appointment.ics'
+          document.body.appendChild(a)
+          a.click()
+          document.body.removeChild(a)
+        }
+      } catch {
+        setApptError('Could not reach the server to save the appointment.')
+        setApptSaving(false)
+        return
+      }
+      setApptSaving(false)
+    }
+
+    // Record the promised callback on the outreach row for every precision, so
+    // the customer surfaces as a due call on the date. The exact case carries
+    // its clock in the appointment just created; windows carries its band/day
+    // availability for a future window-aware surface.
+    const action: Record<string, unknown> = {
+      type: 'record-attempt',
+      call: 'callback',
+      callback_date: cb.date,
+      note: noteForAction,
+    }
+    if (cb.precision === 'windows') {
+      action.callback_windows = { days: cb.days, bands: cb.bands }
+    }
+    act(
+      action,
+      hasExactTime(cb)
+        ? `Appointment set for ${cb.date} at ${cb.clock}. Calendar invite downloaded to send in Outlook.`
+        : cb.precision === 'windows'
+          ? `Callback promised for ${cb.date ? shortDate(cb.date) : ''} (${windowsSummary(cb) ?? 'any time'}).`
+          : `Callback promised for ${cb.date ? shortDate(cb.date) : ''}.`,
+      { advanceToNext: true },
+    )
+  }
+
   // Reached / Didn't Reach are TOGGLES that only steer the on-screen workflow —
   // they record NOTHING. Choosing one clears the OTHER branch's downstream
   // selections so a half-made choice from the opposite outcome never leaks into
@@ -309,7 +414,7 @@ export function OutreachCallPanel({
     voicemailDraft.reset(); textDraft.reset(); emailDraft.reset(); setBadNumber(false)
   }
   function chooseReached() {
-    if (reach === 'reached') { setReach(null); setDecision(null); setCallbackWhen(''); return }
+    if (reach === 'reached') { setReach(null); setDecision(null); setApptError(null); return }
     setReach('reached')
     // Entering Reached: drop any Didn't-Reach channel drafts, collapse the top
     // Talk Path (the lower copy takes over), and start the lower Talk Path
@@ -321,8 +426,8 @@ export function OutreachCallPanel({
   function chooseNotReached() {
     if (reach === 'not-reached') { setReach(null); resetNotReached(); return }
     setReach('not-reached')
-    // Entering Didn't Reach: drop any Reached decision + callback draft.
-    setDecision(null); setCallbackWhen('')
+    // Entering Didn't Reach: drop any Reached decision.
+    setDecision(null); setApptError(null)
   }
 
   // The situation content comes from the resolved (project type, phase) catalog
@@ -547,26 +652,35 @@ export function OutreachCallPanel({
             </div>
           )}
 
-          {/* Defer -> capture the promised callback DATE (date only, no clock
-              time) — this situation's Defer action. */}
+          {/* Defer -> capture the promised callback at the precision the customer
+              gave: an EXACT time (becomes an appointment on the caller's My Work,
+              with a calendar invite to send in Outlook), a set of availability
+              WINDOWS (days × time bands), or ANY TIME that day. This situation's
+              Defer action. */}
           {decision === 'defer' && (
-            <div className="space-y-2 rounded-xl border border-surface-border bg-surface-card p-4">
-              <label htmlFor="wb-cb" className="flex items-center gap-2 text-base font-medium text-ink">
-                <Clock className="size-4 text-ink-supporting" aria-hidden /> Promised callback date
-              </label>
-              {/* Date only. Right Path records no clock time or calling window
-                  for a callback yet (a separate future enhancement). */}
-              <input id="wb-cb" type="date" value={callbackWhen} onChange={e => setCallbackWhen(e.target.value)}
-                className="w-full max-w-xs rounded-lg border border-surface-border-strong bg-surface-card px-3 py-2 text-base text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-ring/40" />
-              <WorkflowButton icon={Check} selected disabled={busy || !callbackWhen}
-                onClick={() => act(
-                  { type: 'record-attempt', call: 'callback', callback_date: callbackWhen, note: noteForAction },
-                  `Callback promised for ${callbackWhen ? shortDate(callbackWhen) : ''}.`,
-                  { advanceToNext: true },
-                )}>
-                Save promised callback
+            <div className="space-y-3 rounded-xl border border-surface-border bg-surface-card p-4">
+              <p className="flex items-center gap-2 text-base font-medium text-ink">
+                <Clock className="size-4 text-ink-supporting" aria-hidden /> Promised callback
+              </p>
+              <CallbackPrecisionFields
+                api={cbDraft}
+                busy={busy || apptSaving}
+                idPrefix="wb-cb"
+                customerZoneLabel={callbackCustomerZoneLabel}
+              />
+              {apptError && (
+                <p className="text-sm text-status-missing-strong">{apptError}</p>
+              )}
+              <WorkflowButton icon={Check} selected disabled={busy || apptSaving || !cbDraft.draft.date || !cbDraft.valid}
+                onClick={saveCallback}>
+                {apptSaving ? 'Saving\u2026' : hasExactTime(cbDraft.draft) ? 'Save appointment' : 'Save promised callback'}
               </WorkflowButton>
-              <NextNote>The promised callback is saved as a customer commitment and resurfaces as a due call on that date. It outranks focus-based ordering.{nextSuffix}</NextNote>
+              <NextNote>
+                {hasExactTime(cbDraft.draft)
+                  ? 'The exact time is saved as an appointment on your My Work and a calendar invite downloads for you to send in Outlook. The customer also surfaces as a due call on that date.'
+                  : 'The promised callback is saved as a customer commitment and resurfaces as a due call on that date. It outranks focus-based ordering.'}
+                {nextSuffix}
+              </NextNote>
             </div>
           )}
 

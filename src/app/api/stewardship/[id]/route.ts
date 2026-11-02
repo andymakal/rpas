@@ -1735,19 +1735,37 @@ export async function PATCH(
     // A follow-up commitment recorded directly from a conversation is a genuine
     // engagement (the employee is in an active dialogue with the customer).
     action.type === 'set-follow-up'
-  if (engagingCall && engagedAtOf(row.action_context) == null) {
+  // A promised callback given as availability WINDOWS (days × time bands, no
+  // exact time) carries that availability on the raw action; persist it onto
+  // action_context as a soft fact (parallel to engagedAt) so a window-aware
+  // surface can honor it later. It is informational only here: Layer A reads no
+  // window; the exact-time case is an appointment, not a window, so it never
+  // sets this. Nullable/absent leaves action_context untouched.
+  const rawWindows =
+    action.type === 'record-attempt' && action.call === 'callback'
+      ? (body.action as { callback_windows?: unknown } | undefined)?.callback_windows
+      : undefined
+  const callbackWindows =
+    rawWindows && typeof rawWindows === 'object' && !Array.isArray(rawWindows) ? rawWindows : null
+
+  if ((engagingCall && engagedAtOf(row.action_context) == null) || callbackWindows) {
     const base =
       row.action_context && typeof row.action_context === 'object' && !Array.isArray(row.action_context)
         ? (row.action_context as Record<string, unknown>)
         : {}
+    const next: Record<string, unknown> = { ...base }
+    if (engagingCall && engagedAtOf(row.action_context) == null) {
+      next[ENGAGED_AT_KEY] = new Date().toISOString()
+    }
+    if (callbackWindows) next.callbackWindows = callbackWindows
     const { error: engErr } = await supabase
       .from('stewardship_outreach')
-      .update({ action_context: { ...base, [ENGAGED_AT_KEY]: new Date().toISOString() } })
+      .update({ action_context: next })
       .eq('id', id)
     if (engErr) {
-      // Non-fatal: the workflow transition already persisted. Engagement is a
-      // soft marker; log and continue.
-      console.error('stewardship engagement marker (reached/callback) update error:', engErr)
+      // Non-fatal: the workflow transition already persisted. These are soft
+      // markers; log and continue.
+      console.error('stewardship action_context (engagement / callback windows) update error:', engErr)
     }
   }
 
