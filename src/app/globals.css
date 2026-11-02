@@ -8,11 +8,11 @@
  * Right Path workflow design tokens.
  *
  * These consolidate the visual decisions already established in the workflow
- * component layer (src/components/workflow) and the Storybook reference so new
+ * component layer (src/components/workflow) so new
  * workflow surfaces inherit them instead of re-deciding per screen. See
  * .kiro/steering/workflow-visual-rules.md for the standard they encode.
  *
- * SCOPE — LIGHT THEME ONLY. These tokens are the light Storybook-based design
+ * SCOPE — LIGHT THEME ONLY. These tokens are the light-theme design
  * system. They are consumed only by the shared light-theme workflow components
  * (src/components/workflow/) and the light-theme application screens built on
  * them. They are NOT the application-wide theme: Andy's existing dark screens
@@ -126,7 +126,7 @@
 
   /* Modern sans-serif workflow font stack (no serif in workflow UI). Prefers
    * the app's injected --font-geist-sans, then a clean system sans fallback so
-   * Storybook (which does not inject the Next font var) still renders sans. */
+   * any context that does not inject the Next font var still renders sans. */
   --font-workflow: var(--font-geist-sans), "Inter", "Segoe UI", system-ui,
     -apple-system, "Helvetica Neue", Arial, sans-serif;
 }

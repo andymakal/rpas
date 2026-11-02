@@ -1,7 +1,7 @@
 ---
 inclusion: auto
 name: Right Path workflow visual rules
-description: Visual-prominence and reusable-component rules for Right Path's LIGHT-theme operator-facing workflow UI (queues, task views, assistant, and other light-theme workflow screens). Scopes the light Storybook design system; does not govern Andy's existing dark screens.
+description: Visual-prominence and reusable-component rules for Right Path's LIGHT-theme operator-facing workflow UI (queues, task views, assistant, and other light-theme workflow screens). Scopes the light design system; does not govern Andy's existing dark screens.
 ---
 
 # Right Path workflow visual rules
@@ -18,7 +18,7 @@ below); they do not govern Andy's existing dark screens.
 Right Path currently has two intentionally separate visual themes inside one
 shared application:
 
-- The LIGHT theme — the Storybook-based design system defined by the design
+- The LIGHT theme — the design system defined by the design
   tokens in `src/app/globals.css` (`--brand`, the `--text-*`/ink tiers, the
   `--surface-*`, `--status-*`, and `--tag-*` families, `--font-workflow`) and
   the shared components in `src/components/workflow/`.
@@ -91,13 +91,13 @@ give the light tokens `.dark` variants, do not point Andy's dark screens at the
 light tokens or shared light components, and keep the two themes' styling
 separate until (and unless) real theme switching is designed.
 
-Storybook is the living reference for the LIGHT design system and must stay
-aligned with the actual shared components and tokens. `Workflow Design System/
-Design Tokens` (`src/components/workflow/DesignTokens.stories.tsx`) catalogs the
-tokens and `Workflow Design System/Text Contrast`
-(`src/components/workflow/TextContrast.stories.tsx`) shows the contrast ladder.
-When you add or change a shared component or token, update its story in the same
-change so the reference keeps matching the code.
+The living reference for the LIGHT design system is the shared component layer
+itself (`src/components/workflow/`) and the design tokens in
+`src/app/globals.css`. There is no separate catalog to keep in step: the tokens
+define the color, type, surface, and spacing vocabulary, and the shared
+components demonstrate how it is applied. When you add or change a shared
+component or token, that code IS the reference, so keep it consistent with this
+standard rather than maintaining a duplicate showcase.
 
 ## Clarity: every task screen answers three questions
 
@@ -182,10 +182,9 @@ weight and darkness among readable tiers; do not fade task-relevant information
 toward the background to make it feel secondary. Do not render every item at
 identical weight either.
 
-The approved dark-text hierarchy is demonstrated in the shared Storybook
-reference (`Workflow Design System/Text Contrast`,
-`src/components/workflow/TextContrast.stories.tsx`). Treat that story as the
-visual reference for future workflow components, and apply the correction
+The approved dark-text hierarchy is carried by the shared workflow components
+themselves. Treat the shared component layer as the visual reference for future
+workflow components, and apply the correction
 through the shared workflow component layer (`src/components/workflow/`, and the
 1035 shared parts) rather than restyling individual screens.
 
@@ -266,5 +265,5 @@ components rather than restyling per screen. The durable layer lives in
 
 Extend an existing component (for example, add an `OperationalTag` tone) rather
 than re-implementing its look on a new screen. Do not replace Tailwind or
-shadcn; build these components on top of them. Keep this list and the Storybook
-stories in step with the actual exports as the shared layer evolves.
+shadcn; build these components on top of them. Keep this list in step with the
+actual exports as the shared layer evolves.

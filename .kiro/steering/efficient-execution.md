@@ -91,7 +91,7 @@ AND the behavior is hard to get right (e.g. a measuring/scroll/focus/async
 interaction with a real convergence risk), OR (b) the user explicitly asks for
 automated proof. Otherwise do not:
 
-- Rebuilding Storybook plus scripting a headless browser (Playwright).
+- Scripting a headless browser (Playwright) to drive the app for a visual check.
 - Writing a throwaway verification script and iterating on it.
 - Running multiple rounds of browser tests.
 - Context-gathering subagents or broad re-reads for a change whose blast radius

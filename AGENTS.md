@@ -55,7 +55,6 @@ reviews, and a read-only agency portal.
 - Next.js (App Router, 16.x — currently 16.3.8), React 19, TypeScript.
 - Supabase: Postgres + PostgREST + Supabase Auth, `@supabase/ssr`.
 - Tailwind CSS v4, shadcn, Radix, lucide-react.
-- Storybook.
 - Hosting: Vercel. Repo: `github.com/andymakal/rpas`.
 
 Next.js 16 note: request-interception middleware is `src/proxy.ts` exporting
