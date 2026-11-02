@@ -29,6 +29,10 @@ export type BoardItem = {
   carrier_correction: string | null
   prereview_id: string
   customer: Customer
+  // When set, the customer explicitly declined outreach on this date. Carried on
+  // board items only for the declined basin (population=declined), the one view
+  // that surfaces refused items; every other board list suppresses them.
+  refused_at?: string | null
   // True when a waiting item's (signature/carrier) follow-up window has lapsed,
   // so the board can flag it as a due chase. Set by the board route.
   follow_up_due_now?: boolean
@@ -58,8 +62,10 @@ export type BoardItem = {
 }
 
 /** A derived population a My Work link can open on the board: the two call
- * populations, plus the first-touch introductory-email subset of Ready to Email. */
-export type OpenPopulation = 'calls-due' | 'available-to-call' | 'introductory-emails'
+ * populations, the first-touch introductory-email subset of Ready to Email, and
+ * the declined basin (customers who explicitly said no — the one view that
+ * surfaces refused items instead of suppressing them). */
+export type OpenPopulation = 'calls-due' | 'available-to-call' | 'introductory-emails' | 'declined'
 
 export const POPULATION_META: Record<OpenPopulation, { label: string; blurb: string }> = {
   'calls-due': {
@@ -73,6 +79,10 @@ export const POPULATION_META: Record<OpenPopulation, { label: string; blurb: str
   'introductory-emails': {
     label: 'Introductory emails',
     blurb: 'First-touch customers in Ready to Email: send the introductory servicing-agent email that carries the authorization form.',
+  },
+  'declined': {
+    label: 'Declined / Not interested',
+    blurb: 'Customers who explicitly declined servicing-agent outreach. Outreach is stopped; nothing is auto-closed. Reopen a customer to deliberately re-engage.',
   },
 }
 

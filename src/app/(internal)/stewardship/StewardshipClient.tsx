@@ -110,6 +110,11 @@ export function StewardshipClient({
   const [researchCounts, setResearchCounts] = useState<{ outstanding: number; unsuccessful: number }>(
     { outstanding: 0, unsuccessful: 0 },
   )
+  // How many customers have explicitly declined (refused) — the size of the
+  // declined basin, shown as its own board tile so "we offered, they said no" is
+  // visible and countable rather than silently hidden. Project-scoped when the
+  // screen is. Loaded alongside the board.
+  const [declinedCount, setDeclinedCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [openQueue, setOpenQueue] = useState<OutreachQueue | null>(initialQueue)
   const [openItemId, setOpenItemId] = useState<string | null>(initialItemId)
@@ -159,7 +164,8 @@ export function StewardshipClient({
     if (
       populationParam === 'calls-due' ||
       populationParam === 'available-to-call' ||
-      populationParam === 'introductory-emails'
+      populationParam === 'introductory-emails' ||
+      populationParam === 'declined'
     ) {
       setOpenItemId(null)
       setOpenQueue(null)
@@ -192,7 +198,16 @@ export function StewardshipClient({
       // In project scope, ask the board for only this project's work; counts
       // come back already scoped from the API.
       const url = project ? `/api/stewardship?project_id=${encodeURIComponent(project.id)}` : '/api/stewardship'
-      const res = await fetch(url, { cache: 'no-store' })
+      // The declined basin count comes from the dedicated declined population
+      // (the one read that returns refused items), fetched in parallel with the
+      // board so the basin tile shows a live count. Both honor the same project
+      // scope.
+      const declinedParams = new URLSearchParams({ population: 'declined' })
+      if (project) declinedParams.set('project_id', project.id)
+      const [res, declinedRes] = await Promise.all([
+        fetch(url, { cache: 'no-store' }),
+        fetch(`/api/stewardship?${declinedParams.toString()}`, { cache: 'no-store' }),
+      ])
       const json = await res.json()
       if (res.ok) {
         setItems(json.data.items as BoardItem[])
@@ -200,6 +215,10 @@ export function StewardshipClient({
         if (json.data.research_counts) {
           setResearchCounts(json.data.research_counts as { outstanding: number; unsuccessful: number })
         }
+      }
+      const declinedJson = await declinedRes.json().catch(() => null)
+      if (declinedRes.ok && declinedJson?.data) {
+        setDeclinedCount((declinedJson.data.items as BoardItem[]).length)
       }
     } finally {
       setLoading(false)
@@ -244,6 +263,32 @@ export function StewardshipClient({
       setClaimMsg('Network error.')
     } finally {
       setClaimBusy(null)
+    }
+  }, [loadBoard, openPopulation, loadPopulation])
+
+  // Reopen a declined customer from the basin: clear the refusal and return them
+  // to active outreach. This is the deliberate reversal of a decline, the same
+  // { type: 'reopen' } action the per-customer Refused screen uses, run directly
+  // from the basin list so a whole roster can be triaged in place. On success
+  // the basin reloads (the reopened customer leaves it) and the board counts
+  // refresh so active outreach reflects the return immediately.
+  const [reopenBusy, setReopenBusy] = useState<string | null>(null)
+  const reopenDeclined = useCallback(async (outreachId: string) => {
+    setReopenBusy(outreachId); setClaimMsg(null)
+    try {
+      const res = await fetch(`/api/stewardship/${encodeURIComponent(outreachId)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: { type: 'reopen' } }),
+      })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) { setClaimMsg(json?.error ?? 'Could not reopen this customer.'); return }
+      await loadBoard()
+      if (openPopulation) await loadPopulation(openPopulation)
+    } catch {
+      setClaimMsg('Network error.')
+    } finally {
+      setReopenBusy(null)
     }
   }, [loadBoard, openPopulation, loadPopulation])
 
@@ -335,6 +380,72 @@ export function StewardshipClient({
           if (openPopulation) void loadPopulation(openPopulation)
         }}
       />
+    )
+  }
+
+  // DECLINED BASIN — the tracked roster of customers who explicitly said no.
+  // Unlike every other list this surfaces REFUSED items (the one view that
+  // does), and its action is Reopen, not open-a-call-task: a declined customer
+  // has no next outreach step until someone deliberately re-engages. Each row
+  // shows when they declined; Reopen clears the refusal and returns them to
+  // active outreach. Nothing here is auto-closed, and the roster is project-
+  // scoped when the screen is.
+  if (openPopulation === 'declined') {
+    const meta = POPULATION_META.declined
+    return (
+      <WorkflowPage
+        heading={
+          <QueueListHeader
+            icon={Hand}
+            label={meta.label}
+            count={populationItems.length}
+            blurb={meta.blurb}
+            onBack={() => setOpenPopulation(null)}
+          />
+        }
+      >
+        {claimMsg && (
+          <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {claimMsg}
+          </p>
+        )}
+        <div className="space-y-3">
+          {populationLoading ? (
+            <p className="text-sm text-slate-500">Loading…</p>
+          ) : populationItems.length === 0 ? (
+            <QueueEmptyState>
+              No one has declined{project ? ' in this project' : ''}. Customers who decline a
+              servicing-agent offer are tracked here so you can see who said no and reopen them if
+              they re-engage.
+            </QueueEmptyState>
+          ) : (
+            populationItems.map(it => (
+              <div
+                key={it.id}
+                className="flex items-center gap-4 rounded-2xl border-2 border-surface-border bg-surface-card px-6 py-5"
+              >
+                <span className="min-w-0 truncate">
+                  <span className="text-xl font-semibold text-ink">{fullName(it.customer)}</span>
+                  <span className="px-2 text-ink-muted">{'\u00b7'}</span>
+                  <span className="text-lg text-ink-supporting">
+                    Declined{it.refused_at ? ` ${shortDate(it.refused_at)}` : ''}
+                  </span>
+                </span>
+                <span className="ml-auto flex shrink-0 items-center gap-3">
+                  <OperationalTag tone="exception">Not interested</OperationalTag>
+                  <WorkflowButton
+                    icon={Play}
+                    disabled={reopenBusy === it.id}
+                    onClick={() => void reopenDeclined(it.id)}
+                  >
+                    {reopenBusy === it.id ? 'Reopening…' : 'Reopen'}
+                  </WorkflowButton>
+                </span>
+              </div>
+            ))
+          )}
+        </div>
+      </WorkflowPage>
     )
   }
 
@@ -506,6 +617,22 @@ export function StewardshipClient({
             ))}
           </QueueSection>
         ))}
+
+        {/* The declined basin: the one roster that surfaces customers who said
+            no, so they are tracked ("we offered, they declined") rather than
+            silently dropped. Opening it lists each declined customer with a
+            Reopen action. Shown as a waiting-tone tile — it is not active work,
+            it is a record you consult and deliberately reopen from. */}
+        <QueueSection label="Declined">
+          <QueueRow
+            icon={Hand}
+            label={POPULATION_META.declined.label}
+            tag="Customers who declined the offer. Outreach is stopped; reopen one to re-engage."
+            count={declinedCount}
+            tone="waiting"
+            onOpen={() => setOpenPopulation('declined')}
+          />
+        </QueueSection>
       </div>
 
       {loading && <p className="mt-4 text-sm text-ink-supporting">Loading board…</p>}
