@@ -1053,13 +1053,31 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
 
       // Build per-project scopes for a call population: each entry opens exactly
       // that project's slice of the population on the board, counts matching.
+      // Both call sources are STANDING (always emitted for an outreach-eligible
+      // employee, even at zero), so like Customer Interaction / Servicing Access
+      // they carry a zero-count project scope for EVERY project the worker has
+      // outreach work in — keeping the project-scoped direct-working route
+      // reachable under the Project filter at zero — then override with the real
+      // per-project counts where they exist.
       const callScopes = (
         byProject: Map<string, number>,
         population: 'calls-due' | 'available-to-call',
         due: boolean,
       ): Record<string, WorkSourceProjectScope> | undefined => {
-        if (byProject.size === 0) return undefined
+        const routeFor = (pid: string) =>
+          population === 'available-to-call' ? availableToCallRoute(pid) : callsDueRoute(pid)
         const out: Record<string, WorkSourceProjectScope> = {}
+        for (const pid of outreach.projectIds) {
+          out[pid] = {
+            count: 0,
+            ownedByMe: 0,
+            availableToMe: 0,
+            claimedByOthers: 0,
+            notEligible: 0,
+            dueToMe: 0,
+            route: routeFor(pid),
+          }
+        }
         for (const [pid, n] of byProject) {
           if (n <= 0) continue
           out[pid] = {
@@ -1073,15 +1091,20 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
             // exactly this project's slice: Available to Call in its default
             // mode, Calls Due in due mode. Neither uses the board's intermediate
             // population list anymore.
-            route: population === 'available-to-call'
-              ? availableToCallRoute(pid)
-              : callsDueRoute(pid),
+            route: routeFor(pid),
           }
         }
         return Object.keys(out).length > 0 ? out : undefined
       }
 
-      if (callsDue > 0) {
+      // Both call sub-populations are STANDING steps, surfaced for any outreach-
+      // eligible employee even at zero, so the full outreach workflow stays
+      // visible and a 0 reads as "cleared — refresh the population" rather than
+      // the step vanishing. The count shown is the honest real figure; being
+      // informational, neither adds to the activity total or a ZEN band.
+      const callEligibleAnywhere =
+        agencyWideEligible('outreach') || scopedProjectsFor('outreach').size > 0
+      if (callsDue > 0 || callEligibleAnywhere) {
         outreach.sources.push({
           kind: 'stewardship',
           label: 'Shared Stewardship board — Calls Due',
@@ -1101,7 +1124,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
           projectScopes: callScopes(callsDueByProject, 'calls-due', true),
         })
       }
-      if (availableToCall > 0) {
+      if (availableToCall > 0 || callEligibleAnywhere) {
         outreach.sources.push({
           kind: 'stewardship',
           label: 'Shared Stewardship board — Available to Call',
@@ -1123,14 +1146,43 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
 
       // Introductory emails: the first-touch subset of Ready to Email, as an
       // informational source (it does NOT add to the activity total, which the
-      // per-queue ready-to-email tally already carries). It opens the Ready to
-      // Email queue — the same place the full email population is worked — so the
-      // recommendation is directly reachable. Per-project scopes let the Project
-      // filter show exactly a project's introductory emails.
-      if (introEmails > 0) {
+      // per-queue ready-to-email tally already carries). It opens the Send
+      // Introductory Emails direct working screen so the recommendation is
+      // directly reachable. Per-project scopes let the Project filter show
+      // exactly a project's introductory emails.
+      //
+      // ALWAYS surfaced as a reachable entry point for an outreach-eligible
+      // employee — even at zero first-touch emails right now — exactly like
+      // Servicing Access and Customer Interaction below. A customer becomes a
+      // first-touch introductory email the moment an email is added or a new
+      // member is populated, and the step is a fixed part of the outreach
+      // workflow, so a momentary zero must NOT make the step vanish. The count
+      // shown is the honest real number (0 when none); being informational it
+      // never adds to the activity total or invents a ZEN priority band.
+      const introEligibleAnywhere =
+        agencyWideEligible('outreach') || scopedProjectsFor('outreach').size > 0
+      if (introEmails > 0 || introEligibleAnywhere) {
         const introScopes = ((): Record<string, WorkSourceProjectScope> | undefined => {
-          if (introEmailsByProject.size === 0) return undefined
           const out: Record<string, WorkSourceProjectScope> = {}
+          // A STANDING project-scoped entry point for every project the worker
+          // has outreach work in — even at zero current introductory emails —
+          // so working within a selected project always reaches Send
+          // Introductory Emails WITH that project's id (matching how Customer
+          // Interaction and Servicing Access keep their project scope). Without
+          // it, the Project filter would drop the source at zero and the scoped
+          // link would be lost.
+          for (const pid of outreach.projectIds) {
+            out[pid] = {
+              count: 0,
+              ownedByMe: 0,
+              availableToMe: 0,
+              claimedByOthers: 0,
+              notEligible: 0,
+              dueToMe: 0,
+              route: introductoryEmailsRoute(pid),
+            }
+          }
+          // Override with the real first-touch counts where they exist.
           for (const [pid, n] of introEmailsByProject) {
             if (n <= 0) continue
             out[pid] = {
