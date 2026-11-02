@@ -117,7 +117,12 @@ export function ChannelReasonPicker({
   )
 }
 
-/** The Yes/No pair shared by every channel. */
+/**
+ * The Yes/No pair shared by every channel. Tri-state and forgiving: clicking the
+ * already-selected option toggles it back to unset (null), so a stray Yes or No
+ * can be cleared in place without discarding the whole attempt. Choosing the
+ * other option switches to it as usual.
+ */
 export function ChannelYesNo({
   question,
   value,
@@ -127,14 +132,15 @@ export function ChannelYesNo({
   question: string
   /** true = Yes (done), false = No (skipped), null = not yet answered. */
   value: boolean | null
-  onChange: (value: boolean) => void
+  /** Emits the new state: Yes, No, or null when the active option is re-clicked. */
+  onChange: (value: boolean | null) => void
   disabled?: boolean
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
       <span className="text-sm font-medium text-ink-secondary">{question}</span>
-      <WorkflowButton selected={value === true} disabled={disabled} onClick={() => onChange(true)}>Yes</WorkflowButton>
-      <WorkflowButton selected={value === false} disabled={disabled} onClick={() => onChange(false)}>No</WorkflowButton>
+      <WorkflowButton selected={value === true} disabled={disabled} onClick={() => onChange(value === true ? null : true)}>Yes</WorkflowButton>
+      <WorkflowButton selected={value === false} disabled={disabled} onClick={() => onChange(value === false ? null : false)}>No</WorkflowButton>
     </div>
   )
 }

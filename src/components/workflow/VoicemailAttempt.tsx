@@ -38,7 +38,7 @@ export interface VoicemailDraft {
   left: boolean | null
   reasonId: string | null
   otherText: string
-  setLeft: (v: boolean) => void
+  setLeft: (v: boolean | null) => void
   setReasonId: (id: string | null) => void
   setOtherText: (t: string) => void
   reset: () => void
@@ -50,8 +50,9 @@ export function useVoicemailDraft(): VoicemailDraft {
   const [otherText, setOtherText] = useState('')
   return {
     left, reasonId, otherText,
-    // Choosing Yes clears any stale No reason so the outcome stays coherent.
-    setLeft: v => { setLeftState(v); if (v) { setReasonId(null); setOtherText('') } },
+    // Only a No carries a reason; clear any stale reason when the answer becomes
+    // Yes or is toggled back to unset, so the outcome stays coherent.
+    setLeft: v => { setLeftState(v); if (v !== false) { setReasonId(null); setOtherText('') } },
     setReasonId,
     setOtherText,
     reset: () => { setLeftState(null); setReasonId(null); setOtherText('') },

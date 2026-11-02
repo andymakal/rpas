@@ -32,7 +32,7 @@ export interface FollowUpEmailDraft {
   sent: boolean | null
   reasonId: string | null
   otherText: string
-  setSent: (v: boolean) => void
+  setSent: (v: boolean | null) => void
   setReasonId: (id: string | null) => void
   setOtherText: (t: string) => void
   reset: () => void
@@ -44,7 +44,8 @@ export function useFollowUpEmailDraft(): FollowUpEmailDraft {
   const [otherText, setOtherText] = useState('')
   return {
     sent, reasonId, otherText,
-    setSent: v => { setSentState(v); if (v) { setReasonId(null); setOtherText('') } },
+    // Only a No carries a reason; clear it when the answer becomes Yes or unset.
+    setSent: v => { setSentState(v); if (v !== false) { setReasonId(null); setOtherText('') } },
     setReasonId,
     setOtherText,
     reset: () => { setSentState(null); setReasonId(null); setOtherText('') },
