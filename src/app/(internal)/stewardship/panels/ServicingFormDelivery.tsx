@@ -38,7 +38,8 @@ import { FormAttachmentDirective } from './FormAttachmentDirective'
 
 export function ServicingFormDelivery({
   heading, coaching, directiveFormName = 'servicing-agent authorization form',
-  detail, request, name, busy, act, confirmLabelFor, onConfirm, onAlreadyHeldChange, onMethodChange,
+  detail, request, name, busy, act, confirmLabelFor, onConfirm,
+  onAlreadyHeldChange, onMethodChange, onGeneratedChange,
   emailOnly = false, onSkip,
 }: {
   /** The unit's heading, rendered with the graduation-cap coaching beside it.
@@ -74,6 +75,14 @@ export function ServicingFormDelivery({
    * from the persisted row, so the pre-selected default would not show in the
    * preview until a click round-tripped it. Optional. */
   onMethodChange?: (method: 'email' | 'postal') => void
+  /** Reports whether the form has been GENERATED-and-opened yet, so a host
+   * preview can flip from the pending "to be emailed/mailed" wording to the
+   * past-tense "emailed/mailed" wording the confirm will actually record. The
+   * agent must see the real recorded text BEFORE confirming, not a pending
+   * string that silently changes on confirm. Generating is the point we assume
+   * the form went out; backing out (skip, switching channel) reverts it.
+   * Optional. */
+  onGeneratedChange?: (generated: boolean) => void
   /** Email-only mode (Send Introductory Emails): fix the channel to email and
    * hide the delivery chooser. */
   emailOnly?: boolean
@@ -103,6 +112,13 @@ export function ServicingFormDelivery({
   useEffect(() => {
     onAlreadyHeldChange?.(alreadyHasForm)
   }, [alreadyHasForm, onAlreadyHeldChange])
+  // Report whether the form has been generated-and-opened, so the host preview
+  // flips to the past-tense wording the confirm will record. One place to
+  // report it, so it stays in sync however `generated` changes (generate sets
+  // it; switching channel resets it).
+  useEffect(() => {
+    onGeneratedChange?.(generated)
+  }, [generated, onGeneratedChange])
   // In email-only mode the channel is fixed to email (no chooser). Otherwise it
   // starts from the persisted delivery method and the worker can switch it.
   const [method, setMethod] = useState<'email' | 'postal'>(

@@ -153,6 +153,14 @@ export function OutreachCallPanel({
   // persisted row so it is right on first render; the box reports its actual
   // method up on mount and on every change, which is the source of truth.
   const [formMethod, setFormMethod] = useState<'email' | 'postal'>(detail.form_delivery_method ?? 'email')
+  // Whether the form has been generated-and-opened yet (reported up by the
+  // delivery box). This drives the preview's tense: BEFORE generating, the
+  // preview is future-tense ("Authorization form to be emailed") so the agent
+  // knows nothing has gone out; AFTER generating we assume it went out and the
+  // preview flips to the past-tense entry the confirm will actually record
+  // ("Authorization form emailed. Awaiting signed authorization."), so the agent
+  // sees the true recorded text before clicking confirm.
+  const [formGenerated, setFormGenerated] = useState(false)
 
   // The promised-callback precision draft (exact time / days×bands windows /
   // any time that day). Replaces the old date-only input. The host resolves the
@@ -293,13 +301,13 @@ export function OutreachCallPanel({
         return commitmentSummary(cbDraft.draft, dd ? shortDate(dd) : null)
       })(),
       callbackIsAppointment: hasExactTime(cbDraft.draft),
-      // The reached · agreed completion sends the form and records the reached
-      // call together. It is NOT "sent" merely because the customer was reached
-      // and agreed; the send is confirmed by the form-delivery confirm action,
-      // which immediately advances to the next customer. So the preview treats
-      // the form as pending (Reached · Agreed) throughout this screen and never
-      // claims an unsent form was sent.
-      formSent: false,
+      // The form is treated as sent once it has been GENERATED-and-opened, so
+      // the preview shows the exact past-tense entry the confirm will record
+      // ("Authorization form emailed. Awaiting signed authorization.") rather
+      // than a pending string that silently changes on confirm. Before
+      // generating it stays future-tense ("to be emailed"), so the agent always
+      // sees what the next click will actually write.
+      formSent: formGenerated,
       // The chosen delivery method as reported live by the delivery box, so the
       // pending preview names emailed vs mailed from what is actually selected
       // on screen — including the initial default — not only the persisted row.
@@ -312,7 +320,7 @@ export function OutreachCallPanel({
   }, [
     onSelectionChange, reach, badNumber,
     vmOut.fragment, textOut.fragment, emailOut.fragment,
-    decisionDisposition, cbDraft.draft, callbackCtx, formMethod, formAlreadyHeld, callNote,
+    decisionDisposition, cbDraft.draft, callbackCtx, formMethod, formAlreadyHeld, formGenerated, callNote,
   ])
 
   // Fold any channel reason text ("Other") into the attempt note alongside the
@@ -674,6 +682,7 @@ export function OutreachCallPanel({
                 }
                 onAlreadyHeldChange={setFormAlreadyHeld}
                 onMethodChange={setFormMethod}
+                onGeneratedChange={setFormGenerated}
                 onConfirm={(_m, alreadyHeld) => act(
                   // The SINGLE completion of the Agreed path: record the reached
                   // call AND the form step together. `reached` folds the reached
