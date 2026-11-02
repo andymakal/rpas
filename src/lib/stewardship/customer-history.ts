@@ -156,7 +156,10 @@ function contactHeading(comms: HistoryCommunication[]): string | null {
       if (automated) return 'Automated Call Reply'
       if (incoming) return 'Incoming Call'
       if (lead.outcome === 'unusable') return 'Bad Number'
-      return 'No Answer'
+      // An attempted outbound call that did not reach. The heading says "Call
+      // Attempt", never "No Answer" — the grouped channel fragments
+      // (Voicemail / No voicemail / Texted / …) carry what happened.
+      return 'Call Attempt'
     case 'voicemail':
       return 'Voicemail Left'
     case 'email':
@@ -316,7 +319,10 @@ export const ACTIVITY_DESCRIPTIONS: Record<OutreachChannel, ChannelDescriptions>
   call: {
     reached: 'Reached',
     touch: 'Called',
-    no_contact: 'No Answer',
+    // An attempted outbound call that did not reach reads as "Call attempt",
+    // never "No Answer"; the grouped voicemail/text/email fragments say what
+    // happened on the attempt.
+    no_contact: 'Call attempt',
     unusable: 'Bad Number',
   },
   voicemail: {
@@ -384,7 +390,13 @@ const SYSTEM_OUTCOME_PHRASES: readonly RegExp[] = [
   /^Spoke with customer\.\s*Customer requested a callback(\s+on\s+\S+)?\.?/i,
   /^Spoke with customer\.\s*Customer declined servicing-agent authorization\.\s*Further outreach stopped unless deliberately reopened\.?/i,
   /^Spoke with customer\.\s*$/i,
-  // Didn't-reach call sentences (no-answer, with or without a voicemail left).
+  // Didn't-reach call sentences. The lead is "Call attempt" (an attempted
+  // outbound call), with or without a voicemail left, and the bad-number
+  // variant.
+  /^Call attempt\.(\s*Voicemail left\.)?\s*Next call scheduled\.?/i,
+  /^Call attempt\.\s*Number is not working\.\s*Customer referred to Contact Research\.?/i,
+  // Legacy "Called customer. No answer." sentences kept so existing history
+  // still cleans correctly.
   /^Called customer\.\s*No answer\.(\s*Voicemail left\.)?\s*Next call scheduled\.?/i,
   /^Called customer\.\s*Number is not working\.\s*Customer referred to Contact Research\.?/i,
   // Legacy sentences kept so existing history still cleans correctly.
@@ -509,19 +521,33 @@ const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = 
       'Spoke with customer. Customer declined servicing-agent authorization. Further outreach stopped unless deliberately reopened.',
   },
   {
-    // Didn't reach · voicemail left.
-    match: /^Called customer\.\s*No answer\.\s*Voicemail left\.\s*Next call scheduled\.?$/i,
-    describe: 'Called customer. No answer. Voicemail left. Next call scheduled.',
+    // Didn't reach · voicemail left. Lead is "Call attempt", never "No answer".
+    match: /^Call attempt\.\s*Voicemail left\.\s*Next call scheduled\.?$/i,
+    describe: 'Call attempt. Voicemail left. Next call scheduled.',
   },
   {
     // Didn't reach · no voicemail.
-    match: /^Called customer\.\s*No answer\.\s*Next call scheduled\.?$/i,
-    describe: 'Called customer. No answer. Next call scheduled.',
+    match: /^Call attempt\.\s*Next call scheduled\.?$/i,
+    describe: 'Call attempt. Next call scheduled.',
   },
   {
     // Bad number.
+    match: /^Call attempt\.\s*Number is not working\.\s*Customer referred to Contact Research\.?$/i,
+    describe: 'Call attempt. Number is not working. Customer referred to Contact Research.',
+  },
+  // Legacy "Called customer. No answer." sentences, normalized to the new
+  // "Call attempt" wording so old history rows read consistently.
+  {
+    match: /^Called customer\.\s*No answer\.\s*Voicemail left\.\s*Next call scheduled\.?$/i,
+    describe: 'Call attempt. Voicemail left. Next call scheduled.',
+  },
+  {
+    match: /^Called customer\.\s*No answer\.\s*Next call scheduled\.?$/i,
+    describe: 'Call attempt. Next call scheduled.',
+  },
+  {
     match: /^Called customer\.\s*Number is not working\.\s*Customer referred to Contact Research\.?$/i,
-    describe: 'Called customer. Number is not working. Customer referred to Contact Research.',
+    describe: 'Call attempt. Number is not working. Customer referred to Contact Research.',
   },
   // ── The introductory / form-send confirmations ──────────────────────────────
   {
@@ -551,11 +577,11 @@ const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = 
   },
   {
     match: /^Left a voicemail\.?(\s*Follow-up auto-scheduled\.?)?$/i,
-    describe: 'Called customer. No answer. Voicemail left. Next call scheduled.',
+    describe: 'Call attempt. Voicemail left. Next call scheduled.',
   },
   {
     match: /^Bad number\.?(\s*Moved to Research Needed\.?)?$/i,
-    describe: 'Called customer. Number is not working. Customer referred to Contact Research.',
+    describe: 'Call attempt. Number is not working. Customer referred to Contact Research.',
   },
   {
     match: /^Customer declined\.?(\s*Outreach stopped until deliberately reopened\.?)?$/i,
@@ -1032,8 +1058,8 @@ export function describeNextHistoryEntry(
       const o = options?.callOutcome
       if (o === 'reached') return { summary: 'Reached' }
       if (o === 'callback') return { summary: 'Reached \u00b7 Callback Scheduled' }
-      if (o === 'bad-number') return { summary: 'No Answer \u00b7 Bad Number' }
-      return { summary: o === 'voicemail' ? 'No Answer \u00b7 Voicemail' : 'No Answer' }
+      if (o === 'bad-number') return { summary: 'Call attempt \u00b7 Bad number' }
+      return { summary: o === 'voicemail' ? 'Call attempt \u00b7 Voicemail' : 'Call attempt' }
     }
     case 'record-attempt':
     default:
@@ -1450,10 +1476,14 @@ export function buildContactUpdateHistoryNote(
 export interface CallSelection {
   /** The reach decision so far: not yet chosen, reached, or not reached. */
   reach: 'reached' | 'not-reached' | null
-  // Didn't-reach branch — only channels actually completed are previewed.
-  voicemailLeft?: boolean | null
-  textSent?: boolean
-  emailSent?: boolean
+  // Didn't-reach branch. The channel Legos (VoicemailAttempt / TextAttempt /
+  // EmailAttempt) own the wording, so the panel passes up the already-resolved
+  // history fragments ("Voicemail", "No voicemail, mailbox full", "Opted out of
+  // texting", "No email", …) and the touch count, rather than raw booleans the
+  // preview would have to re-interpret. This keeps the preview and the recorded
+  // attempt reading identically.
+  notReachedFragments?: string[]
+  notReachedTouches?: number
   badNumber?: boolean
   // Reached branch — the customer's decision and, for a callback, the date.
   decision?: 'agreed' | 'callback' | 'not-interested' | null
@@ -1488,29 +1518,20 @@ export function describeCallSelection(
   // reflects exactly what completion will save with the interaction.
   const extraNote = (options?.note ?? selection.note)?.trim() || undefined
 
-  // Bad number is a distinct terminal outcome regardless of the reach choice.
-  // The description is the exact sentence the completion will record.
-  if (selection.badNumber) {
-    return {
-      summary: 'No Answer · Bad Number',
-      description: 'Called customer. Number is not working. Customer referred to Contact Research.',
-      note: extraNote,
-    }
-  }
-
-  if (selection.reach === 'not-reached') {
-    // Only completed channels are previewed, matching how the attempt records.
-    const parts = ['No Answer']
-    if (selection.voicemailLeft) parts.push('Voicemail')
-    if (selection.textSent) parts.push('Text')
-    if (selection.emailSent) parts.push('Email')
-    // The recorded call sentence is honest about whether a voicemail was left;
-    // the extra channels (text/email) are preserved alongside but the call line
-    // is the one the preview shows as the description.
-    const description = selection.voicemailLeft
-      ? 'Called customer. No answer. Voicemail left. Next call scheduled.'
-      : 'Called customer. No answer. Next call scheduled.'
-    return { summary: parts.join(' \u00b7 '), description, note: extraNote }
+  // A didn't-reach attempt (including a bad number). The lead is "Call attempt"
+  // — we attempted an outbound call — never "No answer". The channel fragments
+  // the Legos emit follow it, and a bad number adds its own fragment. The touch
+  // count rides at the end so the preview matches the additive touch counter.
+  if (selection.reach === 'not-reached' || selection.badNumber) {
+    const fragments = [...(selection.notReachedFragments ?? [])]
+    if (selection.badNumber) fragments.push('Bad number')
+    const touches = selection.notReachedTouches ?? 0
+    const touchLabel = touches === 1 ? '1 touch' : `${touches} touches`
+    const summary = ['Call attempt', ...fragments, touchLabel].join(' \u00b7 ')
+    const description = selection.badNumber
+      ? 'Call attempt. Number is not working. Customer referred to Contact Research.'
+      : 'Call attempt. Next call scheduled.'
+    return { summary, description, note: extraNote }
   }
 
   if (selection.reach === 'reached') {

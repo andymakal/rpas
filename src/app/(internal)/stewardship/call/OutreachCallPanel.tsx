@@ -18,21 +18,23 @@
 
 import { useEffect, useState } from 'react'
 import {
-  Mail, Clock, CircleAlert, PenLine, Voicemail, MessageSquare,
+  Clock, CircleAlert, PenLine,
   PhoneCall, PhoneOff, Check, Shuffle,
 } from 'lucide-react'
 import {
   ActionPanel, WorkflowButton, NextNote, CallButton, SkipForNowButton,
   CallMentorCap, TalkPathCard, CallOutcomeChoice, Divider,
+  VoicemailAttempt, useVoicemailDraft, voicemailOutcome,
+  TextAttempt, useTextDraft, textOutcome, type TextUnavailableReason,
+  EmailAttempt, useFollowUpEmailDraft, emailOutcome,
 } from '@/components/workflow'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import { buildMailto, SERVICING_CALL_SCRIPTS, interpolate } from '@/lib/templates'
+import { formatPhoneDisplay } from '@/lib/contact-input'
 import { type CallSelection } from '@/lib/stewardship/customer-history'
 import type { Detail, Holding } from '../types'
 import { fullName, textActionAvailable, shortDate, CallContext } from '../shared'
 import { ServicingFormDelivery } from '../panels/ServicingFormDelivery'
-import { ChannelUnavailable } from './ChannelUnavailable'
-import { CallScriptCard } from './CallScriptCard'
 
 export type ReachChoice = null | 'reached' | 'not-reached'
 
@@ -104,12 +106,22 @@ export function OutreachCallPanel({
   const [reach, setReach] = useState<ReachChoice>(reached ? 'reached' : null)
 
   // ── Didn\u2019t-reach sub-state ──────────────────────────────────────────────
-  // Whether a voicemail was actually left, whether the Hearsay text was sent,
-  // and whether the follow-up email was sent. Only completed communications are
-  // recorded, so these gate which channels the single grouped attempt carries.
-  const [voicemailLeft, setVoicemailLeft] = useState<boolean | null>(null)
-  const [textSent, setTextSent] = useState(false)
-  const [emailSent, setEmailSent] = useState(false)
+  // Each channel is a self-contained Lego owning its own Yes/No + reason draft
+  // (VoicemailAttempt / TextAttempt / EmailAttempt). The panel holds only the
+  // drafts and composes the Legos; it reads each channel's resolved outcome to
+  // build the one grouped attempt. Only a completed ('done') channel counts as
+  // a touch; a reasoned 'skipped' records its explanation but no touch; an
+  // 'unavailable' (grayed) channel records its state and never gates recording.
+  const voicemailDraft = useVoicemailDraft()
+  const textDraft = useTextDraft()
+  const emailDraft = useFollowUpEmailDraft()
+  // Bad number is a toggle at the TOP of the didn't-reach flow (immediate
+  // feedback): it grays voicemail + text (you can neither leave a voicemail nor
+  // text a dead number) while the follow-up email stays available (email is not
+  // tied to the phone). It does NOT gate recording; the single Record this
+  // attempt button still finishes, and a recorded bad number routes the
+  // customer to Contact Research instead of rescheduling the next call.
+  const [badNumber, setBadNumber] = useState(false)
 
   // ── Reached sub-state ────────────────────────────────────────────────────
   // The reached outcome is one of the four UNIVERSAL call outcomes, laid out as
@@ -158,34 +170,6 @@ export function OutreachCallPanel({
     : decision === 'decline' ? 'not-interested'
     : null
 
-  // Report the live selection up so the Next History Entry column previews
-  // exactly what completing this call will record, combined into one concise
-  // entry, updating as the worker proceeds. The reached authorization form is
-  // folded in once the reached call has been recorded (reached === true), since
-  // the form send is part of that one reached interaction.
-  useEffect(() => {
-    if (!onSelectionChange) return
-    onSelectionChange({
-      reach,
-      voicemailLeft,
-      textSent,
-      emailSent,
-      decision: decisionDisposition,
-      callbackDate: callbackWhen || null,
-      // The reached · agreed completion sends the form and records the reached
-      // call together. It is NOT "sent" merely because the customer was reached
-      // and agreed; the send is confirmed by the form-delivery confirm action,
-      // which immediately advances to the next customer. So the preview treats
-      // the form as pending (Reached · Agreed) throughout this screen and never
-      // claims an unsent form was sent.
-      formSent: false,
-      // The chosen delivery method, so the pending preview names emailed vs
-      // mailed accurately. Persisted on the detail when the worker picks it.
-      formDeliveryMethod: detail.form_delivery_method ?? null,
-      note: callNote.trim() || null,
-    })
-  }, [onSelectionChange, reach, voicemailLeft, textSent, emailSent, decisionDisposition, callbackWhen, detail.form_delivery_method, callNote])
-
   const nextSuffix = hasNextInActivity ? ' Next customer.' : ''
 
   // The CALLER identity for the scripts, from the established producer source:
@@ -199,11 +183,14 @@ export function OutreachCallPanel({
   // Interpolated servicing-agent scripts. The customer's first name and the
   // caller's identity fill the placeholders; nothing is left as a raw
   // placeholder. The customer-facing wording falls back to a neutral form when a
-  // value is absent so a script still reads cleanly.
+  // value is absent so a script still reads cleanly. The callback number is now
+  // stored as bare 10 digits (contact-input standard), so it is formatted for
+  // DISPLAY here via the shared formatter — the script reads "(215) 555-0100",
+  // never raw digits.
   const scriptVars = {
     first_name: c.first_name ?? 'there',
     sender_name: senderName ?? 'our office',
-    phone: callbackPhone ?? '',
+    phone: callbackPhone ? formatPhoneDisplay(callbackPhone) : '',
   }
   const voicemailScript = interpolate(SERVICING_CALL_SCRIPTS.voicemail.body, scriptVars)
   const textScript = interpolate(SERVICING_CALL_SCRIPTS.hearsay_text.body, scriptVars)
@@ -221,36 +208,94 @@ export function OutreachCallPanel({
   //   - The Hearsay text needs a textable phone AND the callback number is not
   //     required (the text does not state it), but it does identify the caller.
   //   - The follow-up email needs a usable email.
-  const canText = textActionAvailable(detail)
+  // A bad number grays the phone-dependent channels: you cannot leave a
+  // voicemail on, or text, a dead number. Email is independent of the phone, so
+  // it stays available. The callback number governs voicemail usability (the
+  // script names a number to call back), independent of the customer's phone.
+  const canText = textActionAvailable(detail) && !badNumber
   const canEmail = detail.contact_options?.canEmail ?? !!c.email
-  const hasCallbackNumber = !!callbackPhone
+  const canVoicemail = !!callbackPhone && !badNumber
 
-  // Record the DIDN\u2019T-REACH attempt as ONE grouping. The call channel's
-  // outcome is 'voicemail' (the no-answer outcome that schedules the next call);
-  // the separate voicemail CHANNEL is recorded as a completed touch ONLY when a
-  // voicemail was actually left, and the text/email channels ONLY when they were
-  // actually sent. So only communications actually completed are preserved.
-  function recordNotReached() {
-    const action: Record<string, unknown> = { type: 'record-attempt', call: 'voicemail' }
-    // Record a voicemail touch only when one was actually left. When no callback
-    // number resolves, the voicemail channel is unavailable (no Yes/No shown), so
-    // it is never recorded as completed.
-    if (callbackPhone && voicemailLeft) action.voicemail = 'touch'
-    if (textSent) action.text = 'touch'
-    if (emailSent) action.email = 'touch'
-    if (noteForAction) action.note = noteForAction
-    act(
-      action,
-      'Attempt recorded. Next call auto-scheduled; the customer moves to Waiting for Response.',
-      { advanceToNext: true },
-    )
+  // Why the text channel is unavailable, so the grayed history reads correctly:
+  // an opt-out ("Opted out of texting") vs any other not-textable reason
+  // ("No text"). Bad number is a not-textable reason, not an opt-out.
+  const textUnavailableReason: TextUnavailableReason =
+    detail.customer.sms_opt_out === true ? 'opted-out' : 'not-textable'
+
+  // Resolve each channel Lego's outcome once, so recording, the record-gate, and
+  // the live history preview all read from the same derived values.
+  const vmOut = voicemailOutcome(voicemailDraft, canVoicemail)
+  const textOut = textOutcome(textDraft, canText, textUnavailableReason)
+  const emailOut = emailOutcome(emailDraft, canEmail)
+
+  // The attempt can be recorded only once every AVAILABLE channel is answered
+  // enough to record: a Yes, or a No with a reason (and an "Other" reason needs
+  // typed text). An unavailable (grayed) channel is always complete, so it never
+  // gates. Bad number does not gate either — it is a condition, not a question.
+  const channelsComplete = vmOut.complete && textOut.complete && emailOut.complete
+
+  // Report the live selection up so the Next History Entry column previews
+  // exactly what completing this call will record, combined into one concise
+  // entry, updating as the worker proceeds. The didn't-reach wording comes from
+  // the channel Legos (notReachedFragments), so the preview and the recorded
+  // attempt never drift. The reached authorization form is folded in once the
+  // reached call has been recorded, since the form send is part of that one
+  // reached interaction.
+  useEffect(() => {
+    if (!onSelectionChange) return
+    onSelectionChange({
+      reach,
+      badNumber,
+      notReachedFragments: [vmOut.fragment, textOut.fragment, emailOut.fragment].filter(Boolean),
+      notReachedTouches: (vmOut.touch ? 1 : 0) + (textOut.touch ? 1 : 0) + (emailOut.touch ? 1 : 0),
+      decision: decisionDisposition,
+      callbackDate: callbackWhen || null,
+      // The reached · agreed completion sends the form and records the reached
+      // call together. It is NOT "sent" merely because the customer was reached
+      // and agreed; the send is confirmed by the form-delivery confirm action,
+      // which immediately advances to the next customer. So the preview treats
+      // the form as pending (Reached · Agreed) throughout this screen and never
+      // claims an unsent form was sent.
+      formSent: false,
+      // The chosen delivery method, so the pending preview names emailed vs
+      // mailed accurately. Persisted on the detail when the worker picks it.
+      formDeliveryMethod: detail.form_delivery_method ?? null,
+      note: callNote.trim() || null,
+    })
+  }, [
+    onSelectionChange, reach, badNumber,
+    vmOut.fragment, textOut.fragment, emailOut.fragment,
+    vmOut.touch, textOut.touch, emailOut.touch,
+    decisionDisposition, callbackWhen, detail.form_delivery_method, callNote,
+  ])
+
+  // Fold any channel reason text ("Other") into the attempt note alongside the
+  // optional Call Notes, so the explanation rides with the one recorded
+  // interaction. Reasons are not a structured field; reporting is a future query.
+  function composedNote(): string | null {
+    const parts = [noteForAction, vmOut.note, textOut.note, emailOut.note].filter(Boolean)
+    return parts.length ? parts.join(' \u00b7 ') : null
   }
 
-  // Bad number: a single grouped attempt recording the unusable call channel.
-  function recordBadNumber() {
+  // Record the DIDN\u2019T-REACH attempt as ONE grouping. When the number is bad
+  // the call channel is 'bad-number' (routes to Contact Research); otherwise it
+  // is 'voicemail' (the no-answer call outcome that schedules the next call).
+  // A channel is recorded as a completed touch ONLY when its outcome is 'done'.
+  function recordNotReached() {
+    const action: Record<string, unknown> = {
+      type: 'record-attempt',
+      call: badNumber ? 'bad-number' : 'voicemail',
+    }
+    if (vmOut.touch) action.voicemail = 'touch'
+    if (textOut.touch) action.text = 'touch'
+    if (emailOut.touch) action.email = 'touch'
+    const note = composedNote()
+    if (note) action.note = note
     act(
-      { type: 'record-attempt', call: 'bad-number', note: noteForAction },
-      'Bad number recorded. Moved to Contact Research.',
+      action,
+      badNumber
+        ? 'Bad number recorded. Moved to Contact Research.'
+        : 'Attempt recorded. Next call auto-scheduled; the customer moves to Waiting for Response.',
       { advanceToNext: true },
     )
   }
@@ -262,18 +307,21 @@ export function OutreachCallPanel({
   // undecided state. Recording happens only at each branch's explicit
   // completion (form sent, callback saved, not-interested confirmed, attempt
   // recorded), never here.
+  function resetNotReached() {
+    voicemailDraft.reset(); textDraft.reset(); emailDraft.reset(); setBadNumber(false)
+  }
   function chooseReached() {
     if (reach === 'reached') { setReach(null); setDecision(null); setCallbackWhen(''); return }
     setReach('reached')
-    // Entering Reached: drop any Didn't-Reach channel selections, collapse the
-    // top Talk Path (the lower copy takes over), and start the lower Talk Path
+    // Entering Reached: drop any Didn't-Reach channel drafts, collapse the top
+    // Talk Path (the lower copy takes over), and start the lower Talk Path
     // collapsed so it opens only if the caller wants it.
-    setVoicemailLeft(null); setTextSent(false); setEmailSent(false)
+    resetNotReached()
     setTalkPathTopOpen(false)
     setTalkPathReachedOpen(false)
   }
   function chooseNotReached() {
-    if (reach === 'not-reached') { setReach(null); setVoicemailLeft(null); setTextSent(false); setEmailSent(false); return }
+    if (reach === 'not-reached') { setReach(null); resetNotReached(); return }
     setReach('not-reached')
     // Entering Didn't Reach: drop any Reached decision + callback draft.
     setDecision(null); setCallbackWhen('')
@@ -365,92 +413,66 @@ export function OutreachCallPanel({
       {/* ── DIDN\u2019T REACH ─────────────────────────────────────────────────── */}
       {reach === 'not-reached' && (
         <><Divider className="my-4" /><div className="space-y-4">
-          {/* Voicemail. The approved script is READ ALOUD, so the card shows no
-              Copy (hideCopy). The script asks the customer to call back at the
-              callback number, so it can only be read when that number resolves.
-              Without it, the channel is shown as unavailable rather than offering
-              a script with a missing number. */}
-          <div className="space-y-2">
-            <p className="flex items-center gap-1.5 text-base font-semibold text-ink">
-              <Voicemail className="size-4 text-ink-supporting" aria-hidden /> Voicemail
-            </p>
-            {hasCallbackNumber ? (
-              <>
-                <CallScriptCard label={SERVICING_CALL_SCRIPTS.voicemail.label} body={voicemailScript} hideCopy />
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-sm font-medium text-ink-secondary">Did you leave a voicemail?</span>
-                  <WorkflowButton selected={voicemailLeft === true} disabled={busy} onClick={() => setVoicemailLeft(true)}>Yes</WorkflowButton>
-                  <WorkflowButton selected={voicemailLeft === false} disabled={busy} onClick={() => setVoicemailLeft(false)}>No</WorkflowButton>
-                </div>
-              </>
-            ) : (
-              <ChannelUnavailable
-                body="No callback number is set for your profile, so the voicemail script can’t name a number to call back. Ask an admin to add your phone on the Team page, then this voicemail script becomes available."
-              />
-            )}
+          {/* Bad number sits FIRST, as immediate feedback: the moment the worker
+              knows the number is dead, marking it grays the phone-dependent
+              channels below (voicemail + text) so they don't ask questions that
+              can't apply, while the follow-up email stays available. It is a
+              toggle, not a separate record action — the single Record this
+              attempt button below still finishes, and a recorded bad number
+              routes the customer to Contact Research. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-medium text-ink-secondary">Is this a working number?</span>
+            <WorkflowButton selected={!badNumber} disabled={busy} onClick={() => setBadNumber(false)}>Yes</WorkflowButton>
+            <WorkflowButton icon={PhoneOff} selected={badNumber} disabled={busy} onClick={() => setBadNumber(true)}>Bad number</WorkflowButton>
           </div>
 
-          {/* Hearsay text: the prepared script with Copy for manual sending.
-              When there is no textable number, the channel is shown as
-              unavailable rather than hidden or implying a text could be sent. */}
-          <div className="space-y-2">
-            <p className="flex items-center gap-1.5 text-base font-semibold text-ink">
-              <MessageSquare className="size-4 text-ink-supporting" aria-hidden /> Text (Hearsay)
-            </p>
-            {canText ? (
-              <>
-                <CallScriptCard label={SERVICING_CALL_SCRIPTS.hearsay_text.label} body={textScript} />
-                <label className="flex cursor-pointer items-center gap-2.5 text-base font-medium text-ink">
-                  <input type="checkbox" checked={textSent} disabled={busy}
-                    onChange={e => setTextSent(e.target.checked)}
-                    className="size-4 rounded border-slate-400 text-teal-600 focus:ring-teal-500" />
-                  I sent this text through Hearsay
-                </label>
-              </>
-            ) : (
-              <ChannelUnavailable body="No usable mobile number on file, so a Hearsay text can’t be sent. Add or correct the phone in Contact Research to make this available." />
-            )}
-          </div>
+          {/* The three didn't-reach channel Legos. Each owns its own script,
+              Yes/No, reasons, and the history fragment it emits; the panel only
+              composes them and reads their resolved outcomes. Scripts are passed
+              in (context-driven), so the same Legos serve any call workbench. */}
+          <VoicemailAttempt
+            draft={voicemailDraft}
+            scriptLabel={SERVICING_CALL_SCRIPTS.voicemail.label}
+            scriptBody={voicemailScript}
+            available={canVoicemail}
+            unavailableBody={
+              badNumber
+                ? 'This number is marked bad, so a voicemail can’t be left. The follow-up email below is still available.'
+                : 'No callback number is set for your profile, so the voicemail script can’t name a number to call back. Ask an admin to add your phone on the Team page, then this voicemail script becomes available.'
+            }
+            disabled={busy}
+          />
 
-          {/* Follow-up email: opens pre-composed in Outlook via mailto. When
-              there is no usable email, the channel is shown as unavailable
-              rather than hidden or implying an email was sent. */}
-          <div className="space-y-2">
-            <p className="flex items-center gap-1.5 text-base font-semibold text-ink">
-              <Mail className="size-4 text-ink-supporting" aria-hidden /> Follow-up email
-            </p>
-            {canEmail ? (
-              <>
-                <a href={followUpMailto} className="block">
-                  <WorkflowButton icon={Mail}>Open prepared follow-up email</WorkflowButton>
-                </a>
-                <label className="flex cursor-pointer items-center gap-2.5 text-base font-medium text-ink">
-                  <input type="checkbox" checked={emailSent} disabled={busy}
-                    onChange={e => setEmailSent(e.target.checked)}
-                    className="size-4 rounded border-slate-400 text-teal-600 focus:ring-teal-500" />
-                  I sent this follow-up email
-                </label>
-              </>
-            ) : (
-              <ChannelUnavailable body="No usable email on file, so a follow-up email can’t be sent. Add or correct the email in Contact Research to make this available." />
-            )}
-          </div>
+          <TextAttempt
+            draft={textDraft}
+            scriptLabel={SERVICING_CALL_SCRIPTS.hearsay_text.label}
+            scriptBody={textScript}
+            available={canText}
+            unavailableBody={
+              badNumber
+                ? 'This number is marked bad, so a Hearsay text can’t be sent. The follow-up email below is still available.'
+                : detail.customer.sms_opt_out === true
+                  ? 'The customer opted out of texting, so a Hearsay text can’t be sent.'
+                  : 'No usable mobile number on file, so a Hearsay text can’t be sent. Add or correct the phone in Contact Research to make this available.'
+            }
+            disabled={busy}
+          />
+
+          <EmailAttempt
+            draft={emailDraft}
+            mailto={followUpMailto}
+            available={canEmail}
+            unavailableBody="No usable email on file, so a follow-up email can’t be sent. Add or correct the email in Contact Research to make this available."
+            disabled={busy}
+          />
 
           {/* Record the whole no-reach interaction as ONE grouped attempt.
-              Recording waits until the worker has answered whether a voicemail
-              was left, so the attempt is honest about what was completed. */}
+              Grayed until every AVAILABLE channel is answered enough to record
+              (a Yes, or a No with a reason; an "Other" reason needs typed text),
+              so the attempt is honest about what was completed. */}
           <div className="space-y-3 rounded-xl border border-surface-border bg-surface-card p-4">
-            <WorkflowButton icon={PenLine} selected disabled={busy || (hasCallbackNumber && voicemailLeft === null)} onClick={recordNotReached}>
+            <WorkflowButton icon={PenLine} selected disabled={busy || !channelsComplete} onClick={recordNotReached}>
               {busy ? 'Recording\u2026' : 'Record this attempt'}
-            </WorkflowButton>
-          </div>
-
-          {/* Bad number: a distinct recorded outcome, kept out of the way. */}
-          <Divider className="my-3" />
-          <div>
-            <p className="mb-1 text-sm text-ink-supporting">Not a working number?</p>
-            <WorkflowButton icon={PhoneOff} disabled={busy} onClick={recordBadNumber}>
-              Bad number
             </WorkflowButton>
           </div>
         </div></>

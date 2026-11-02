@@ -904,10 +904,13 @@ export async function PATCH(
     const voicemailLeft = action.voicemail === 'touch'
     const callLabel: Record<CallOutcome, string> = {
       reached: 'Spoke with customer.',
+      // A didn't-reach call leads with "Call attempt" — an attempted outbound
+      // call — never "No answer". Whether a voicemail was left is carried by the
+      // separate voicemail CHANNEL touch, not asserted in the call sentence.
       voicemail: voicemailLeft
-        ? 'Called customer. No answer. Voicemail left. Next call scheduled.'
-        : 'Called customer. No answer. Next call scheduled.',
-      'bad-number': 'Called customer. Number is not working. Customer referred to Contact Research.',
+        ? 'Call attempt. Voicemail left. Next call scheduled.'
+        : 'Call attempt. Next call scheduled.',
+      'bad-number': 'Call attempt. Number is not working. Customer referred to Contact Research.',
       'not-interested': 'Spoke with customer. Customer declined servicing-agent authorization. Further outreach stopped unless deliberately reopened.',
       callback: `Spoke with customer. Customer requested a callback${action.callback_date ? ` on ${action.callback_date}` : ''}.`,
     }

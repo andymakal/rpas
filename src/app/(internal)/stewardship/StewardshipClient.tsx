@@ -1088,9 +1088,8 @@ function sameCallSelection(a: CallSelection | null, b: CallSelection | null): bo
   if (a == null || b == null) return false
   return (
     a.reach === b.reach &&
-    a.voicemailLeft === b.voicemailLeft &&
-    a.textSent === b.textSent &&
-    a.emailSent === b.emailSent &&
+    (a.notReachedFragments ?? []).join('\u241f') === (b.notReachedFragments ?? []).join('\u241f') &&
+    a.notReachedTouches === b.notReachedTouches &&
     a.badNumber === b.badNumber &&
     a.decision === b.decision &&
     a.callbackDate === b.callbackDate &&
