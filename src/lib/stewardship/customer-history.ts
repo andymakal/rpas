@@ -1502,6 +1502,15 @@ export interface CallSelection {
   // Reached branch — the customer's decision and, for a callback, the date.
   decision?: 'agreed' | 'callback' | 'not-interested' | null
   callbackDate?: string | null
+  /** A prebuilt callback/availability summary (e.g. "11/17/2026 at 2:00 PM" for
+   * an exact appointment, or "Mon, Tue, Wed · 3–6" for a recurring availability).
+   * When present it drives the preview wording instead of callbackDate alone, so
+   * the exact-time appointment shows its time and a recurring promise shows its
+   * days/bands. */
+  callbackLabel?: string | null
+  /** True when the callback is a specific-date exact-TIME appointment, so the
+   * preview reads "Appointment Scheduled …" rather than "Callback Scheduled …". */
+  callbackIsAppointment?: boolean
   /** Whether the authorization form has been confirmed sent on the reached ·
    * agreed path, so the preview can fold "Form Sent" into the entry. */
   formSent?: boolean
@@ -1564,11 +1573,22 @@ export function describeCallSelection(
 
   if (selection.reach === 'reached') {
     if (selection.decision === 'callback') {
-      const when = selection.callbackDate ? formatCallbackDate(selection.callbackDate) : null
+      // Prefer the prebuilt label (carries the exact time, or the recurring
+      // days×bands availability); fall back to the plain date for older callers.
+      const label =
+        selection.callbackLabel?.trim() ||
+        (selection.callbackDate ? formatCallbackDate(selection.callbackDate) : null)
+      if (selection.callbackIsAppointment && label) {
+        return {
+          summary: `Reached · Appointment Scheduled ${label}`,
+          description: `Spoke with customer. Appointment set for ${label}.`,
+          note: extraNote,
+        }
+      }
       return {
-        summary: when ? `Reached · Callback Scheduled ${when}` : 'Reached · Callback Scheduled',
-        description: when
-          ? `Spoke with customer. Customer requested a callback on ${when}.`
+        summary: label ? `Reached · Callback Scheduled ${label}` : 'Reached · Callback Scheduled',
+        description: label
+          ? `Spoke with customer. Customer requested a callback: ${label}.`
           : 'Spoke with customer. Customer requested a callback.',
         note: extraNote,
       }

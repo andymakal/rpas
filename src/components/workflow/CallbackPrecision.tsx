@@ -2,25 +2,22 @@
 
 /**
  * CallbackPrecision — the reusable "when did we promise to call back" picker for
- * Right Path's light-theme workflow UI. A promised callback at whatever
- * precision the customer gave: an EXACT time, a set of availability WINDOWS
- * (days × time bands), or ANY TIME that day. The DOB-precision pattern applied
- * to a callback (see ContactDob for the reference shape).
+ * Right Path's light-theme workflow UI, built on two axes (see
+ * callback-precision.ts):
  *
- * All precision VOCABULARY, validation, and resolution RULES live in
- * `@/lib/calendar/callback-precision.ts` (pure, testable, zone-delegating). This
- * file is only the UI layer:
+ *   WHEN:  a specific date (date picker) OR recurring days (Mon-Sat chips).
+ *   TIME:  an exact half-hour time (specific date only) OR time bands (with an
+ *          "Any" select-all) OR any time (all day).
  *
- *   - `useCallbackPrecisionDraft` — draft state + live validation, so every host
- *     validates identically. Seeds from an optional prior commitment.
- *   - `CallbackPrecisionFields` — the controlled precision selector plus the
- *     per-precision controls (exact date+time / days×bands / date only) and the
- *     inline validity message. NO Save button, so it embeds in the Defer panel's
- *     own Save (the host owns the action).
+ * All vocabulary, validation, and resolution RULES live in
+ * `@/lib/calendar/callback-precision.ts` (pure, testable, zone-delegating).
+ * This file is only the UI layer:
+ *   - `useCallbackPrecisionDraft` — draft state + live validation.
+ *   - `CallbackPrecisionFields` — the two-axis controls + inline validity. NO
+ *     Save button, so it embeds in the Defer panel's own Save.
  *
- * The customer clock is the authority: the host passes the customer's zone so
- * the shown/stored time means the time ON THE CUSTOMER'S clock. Nothing here
- * persists; the host resolves and writes.
+ * The customer clock is the authority: the host passes the customer's zone so an
+ * exact time means the time ON THE CUSTOMER'S clock. Nothing here persists.
  */
 
 import { useMemo, useState } from 'react'
@@ -28,11 +25,12 @@ import { Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   type CallbackCommitment,
-  type CallbackPrecision as Precision,
   type CallbackValidation,
   type TimeBandKey,
+  type TimeMode,
   type TimeSlot,
   type WeekdayKey,
+  type WhenMode,
   TIME_BANDS,
   WEEKDAYS,
   buildHalfHourSlots,
@@ -47,11 +45,13 @@ const TIME_SLOTS: TimeSlot[] = buildHalfHourSlots()
 
 export interface CallbackPrecisionDraftApi {
   draft: CallbackCommitment
+  setWhenMode: (mode: WhenMode) => void
   setDate: (date: string) => void
-  setPrecision: (precision: Precision) => void
-  setClock: (clock: string) => void
   toggleDay: (day: WeekdayKey) => void
+  setTimeMode: (mode: TimeMode) => void
+  setClock: (clock: string) => void
   toggleBand: (band: TimeBandKey) => void
+  selectAllBands: () => void
   /** Live validation of the draft. */
   validation: CallbackValidation
   /** Valid to save (valid OR an empty no-promise). */
@@ -66,34 +66,54 @@ export function useCallbackPrecisionDraft(
 ): CallbackPrecisionDraftApi {
   const [draft, setDraft] = useState<CallbackCommitment>(() => seed ?? emptyCommitment())
 
-  const setDate = (date: string) => setDraft((d) => ({ ...d, date }))
-  const setClock = (clock: string) => setDraft((d) => ({ ...d, clock }))
-  const setPrecision = (precision: Precision) =>
+  const setWhenMode = (whenMode: WhenMode) =>
     setDraft((d) => ({
       ...d,
-      precision,
-      // Clear the parts that don't belong to the chosen precision so a switch
-      // never leaves a stale clock or band set behind.
-      clock: precision === 'exact' ? d.clock : null,
-      days: precision === 'windows' ? d.days : [],
-      bands: precision === 'windows' ? d.bands : [],
+      whenMode,
+      // Switching to recurring can't keep an exact time (needs a real date); drop
+      // it to bands so the choice stays coherent.
+      timeMode: whenMode === 'recurring' && d.timeMode === 'exact' ? 'bands' : d.timeMode,
+      clock: whenMode === 'recurring' ? null : d.clock,
     }))
+  const setDate = (date: string) => setDraft((d) => ({ ...d, date }))
   const toggleDay = (day: WeekdayKey) =>
     setDraft((d) => ({
       ...d,
       days: d.days.includes(day) ? d.days.filter((x) => x !== day) : [...d.days, day],
     }))
+  const setTimeMode = (timeMode: TimeMode) =>
+    setDraft((d) => ({
+      ...d,
+      timeMode,
+      clock: timeMode === 'exact' ? d.clock : null,
+      bands: timeMode === 'bands' ? d.bands : [],
+    }))
+  const setClock = (clock: string) => setDraft((d) => ({ ...d, clock }))
   const toggleBand = (band: TimeBandKey) =>
     setDraft((d) => ({
       ...d,
       bands: d.bands.includes(band) ? d.bands.filter((x) => x !== band) : [...d.bands, band],
     }))
+  const selectAllBands = () =>
+    setDraft((d) => ({ ...d, bands: TIME_BANDS.map((b) => b.key) }))
 
   const validation = useMemo(() => validateCallback(draft), [draft])
   const valid = validation.status !== 'invalid'
   const message = validation.reason
 
-  return { draft, setDate, setPrecision, setClock, toggleDay, toggleBand, validation, valid, message }
+  return {
+    draft,
+    setWhenMode,
+    setDate,
+    toggleDay,
+    setTimeMode,
+    setClock,
+    toggleBand,
+    selectAllBands,
+    validation,
+    valid,
+    message,
+  }
 }
 
 // ── Field styling (light-theme workflow tokens, matching the contact Legos) ──
@@ -135,18 +155,25 @@ function Chip({
   )
 }
 
-const PRECISIONS: { key: Precision; label: string; hint: string }[] = [
-  { key: 'exact', label: 'Exact time', hint: 'A specific time, e.g. 2:00 PM. Becomes an appointment.' },
-  { key: 'windows', label: 'Time of day', hint: 'When they can be reached (days and bands).' },
-  { key: 'anytime', label: 'Any time that day', hint: 'A date only; call anytime.' },
+const WHEN_MODES: { key: WhenMode; label: string }[] = [
+  { key: 'date', label: 'A specific date' },
+  { key: 'recurring', label: 'Recurring days' },
 ]
 
-// ── Fields (headless of Save; embeddable in the Defer panel) ─────────────────
+// Exact first, then bands, then any — per the operator's ordering.
+const TIME_MODES: { key: TimeMode; label: string; hint: string }[] = [
+  { key: 'exact', label: 'Exact time', hint: 'A specific time. Becomes an appointment.' },
+  { key: 'bands', label: 'Time bands', hint: 'When they can be reached (one or more).' },
+  { key: 'any', label: 'Any time', hint: 'No particular time; all day.' },
+]
+
+// ── Fields (headless of Save; embeds in the Defer panel) ─────────────────────
 
 /**
- * The precision selector plus the per-precision controls and the inline
- * validity message. All state and validity come from `useCallbackPrecisionDraft`.
- * The customer-clock note is shown when the customer's zone differs from the
+ * The two-axis controls. All state and validity come from
+ * `useCallbackPrecisionDraft`. Exact time is offered only when the WHEN axis is
+ * a specific date, and renders on the SAME row as the date. The customer-zone
+ * label is shown next to an exact time when the customer's zone differs from the
  * operator's, so an exact time is unambiguous about whose clock it is.
  */
 export function CallbackPrecisionFields({
@@ -154,8 +181,6 @@ export function CallbackPrecisionFields({
   busy = false,
   idPrefix = 'cb',
   showError = true,
-  /** Short customer-zone label (e.g. "ET") shown next to an exact time when it
-   * differs from the operator's zone. Optional; purely a clarity hint. */
   customerZoneLabel = null,
 }: {
   api: CallbackPrecisionDraftApi
@@ -164,100 +189,115 @@ export function CallbackPrecisionFields({
   showError?: boolean
   customerZoneLabel?: string | null
 }) {
-  const { draft, setDate, setPrecision, setClock, toggleDay, toggleBand, validation, message } = api
+  const { draft, setWhenMode, setDate, toggleDay, setTimeMode, setClock, toggleBand, selectAllBands, validation, message } = api
   const id = (s: string) => `${idPrefix}-${s}`
   const invalid = validation.status === 'invalid'
+  const dateMode = draft.whenMode === 'date'
+  const allBandsSelected = draft.bands.length === TIME_BANDS.length
 
   return (
     <div className="space-y-3">
-      {/* Due date — always required. */}
+      {/* WHEN axis. */}
       <div>
-        <label htmlFor={id('date')} className="text-sm font-medium text-ink-secondary">
-          Callback date
-        </label>
-        <input
-          id={id('date')}
-          type="date"
-          value={draft.date}
-          disabled={busy}
-          onChange={(e) => setDate(e.target.value)}
-          className={cn('mt-0.5 block w-full max-w-xs', inputCls(invalid && !draft.date))}
-        />
-      </div>
-
-      {/* Precision selector. */}
-      <div>
-        <p className="text-sm font-medium text-ink-secondary">How specific is the time?</p>
+        <p className="text-sm font-medium text-ink-secondary">When?</p>
         <div className="mt-1 flex flex-wrap gap-2">
-          {PRECISIONS.map((p) => (
-            <Chip
-              key={p.key}
-              selected={draft.precision === p.key}
-              disabled={busy}
-              onClick={() => setPrecision(p.key)}
-            >
-              {p.label}
+          {WHEN_MODES.map((w) => (
+            <Chip key={w.key} selected={draft.whenMode === w.key} disabled={busy} onClick={() => setWhenMode(w.key)}>
+              {w.label}
             </Chip>
           ))}
         </div>
-        <p className="mt-1 text-sm text-ink-muted">
-          {PRECISIONS.find((p) => p.key === draft.precision)?.hint}
-        </p>
+
+        {/* Specific date: the date picker, and (for exact time) the time on the
+            SAME line. */}
+        {dateMode ? (
+          <div className="mt-2 flex flex-wrap items-end gap-3">
+            <div>
+              <label htmlFor={id('date')} className="block text-xs font-medium text-ink-secondary">Date</label>
+              <input
+                id={id('date')}
+                type="date"
+                value={draft.date}
+                disabled={busy}
+                onChange={(e) => setDate(e.target.value)}
+                className={cn('mt-0.5 block', inputCls(invalid && !draft.date))}
+              />
+            </div>
+            {draft.timeMode === 'exact' && (
+              <div>
+                <label htmlFor={id('clock')} className="block text-xs font-medium text-ink-secondary">
+                  Time
+                  {customerZoneLabel && (
+                    <span className="ml-1 font-normal text-ink-muted">(customer&apos;s, {customerZoneLabel})</span>
+                  )}
+                </label>
+                <select
+                  id={id('clock')}
+                  value={draft.clock ?? ''}
+                  disabled={busy}
+                  onChange={(e) => setClock(e.target.value)}
+                  className={cn('mt-0.5 block', inputCls(invalid && !draft.clock))}
+                >
+                  <option value="">Pick a time…</option>
+                  {TIME_SLOTS.map((s) => (
+                    <option key={s.value} value={s.value}>{s.label}</option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="mt-2">
+            <p className="text-xs font-medium text-ink-secondary">Days</p>
+            <div className="mt-1 flex flex-wrap gap-1.5">
+              {WEEKDAYS.map((dw) => (
+                <Chip key={dw.key} selected={draft.days.includes(dw.key)} disabled={busy} onClick={() => toggleDay(dw.key)}>
+                  {dw.label}
+                </Chip>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* Exact time. */}
-      {draft.precision === 'exact' && (
-        <div>
-          <label htmlFor={id('clock')} className="text-sm font-medium text-ink-secondary">
-            Exact time
-            {customerZoneLabel && (
-              <span className="ml-1 font-normal text-ink-muted">(customer&apos;s time, {customerZoneLabel})</span>
-            )}
-          </label>
-          {/* Half-hour dropdown, not a free time input: scroll to 9:30 / 10:00
-              / 10:30, never type 1:13. Half-hour is the finest we offer. */}
-          <select
-            id={id('clock')}
-            value={draft.clock ?? ''}
-            disabled={busy}
-            onChange={(e) => setClock(e.target.value)}
-            className={cn('mt-0.5 block w-full max-w-[12rem]', inputCls(invalid))}
-          >
-            <option value="">Pick a time…</option>
-            {TIME_SLOTS.map((s) => (
-              <option key={s.value} value={s.value}>{s.label}</option>
-            ))}
-          </select>
+      {/* TIME axis. */}
+      <div>
+        <p className="text-sm font-medium text-ink-secondary">What time?</p>
+        <div className="mt-1 flex flex-wrap gap-2">
+          {TIME_MODES.map((t) => {
+            // Exact is only meaningful for a specific date.
+            const disabled = busy || (t.key === 'exact' && !dateMode)
+            return (
+              <Chip key={t.key} selected={draft.timeMode === t.key} disabled={disabled} onClick={() => setTimeMode(t.key)}>
+                {t.label}
+              </Chip>
+            )
+          })}
         </div>
-      )}
+        <p className="mt-1 text-sm text-ink-muted">
+          {TIME_MODES.find((t) => t.key === draft.timeMode)?.hint}
+        </p>
 
-      {/* Windows: days × bands. */}
-      {draft.precision === 'windows' && (
-        <div className="space-y-2">
-          <div>
-            <p className="text-sm font-medium text-ink-secondary">
-              Days <span className="font-normal text-ink-muted">(none = any day)</span>
-            </p>
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              {WEEKDAYS.map((d) => (
-                <Chip key={d.key} selected={draft.days.includes(d.key)} disabled={busy} onClick={() => toggleDay(d.key)}>
-                  {d.label}
-                </Chip>
-              ))}
-            </div>
+        {/* Bands: the four daily buckets + an Any (all) button. The exact-time
+            input renders up with the date (above); any-time needs no control. */}
+        {draft.timeMode === 'bands' && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            {TIME_BANDS.map((b) => (
+              <Chip key={b.key} selected={draft.bands.includes(b.key)} disabled={busy} onClick={() => toggleBand(b.key)}>
+                {b.label} <span className="opacity-70">{b.shortLabel}</span>
+              </Chip>
+            ))}
+            <button
+              type="button"
+              disabled={busy || allBandsSelected}
+              onClick={selectAllBands}
+              className="rounded-lg border border-dashed border-surface-border-strong px-3 py-1.5 text-sm font-medium text-ink-supporting hover:bg-surface-muted disabled:opacity-40"
+            >
+              Any
+            </button>
           </div>
-          <div>
-            <p className="text-sm font-medium text-ink-secondary">Time of day</p>
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              {TIME_BANDS.map((b) => (
-                <Chip key={b.key} selected={draft.bands.includes(b.key)} disabled={busy} onClick={() => toggleBand(b.key)}>
-                  {b.label} <span className="opacity-70">{b.shortLabel}</span>
-                </Chip>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {showError && message && (
         <p className="flex items-center gap-1.5 text-sm text-status-missing-strong">

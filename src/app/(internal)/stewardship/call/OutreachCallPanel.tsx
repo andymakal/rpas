@@ -29,9 +29,9 @@ import {
   EmailAttempt, useFollowUpEmailDraft, emailOutcome,
   CallbackPrecisionFields, useCallbackPrecisionDraft,
 } from '@/components/workflow'
-import { hasExactTime, windowsSummary } from '@/lib/calendar/callback-precision'
+import { hasExactTime, commitmentSummary, resolveDueDate } from '@/lib/calendar/callback-precision'
 import { deriveCustomerZone } from '@/lib/calendar/customer-zone'
-import { zoneAbbreviation } from '@/lib/time'
+import { zoneAbbreviation, createTimeContext } from '@/lib/time'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import { buildMailto, SERVICING_CALL_SCRIPTS, interpolate } from '@/lib/templates'
 import { formatPhoneDisplay } from '@/lib/contact-input'
@@ -190,11 +190,14 @@ export function OutreachCallPanel({
   // so an operator in another zone sees whose clock the time is on. Derived from
   // the customer's state (the same derivation the server uses to store the zone);
   // null when the state is unknown, in which case the hint is simply omitted.
-  const callbackCustomerZoneLabel = (() => {
-    const derived = deriveCustomerZone(c.state ?? null)
-    if (!derived) return null
-    return zoneAbbreviation(derived.timeZone, new Date())
-  })()
+  const callbackCustomerZone = deriveCustomerZone(c.state ?? null)?.timeZone ?? null
+  const callbackCustomerZoneLabel = callbackCustomerZone
+    ? zoneAbbreviation(callbackCustomerZone, new Date())
+    : null
+  // A TimeContext on the CUSTOMER clock, so the due-date resolution (the chosen
+  // date, or the next matching weekday for a recurring availability) is computed
+  // on the customer's calendar, not the server's.
+  const callbackCtx = createTimeContext({ customerTimeZone: callbackCustomerZone })
 
   // The CALLER identity for the scripts, from the established producer source:
   // the signed-in employee's first name ("[Employee]") and their validated
@@ -273,6 +276,13 @@ export function OutreachCallPanel({
       notReachedFragments: [vmOut.fragment, textOut.fragment, emailOut.fragment].filter(Boolean),
       decision: decisionDisposition,
       callbackDate: cbDraft.draft.date || null,
+      // The rich summary (exact time, or recurring days×bands) and whether this
+      // is a timed appointment, so the preview shows the time / the availability.
+      callbackLabel: (() => {
+        const dd = resolveDueDate(callbackCtx, cbDraft.draft)
+        return commitmentSummary(cbDraft.draft, dd ? shortDate(dd) : null)
+      })(),
+      callbackIsAppointment: hasExactTime(cbDraft.draft),
       // The reached · agreed completion sends the form and records the reached
       // call together. It is NOT "sent" merely because the customer was reached
       // and agreed; the send is confirmed by the form-delivery confirm action,
@@ -288,7 +298,7 @@ export function OutreachCallPanel({
   }, [
     onSelectionChange, reach, badNumber,
     vmOut.fragment, textOut.fragment, emailOut.fragment,
-    decisionDisposition, cbDraft.draft.date, detail.form_delivery_method, callNote,
+    decisionDisposition, cbDraft.draft, callbackCtx, detail.form_delivery_method, callNote,
   ])
 
   // Fold any channel reason text ("Other") into the attempt note alongside the
@@ -379,26 +389,31 @@ export function OutreachCallPanel({
       setApptSaving(false)
     }
 
-    // Record the promised callback on the outreach row for every precision, so
-    // the customer surfaces as a due call on the date. The exact case carries
-    // its clock in the appointment just created; windows carries its band/day
-    // availability for a future window-aware surface.
+    // Record the promised callback on the outreach row so the customer surfaces
+    // as a due call. The due DATE is the chosen date (specific-date mode) or the
+    // NEXT matching weekday (recurring mode), resolved on the customer clock. The
+    // exact case also created the appointment above; recurring/bands carry their
+    // days×bands availability on action_context for the surface that honors it.
+    const dueDate = resolveDueDate(callbackCtx, cb)
     const action: Record<string, unknown> = {
       type: 'record-attempt',
       call: 'callback',
-      callback_date: cb.date,
+      callback_date: dueDate,
       note: noteForAction,
     }
-    if (cb.precision === 'windows') {
-      action.callback_windows = { days: cb.days, bands: cb.bands }
+    if (cb.timeMode === 'bands' || cb.whenMode === 'recurring') {
+      action.callback_windows = {
+        whenMode: cb.whenMode,
+        days: cb.days,
+        bands: cb.bands,
+      }
     }
+    const summary = commitmentSummary(cb, dueDate ? shortDate(dueDate) : null)
     act(
       action,
       hasExactTime(cb)
-        ? `Appointment set for ${cb.date} at ${cb.clock}. Calendar invite downloaded to send in Outlook.`
-        : cb.precision === 'windows'
-          ? `Callback promised for ${cb.date ? shortDate(cb.date) : ''} (${windowsSummary(cb) ?? 'any time'}).`
-          : `Callback promised for ${cb.date ? shortDate(cb.date) : ''}.`,
+        ? `Appointment set for ${summary}. Calendar invite downloaded to send in Outlook.`
+        : `Callback promised: ${summary ?? 'recorded'}.`,
       { advanceToNext: true },
     )
   }
@@ -671,14 +686,16 @@ export function OutreachCallPanel({
               {apptError && (
                 <p className="text-sm text-status-missing-strong">{apptError}</p>
               )}
-              <WorkflowButton icon={Check} selected disabled={busy || apptSaving || !cbDraft.draft.date || !cbDraft.valid}
+              <WorkflowButton icon={Check} selected disabled={busy || apptSaving || cbDraft.validation.status !== 'valid'}
                 onClick={saveCallback}>
                 {apptSaving ? 'Saving\u2026' : hasExactTime(cbDraft.draft) ? 'Save appointment' : 'Save promised callback'}
               </WorkflowButton>
               <NextNote>
                 {hasExactTime(cbDraft.draft)
                   ? 'The exact time is saved as an appointment on your My Work and a calendar invite downloads for you to send in Outlook. The customer also surfaces as a due call on that date.'
-                  : 'The promised callback is saved as a customer commitment and resurfaces as a due call on that date. It outranks focus-based ordering.'}
+                  : cbDraft.draft.whenMode === 'recurring'
+                    ? 'The promised callback is saved as a customer commitment and resurfaces as a due call on the next matching day, and on each matching day after, until it is worked.'
+                    : 'The promised callback is saved as a customer commitment and resurfaces as a due call on that date. It outranks focus-based ordering.'}
                 {nextSuffix}
               </NextNote>
             </div>
