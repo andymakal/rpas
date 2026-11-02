@@ -31,12 +31,17 @@ import {
   type CallbackPrecision as Precision,
   type CallbackValidation,
   type TimeBandKey,
+  type TimeSlot,
   type WeekdayKey,
   TIME_BANDS,
   WEEKDAYS,
+  buildHalfHourSlots,
   validateCallback,
   emptyCommitment,
 } from '@/lib/calendar/callback-precision'
+
+/** The controlled half-hour choices, built once. No arbitrary minute entry. */
+const TIME_SLOTS: TimeSlot[] = buildHalfHourSlots()
 
 // ── Draft state + validation (shared by the fields and every host) ───────────
 
@@ -209,14 +214,20 @@ export function CallbackPrecisionFields({
               <span className="ml-1 font-normal text-ink-muted">(customer&apos;s time, {customerZoneLabel})</span>
             )}
           </label>
-          <input
+          {/* Half-hour dropdown, not a free time input: scroll to 9:30 / 10:00
+              / 10:30, never type 1:13. Half-hour is the finest we offer. */}
+          <select
             id={id('clock')}
-            type="time"
             value={draft.clock ?? ''}
             disabled={busy}
             onChange={(e) => setClock(e.target.value)}
-            className={cn('mt-0.5 block w-full max-w-[10rem]', inputCls(invalid))}
-          />
+            className={cn('mt-0.5 block w-full max-w-[12rem]', inputCls(invalid))}
+          >
+            <option value="">Pick a time…</option>
+            {TIME_SLOTS.map((s) => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
         </div>
       )}
 

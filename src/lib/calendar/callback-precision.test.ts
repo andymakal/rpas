@@ -14,6 +14,8 @@ import {
   resolveExactInstant,
   windowsSummary,
   emptyCommitment,
+  buildHalfHourSlots,
+  CALLBACK_TIME_RANGE,
   type CallbackCommitment,
 } from './callback-precision'
 
@@ -65,6 +67,22 @@ test('resolveExactInstant uses the CUSTOMER clock (9:00 ET viewed from Central)'
 test('resolveExactInstant returns null for a non-exact commitment', () => {
   const ctx = createTimeContext({ customerTimeZone: ET })
   assert.equal(resolveExactInstant(ctx, emptyCommitment('2026-11-13')), null)
+})
+
+test('buildHalfHourSlots: half-hour granularity, range-bounded, no trailing :30', () => {
+  const slots = buildHalfHourSlots(CALLBACK_TIME_RANGE) // 7:00 AM - 9:00 PM
+  // First and last are exactly the range bounds; the last is endHour:00 (no 21:30).
+  assert.equal(slots[0].value, '07:00')
+  assert.equal(slots[0].label, '7:00 AM')
+  assert.equal(slots[slots.length - 1].value, '21:00')
+  assert.equal(slots[slots.length - 1].label, '9:00 PM')
+  // Every slot is on the hour or the half hour; none is an arbitrary minute.
+  for (const s of slots) assert.match(s.value, /:(00|30)$/)
+  // 7:00..21:00 inclusive at :00 and :30, minus the trailing 21:30 = 29 slots.
+  assert.equal(slots.length, 29)
+  // Noon and midday labels format correctly (12-hour, not 0 or 13).
+  assert.ok(slots.some((s) => s.value === '12:00' && s.label === '12:00 PM'))
+  assert.ok(slots.some((s) => s.value === '13:30' && s.label === '1:30 PM'))
 })
 
 test('windowsSummary reads any-day and specific-day shapes', () => {

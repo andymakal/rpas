@@ -45,6 +45,52 @@ export const TIME_BANDS = [
 
 export type TimeBandKey = (typeof TIME_BANDS)[number]['key']
 
+// ---------------------------------------------------------------------------
+// Exact-time choices — HALF-HOUR granularity only (no arbitrary minute entry)
+// ---------------------------------------------------------------------------
+
+/**
+ * Exact appointment times are chosen from a controlled HALF-HOUR dropdown, never
+ * typed to the minute. Half-hour is the finest granularity we offer: even a
+ * 15-minute appointment needs the rest of the half hour to write notes and
+ * reset. (This mirrors IPF's buildHalfHourSlots; arbitrary minute entry like
+ * 1:13 or 3:14 is deliberately never offered.)
+ */
+export interface TimeRange {
+  /** First selectable hour, 0-23. */
+  startHour: number
+  /** Last selectable hour, 0-23. The :30 slot of endHour is NOT offered, so the
+   * last choice is exactly endHour:00. */
+  endHour: number
+}
+
+/** The allowable range for a promised-callback exact time: 7:00 AM - 9:00 PM. */
+export const CALLBACK_TIME_RANGE: TimeRange = { startHour: 7, endHour: 21 }
+
+export interface TimeSlot {
+  /** Canonical stored value, HH:MM (e.g. "09:30", "14:00"). */
+  value: string
+  /** Display label, e.g. "9:30 AM". */
+  label: string
+}
+
+/**
+ * The controlled half-hour choices for a range, from `startHour:00` up to and
+ * including `endHour:00` (the trailing `endHour:30` is omitted so the last
+ * offered time is exactly the range end). Half-hour granularity only.
+ */
+export function buildHalfHourSlots(range: TimeRange = CALLBACK_TIME_RANGE): TimeSlot[] {
+  const slots: TimeSlot[] = []
+  for (let h = range.startHour; h <= range.endHour; h++) {
+    for (const m of ['00', '30'] as const) {
+      if (h === range.endHour && m === '30') continue
+      const value = `${h.toString().padStart(2, '0')}:${m}`
+      slots.push({ value, label: clockLabel(value) ?? value })
+    }
+  }
+  return slots
+}
+
 /** The seven weekday keys (customer-local), Monday first for display order. */
 export const WEEKDAYS = [
   { key: 'mon', label: 'Mon' },
