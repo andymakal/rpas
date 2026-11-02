@@ -133,8 +133,17 @@ function CallBoardAction({
             name={fullName(detail.customer)}
             busy={busy}
             act={act}
-            confirmLabelFor={m => (m === 'postal' ? 'Form mailed to customer' : 'Form sent to customer')}
-            onConfirm={() => act({ type: 'form-sent' }, 'Form sent. Moved to Waiting for Form.')}
+            confirmLabelFor={(m, alreadyHeld) =>
+              alreadyHeld
+                ? 'Customer already has the form. Mark complete'
+                : m === 'postal' ? 'Form mailed to customer' : 'Form sent to customer'
+            }
+            onConfirm={(_m, alreadyHeld) => act(
+              { type: 'form-sent', alreadyHeld },
+              alreadyHeld
+                ? 'Customer already has the form. Moved to Waiting for Form.'
+                : 'Form sent. Moved to Waiting for Form.',
+            )}
           />
           <NextNote>Generate the form, send it (email or postal), then record it here. Reached and form sent moves this customer to Waiting for Form. Nothing is auto-closed.</NextNote>
         </div>

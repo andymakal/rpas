@@ -570,6 +570,19 @@ const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = 
     match: /^Servicing-agent authorization form sent to the customer by postal mail\.?$/i,
     describe: 'Servicing-agent authorization form sent by postal mail.',
   },
+  {
+    // The customer already had the form (it rode the introductory email) and
+    // agreed to sign and return it — the reached · agreed interaction with no
+    // send. The description names that reality rather than a mailing.
+    match: /^Spoke with customer\. Customer agreed to authorize our office as servicing agent\. Customer already has the authorization form and agreed to sign and return it\. Awaiting signed authorization\.?$/i,
+    describe: 'Spoke with customer. Customer agreed to authorize and already has the form to sign and return.',
+  },
+  {
+    // A re-send context where the customer already has the form (no reached
+    // completion attached).
+    match: /^Customer already has the servicing-agent authorization form and agreed to sign and return it\.?$/i,
+    describe: 'Customer already has the servicing-agent authorization form to sign and return.',
+  },
   // ── Legacy sentences (pre-standard history still reads meaningfully) ────────
   {
     match: /^Reached the customer\.?$/i,
@@ -1518,6 +1531,11 @@ export interface CallSelection {
    * path, so the preview names the pending send accurately (emailed vs mailed)
    * WITHOUT claiming it has already gone out. */
   formDeliveryMethod?: 'email' | 'postal' | null
+  /** The customer ALREADY has the authorization form (it rode the introductory
+   * email), so there is nothing to send — the step is confirming they will sign
+   * and return it. When true the preview says so instead of "to be emailed/
+   * mailed", which would be inaccurate. */
+  formAlreadyHeld?: boolean
   /** The optional Call Notes the worker has typed, folded into the preview's
    * note so it reads exactly as what completion will record. */
   note?: string | null
@@ -1613,6 +1631,20 @@ export function describeCallSelection(
       // The summary likewise distinguishes the still-pending agreement
       // ("Reached · Agreed") from the completed send ("Reached · Form Sent").
       const method = selection.formDeliveryMethod ?? null
+      // The customer already has the form (it rode the introductory email), so
+      // nothing is being sent — the agreement is to sign and return what they
+      // already have. This clause is accurate whether or not a delivery method
+      // was ever chosen, so it takes precedence over the send wording.
+      if (selection.formAlreadyHeld) {
+        return {
+          summary: 'Reached · Agreed',
+          description:
+            'Spoke with customer. Customer agreed to authorize our office as servicing agent. ' +
+            'Customer already has the authorization form and agreed to sign and return it. ' +
+            'Awaiting signed authorization.',
+          note: extraNote,
+        }
+      }
       const pendingClause =
         method === 'postal' ? ' Authorization form to be mailed.'
         : method === 'email' ? ' Authorization form to be emailed.'

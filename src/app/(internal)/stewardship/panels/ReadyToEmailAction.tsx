@@ -50,8 +50,17 @@ export function ReadyToEmailAction({
           name={name}
           busy={busy}
           act={act}
-          confirmLabelFor={m => (m === 'postal' ? 'Form mailed to customer' : 'Form sent to customer')}
-          onConfirm={() => act({ type: 'form-sent' }, 'Authorization form sent. Moved to Waiting for Form.')}
+          confirmLabelFor={(m, alreadyHeld) =>
+            alreadyHeld
+              ? 'Customer already has the form. Mark complete'
+              : m === 'postal' ? 'Form mailed to customer' : 'Form sent to customer'
+          }
+          onConfirm={(_m, alreadyHeld) => act(
+            { type: 'form-sent', alreadyHeld },
+            alreadyHeld
+              ? 'Customer already has the form. Moved to Waiting for Form.'
+              : 'Authorization form sent. Moved to Waiting for Form.',
+          )}
         />
         <NextNote>
           You reached {detail.customer.first_name} by phone, so send the authorization form now. Recording it

@@ -1082,6 +1082,7 @@ export async function PATCH(
     const touchedAt = new Date().toISOString()
     const isPostal = row.form_delivery_method === 'postal'
     const method = isPostal ? 'by postal mail' : 'by email'
+    const alreadyHeld = action.alreadyHeld === true
     const formNote = typeof action.note === 'string' ? action.note.trim() : ''
 
     // The guided "Agreed to authorize" completion records the reached call as
@@ -1111,10 +1112,18 @@ export async function PATCH(
     // instant they group into one interaction, and this sentence is the one the
     // history displays. The email/postal phrasing is matched centrally in
     // customer-history.ts so the displayed description reads exactly this.
-    const formSentence = isPostal
-      ? 'Spoke with customer. Customer agreed to authorize our office as servicing agent. Authorization form sent by postal mail. Awaiting signed authorization.'
-      : 'Spoke with customer. Customer agreed to authorize our office as servicing agent. Authorization form emailed. Awaiting signed authorization.'
-    const formBase = `Servicing-agent authorization form sent to the customer ${method}.`
+    // When the customer ALREADY has the form (it rode the introductory email),
+    // nothing is sent — the interaction is the agreement to sign and return what
+    // they have. The recorded sentence says exactly that rather than a
+    // fictitious "emailed/mailed", so customer history is accurate.
+    const formSentence = alreadyHeld
+      ? 'Spoke with customer. Customer agreed to authorize our office as servicing agent. Customer already has the authorization form and agreed to sign and return it. Awaiting signed authorization.'
+      : isPostal
+        ? 'Spoke with customer. Customer agreed to authorize our office as servicing agent. Authorization form sent by postal mail. Awaiting signed authorization.'
+        : 'Spoke with customer. Customer agreed to authorize our office as servicing agent. Authorization form emailed. Awaiting signed authorization.'
+    const formBase = alreadyHeld
+      ? 'Customer already has the servicing-agent authorization form and agreed to sign and return it.'
+      : `Servicing-agent authorization form sent to the customer ${method}.`
     // When the form send carries the reached completion, the required sentence
     // describes the whole interaction; otherwise (a re-send with no reached
     // completion) keep the plain form-sent sentence. The employee note, if any,

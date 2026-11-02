@@ -211,7 +211,10 @@ export type OutreachAction =
   // is not already recorded reached), the reducer also stamps the reached call
   // outcome so the one completion carries the reached fact; the route writes the
   // reached call touch and the engagement marker alongside the form-sent touch.
-  | { type: 'form-sent'; reached?: boolean; note?: string | null }
+  // `alreadyHeld` true means the customer already had the form (it rode the
+  // introductory email), so nothing was sent — the recorded history says they
+  // already have it and agreed to return it, rather than a fictitious send.
+  | { type: 'form-sent'; reached?: boolean; alreadyHeld?: boolean; note?: string | null }
   // Signed form came back on its own after the intro email (which already
   // carried the form) — advance to waiting-for-form WITHOUT recording a second
   // send. Distinct from form-sent so no fictitious mailing is logged.

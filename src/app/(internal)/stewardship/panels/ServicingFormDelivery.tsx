@@ -11,7 +11,7 @@
  * email-sent touch the server records reflects the delivery method accurately.
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Check, CircleAlert, ExternalLink, FileText, FileCheck, SkipForward } from 'lucide-react'
 import { WorkflowButton } from '@/components/workflow'
 import { buildMailto } from '@/lib/templates'
@@ -23,7 +23,8 @@ import {
 import { FormAttachmentDirective } from './FormAttachmentDirective'
 
 export function ServicingFormDelivery({
-  detail, request, name, busy, act, confirmLabelFor, onConfirm, emailOnly = false, onSkip,
+  detail, request, name, busy, act, confirmLabelFor, onConfirm, onAlreadyHeldChange,
+  emailOnly = false, onSkip,
 }: {
   detail: Detail
   request: Holding[]
@@ -34,8 +35,14 @@ export function ServicingFormDelivery({
    * already had the form (so the wording can reflect "sent" vs "they already
    * have it"). */
   confirmLabelFor: (method: 'email' | 'postal', alreadyHasForm: boolean) => string
-  /** Fires the queue transition once the worker confirms the form went out. */
-  onConfirm: (method: 'email' | 'postal') => void
+  /** Fires the queue transition once the worker confirms. `alreadyHeld` is true
+   * when the customer already had the form (nothing was sent), so the caller can
+   * record the accurate history. */
+  onConfirm: (method: 'email' | 'postal', alreadyHeld: boolean) => void
+  /** Reports the live "already has the form" choice up so a host preview (the
+   * Next history entry) can describe the agreement accurately before confirm.
+   * Optional — callers without a live preview can omit it. */
+  onAlreadyHeldChange?: (alreadyHeld: boolean) => void
   /** Email-only mode (Send Introductory Emails): fix the channel to email and
    * hide the delivery chooser. */
   emailOnly?: boolean
@@ -58,6 +65,13 @@ export function ServicingFormDelivery({
   // The confirm step is reachable once the form is either freshly generated OR
   // already in the customer's hands.
   const readyToConfirm = generated || alreadyHasForm
+  // Report the "already has the form" choice up so a host's live preview (the
+  // Next history entry) describes the agreement accurately before confirm. One
+  // place to report it, so every path that changes alreadyHasForm (the toggle,
+  // chooseMethod's reset, prepareAndOpen's reset) stays in sync automatically.
+  useEffect(() => {
+    onAlreadyHeldChange?.(alreadyHasForm)
+  }, [alreadyHasForm, onAlreadyHeldChange])
   // In email-only mode the channel is fixed to email (no chooser). Otherwise it
   // starts from the persisted delivery method and the worker can switch it.
   const [method, setMethod] = useState<'email' | 'postal'>(
@@ -220,7 +234,7 @@ export function ServicingFormDelivery({
         icon={Check}
         selected
         disabled={busy || !readyToConfirm}
-        onClick={() => onConfirm(method)}
+        onClick={() => onConfirm(method, alreadyHasForm)}
         className="w-full justify-center"
       >
         {confirmLabelFor(method, alreadyHasForm)}

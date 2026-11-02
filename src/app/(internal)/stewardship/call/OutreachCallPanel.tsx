@@ -142,6 +142,11 @@ export function OutreachCallPanel({
   //   Divert  → "something else is the right move" — placeholder, no action
   //             wired yet; the situation table will supply the diversions.
   const [decision, setDecision] = useState<null | 'advance' | 'decline' | 'defer' | 'divert'>(reached ? 'advance' : null)
+  // Whether the worker has indicated the customer ALREADY has the authorization
+  // form (reported up by ServicingFormDelivery). Folded into the live Next
+  // History Entry preview so it reads "already has the form" rather than "to be
+  // emailed", and into the recorded completion so the stored history matches.
+  const [formAlreadyHeld, setFormAlreadyHeld] = useState(false)
 
   // The promised-callback precision draft (exact time / days×bands windows /
   // any time that day). Replaces the old date-only input. The host resolves the
@@ -292,12 +297,15 @@ export function OutreachCallPanel({
       // The chosen delivery method, so the pending preview names emailed vs
       // mailed accurately. Persisted on the detail when the worker picks it.
       formDeliveryMethod: detail.form_delivery_method ?? null,
+      // When the customer already has the form, the preview describes the
+      // agreement to sign and return it rather than a pending send.
+      formAlreadyHeld,
       note: callNote.trim() || null,
     })
   }, [
     onSelectionChange, reach, badNumber,
     vmOut.fragment, textOut.fragment, emailOut.fragment,
-    decisionDisposition, cbDraft.draft, callbackCtx, detail.form_delivery_method, callNote,
+    decisionDisposition, cbDraft.draft, callbackCtx, detail.form_delivery_method, formAlreadyHeld, callNote,
   ])
 
   // Fold any channel reason text ("Other") into the attempt note alongside the
@@ -658,16 +666,20 @@ export function OutreachCallPanel({
                       ? `Form mailed to customer.${nextSuffix}`
                       : `Form sent to customer.${nextSuffix}`
                 }
-                onConfirm={() => act(
+                onAlreadyHeldChange={setFormAlreadyHeld}
+                onConfirm={(_m, alreadyHeld) => act(
                   // The SINGLE completion of the Agreed path: record the reached
-                  // call AND the form send together, now that the form has
-                  // actually gone out. `reached` folds the reached outcome +
-                  // engagement into this one action, so nothing was recorded (and
-                  // the customer never left available work) merely by selecting
-                  // "Agreed to authorize" earlier. The optional Call Notes ride
-                  // with this one interaction.
-                  { type: 'form-sent', reached: true, note: noteForAction },
-                  'Reached and authorization form sent. Moved to Waiting for Form.',
+                  // call AND the form step together. `reached` folds the reached
+                  // outcome + engagement into this one action, so nothing was
+                  // recorded (and the customer never left available work) merely
+                  // by selecting "Agreed to authorize" earlier. `alreadyHeld`
+                  // records the accurate history: the customer already had the
+                  // form and agreed to return it, rather than us sending one. The
+                  // optional Call Notes ride with this one interaction.
+                  { type: 'form-sent', reached: true, alreadyHeld, note: noteForAction },
+                  alreadyHeld
+                    ? 'Reached. Customer already has the form and agreed to return it. Moved to Waiting for Form.'
+                    : 'Reached and authorization form sent. Moved to Waiting for Form.',
                   { advanceToNext: true },
                 )}
               />
