@@ -11,12 +11,21 @@ import type { Holding } from '../types'
  * the worker must do (per the workflow contrast standard — operational, not
  * incidental).
  */
-export function FormAttachmentDirective({ request }: { request: Holding[] }) {
+export function FormAttachmentDirective({
+  request,
+  formName = 'servicing-agent authorization form',
+}: {
+  request: Holding[]
+  /** The name of the form being attached, so this directive serves any form the
+   * delivery unit sends (e.g. "beneficiary change form"), not only the
+   * servicing-agent authorization. Defaults to the servicing-agent form. */
+  formName?: string
+}) {
   return (
     <div className="space-y-2 rounded-xl border-2 border-amber-400 bg-amber-50 p-3.5">
       <p className="flex items-start gap-2 text-base font-bold leading-snug text-amber-900">
         <PenLine className="mt-0.5 size-5 shrink-0" aria-hidden />
-        Attach the servicing-agent authorization form in Outlook before you send.
+        Attach the {formName} in Outlook before you send.
       </p>
       <p className="text-sm leading-relaxed text-amber-900">
         The email states a form is attached, but it is not attached automatically. Attach the approved

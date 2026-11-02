@@ -1,19 +1,33 @@
 'use client'
 
 /**
- * Shared servicing-agent form delivery control. Used wherever the authorization
- * form is produced and sent — from Ready to Email AND after a reached call —
- * so the two paths behave identically: a delivery chooser (email / postal),
- * generation of the filled PDF (postal adds a cover page), the matching
- * directive, and a confirm button. The caller supplies what the confirm button
- * fires and its label, since the resulting queue transition differs by context.
+ * Form-delivery unit — the reusable "send a form to the customer, email or
+ * postal" box. It renders its OWN heading with the graduation-cap coaching, the
+ * delivery chooser (email / postal), the generate-or-already-has pair, the
+ * attach/print directive, and the single confirm, as one self-contained unit.
+ *
+ * The VISIBLE TEXT is caller-supplied so the same unit serves any form: pass the
+ * `heading` ("Send the servicing-agent authorization form", or later "Send the
+ * beneficiary change form"), the cap `coaching`, and the `directiveFormName`
+ * used in the "Attach the <form> in Outlook" directive. The caller also supplies
+ * what the confirm fires (`onConfirm`) and its label (`confirmLabelFor`), since
+ * the resulting transition differs by context.
+ *
+ * DEFERRED generalization: the email body, the PDF generator endpoint, the
+ * Everlake carrier filter, and the `Detail`/`Holding` shape are still
+ * servicing-agent-specific (that is why this file still lives under stewardship
+ * `panels/` rather than `src/components/workflow`). When a genuinely different
+ * form (e.g. a beneficiary change) needs this unit, widen those seams against
+ * that real second caller and move the file into the shared workflow layer then
+ * — not speculatively now.
+ *
  * Choosing a channel persists it (set-delivery-method), so the form-sent /
  * email-sent touch the server records reflects the delivery method accurately.
  */
 
-import { useEffect, useState } from 'react'
+import { type ReactNode, useEffect, useState } from 'react'
 import { Check, CircleAlert, ExternalLink, FileText, FileCheck, SkipForward } from 'lucide-react'
-import { WorkflowButton } from '@/components/workflow'
+import { WorkflowButton, CallMentorCap } from '@/components/workflow'
 import { buildMailto } from '@/lib/templates'
 import type { Detail, Holding } from '../types'
 import {
@@ -23,9 +37,20 @@ import {
 import { FormAttachmentDirective } from './FormAttachmentDirective'
 
 export function ServicingFormDelivery({
+  heading, coaching, directiveFormName = 'servicing-agent authorization form',
   detail, request, name, busy, act, confirmLabelFor, onConfirm, onAlreadyHeldChange,
   emailOnly = false, onSkip,
 }: {
+  /** The unit's heading, rendered with the graduation-cap coaching beside it.
+   * Caller-supplied so the same unit titles any form it sends. Omit to render no
+   * heading (a caller that supplies its own heading above the unit). */
+  heading?: ReactNode
+  /** The cap coaching revealed beside the heading. Only used when `heading` is
+   * given. Omit for a heading with no cap. */
+  coaching?: ReactNode
+  /** The form name used in the "Attach the <form> in Outlook before you send"
+   * directive. Defaults to the servicing-agent authorization form. */
+  directiveFormName?: string
   detail: Detail
   request: Holding[]
   name: string
@@ -151,6 +176,15 @@ export function ServicingFormDelivery({
 
   return (
     <div className="space-y-3">
+      {/* The unit's own heading with the graduation-cap coaching beside it, so
+          the whole "send this form" unit is one self-contained block. Caller-
+          supplied text; omit `heading` to render none (a caller placing its own
+          heading above). */}
+      {heading != null && (
+        coaching != null
+          ? <CallMentorCap heading={heading}>{coaching}</CallMentorCap>
+          : <h2 className="text-lg font-semibold text-ink">{heading}</h2>
+      )}
       {/* Delivery channel chooser. Operational, so it is prominent. Hidden in
           email-only mode (Send Introductory Emails), which is fixed to email. */}
       {!emailOnly && (
@@ -219,7 +253,7 @@ export function ServicingFormDelivery({
           the customer already has the form there is nothing to attach or print,
           so the directive is suppressed and only the confirm remains. */}
       {!alreadyHasForm && (method === 'email' ? (
-        <FormAttachmentDirective request={formPolicies} />
+        <FormAttachmentDirective request={formPolicies} formName={directiveFormName} />
       ) : (
         <div className="flex items-start gap-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-3 text-sm text-status-attention-strong">
           <FileText className="mt-0.5 size-4 shrink-0" aria-hidden />

@@ -126,8 +126,8 @@ function CallBoardAction({
       </div>
       {outcome === 'reached' && (
         <div className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-          <p className="text-base font-semibold text-slate-900">Send the servicing-agent form</p>
           <ServicingFormDelivery
+            heading="Send the servicing-agent authorization form"
             detail={detail}
             request={request}
             name={fullName(detail.customer)}

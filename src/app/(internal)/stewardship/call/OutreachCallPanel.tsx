@@ -641,17 +641,16 @@ export function OutreachCallPanel({
               situation's Advance action). */}
           {decision === 'advance' && (
             <div className="space-y-2 rounded-xl border border-status-confirmed-border bg-status-confirmed-soft p-4">
-              {/* The "how recording the form works" coaching now lives behind the
-                  graduation cap beside this heading (CallMentorCap), matching the
-                  app's mentoring format and reclaiming the vertical space the old
-                  always-open purple disclosure box used. Cap closed by default
-                  (unless global Mentoring is on); the coaching opens inline. */}
-              <CallMentorCap heading="Send the servicing-agent authorization form">
-                Generate the form, send it (email or postal), then record it here. Recording the form sent is what
-                logs the reached call and moves the customer to Waiting for Form, then advances you to the next call.
-                Nothing is recorded until then, and nothing is auto-closed.
-              </CallMentorCap>
+              {/* The delivery unit renders its own heading + cap coaching now
+                  (caller-supplied text), so the whole "send this form" block is
+                  one self-contained unit reusable for any form. */}
               <ServicingFormDelivery
+                heading="Send the servicing-agent authorization form"
+                coaching={
+                  'Generate the form, send it (email or postal), then record it here. Recording the form sent is what ' +
+                  'logs the reached call and moves the customer to Waiting for Form, then advances you to the next call. ' +
+                  'Nothing is recorded until then, and nothing is auto-closed.'
+                }
                 detail={detail}
                 request={request}
                 name={name}
