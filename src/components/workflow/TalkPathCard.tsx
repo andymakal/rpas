@@ -7,7 +7,9 @@
  * call it sits collapsed near the Call button so the worker can read what they
  * are about to say before dialing; once the customer is reached it moves below
  * the reach decision and opens, so the script is the next thing in front of
- * them. Collapsed by default: click the header to open, click again to close.
+ * them. Collapsed by default, and the WHOLE card is the toggle: click anywhere
+ * to open, and click anywhere in the open box to close, so toggling is quick
+ * and does not require a precise click on the header.
  *
  * Content is fed in (label + body) and this Lego owns only presentation and the
  * open/closed behavior. It carries no knowledge of which workflow or situation
@@ -64,14 +66,22 @@ export function TalkPathCard({
     else setInternalOpen(v => !v)
   }
 
+  // The WHOLE card is one toggle button: click anywhere to open when collapsed
+  // and anywhere (header or body) to close when expanded, so opening and closing
+  // is quick and forgiving rather than needing a precise click on the small
+  // header strip. This mirrors the shared cap-panel behavior (the open box is
+  // itself the close control). The chevron still shows the direction.
   return (
-    <div className={cn('rounded-xl border border-surface-border bg-surface-muted', className)}>
-      <button
-        type="button"
-        aria-expanded={expanded}
-        onClick={toggle}
-        className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left"
-      >
+    <button
+      type="button"
+      aria-expanded={expanded}
+      onClick={toggle}
+      className={cn(
+        'block w-full rounded-xl border border-surface-border bg-surface-muted text-left transition-colors hover:bg-surface-border/30',
+        className,
+      )}
+    >
+      <span className="flex w-full items-center justify-between gap-2 px-3 py-2">
         <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-supporting">
           <MessageSquareQuote className="size-3.5 shrink-0" aria-hidden /> {label}
         </span>
@@ -79,12 +89,12 @@ export function TalkPathCard({
           className={cn('size-4 shrink-0 text-ink-supporting transition-transform', expanded && 'rotate-180')}
           aria-hidden
         />
-      </button>
+      </span>
       {expanded && (
-        <div className="px-3 pb-3">
-          <p className={cn('whitespace-pre-line leading-relaxed text-ink-secondary', bodySizeClassName)}>{body}</p>
-        </div>
+        <span className="block px-3 pb-3">
+          <span className={cn('block whitespace-pre-line leading-relaxed text-ink-secondary', bodySizeClassName)}>{body}</span>
+        </span>
       )}
-    </div>
+    </button>
   )
 }
