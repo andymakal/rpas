@@ -13,7 +13,7 @@
 
 import { useState } from 'react'
 import { Check, CircleAlert, ExternalLink, FileText, FileCheck, SkipForward } from 'lucide-react'
-import { WorkflowButton, PrimaryAction } from '@/components/workflow'
+import { WorkflowButton } from '@/components/workflow'
 import { buildMailto } from '@/lib/templates'
 import type { Detail, Holding } from '../types'
 import {
@@ -30,8 +30,10 @@ export function ServicingFormDelivery({
   name: string
   busy: boolean
   act: (action: unknown, successNote?: string) => void
-  /** Confirm-button label, given the chosen method. */
-  confirmLabelFor: (method: 'email' | 'postal') => string
+  /** Confirm-button label, given the chosen method and whether the customer
+   * already had the form (so the wording can reflect "sent" vs "they already
+   * have it"). */
+  confirmLabelFor: (method: 'email' | 'postal', alreadyHasForm: boolean) => string
   /** Fires the queue transition once the worker confirms the form went out. */
   onConfirm: (method: 'email' | 'postal') => void
   /** Email-only mode (Send Introductory Emails): fix the channel to email and
@@ -140,12 +142,17 @@ export function ServicingFormDelivery({
       {!emailOnly && (
         <div className="space-y-2">
           <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">Delivery</p>
-          <div className="flex flex-wrap gap-2">
-            <WorkflowButton selected={method === 'email'} disabled={busy || preparing} onClick={() => chooseMethod('email')}>
+          {/* Email / Postal is a pick-one-or-the-other choice, so it uses the
+              same 50/50 split as the reach and decision choices above: two equal
+              halves filling the row. */}
+          <div className="grid grid-cols-2 gap-2">
+            <WorkflowButton selected={method === 'email'} disabled={busy || preparing}
+              onClick={() => chooseMethod('email')} className="w-full justify-center">
               {method === 'email' && <Check className="size-4" aria-hidden />}
               Email
             </WorkflowButton>
-            <WorkflowButton selected={method === 'postal'} disabled={busy || preparing} onClick={() => chooseMethod('postal')}>
+            <WorkflowButton selected={method === 'postal'} disabled={busy || preparing}
+              onClick={() => chooseMethod('postal')} className="w-full justify-center">
               {method === 'postal' && <Check className="size-4" aria-hidden />}
               Postal mail
             </WorkflowButton>
@@ -159,26 +166,32 @@ export function ServicingFormDelivery({
         </div>
       )}
 
-      <PrimaryAction
-        icon={ExternalLink}
-        label={genLabel}
-        onClick={prepareAndOpen}
-        disabled={preparing || !canGenerate || (method === 'postal' && !customerHasAddress)}
-      />
-      {/* The escape hatch: the customer already has the form (commonly it rode
-          the introductory email), so there is nothing to generate. This marks
-          the form in-hand and enables the confirm below, letting the worker
-          record it sent without re-generating. A quiet secondary beside the
-          primary generate, which stays the default choice. */}
-      <WorkflowButton
-        icon={alreadyHasForm ? Check : FileCheck}
-        selected={alreadyHasForm}
-        disabled={busy || preparing}
-        onClick={() => setAlreadyHasForm(v => !v)}
-        className="w-full justify-center"
-      >
-        {method === 'postal' ? 'Already has packet' : 'Already has form'}
-      </WorkflowButton>
+      {/* Generate-and-send vs the customer already has it: two paths to the same
+          next step, so they sit as a 50/50 split like the Delivery choice above.
+          Generate stays the teal-emphasized recommended action on the left; the
+          "already has it" escape hatch is the neutral option on the right (it
+          commonly rode the introductory email), and selecting it fills teal to
+          show it is the chosen path. Either one enables the confirm below. */}
+      <div className="grid grid-cols-2 gap-2">
+        <WorkflowButton
+          icon={ExternalLink}
+          selected={!alreadyHasForm}
+          onClick={prepareAndOpen}
+          disabled={preparing || !canGenerate || (method === 'postal' && !customerHasAddress)}
+          className="h-14 w-full justify-center text-lg"
+        >
+          {genLabel}
+        </WorkflowButton>
+        <WorkflowButton
+          icon={alreadyHasForm ? Check : FileCheck}
+          selected={alreadyHasForm}
+          disabled={busy || preparing}
+          onClick={() => setAlreadyHasForm(v => !v)}
+          className="h-14 w-full justify-center text-lg"
+        >
+          {method === 'postal' ? 'Already has packet' : 'Already has form'}
+        </WorkflowButton>
+      </div>
       {!canGenerate && (
         <p className="text-sm text-ink-supporting">No request policy numbers to put on the form yet.</p>
       )}
@@ -199,13 +212,18 @@ export function ServicingFormDelivery({
           <span>The packet includes a cover letter addressed to the customer and the authorization form. Print it, enclose a return envelope, and mail it.</span>
         </div>
       ))}
+      {/* The single completion. Full width since it is the one confirm for the
+          whole section. Its wording depends on the path: a form we just sent
+          ("Form sent to customer") vs one the customer already had, where the
+          action was making sure they understand what to do, not sending. */}
       <WorkflowButton
         icon={Check}
         selected
         disabled={busy || !readyToConfirm}
         onClick={() => onConfirm(method)}
+        className="w-full justify-center"
       >
-        {confirmLabelFor(method)}
+        {confirmLabelFor(method, alreadyHasForm)}
       </WorkflowButton>
       {/* Skip for now (Send Introductory Emails fast flow): move to the next
           available customer without sending or recording anything. Sits beneath

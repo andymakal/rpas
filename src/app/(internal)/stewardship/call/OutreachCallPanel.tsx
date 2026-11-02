@@ -649,7 +649,15 @@ export function OutreachCallPanel({
                 name={name}
                 busy={busy}
                 act={act}
-                confirmLabelFor={m => (m === 'postal' ? `Form mailed to customer.${nextSuffix}` : `Form sent to customer.${nextSuffix}`)}
+                confirmLabelFor={(m, alreadyHasForm) =>
+                  alreadyHasForm
+                    // The customer already had the form, so the step was making
+                    // sure they understand what to do, not sending anything.
+                    ? `Customer understands what to do. Mark complete.${nextSuffix}`
+                    : m === 'postal'
+                      ? `Form mailed to customer.${nextSuffix}`
+                      : `Form sent to customer.${nextSuffix}`
+                }
                 onConfirm={() => act(
                   // The SINGLE completion of the Agreed path: record the reached
                   // call AND the form send together, now that the form has
