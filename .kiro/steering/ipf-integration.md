@@ -14,11 +14,15 @@ source of truth rather than two copies to keep in step.
 ## Reference detail (supports the AGENTS.md decisions)
 
 - Shared-queue model: the IPF queue read to reuse is `list_initial_outreach_queue`
-  (structural candidacy only, scoped to no individual). Optional per-callback
-  claiming lives on the callback's `action_context` (`claimedByTeamMemberId`),
-  deliberately distinct from episode assignment: an unclaimed exact-time callback
-  surfaces to every eligible worker as claimable, and once claimed it is that
-  worker's commitment.
+  (structural candidacy only, scoped to no individual). Optional claiming is a
+  lightweight soft lease recorded ON THE WORK ROW, deliberately distinct from
+  episode assignment: an unclaimed item surfaces to every eligible worker as
+  claimable, and once claimed it is that worker's commitment. In Right Path's
+  re-homed implementation the claim is the dedicated
+  `stewardship_outreach.claimed_by_producer_id` column (plus `claimed_at`), NOT
+  an `action_context` key — verified against the live schema and the claim route
+  (`POST /api/stewardship/claim`). The string `claimedByTeamMemberId` is IPF's
+  own shape and does not exist in Right Path code; do not reintroduce it.
 - Daily Direction, directive behavior: the engine surfaces what is actionable,
   holds future work until its runway, separates must-do from optional, and
   recognizes when nothing needs attention. (The rule JSON, engine, and
