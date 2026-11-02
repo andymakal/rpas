@@ -839,10 +839,25 @@ function summarizeInteraction(
     return [lead, ...rest].join(' \u00b7 ')
   }
 
+  // A didn't-reach call grouped with other channels. The event heading already
+  // says "Call Attempt", so the secondary channels line must NOT echo it: drop
+  // the unanswered-call phrase and list only the OTHER channels actually
+  // completed (e.g. "Voicemail · Text · Email"). When the call is the only
+  // communication, the call phrase ("Call attempt") stands alone as the summary.
+  const unreachedCall = comms.find((c) => c.channel === 'call' && !c.reached)
+  if (unreachedCall) {
+    const others = comms.filter((c) => c !== unreachedCall)
+    const callPhrase = describeActivity('call', unreachedCall.outcome, false, overrides)
+    if (others.length === 0) return callPhrase
+    return others
+      .map((c) => describeActivity(c.channel, c.outcome, c.reached, overrides))
+      .join(' \u00b7 ')
+  }
+
   const phrases = comms.map((c) => describeActivity(c.channel, c.outcome, c.reached, overrides))
   if (phrases.length === 1) return phrases[0]
   // Join the attempt's channels into one concise line, e.g.
-  // "No Answer · Voicemail · Text".
+  // "Voicemail · Text · Email".
   return phrases.join(' \u00b7 ')
 }
 
@@ -1483,7 +1498,6 @@ export interface CallSelection {
   // preview would have to re-interpret. This keeps the preview and the recorded
   // attempt reading identically.
   notReachedFragments?: string[]
-  notReachedTouches?: number
   badNumber?: boolean
   // Reached branch — the customer's decision and, for a callback, the date.
   decision?: 'agreed' | 'callback' | 'not-interested' | null
@@ -1518,20 +1532,34 @@ export function describeCallSelection(
   // reflects exactly what completion will save with the interaction.
   const extraNote = (options?.note ?? selection.note)?.trim() || undefined
 
-  // A didn't-reach attempt (including a bad number). The lead is "Call attempt"
-  // — we attempted an outbound call — never "No answer". The channel fragments
-  // the Legos emit follow it, and a bad number adds its own fragment. The touch
-  // count rides at the end so the preview matches the additive touch counter.
+  // A didn't-reach attempt (including a bad number). The TITLE is just the event
+  // type, "Call attempt" — matching "Email Sent" / "Reached" — never "No
+  // answer" and never the channel list. The channel fragments the Legos emit
+  // (and the bad-number fragment) go in the explanatory DESCRIPTION line, where
+  // the detail belongs. The touch count is NOT shown here: touches are counted
+  // as their own case_touches rows (one per completed channel), which is the
+  // queryable source for any per-customer / per-project touch total; echoing a
+  // number in the preview would only duplicate that and risk disagreeing with it.
   if (selection.reach === 'not-reached' || selection.badNumber) {
     const fragments = [...(selection.notReachedFragments ?? [])]
-    if (selection.badNumber) fragments.push('Bad number')
-    const touches = selection.notReachedTouches ?? 0
-    const touchLabel = touches === 1 ? '1 touch' : `${touches} touches`
-    const summary = ['Call attempt', ...fragments, touchLabel].join(' \u00b7 ')
-    const description = selection.badNumber
-      ? 'Call attempt. Number is not working. Customer referred to Contact Research.'
-      : 'Call attempt. Next call scheduled.'
-    return { summary, description, note: extraNote }
+    if (selection.badNumber) {
+      return {
+        summary: 'Call attempt',
+        description: [
+          fragments.length ? `${fragments.join('. ')}.` : null,
+          'Number is not working. Customer referred to Contact Research.',
+        ].filter(Boolean).join(' '),
+        note: extraNote,
+      }
+    }
+    return {
+      summary: 'Call attempt',
+      description: [
+        fragments.length ? `${fragments.join('. ')}.` : null,
+        'Next call scheduled.',
+      ].filter(Boolean).join(' '),
+      note: extraNote,
+    }
   }
 
   if (selection.reach === 'reached') {

@@ -247,7 +247,6 @@ export function OutreachCallPanel({
       reach,
       badNumber,
       notReachedFragments: [vmOut.fragment, textOut.fragment, emailOut.fragment].filter(Boolean),
-      notReachedTouches: (vmOut.touch ? 1 : 0) + (textOut.touch ? 1 : 0) + (emailOut.touch ? 1 : 0),
       decision: decisionDisposition,
       callbackDate: callbackWhen || null,
       // The reached · agreed completion sends the form and records the reached
@@ -265,7 +264,6 @@ export function OutreachCallPanel({
   }, [
     onSelectionChange, reach, badNumber,
     vmOut.fragment, textOut.fragment, emailOut.fragment,
-    vmOut.touch, textOut.touch, emailOut.touch,
     decisionDisposition, callbackWhen, detail.form_delivery_method, callNote,
   ])
 

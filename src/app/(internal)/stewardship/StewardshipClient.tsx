@@ -1089,7 +1089,6 @@ function sameCallSelection(a: CallSelection | null, b: CallSelection | null): bo
   return (
     a.reach === b.reach &&
     (a.notReachedFragments ?? []).join('\u241f') === (b.notReachedFragments ?? []).join('\u241f') &&
-    a.notReachedTouches === b.notReachedTouches &&
     a.badNumber === b.badNumber &&
     a.decision === b.decision &&
     a.callbackDate === b.callbackDate &&
