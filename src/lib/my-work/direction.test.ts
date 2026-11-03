@@ -476,3 +476,44 @@ test('quiet is honest even though the spine is shown: no actionable work => quie
   assert.deepEqual(d.primary, [])
   assert.deepEqual(d.support, [])
 })
+
+test('plan: a capable project step kept at ZERO stays visible even when its empty-band reads unassigned', () => {
+  // Reproduces the real bug: when every verify policy is resolved, the verify
+  // activity survives composition but its zero-item band computes as
+  // 'unassigned'. It has a PROJECT source (the composition emits it as the first
+  // project step, always), so it must stay in the Available-work plan and render
+  // at 0 — not get filtered out as awareness-only.
+  const verifyAtZero: ActivityGroup = activity({
+    workFunction: 'verify_servicing_agent',
+    band: 'unassigned',
+    rank: 7,
+    label: 'Verify servicing agent',
+    availableCount: 0,
+    totalCount: 0,
+    sources: [
+      {
+        kind: 'project',
+        label: 'Q4 1035 Review',
+        count: 0,
+        route: '/projects/p1/verify-servicing-agent',
+        projectId: 'p1',
+        ownedByMe: 0,
+        availableToMe: 0,
+        claimedByOthers: 0,
+        notEligible: 0,
+        dueToMe: 0,
+      },
+    ],
+  })
+  const d = deriveMyWorkDirection(
+    state([
+      verifyAtZero,
+      activity({ workFunction: 'determination', band: 'shared', rank: 5, label: 'Determination', availableCount: 2 }),
+    ]),
+  )
+  const verifyStep = d.workingPlan.find((s) => s.key === 'verify_servicing_agent')
+  assert.ok(verifyStep, 'verify step present at zero')
+  assert.equal(verifyStep.count, 0)
+  // And it leads (fixed workflow order).
+  assert.equal(d.workingPlan[0].key, 'verify_servicing_agent')
+})

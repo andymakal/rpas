@@ -217,9 +217,20 @@ export function deriveMyWorkDirection(state: MyWorkState): MyWorkDirection {
   // count, 0 or not) — so this layer only drops the awareness bands and orders
   // the rest; it no longer re-derives visibility from actionable / unresolved /
   // standing / spine conditions.
+  // Drop only the TRULY awareness-only rows: an unassigned/unlicensed activity
+  // that has NO project source (not part of a project this worker is on). A
+  // project step the composition deliberately kept — including a capable step
+  // that happens to be empty, whose band can read 'unassigned' at zero because
+  // the band is derived from the (now empty) item set rather than the standing
+  // assignment — stays in the plan so the full workflow spine is always visible.
+  // (The composition already decided visibility by capability; this layer must
+  // not re-drop a kept project step just because its zero-item band looks
+  // unassigned.)
   const AWARENESS_ONLY = new Set<PriorityBand>(['unassigned', 'unlicensed'])
+  const hasProjectSource = (a: ActivityGroup): boolean =>
+    a.sources.some((s) => s.kind === 'project')
   const planActivities = state.activities
-    .filter((a) => !AWARENESS_ONLY.has(a.band))
+    .filter((a) => !AWARENESS_ONLY.has(a.band) || hasProjectSource(a))
     .sort(byFixedWorkflowOrder)
 
   // QUIET is about actual ACTIONABLE work, not the always-visible spine. The
