@@ -31,7 +31,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveCapabilityProfile, loadWorkFunctions } from '@/lib/capabilities/resolve'
 import { canActOnItem } from '@/lib/capabilities/work-functions'
-import { onboardingCompleteForPolicies, activeProjectsWithWorkflow } from '@/lib/projects/workflows'
+import { onboardingCompleteForPolicies, verifyBlockedForPolicies, activeProjectsWithWorkflow } from '@/lib/projects/workflows'
 import { deriveOnboardingPopulation } from '@/lib/stewardship/derived-onboarding'
 
 type BoardRow = {
@@ -92,10 +92,14 @@ export async function getMyWorkCustomerIds(
   // a customer whose permanent servicing access is confirmed has advanced past
   // onboarding and is not counted.
   const onboardingComplete = new Set<string>()
+  // VERIFY GATE: customers with an unverified Everlake policy, excluded from the
+  // searchable outreach scope just as they are excluded from the My Work
+  // outreach counts (composition parity).
+  const verifyBlocked = new Set<string>()
   if (boardCustomerIds.length > 0) {
     const policiesByCustomer = new Map<
       string,
-      { product_type: string | null; sa_status: string | null }[]
+      { product_type: string | null; carrier: string | null; sa_status: string | null }[]
     >()
     for (let i = 0; i < boardCustomerIds.length; i += 300) {
       const chunk = boardCustomerIds.slice(i, i + 300)
@@ -104,18 +108,19 @@ export async function getMyWorkCustomerIds(
       const pols = await fetchAllRows<{
         customer_id: string
         product_type: string | null
+        carrier: string | null
         sa_status: string | null
       }>((from, to) =>
         supabase
           .from('service_policies')
-          .select('customer_id, product_type, sa_status, is_test')
+          .select('customer_id, product_type, carrier, sa_status, is_test')
           .in('customer_id', chunk)
           .eq('is_test', false)
           .range(from, to),
       )
       for (const p of pols) {
         const list = policiesByCustomer.get(p.customer_id) ?? []
-        list.push({ product_type: p.product_type, sa_status: p.sa_status })
+        list.push({ product_type: p.product_type, carrier: p.carrier, sa_status: p.sa_status })
         policiesByCustomer.set(p.customer_id, list)
       }
     }
@@ -123,9 +128,17 @@ export async function getMyWorkCustomerIds(
       if (policies.length > 0 && onboardingCompleteForPolicies(policies)) {
         onboardingComplete.add(cid)
       }
+      // VERIFY GATE (search parity with composition): a customer with an
+      // unverified Everlake policy is not downstream outreach work yet, so they
+      // must not be searchable as outreach in the My Work scope either.
+      if (verifyBlockedForPolicies(policies)) {
+        verifyBlocked.add(cid)
+      }
     }
   }
-  const openCustomerIds = boardCustomerIds.filter((id) => !onboardingComplete.has(id))
+  const openCustomerIds = boardCustomerIds.filter(
+    (id) => !onboardingComplete.has(id) && !verifyBlocked.has(id),
+  )
 
   // Project association for the open customers, so the pick-up test sees each
   // item's project set (a project-scoped eligibility applies only to its own
@@ -188,8 +201,36 @@ export async function getMyWorkCustomerIds(
       memberCustomerIds: memberIds,
       excludeCustomerIds: boardCustomerIds,
     })
+    // VERIFY GATE for the derived (record-less) onboarding members: a member
+    // with an unverified Everlake policy is verify work, not searchable outreach
+    // yet. These members are not in the board-customer block set computed above,
+    // so read their policies once and extend the block set before admitting them.
+    const derivedIds = derived.map((d) => d.customerId).filter((id) => !verifyBlocked.has(id))
+    for (let i = 0; i < derivedIds.length; i += 300) {
+      const chunk = derivedIds.slice(i, i + 300)
+      if (chunk.length === 0) continue
+      const pols = await fetchAllRows<{ customer_id: string; carrier: string | null; sa_status: string | null }>((from, to) =>
+        supabase
+          .from('service_policies')
+          .select('customer_id, carrier, sa_status')
+          .in('customer_id', chunk)
+          .eq('is_test', false)
+          .eq('sa_status', 'unknown')
+          .range(from, to),
+      )
+      const byCustomer = new Map<string, { carrier: string | null; sa_status: string | null }[]>()
+      for (const p of pols) {
+        const list = byCustomer.get(p.customer_id) ?? []
+        list.push({ carrier: p.carrier, sa_status: p.sa_status })
+        byCustomer.set(p.customer_id, list)
+      }
+      for (const [cid, policies] of byCustomer) {
+        if (verifyBlockedForPolicies(policies)) verifyBlocked.add(cid)
+      }
+    }
     const projectScope = new Set<string>([pid])
     for (const d of derived) {
+      if (verifyBlocked.has(d.customerId)) continue // gated: verify first
       if (canActOnItem(profile, 'outreach', outreachRequiredQual, projectScope)) {
         result.add(d.customerId)
       }
