@@ -93,6 +93,10 @@ export { GatewayLookup } from './GatewayLookup'
 
 export { DoneSkipActions } from './DoneSkipActions'
 
+export { CopyField } from './CopyField'
+
+export { BinaryChoice, type BinaryOption } from './BinaryChoice'
+
 export { VerifyServicingAgentCard } from './VerifyServicingAgentCard'
 
 export {

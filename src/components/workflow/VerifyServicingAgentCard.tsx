@@ -4,31 +4,32 @@
  * VerifyServicingAgentCard — the self-contained "verify servicing agent" Lego.
  *
  * One policy at a time: show the policy number with a Copy button, ask "Are we
- * the servicing agent?", and commit the answer. It is a reusable Lego (per the
- * ui-composition-vocabulary standard): a host supplies the current policy, the
- * remaining-to-check count, and the save/skip intent handlers; the Lego owns all
- * of its own behavior — copy-to-clipboard, the Yes/No selection, the commit
- * gating, and the mentoring. It carries NO data fetching and NO knowledge of
- * where the policies come from, so it can sit on any surface (a My Work verify
- * screen, a project surface, an inbound-call lookup) unchanged.
+ * the servicing agent?", and commit the answer. A host supplies the current
+ * policy, the remaining-to-check count, and the save/skip intent handlers; the
+ * card carries NO data fetching and NO knowledge of where the policies come
+ * from, so it sits on any surface (a My Work verify screen, a project surface,
+ * an inbound-call lookup) unchanged.
  *
- * Interaction rules (deliberate, so a stray click never records a wrong answer):
- *   - Yes / No are TOGGLES: clicking selects, clicking the selected one clears,
- *     and the choice is freely switchable. Nothing is recorded by selecting.
- *   - Done is the only commit, and it is disabled until a choice is made.
- *   - Skip leaves the policy unresolved and asks the host for the next one.
+ * It is pure COMPOSITION of smaller Legos — CopyField (the policy number + Copy),
+ * BinaryChoice (the Yes/No toggle), CallMentorCap (the how-to), and
+ * DoneSkipActions (commit / abandon) — so every piece of behavior lives in one
+ * shared place and this card only wires them together and holds the pending
+ * choice. The interaction guarantees come from those Legos: Yes/No only
+ * SELECTS (toggle on/off, switchable), and only Done COMMITS (grayed until a
+ * choice is made), so a stray click never records a wrong answer.
  *
  * The count is stated as how many are LEFT to check (counting DOWN the
- * unverified), not how many are done — the operator's question is "how many
- * more", and an empty remaining count is the finish line.
+ * unverified); an empty remaining count is the finish line.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { Copy, Check, CircleCheck, CircleX } from 'lucide-react'
-import { WorkflowButton, ActionPanel } from './primitives'
+import { useEffect, useState } from 'react'
+import { CircleCheck, CircleX } from 'lucide-react'
+import { ActionPanel } from './primitives'
 import { Divider } from './Divider'
 import { CallMentorCap } from './CallMentorCap'
 import { DoneSkipActions } from './DoneSkipActions'
+import { CopyField } from './CopyField'
+import { BinaryChoice } from './BinaryChoice'
 
 export function VerifyServicingAgentCard({
   policyNumber,
@@ -53,24 +54,14 @@ export function VerifyServicingAgentCard({
   onSkip: () => void
 }) {
   const [choice, setChoice] = useState<'yes' | 'no' | null>(null)
-  const [copied, setCopied] = useState(false)
-  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current) }, [])
 
   // Clear the pending choice whenever the policy changes, so a selection never
   // carries from one policy to the next.
-  useEffect(() => { setChoice(null); setCopied(false) }, [policyNumber])
-
-  const copyNumber = useCallback((value: string) => {
-    void navigator.clipboard.writeText(value)
-    setCopied(true)
-    if (copyTimer.current) clearTimeout(copyTimer.current)
-    copyTimer.current = setTimeout(() => setCopied(false), 2000)
-  }, [])
+  useEffect(() => { setChoice(null) }, [policyNumber])
 
   return (
     <ActionPanel>
-      {/* Title + mentoring. The how-to lives in the cap, opened on demand. */}
+      {/* Title + mentoring (the how-to lives in the cap, opened on demand). */}
       <CallMentorCap heading="Verify servicing agent">
         Copy the policy number, search it in the Everlake Agent Portal Contract Look-Up, then record
         whether a contract was found. If a contract comes up we are the servicing agent; if Everlake
@@ -83,54 +74,28 @@ export function VerifyServicingAgentCard({
         {remaining === 1 ? 'policy' : 'policies'} left to verify
       </p>
 
-      {/* Policy number + Copy. */}
-      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-surface-border bg-surface-muted/40 p-4">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.06em] text-ink-supporting">
-            Policy number
-          </p>
-          <span className="font-mono text-2xl font-semibold text-ink">{policyNumber ?? '—'}</span>
-        </div>
-        <WorkflowButton
-          icon={copied ? Check : Copy}
-          selected={copied}
-          onClick={() => copyNumber(policyNumber ?? '')}
-          disabled={!policyNumber}
-        >
-          {copied ? 'Copied' : 'Copy'}
-        </WorkflowButton>
-      </div>
+      <CopyField
+        label="Policy number"
+        value={policyNumber}
+        mono
+        className="rounded-xl border border-surface-border bg-surface-muted/40 p-4"
+      />
 
       <Divider className="my-2" />
 
-      {/* The question. Yes/No are toggles: nothing commits here. */}
-      <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">
-        Are we the servicing agent?
-      </p>
-      <div className="grid grid-cols-2 gap-2">
-        <WorkflowButton
-          icon={CircleCheck}
-          selected={choice === 'yes'}
-          disabled={busy}
-          className="w-full justify-center"
-          onClick={() => setChoice((c) => (c === 'yes' ? null : 'yes'))}
-        >
-          Yes, we are
-        </WorkflowButton>
-        <WorkflowButton
-          icon={CircleX}
-          selected={choice === 'no'}
-          disabled={busy}
-          className="w-full justify-center"
-          onClick={() => setChoice((c) => (c === 'no' ? null : 'no'))}
-        >
-          No, we are not
-        </WorkflowButton>
-      </div>
+      <BinaryChoice
+        question="Are we the servicing agent?"
+        options={[
+          { value: 'yes', label: 'Yes, we are', icon: CircleCheck },
+          { value: 'no', label: 'No, we are not', icon: CircleX },
+        ]}
+        value={choice}
+        onChange={setChoice}
+        disabled={busy}
+      />
 
       {/* Done commits the selected answer (grayed until a choice is made); Skip
-          leaves it unresolved and moves on. The shared Done/Skip Lego carries
-          this behavior identically everywhere. */}
+          leaves it unresolved and moves on. */}
       <DoneSkipActions
         canComplete={choice !== null}
         busy={busy}
