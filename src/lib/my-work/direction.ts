@@ -204,16 +204,35 @@ export function deriveMyWorkDirection(state: MyWorkState): MyWorkDirection {
   // by itself make the briefing non-quiet below.
   const hasServicingAccessStandingStep = (a: ActivityGroup): boolean =>
     a.workFunction === 'outreach' && outreachServicingAccess(a) != null
+  // The full workflow spine stays in the plan even when a step is empty, so the
+  // operator sees the whole pipeline and watches work move through it as the
+  // Verify gate releases customers. The composition only keeps a zeroed spine
+  // activity for an ELIGIBLE employee, so an activity present here is already
+  // one this worker is meant to see. A spine step at zero renders as "0" rather
+  // than vanishing.
+  const isWorkflowSpine = (a: ActivityGroup): boolean => SPINE_WORK_FUNCTIONS.has(a.workFunction)
   const planActivities = state.activities
-    .filter((a) => isActionable(a) || hasUnresolvedOnly(a) || hasServicingAccessStandingStep(a))
+    .filter((a) => isActionable(a) || hasUnresolvedOnly(a) || hasServicingAccessStandingStep(a) || isWorkflowSpine(a))
     .sort(byFixedWorkflowOrder)
 
-  if (planActivities.length === 0) {
+  // QUIET is about actual ACTIONABLE work, not the always-visible spine. The
+  // spine keeps the pipeline on screen even when every step is empty, so it must
+  // NOT by itself make the briefing read "you have work". A day is quiet when
+  // nothing is actionable and nothing has unresolved/standing work to do —
+  // regardless of the zeroed spine steps still shown for orientation.
+  const hasActionableWork = state.activities.some(
+    (a) => isActionable(a) || hasUnresolvedOnly(a) || hasServicingAccessStandingStep(a),
+  )
+
+  if (!hasActionableWork) {
+    // Nothing to do, but STILL show the spine (at zero) so the operator sees the
+    // workflow. Primary/support/work-mode groups stay empty (those are actionable
+    // work only); the plan carries the zeroed spine for orientation.
     return {
       quiet: true,
       fixedTimeCommitments,
       projectsWithAvailableWork,
-      workingPlan: [],
+      workingPlan: planActivities.length > 0 ? buildWorkingPlan(planActivities) : [],
       primary: [],
       support: [],
       workModeGroups: [],
@@ -472,6 +491,24 @@ const FIXED_WORKFLOW_ORDER: ActivityGroup['workFunction'][] = [
   'outreach',
   'operations_prep',
 ]
+
+/**
+ * The full workflow SPINE: the activities that stay visible in Available Work
+ * even when empty, so an eligible operator always sees the whole pipeline and
+ * watches work move through it (e.g. while Verify is gating, the downstream
+ * steps show 0 rather than vanishing). Determination is included even though it
+ * is not in FIXED_WORKFLOW_ORDER (it sorts after the listed steps); the spine is
+ * about VISIBILITY, the order constant is about SEQUENCE. The composition only
+ * keeps a zeroed spine activity for an employee who is eligible for it, so this
+ * never shows an irrelevant step to an unassigned worker.
+ */
+const SPINE_WORK_FUNCTIONS = new Set<ActivityGroup['workFunction']>([
+  'verify_servicing_agent',
+  'research',
+  'outreach',
+  'operations_prep',
+  'determination',
+])
 
 /** Comparator that places activities in the fixed workflow order above.
  * Unlisted work functions sort after all listed ones, preserving their relative

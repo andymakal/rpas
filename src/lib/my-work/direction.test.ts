@@ -431,3 +431,41 @@ test('plan: Verify Servicing Agent is the GATE and always leads, even against hi
   // The verify step shows the per-policy count it was given (not a re-sum).
   assert.equal(d.workingPlan[0].count, 172)
 })
+
+test('plan: the full workflow spine stays visible at zero for an eligible worker (gate orientation)', () => {
+  // Verify has all the work; the downstream spine steps are empty because the
+  // gate is holding every customer at Verify. They must STILL appear (at 0) so
+  // the operator sees the whole pipeline.
+  const d = deriveMyWorkDirection(
+    state([
+      activity({ workFunction: 'verify_servicing_agent', band: 'shared', rank: 5, label: 'Verify servicing agent', availableCount: 176 }),
+      activity({ workFunction: 'research', band: 'shared', rank: 5, label: 'Contact Research', availableCount: 0, totalCount: 0 }),
+      activity({ workFunction: 'operations_prep', band: 'shared', rank: 5, label: 'Operations Preparation', availableCount: 0, totalCount: 0 }),
+      activity({ workFunction: 'determination', band: 'shared', rank: 5, label: 'Determination', availableCount: 0, totalCount: 0 }),
+    ]),
+  )
+  assert.equal(d.quiet, false)
+  const keys = d.workingPlan.map((s) => s.key)
+  // Verify leads; the empty downstream spine steps are present at zero.
+  assert.equal(keys[0], 'verify_servicing_agent')
+  assert.ok(keys.includes('research'), 'research visible at 0')
+  assert.ok(keys.includes('operations_prep'), 'operations prep visible at 0')
+  assert.ok(keys.includes('determination'), 'determination visible at 0')
+  const research = d.workingPlan.find((s) => s.key === 'research')
+  assert.equal(research!.count, 0)
+})
+
+test('quiet is honest even though the spine is shown: no actionable work => quiet true, spine still rendered', () => {
+  // Every spine step empty and nothing actionable: the day is quiet, but the
+  // spine is still rendered for orientation (not an empty plan).
+  const d = deriveMyWorkDirection(
+    state([
+      activity({ workFunction: 'research', band: 'shared', rank: 5, label: 'Contact Research', availableCount: 0, totalCount: 0 }),
+      activity({ workFunction: 'operations_prep', band: 'shared', rank: 5, label: 'Operations Preparation', availableCount: 0, totalCount: 0 }),
+    ]),
+  )
+  assert.equal(d.quiet, true)
+  assert.ok(d.workingPlan.length > 0, 'spine still shown on a quiet day')
+  assert.deepEqual(d.primary, [])
+  assert.deepEqual(d.support, [])
+})
