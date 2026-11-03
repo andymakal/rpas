@@ -3,44 +3,34 @@
 /**
  * Verify Servicing Agent — step 1 of servicing-agent capture.
  *
- * Works the project's Everlake-eligible policies one at a time with the same
- * copy -> search -> record rhythm operators already use in Contact Research. The
- * operator copies the policy number, pastes it into the Everlake Agent Portal
- * Contract Look-Up, hits Search, then records the answer here:
- *   - found a contract  -> Yes, we are the servicing agent   (sa_status confirmed)
- *   - "couldn't find a contract with that number" -> No, not  (sa_status not_on_file)
- * Skip leaves a policy unresolved and moves on. A progress line shows how many
- * of the project's eligible policies have been checked.
+ * Works the project's Everlake-eligible policies one at a time. The operator
+ * copies the policy number, pastes it into the Everlake Agent Portal Contract
+ * Look-Up, searches, then records whether we are the servicing agent:
+ *   - we are      -> sa_status 'confirmed'
+ *   - we are not  -> sa_status 'not_on_file'
  *
- * Only Everlake carriers (Allstate family, Lincoln Benefit Life, Everlake)
- * appear; the server filters the worklist, so a non-Everlake policy is never
- * presented for an Everlake lookup. Nothing here is shown as the raw
- * "not_on_file" literal — the operator sees plain language.
+ * The card is deliberately minimal. Yes/No are TOGGLES: clicking selects (and
+ * clicking again clears), and the choice is switchable, so nothing commits on a
+ * stray click. Only Done (grayed until a choice is made) records the answer, so
+ * an accidental "No" on a policy we actually service can never be saved. The
+ * how-to instructions live in the mentoring cap, not as always-on body text.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Copy, Check, SkipForward, CircleCheck, CircleX, PenLine } from 'lucide-react'
 import {
-  Copy, Check, SkipForward, CircleCheck, CircleX, ExternalLink,
-} from 'lucide-react'
-import {
-  WorkflowButton, ActionPanel, NextNote, Divider, OperationalTag,
+  WorkflowButton, ActionPanel, Divider, CallMentorCap,
 } from '@/components/workflow'
 
 type Policy = {
   id: string
   policy_number: string | null
-  carrier: string | null
-  product_type: string | null
-  coverage_status: string | null
-  insured_name: string | null
-  customer_id: string
-  customer_name: string | null
   sa_status: string
 }
 
 type Summary = { total: number; verified: number; remaining: number }
 
-const EVERLAKE_PORTAL_URL = 'https://myaccount.everlake.com/'
+type Choice = 'yes' | 'no' | null
 
 export function VerifyServicingAgentClient({ projectId }: { projectId: string }) {
   const [policies, setPolicies] = useState<Policy[]>([])
@@ -52,10 +42,9 @@ export function VerifyServicingAgentClient({ projectId }: { projectId: string })
   const [copied, setCopied] = useState(false)
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // The index of the policy currently being worked within the live list. The
-  // list is ordered unchecked-first by the server, so we walk from the first
-  // still-unknown policy forward.
+  // The current policy index, and the operator's not-yet-committed choice for it.
   const [cursor, setCursor] = useState(0)
+  const [choice, setChoice] = useState<Choice>(null)
 
   useEffect(() => () => { if (copyTimer.current) clearTimeout(copyTimer.current) }, [])
 
@@ -70,12 +59,16 @@ export function VerifyServicingAgentClient({ projectId }: { projectId: string })
         setLoading(false)
         return
       }
-      const list: Policy[] = json.data?.policies ?? []
+      const list: Policy[] = (json.data?.policies ?? []).map((p: Record<string, unknown>) => ({
+        id: p.id as string,
+        policy_number: (p.policy_number as string | null) ?? null,
+        sa_status: (p.sa_status as string | null) ?? 'unknown',
+      }))
       setPolicies(list)
       setSummary(json.data?.summary ?? { total: 0, verified: 0, remaining: 0 })
-      // Start on the first unchecked policy.
       const firstUnknown = list.findIndex((p) => p.sa_status === 'unknown')
       setCursor(firstUnknown >= 0 ? firstUnknown : 0)
+      setChoice(null)
     } catch {
       setLoadError('Could not reach the server to load the policies.')
     }
@@ -97,12 +90,13 @@ export function VerifyServicingAgentClient({ projectId }: { projectId: string })
     copyTimer.current = setTimeout(() => setCopied(false), 2000)
   }, [])
 
-  // Advance to the next still-unknown policy after the current one; wrap to any
-  // earlier unknown so skipped items resurface, and land past the end when all
-  // are done.
+  // Advance to the next still-unknown policy; wrap to an earlier unknown so a
+  // skipped one resurfaces, and land past the end when all are done. Clears the
+  // pending choice and the copied flag for the new policy.
   const advance = useCallback(() => {
     setCopied(false)
     setSaveError(null)
+    setChoice(null)
     setPolicies((list) => {
       const after = list.findIndex((p, i) => i > cursor && p.sa_status === 'unknown')
       if (after >= 0) { setCursor(after); return list }
@@ -112,15 +106,17 @@ export function VerifyServicingAgentClient({ projectId }: { projectId: string })
     })
   }, [cursor])
 
-  const record = useCallback(async (isServicingAgent: boolean) => {
-    if (!current) return
+  // Commit the pending choice (only reachable via Done, which is disabled until
+  // a choice exists). Records once, then advances.
+  const commit = useCallback(async () => {
+    if (!current || choice === null) return
     setBusy(true)
     setSaveError(null)
     try {
       const res = await fetch(`/api/projects/${projectId}/verify-servicing-agent`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ policy_id: current.id, is_servicing_agent: isServicingAgent }),
+        body: JSON.stringify({ policy_id: current.id, is_servicing_agent: choice === 'yes' }),
       })
       const json = await res.json()
       if (!res.ok) {
@@ -128,8 +124,7 @@ export function VerifyServicingAgentClient({ projectId }: { projectId: string })
         setBusy(false)
         return
       }
-      const nextStatus = json.data?.sa_status ?? (isServicingAgent ? 'confirmed' : 'not_on_file')
-      // Update the worked policy in place and bump the summary, then advance.
+      const nextStatus = json.data?.sa_status ?? (choice === 'yes' ? 'confirmed' : 'not_on_file')
       setPolicies((list) => list.map((p) => (p.id === current.id ? { ...p, sa_status: nextStatus } : p)))
       setSummary((s) => ({ ...s, verified: s.verified + 1, remaining: Math.max(0, s.remaining - 1) }))
       setBusy(false)
@@ -138,7 +133,7 @@ export function VerifyServicingAgentClient({ projectId }: { projectId: string })
       setSaveError('Could not reach the server to record the result.')
       setBusy(false)
     }
-  }, [current, projectId, advance])
+  }, [current, choice, projectId, advance])
 
   if (loading) {
     return <p className="text-base text-ink-supporting">Loading policies…</p>
@@ -155,8 +150,7 @@ export function VerifyServicingAgentClient({ projectId }: { projectId: string })
     return (
       <div className="rounded-2xl border border-dashed border-surface-border-strong bg-surface-card p-8 text-center">
         <p className="text-base text-ink-supporting">
-          No Everlake policies to verify in this project. Only Allstate, Lincoln Benefit Life, and
-          Everlake policies are checked in the Everlake portal.
+          No policies to verify in this project.
         </p>
       </div>
     )
@@ -166,55 +160,30 @@ export function VerifyServicingAgentClient({ projectId }: { projectId: string })
 
   return (
     <div className="max-w-2xl space-y-4">
-      {/* Progress */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm font-medium text-ink-secondary">
-          <span className="tabular-nums font-semibold text-ink">{summary.verified}</span> of{' '}
-          <span className="tabular-nums font-semibold text-ink">{summary.total}</span> verified
-          {summary.remaining > 0 && (
-            <span className="text-ink-supporting"> · {summary.remaining} to go</span>
-          )}
-        </p>
-        <a
-          href={EVERLAKE_PORTAL_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand hover:underline"
-        >
-          <ExternalLink className="size-4" aria-hidden /> Open Everlake portal
-        </a>
-      </div>
-
       {allDone ? (
         <div className="rounded-2xl border border-status-confirmed-border bg-status-confirmed-soft p-8 text-center">
           <CircleCheck className="mx-auto mb-2 size-8 text-teal-700" aria-hidden />
-          <p className="text-lg font-semibold text-ink">All eligible policies verified.</p>
+          <p className="text-lg font-semibold text-ink">All policies verified.</p>
           <p className="mt-1 text-sm text-ink-secondary">
-            Every Everlake policy in this project has been checked. Policies where we are not the
-            servicing agent are now ready for capture outreach.
+            Every policy in this project has been checked.
           </p>
         </div>
       ) : current ? (
         <ActionPanel>
-          {/* Whose policy, for context. */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-base font-semibold text-ink">
-              {current.customer_name ?? current.insured_name ?? 'Customer'}
-            </span>
-            {current.carrier && (
-              <OperationalTag tone="info">{current.carrier}</OperationalTag>
-            )}
-            {current.product_type && (
-              <span className="text-sm text-ink-supporting">{current.product_type}</span>
-            )}
-          </div>
+          {/* Title + mentoring. The how-to lives in the cap, opened on demand;
+              progress sits on the heading line. */}
+          <CallMentorCap heading="Verify servicing agent">
+            Copy the policy number, search it in the Everlake Agent Portal Contract Look-Up, then
+            record whether a contract was found. If a contract comes up we are the servicing agent;
+            if Everlake can’t find it, we are not.
+          </CallMentorCap>
 
-          <p className="text-sm text-ink-supporting">
-            Copy the policy number, search it in the Everlake portal Contract Look-Up, then record
-            whether a contract was found.
+          <p className="text-sm font-medium text-ink-secondary">
+            <span className="tabular-nums font-semibold text-ink">{summary.verified}</span> of{' '}
+            <span className="tabular-nums font-semibold text-ink">{summary.total}</span> verified
           </p>
 
-          {/* The policy number + Copy — the Search Gateway pattern. */}
+          {/* Policy number + Copy. */}
           <div className="flex flex-wrap items-center gap-3 rounded-xl border border-surface-border bg-surface-muted/40 p-4">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.06em] text-ink-supporting">
@@ -236,41 +205,55 @@ export function VerifyServicingAgentClient({ projectId }: { projectId: string })
 
           <Divider className="my-2" />
 
-          {/* The result: Are we the servicing agent? Yes / No, then Skip. */}
+          {/* The question. Yes/No are toggles: click selects, click again clears,
+              switchable. Nothing is recorded here — only Done commits. */}
           <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">
             Are we the servicing agent?
           </p>
           <div className="grid grid-cols-2 gap-2">
             <WorkflowButton
               icon={CircleCheck}
+              selected={choice === 'yes'}
               disabled={busy}
               className="w-full justify-center"
-              onClick={() => void record(true)}
+              onClick={() => setChoice((c) => (c === 'yes' ? null : 'yes'))}
             >
               Yes, we are
             </WorkflowButton>
             <WorkflowButton
               icon={CircleX}
+              selected={choice === 'no'}
               disabled={busy}
               className="w-full justify-center"
-              onClick={() => void record(false)}
+              onClick={() => setChoice((c) => (c === 'no' ? null : 'no'))}
             >
-              No, not on file
+              No, we are not
             </WorkflowButton>
           </div>
 
-          <div className="flex justify-end">
-            <WorkflowButton icon={SkipForward} disabled={busy} onClick={advance}>
+          {/* Done commits the selected answer (grayed until a choice is made);
+              Skip for now leaves it unresolved and moves on. */}
+          <div className="grid grid-cols-2 gap-2">
+            <WorkflowButton
+              icon={PenLine}
+              selected
+              disabled={busy || choice === null}
+              className="w-full justify-center"
+              onClick={() => void commit()}
+            >
+              {busy ? 'Saving…' : 'Done'}
+            </WorkflowButton>
+            <WorkflowButton
+              icon={SkipForward}
+              disabled={busy}
+              className="w-full justify-center"
+              onClick={advance}
+            >
               Skip for now
             </WorkflowButton>
           </div>
 
           {saveError && <p className="text-sm text-status-missing-strong">{saveError}</p>}
-
-          <NextNote>
-            “No” records that we are not the servicing agent and moves this policy into capture
-            outreach. “Yes” records that we already have access, so no capture is needed.
-          </NextNote>
         </ActionPanel>
       ) : null}
     </div>

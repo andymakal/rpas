@@ -29,6 +29,7 @@ import { createTimeContext, commitmentClocks } from '@/lib/time'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
 import { activeProjectsWithWorkflow, onboardingCompleteForPolicies } from '@/lib/projects/workflows'
+import { isEverlakeCarrier } from '@/lib/policies/everlake-carrier'
 import { buildContactReview, summarizeContactReview } from '@/lib/projects/contact-review'
 import { deriveOnboardingPopulation } from '@/lib/stewardship/derived-onboarding'
 import {
@@ -1501,6 +1502,38 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     }
     addProjectActivity('operations_prep', prepCount)
     addProjectActivity('determination', determineCount)
+
+    // VERIFY SERVICING AGENT — step 1 of capture, derived purely from FACTS
+    // (service_policies), not the board or a workflow stage. A project member is
+    // verify work when ANY of their Everlake-eligible policies (Allstate /
+    // Lincoln Benefit Life / Everlake) is still at sa_status 'unknown' — i.e. we
+    // have not yet established whether we are the servicing agent. Non-Everlake
+    // carriers are never verified in Everlake, so they never create verify work.
+    // Counted once per customer; the source opens the project's verify surface.
+    // OPTION B: this SURFACES the work only; it does NOT yet gate downstream
+    // activities (the gate is an immediate fast-follow).
+    {
+      const memberIds = workflow.map((w) => w.customer_id)
+      const verifyCustomerIds = new Set<string>()
+      for (let i = 0; i < memberIds.length; i += 300) {
+        const chunk = memberIds.slice(i, i + 300)
+        if (chunk.length === 0) continue
+        const { data: pols } = await supabase
+          .from('service_policies')
+          .select('customer_id, carrier, sa_status')
+          .in('customer_id', chunk)
+          .eq('is_test', false)
+          .eq('sa_status', 'unknown')
+        for (const p of (pols ?? []) as { customer_id: string; carrier: string | null; sa_status: string }[]) {
+          if (isEverlakeCarrier(p.carrier)) verifyCustomerIds.add(p.customer_id)
+        }
+      }
+      addProjectActivity(
+        'verify_servicing_agent',
+        verifyCustomerIds.size,
+        `/projects/${projectId}/verify-servicing-agent`,
+      )
+    }
 
     // Servicing Agent Onboarding — the first-touch OUTREACH populations, derived
     // from FACTS for members who have no outreach record yet. A freshly
