@@ -210,9 +210,16 @@ export function deriveMyWorkDirection(state: MyWorkState): MyWorkDirection {
   // activity for an ELIGIBLE employee, so an activity present here is already
   // one this worker is meant to see. A spine step at zero renders as "0" rather
   // than vanishing.
-  const isWorkflowSpine = (a: ActivityGroup): boolean => SPINE_WORK_FUNCTIONS.has(a.workFunction)
+  // The plan shows every activity the composition kept EXCEPT the awareness-only
+  // standings (unassigned / unlicensed), which belong in the full inventory, not
+  // the working plan. Visibility is decided in ONE place — the composition's
+  // capability rule (if you're capable of an activity you see it, at its real
+  // count, 0 or not) — so this layer only drops the awareness bands and orders
+  // the rest; it no longer re-derives visibility from actionable / unresolved /
+  // standing / spine conditions.
+  const AWARENESS_ONLY = new Set<PriorityBand>(['unassigned', 'unlicensed'])
   const planActivities = state.activities
-    .filter((a) => isActionable(a) || hasUnresolvedOnly(a) || hasServicingAccessStandingStep(a) || isWorkflowSpine(a))
+    .filter((a) => !AWARENESS_ONLY.has(a.band))
     .sort(byFixedWorkflowOrder)
 
   // QUIET is about actual ACTIONABLE work, not the always-visible spine. The
@@ -493,23 +500,6 @@ const FIXED_WORKFLOW_ORDER: ActivityGroup['workFunction'][] = [
 ]
 
 /**
- * The full workflow SPINE: the activities that stay visible in Available Work
- * even when empty, so an eligible operator always sees the whole pipeline and
- * watches work move through it (e.g. while Verify is gating, the downstream
- * steps show 0 rather than vanishing). Determination is included even though it
- * is not in FIXED_WORKFLOW_ORDER (it sorts after the listed steps); the spine is
- * about VISIBILITY, the order constant is about SEQUENCE. The composition only
- * keeps a zeroed spine activity for an employee who is eligible for it, so this
- * never shows an irrelevant step to an unassigned worker.
- */
-const SPINE_WORK_FUNCTIONS = new Set<ActivityGroup['workFunction']>([
-  'verify_servicing_agent',
-  'research',
-  'outreach',
-  'operations_prep',
-  'determination',
-])
-
 /** Comparator that places activities in the fixed workflow order above.
  * Unlisted work functions sort after all listed ones, preserving their relative
  * order (a stable sort keeps the incoming ZEN-rank order among them). */

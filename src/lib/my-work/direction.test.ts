@@ -346,12 +346,19 @@ test('plan: awareness-only standings are never in the plan and keep it quiet', (
   assert.deepEqual(d.support, [])
 })
 
-test('plan: an actionable band with no items the worker can act on is not in the plan', () => {
+test('plan: a capable activity stays visible even when every item is claimed by teammates; quiet stays honest', () => {
+  // ONE RULE: if the employee is capable (shared band = eligible) they SEE the
+  // activity, so it appears in the plan at its real count even though all items
+  // are claimed by others and none are actionable to this worker. The day is
+  // still quiet (nothing for THEM to act on) — visibility and actionability are
+  // separate.
   const d = deriveMyWorkDirection(
     state([activity({ band: 'shared', rank: 5, availableCount: 0, ownedCount: 0, claimedByOthersCount: 4, totalCount: 4 })]),
   )
   assert.equal(d.quiet, true)
-  assert.deepEqual(d.workingPlan, [])
+  assert.equal(d.workingPlan.length, 1)
+  assert.deepEqual(d.primary, [])
+  assert.deepEqual(d.support, [])
 })
 
 test('plan: Research shows the full unresolved population with the attempted breakdown', () => {
