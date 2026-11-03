@@ -464,6 +464,10 @@ function outreachCustomerInteraction(
  * column); this order deliberately does NOT depend on that band.
  */
 const FIXED_WORKFLOW_ORDER: ActivityGroup['workFunction'][] = [
+  // Verify Servicing Agent is the GATE and the first thing done: a policy must
+  // have a definite servicing-agent answer before any capture/review work on it
+  // can proceed, so it leads the fixed workflow order.
+  'verify_servicing_agent',
   'research',
   'outreach',
   'operations_prep',
@@ -499,6 +503,22 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
   for (const a of actionable) {
     const emphasis = a.band === 'focus' || a.band === 'exact_time_commitment' || a.band === 'due_callback'
     switch (a.workFunction) {
+      case 'verify_servicing_agent': {
+        // The gate: confirm per policy whether we are the servicing agent before
+        // any capture/review work proceeds. The count is the unverified-policy
+        // figure the composition resolved (each policy is one unit of work).
+        steps.push({
+          key: 'verify_servicing_agent',
+          title: 'Verify servicing agent',
+          reason:
+            'Before anything else, confirm whether we are the servicing agent on each policy by looking it up in the Everlake portal. Until a policy has a definite answer, no capture or review work on it can proceed.',
+          count: actionableCountOf(a),
+          actionLabel: 'Start verifying',
+          route: primaryRouteFor(a),
+          emphasis,
+        })
+        break
+      }
       case 'research': {
         // Contact Research is now the SINGLE consolidated contact-finding step:
         // one activity covering every customer missing a usable email or phone,

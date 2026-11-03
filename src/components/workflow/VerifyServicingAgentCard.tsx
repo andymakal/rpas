@@ -24,10 +24,11 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Copy, Check, SkipForward, CircleCheck, CircleX, PenLine } from 'lucide-react'
+import { Copy, Check, CircleCheck, CircleX } from 'lucide-react'
 import { WorkflowButton, ActionPanel } from './primitives'
 import { Divider } from './Divider'
 import { CallMentorCap } from './CallMentorCap'
+import { DoneSkipActions } from './DoneSkipActions'
 
 export function VerifyServicingAgentCard({
   policyNumber,
@@ -128,26 +129,14 @@ export function VerifyServicingAgentCard({
       </div>
 
       {/* Done commits the selected answer (grayed until a choice is made); Skip
-          leaves it unresolved and moves on. */}
-      <div className="grid grid-cols-2 gap-2">
-        <WorkflowButton
-          icon={PenLine}
-          selected
-          disabled={busy || choice === null}
-          className="w-full justify-center"
-          onClick={() => { if (choice) onRecord(choice === 'yes') }}
-        >
-          {busy ? 'Saving…' : 'Done'}
-        </WorkflowButton>
-        <WorkflowButton
-          icon={SkipForward}
-          disabled={busy}
-          className="w-full justify-center"
-          onClick={onSkip}
-        >
-          Skip for now
-        </WorkflowButton>
-      </div>
+          leaves it unresolved and moves on. The shared Done/Skip Lego carries
+          this behavior identically everywhere. */}
+      <DoneSkipActions
+        canComplete={choice !== null}
+        busy={busy}
+        onDone={() => { if (choice) onRecord(choice === 'yes') }}
+        onSkip={onSkip}
+      />
 
       {errorText && <p className="text-sm text-status-missing-strong">{errorText}</p>}
     </ActionPanel>

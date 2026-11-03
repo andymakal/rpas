@@ -1929,17 +1929,11 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   }
 
   // Order by ZEN rank (band), then by the catalog sort order within a band.
-  // EXCEPTION: Verify Servicing Agent is a GATE — it must be done before any
-  // other capture/review work can proceed — so it always leads the list,
-  // regardless of the band ZEN assigned the other activities. Pinning it here
-  // (rather than inventing a new top ZEN band) keeps the band taxonomy and its
-  // tests unchanged while still guaranteeing the gate reads first.
+  // (The operator-facing Available-work SEQUENCE is the fixed workflow order in
+  // direction.ts, which leads with Verify Servicing Agent; this sort only orders
+  // the on-demand full inventory, which groups by band.)
   const sortOrder = new Map(workFunctions.map((w) => [w.canonicalKey, w.sortOrder]))
-  const isGate = (wf: WorkFunctionKey) => wf === 'verify_servicing_agent'
   activities.sort((x, y) => {
-    const xg = isGate(x.workFunction) ? 0 : 1
-    const yg = isGate(y.workFunction) ? 0 : 1
-    if (xg !== yg) return xg - yg
     if (x.rank !== y.rank) return x.rank - y.rank
     return (sortOrder.get(x.workFunction) ?? 0) - (sortOrder.get(y.workFunction) ?? 0)
   })
