@@ -91,6 +91,8 @@ export {
 
 export { GatewayLookup } from './GatewayLookup'
 
+export { VerifyServicingAgentCard } from './VerifyServicingAgentCard'
+
 export {
   PolicySummaryCard,
   PolicySummaryList,

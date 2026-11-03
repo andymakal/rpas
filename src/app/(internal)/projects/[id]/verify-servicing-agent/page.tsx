@@ -41,14 +41,14 @@ export default async function VerifyServicingAgentPage({
   return (
     <WorkflowPage
       heading={
+        // "Verify Servicing Agent" is the page title. The project scope is
+        // preserved through the project id passed to the client; like Contact
+        // Research, it is deliberately not shown in the heading, and the back
+        // link returns to My Work (this is a My Work activity, not a project
+        // sub-page).
         <WorkflowPageHeader
-          title={data.name}
-          secondary="Verify Servicing Agent · Step 1"
-          back={
-            <WorkflowBackLink href={`/projects/${id}`} tone="muted">
-              Back to project
-            </WorkflowBackLink>
-          }
+          title="Verify Servicing Agent"
+          back={<WorkflowBackLink href="/my-work">Back to My Work</WorkflowBackLink>}
         />
       }
     >

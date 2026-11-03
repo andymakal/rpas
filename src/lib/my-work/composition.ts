@@ -1514,23 +1514,28 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     // activities (the gate is an immediate fast-follow).
     {
       const memberIds = workflow.map((w) => w.customer_id)
-      const verifyCustomerIds = new Set<string>()
+      // Count unverified POLICIES (not customers): verification is per policy —
+      // the operator checks each policy number in Everlake one at a time — so
+      // the activity count must match the per-policy worklist the verify screen
+      // shows, not a per-customer rollup. A customer with three unverified
+      // policies is three units of verify work.
+      let verifyPolicyCount = 0
       for (let i = 0; i < memberIds.length; i += 300) {
         const chunk = memberIds.slice(i, i + 300)
         if (chunk.length === 0) continue
         const { data: pols } = await supabase
           .from('service_policies')
-          .select('customer_id, carrier, sa_status')
+          .select('carrier, sa_status')
           .in('customer_id', chunk)
           .eq('is_test', false)
           .eq('sa_status', 'unknown')
-        for (const p of (pols ?? []) as { customer_id: string; carrier: string | null; sa_status: string }[]) {
-          if (isEverlakeCarrier(p.carrier)) verifyCustomerIds.add(p.customer_id)
+        for (const p of (pols ?? []) as { carrier: string | null; sa_status: string }[]) {
+          if (isEverlakeCarrier(p.carrier)) verifyPolicyCount += 1
         }
       }
       addProjectActivity(
         'verify_servicing_agent',
-        verifyCustomerIds.size,
+        verifyPolicyCount,
         `/projects/${projectId}/verify-servicing-agent`,
       )
     }
@@ -1924,8 +1929,17 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   }
 
   // Order by ZEN rank (band), then by the catalog sort order within a band.
+  // EXCEPTION: Verify Servicing Agent is a GATE — it must be done before any
+  // other capture/review work can proceed — so it always leads the list,
+  // regardless of the band ZEN assigned the other activities. Pinning it here
+  // (rather than inventing a new top ZEN band) keeps the band taxonomy and its
+  // tests unchanged while still guaranteeing the gate reads first.
   const sortOrder = new Map(workFunctions.map((w) => [w.canonicalKey, w.sortOrder]))
+  const isGate = (wf: WorkFunctionKey) => wf === 'verify_servicing_agent'
   activities.sort((x, y) => {
+    const xg = isGate(x.workFunction) ? 0 : 1
+    const yg = isGate(y.workFunction) ? 0 : 1
+    if (xg !== yg) return xg - yg
     if (x.rank !== y.rank) return x.rank - y.rank
     return (sortOrder.get(x.workFunction) ?? 0) - (sortOrder.get(y.workFunction) ?? 0)
   })
