@@ -1,8 +1,6 @@
 import type { Metadata } from 'next'
-import Link from 'next/link'
-import { ArrowLeft } from 'lucide-react'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { WorkflowPage, WorkflowHeader } from '@/components/workflow'
+import { WorkflowPage, WorkflowPageHeader, WorkflowBackLink } from '@/components/workflow'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { ServicingAccessClient } from './ServicingAccessClient'
 
@@ -51,19 +49,10 @@ export default async function ServicingAccessPage({
   return (
     <WorkflowPage
       heading={
-        <div className="space-y-8">
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
-            <Link
-              href="/my-work"
-              className="-ml-1 inline-flex items-center gap-1.5 text-base font-medium text-brand-hover transition-colors hover:text-brand"
-            >
-              <ArrowLeft className="size-4" aria-hidden />
-              Back to My Work
-            </Link>
-          </div>
-
-          <WorkflowHeader primary="Servicing Access" />
-        </div>
+        <WorkflowPageHeader
+          title="Servicing Access"
+          back={<WorkflowBackLink href="/my-work">Back to My Work</WorkflowBackLink>}
+        />
       }
     >
       <ServicingAccessClient

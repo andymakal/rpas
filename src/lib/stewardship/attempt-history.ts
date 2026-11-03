@@ -263,7 +263,16 @@ export async function readUnusableChannelsByCustomer(
     }
     for (const r of (data ?? []) as { customer_id: string; touch_type: string; notes: string | null }[]) {
       if (!OUTREACH_CHANNELS.has(r.touch_type)) continue
-      if (!isOnboardingContactAttempt(r.notes)) continue
+      // Accept a touch marked unusable when it is either an onboarding contact
+      // attempt OR a Contact-Card-recorded text delivery failure (the shared
+      // card writes a plain, non-onboarding text row carrying [sms-undeliverable]
+      // plus the value-scoped [channel-unusable:<digits>] mark). Both mean the
+      // channel's current value cannot deliver, which is exactly what this
+      // channel-usability read reports. Attempt COUNTING is a separate read
+      // (groupIntoAttempts over onboarding attempts), so this does not change it.
+      const cardTextUndeliverable =
+        r.touch_type === 'text' && !!r.notes && r.notes.toLowerCase().includes('[sms-undeliverable]')
+      if (!isOnboardingContactAttempt(r.notes) && !cardTextUndeliverable) continue
       if (parseOutcomeFromNote(r.notes) !== 'unusable') continue
 
       const channel = r.touch_type as OutreachChannel

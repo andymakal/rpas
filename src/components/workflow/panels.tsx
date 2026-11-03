@@ -16,6 +16,7 @@ import { MapPin, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { type FieldStatusTone, FieldStatusDot } from './primitives'
+import { Divider } from './Divider'
 
 type IconType = ComponentType<{ className?: string }>
 
@@ -124,15 +125,18 @@ const KEY_DOT: Record<FieldStatusTone, string> = {
 
 export function VerificationKey() {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-surface-divider pt-2.5 text-sm text-ink-supporting">
-      <span className="font-medium uppercase tracking-wide text-ink-supporting">Key</span>
-      {VERIFICATION_KEY.map(k => (
-        <span key={k.tone} className="inline-flex items-center gap-1.5">
-          <span className={cn('size-2.5 rounded-full', KEY_DOT[k.tone])} aria-hidden />
-          {k.label}
-        </span>
-      ))}
-    </div>
+    <>
+      <Divider className="mb-2.5" />
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-ink-supporting">
+        <span className="font-medium uppercase tracking-wide text-ink-supporting">Key</span>
+        {VERIFICATION_KEY.map(k => (
+          <span key={k.tone} className="inline-flex items-center gap-1.5">
+            <span className={cn('size-2.5 rounded-full', KEY_DOT[k.tone])} aria-hidden />
+            {k.label}
+          </span>
+        ))}
+      </div>
+    </>
   )
 }
 

@@ -16,11 +16,41 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   onboardingCompleteForPolicies,
+  verifyBlockedForPolicies,
   evaluateWorkflowForCustomer,
   evaluateWorkflowsForCustomer,
   projectContainsWorkflow,
   type ProjectWorkflow,
 } from './workflows'
+
+test('verify gate: an Everlake policy at unknown blocks; resolved or non-Everlake does not', () => {
+  // An unknown Everlake policy blocks (not yet verified).
+  assert.equal(
+    verifyBlockedForPolicies([{ carrier: 'Lincoln Benefit Life', sa_status: 'unknown' }]),
+    true,
+  )
+  assert.equal(verifyBlockedForPolicies([{ carrier: 'Allstate', sa_status: 'unknown' }]), true)
+  // A definite answer on every Everlake policy clears the gate.
+  assert.equal(
+    verifyBlockedForPolicies([
+      { carrier: 'Lincoln Benefit Life', sa_status: 'confirmed' },
+      { carrier: 'Allstate', sa_status: 'not_on_file' },
+    ]),
+    false,
+  )
+  // A non-Everlake carrier is never verified in Everlake, so its unknown does
+  // NOT block (even alongside a resolved Everlake policy).
+  assert.equal(
+    verifyBlockedForPolicies([
+      { carrier: 'Lincoln Benefit Life', sa_status: 'confirmed' },
+      { carrier: 'Protective Life', sa_status: 'unknown' },
+      { carrier: 'Lincoln Financial', sa_status: 'unknown' },
+    ]),
+    false,
+  )
+  // No policies: nothing to verify.
+  assert.equal(verifyBlockedForPolicies([]), false)
+})
 
 test('onboarding complete: all permanent policies confirmed', () => {
   assert.equal(

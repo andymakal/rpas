@@ -1,12 +1,13 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowLeft, Users, FolderPlus, Play } from 'lucide-react'
+import { Users, FolderPlus, Play } from 'lucide-react'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { projectHasWorkflow, isPermanentPolicyReviewTypeName } from '@/lib/projects/workflows'
 import {
   WorkflowPage,
-  WorkflowHeader,
+  WorkflowPageHeader,
+  WorkflowBackLink,
   OperationalTag,
 } from '@/components/workflow'
 import { fmtDate } from '@/lib/fmt'
@@ -81,18 +82,16 @@ export default async function ProjectDetailPage({
   return (
     <WorkflowPage
       heading={
-        <div className="space-y-8">
-          <Link
-            href="/projects"
-            className="-ml-1 inline-flex items-center gap-1.5 text-sm font-medium text-ink-supporting transition-colors hover:text-ink"
-          >
-            <ArrowLeft className="size-4" aria-hidden />
-            All projects
-          </Link>
-
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <WorkflowHeader primary={project.name} secondary={project.project_type} />
-            <div className="flex items-center gap-3">
+        <WorkflowPageHeader
+          title={project.name}
+          secondary={project.project_type}
+          back={
+            <WorkflowBackLink href="/projects" tone="muted">
+              All projects
+            </WorkflowBackLink>
+          }
+          actions={
+            <>
               <OperationalTag tone={isArchived ? 'blocked' : isCompleted ? 'info' : 'reason'}>
                 {statusLabel}
               </OperationalTag>
@@ -127,9 +126,9 @@ export default async function ProjectDetailPage({
                   </Link>
                 </>
               )}
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        />
       }
     >
         {/* Archived notice — explains why the activity actions are absent and

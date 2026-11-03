@@ -32,30 +32,42 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  Loader2, Save, SkipForward, ClipboardCheck, UserRound, PhoneOff,
+  Loader2, CheckCircle2, SkipForward, ClipboardCheck, UserRound, PhoneOff,
 } from 'lucide-react'
 import {
   TaskShell, ActionPanel, PrimaryAction, WorkflowButton,
   AssistantPanel, GatewayLookup,
-  CustomerContactCard, CustomerNameHeading, type CustomerContact,
-  PolicySummaryList, type PolicySummary,
+  CustomerContactCard, type CustomerContact,
   CustomerHistoryCard, NextHistoryEntry,
   QueueListHeader, CustomerQueueCard, QueueEmptyState, OperationalTag,
 } from '@/components/workflow'
 import {
   describeContactResearchSelection,
   type HistoryEvent,
+  type NextHistoryEntryPreview,
 } from '@/lib/stewardship/customer-history'
 import { type EmailAvailability } from '@/lib/email-availability'
-import {
-  MentorGuidance, useMentorDisclosure, MentorCapButton, MentorCapPanel,
-} from '@/lib/mentoring/MentorUi'
+import { familiarName } from '@/lib/person-name'
+import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import { useWorkReservation } from '@/lib/reservations/useWorkReservation'
 
 type ContactReviewCustomer = {
   customer_id: string
   first_name: string | null
   last_name: string | null
+  /** The remaining recorded name parts, so every name on this screen renders
+   * through the shared Person Name presentation (honoring Goes by and suffix)
+   * rather than any page-local formatting. */
+  middle_name: string | null
+  suffix: string | null
+  goes_by: string | null
+  suffix_in_familiar: boolean | null
+  /** Best-available-precision age (reused project age logic): exact DOB or the
+   * masked policy fallback. Null when unknown (never guessed). Age only. */
+  age: number | null
+  /** True when the age came from the masked policy fallback, so it is shown as
+   * approximate. */
+  age_approximate: boolean
   email: string | null
   phone: string | null
   has_email: boolean
@@ -71,7 +83,14 @@ type ContactReviewCustomer = {
   address_verified_at: string | null
   email_availability: EmailAvailability | null
   contact_alert: string | null
-  policy_number: string | null
+  /** Do Not Text — the durable customer opt-out (customers.sms_opt_out). */
+  sms_opt_out: boolean
+  /** Text Undeliverable — a recorded text-delivery failure for the number on
+   * file (value-scoped; restores on a number change). */
+  text_undeliverable: boolean
+  /** Every distinct policy number on file for the customer (service policies +
+   * associated cases, de-duplicated), for the Search Gateway look-up. */
+  policy_numbers: string[]
   /** Reachability. 'needs_research' = reachable (missing one method), routine
    * active list. 'no_usable_contact' = no usable email or phone at all, always
    * shown in the No Usable Contact Information section. researched_unsuccessfully
@@ -89,8 +108,19 @@ type Summary = {
   actionable: number
 }
 
-function fullName(c: Pick<ContactReviewCustomer, 'first_name' | 'last_name'>): string {
-  return `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim() || 'Unknown customer'
+/** The customer's display name, rendered through the shared Person Name
+ * presentation so this screen owns no name-formatting logic of its own: the
+ * familiar name honors the "Goes by" name and the suffix preference exactly as
+ * the shared card and editor do. */
+function displayName(c: Pick<ContactReviewCustomer, 'first_name' | 'last_name' | 'middle_name' | 'suffix' | 'goes_by' | 'suffix_in_familiar'>): string {
+  return familiarName({
+    firstName: c.first_name,
+    middleName: c.middle_name,
+    lastName: c.last_name,
+    suffix: c.suffix,
+    goesBy: c.goes_by,
+    suffixInFamiliar: c.suffix_in_familiar,
+  }) || 'Unknown customer'
 }
 
 function usable(v: string | null | undefined): boolean {
@@ -467,6 +497,8 @@ export function ContactReviewClient({
           setRows(prev => prev.map(r => r.customer_id === updated.id
             ? { ...r,
                 first_name: updated.first_name, last_name: updated.last_name,
+                middle_name: updated.middle_name ?? null, suffix: updated.suffix ?? null,
+                goes_by: updated.goes_by ?? null, suffix_in_familiar: updated.suffix_in_familiar ?? null,
                 email: updated.email, phone: updated.phone,
                 has_email: usable(updated.email), has_phone: usable(updated.phone),
                 has_address: addr,
@@ -481,6 +513,8 @@ export function ContactReviewClient({
           setReopened(prev => prev && prev.customer_id === updated.id
             ? { ...prev,
                 first_name: updated.first_name, last_name: updated.last_name,
+                middle_name: updated.middle_name ?? null, suffix: updated.suffix ?? null,
+                goes_by: updated.goes_by ?? null, suffix_in_familiar: updated.suffix_in_familiar ?? null,
                 email: updated.email, phone: updated.phone,
                 has_email: usable(updated.email), has_phone: usable(updated.phone),
                 has_address: addr,
@@ -493,19 +527,23 @@ export function ContactReviewClient({
                 contact_alert: updated.contact_alert ?? null }
             : prev)
         }}
-        onSaved={() => {
-          // Next Customer: the card has already written any edits to the customer
-          // record as they were entered; this only advances the session and
-          // records no research history. A reopened customer is not in the
-          // list, so for them just clear the hold and return to the list rather
-          // than advancing to a next row.
+        onDoneNext={() => {
+          // Done & Next: research is complete for this customer. The card has
+          // already written any found values straight to the customer record;
+          // the task component additionally records unsuccessful research for
+          // any field STILL missing (so the customer is not researched again on
+          // a later pass) before calling this. A customer whose contact info is
+          // now complete self-heals out of the list naturally. A reopened
+          // customer is not in the list, so for them just clear the hold and
+          // return to the list rather than advancing to a next row.
           if (isReopened) { setReopened(null); setOpenId(null); setShowingList(true) }
           else markHandledAndAdvance(openCustomer.customer_id)
         }}
         onSkipped={() => {
-          // Recording another unsuccessful research keeps the customer settled;
-          // the reopened one simply returns to the list, the in-list one
-          // advances to the next.
+          // Skip This Customer: advance without recording any research outcome,
+          // so the customer stays eligible for future research. Any edits the
+          // card already saved as entered are kept; nothing else is written. The
+          // reopened one returns to the list, the in-list one advances.
           if (isReopened) { setReopened(null); setOpenId(null); setShowingList(true) }
           else markHandledAndAdvance(openCustomer.customer_id)
         }}
@@ -602,7 +640,7 @@ export function ContactReviewClient({
               {activeOutstanding.map(c => (
                 <CustomerQueueCard
                   key={c.customer_id}
-                  name={fullName(c)}
+                  name={displayName(c)}
                   detail={gapDetail(c)}
                   onOpen={() => openWithReservation(c.customer_id)}
                 />
@@ -615,7 +653,7 @@ export function ContactReviewClient({
               {activeUnsuccessful.map(c => (
                 <CustomerQueueCard
                   key={c.customer_id}
-                  name={fullName(c)}
+                  name={displayName(c)}
                   detail={gapDetail(c)}
                   trailing={<OperationalTag tone="exception">Research unsuccessful</OperationalTag>}
                   onOpen={() => openWithReservation(c.customer_id)}
@@ -645,7 +683,7 @@ export function ContactReviewClient({
               {exceptionOutstanding.map(c => (
                 <CustomerQueueCard
                   key={c.customer_id}
-                  name={fullName(c)}
+                  name={displayName(c)}
                   detail="No email, no phone"
                   trailing={<OperationalTag tone="reason">Research needed</OperationalTag>}
                   onOpen={() => openWithReservation(c.customer_id)}
@@ -659,7 +697,7 @@ export function ContactReviewClient({
               {exceptionUnsuccessful.map(c => (
                 <CustomerQueueCard
                   key={c.customer_id}
-                  name={fullName(c)}
+                  name={displayName(c)}
                   detail="No email, no phone"
                   trailing={<OperationalTag tone="exception">Research unsuccessful</OperationalTag>}
                   onOpen={() => openWithReservation(c.customer_id)}
@@ -755,30 +793,8 @@ function ContactResearchFilters({
 // contact capture and writes straight to the customer record.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Map a Contact Research row onto the shared card's customer shape. Every field
- * already lives on the row; the card reads and corrects the customer record. */
-function toCardCustomer(c: ContactReviewCustomer): CustomerContact {
-  return {
-    id: c.customer_id,
-    first_name: c.first_name,
-    last_name: c.last_name,
-    email: c.email,
-    phone: c.phone,
-    street: c.street,
-    address_line1: c.address_line1,
-    city: c.city,
-    state: c.state,
-    zip: c.zip,
-    email_verified_at: c.email_verified_at,
-    phone_verified_at: c.phone_verified_at,
-    address_verified_at: c.address_verified_at,
-    email_availability: c.email_availability,
-    contact_alert: c.contact_alert,
-  }
-}
-
 function ContactReviewTask({
-  projectId, customer, filterBar, onSaved, onSkipped, onContactChange,
+  projectId, customer, filterBar, onDoneNext, onSkipped, onContactChange,
 }: {
   projectId: string
   customer: ContactReviewCustomer
@@ -786,28 +802,39 @@ function ContactReviewTask({
    * are available while working a customer (they drive the counts and the
    * Next Customer progression upstream). */
   filterBar: ReactNode
-  /** Next Customer — advance the session without recording research history.
-   * Contact edits were already saved automatically by the card. */
-  onSaved: () => void
-  /** Nothing Usable & Next — the durable research record was written; advance. */
+  /** Done & Next — research is complete; the session advances. Called AFTER any
+   * unsuccessful research for still-missing fields has been recorded durably. */
+  onDoneNext: () => void
+  /** Skip This Customer — advance without recording a research outcome; the
+   * customer stays eligible for future research. Contact edits already saved by
+   * the card are kept. */
   onSkipped: () => void
   /** The card persisted a contact change; keep the list/summary in sync. */
   onContactChange: (updated: CustomerContact) => void
 }) {
-  const name = fullName(customer)
+  const name = displayName(customer)
   const [busy, setBusy] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
+  // Whether the Customer Contact Card has unsaved edits or a save in flight.
+  // The card owns this determination and reports it; the advancing actions are
+  // disabled while it is true so the worker cannot leave the customer with
+  // unsaved contact changes, and both re-enable the moment Save or Cancel
+  // settles.
+  const [cardPending, setCardPending] = useState(false)
 
-  // The open customer's grouped history and policy summary for the shared
-  // three-column working layout: the Customer History (with the Next History
-  // Entry preview) on the right, and the read-only Policy Summary beneath the
-  // contact card in the center. Loaded when the customer opens, so the Contact
-  // Research LIST read stays thin while the opened customer gets the same
-  // context the stewardship working screens have. Display only.
+  // The open customer's grouped history for the right column: the Customer
+  // History (with the Next History Entry preview). Loaded when the customer
+  // opens, so the Contact Research LIST read stays thin while the opened
+  // customer gets the same context the stewardship working screens have. The
+  // available policy numbers are shown by Search Gateway, so this screen no
+  // longer renders a separate Policies box. Display only.
   const [history, setHistory] = useState<HistoryEvent[]>([])
-  const [policies, setPolicies] = useState<PolicySummary[]>([])
   const [historyTz, setHistoryTz] = useState<string | null>(null)
+  // The live Next History Entry preview the shared contact card reports while
+  // its unified editor is open: what the single Save will record. The card owns
+  // the diff, so this screen carries no contact-change logic — it just shows the
+  // card's preview when editing, falling back to the research preview otherwise.
+  const [cardPreview, setCardPreview] = useState<NextHistoryEntryPreview | null>(null)
 
   // The method presence when this customer opened, captured once via a lazy
   // state initializer (so it is the first-render baseline and is safe to read
@@ -832,24 +859,26 @@ function ContactReviewTask({
       const json = await res.json()
       if (res.ok && json.data) {
         setHistory((json.data.customer_history ?? []) as HistoryEvent[])
-        setPolicies((json.data.policies ?? []) as PolicySummary[])
         setHistoryTz((json.data.actor_time_zone ?? null) as string | null)
       }
     } catch {
-      // History/policy context is supplementary; a load failure leaves the
-      // column empty rather than blocking the research work.
+      // History context is supplementary; a load failure leaves the column
+      // empty rather than blocking the research work.
     }
   }, [customer.customer_id])
 
   useEffect(() => { void loadHistory() }, [loadHistory])
 
-  // Nothing Usable & Next records the unsuccessful research DURABLY (per
-  // still-missing method) before advancing, so the customer stops coming back on
-  // later passes instead of only being hidden for this session. The record is
-  // not a close: the customer keeps everything, and a found value re-opens them.
-  // A failure to record is surfaced and the worker is NOT advanced, so the
-  // outcome is never silently lost. It records no contact attempt.
-  const nothingUsable = useCallback(async () => {
+  // Done & Next records the unsuccessful research DURABLY, per STILL-MISSING
+  // method, before advancing, so any field the worker could not find stops
+  // coming back on later passes instead of only being hidden for this session.
+  // The server records only methods that are still missing and not already
+  // recorded; when every method is present (contact info complete) it is a
+  // no-op and the customer self-heals out of the list. This is not a close: the
+  // customer keeps everything, and a found value re-opens the recommendation. A
+  // failure to record is surfaced and the worker is NOT advanced, so the outcome
+  // is never silently lost. It records no contact attempt.
+  const doneAndNext = useCallback(async () => {
     setBusy(true); setSaveError(null)
     try {
       const res = await fetch(`/api/projects/${projectId}/contact-review/${customer.customer_id}`, {
@@ -859,43 +888,23 @@ function ContactReviewTask({
       })
       const json = await res.json()
       if (!res.ok) { setSaveError(json.error ?? 'Could not record'); return }
-      onSkipped()
+      onDoneNext()
     } catch {
       setSaveError('Network error')
     } finally {
       setBusy(false)
     }
-  }, [projectId, customer.customer_id, onSkipped])
+  }, [projectId, customer.customer_id, onDoneNext])
 
   return (
     <TaskShell
+      // Find Missing Contact Information: widen the CENTER column (the Customer
+      // Contact card) where the left action is mostly click-through and the
+      // right is reference history.
+      columns="wide-context"
       header={filterBar}
       action={
         <ActionPanel>
-          {/* Mentoring (HOW): the inline graduation-cap, the same large purple
-              control used in My Work. Clicking it expands the coaching beneath —
-              a brief explanation of the Missing Fields filters and how to research
-              contact information. Its default open/closed follows the global
-              Mentoring toggle. */}
-          <div className="flex items-center gap-2">
-            <p className="text-base font-semibold text-ink">How to research contact information</p>
-            {!mentorOpen && (
-              <MentorCapButton onOpen={() => setMentorOpen(true)} label="Show mentoring on researching contact information" />
-            )}
-          </div>
-          {mentorOpen && (
-            <MentorCapPanel onClose={() => setMentorOpen(false)}>
-              The Missing Fields filters above choose which gaps you work and drive the Next
-              Customer order; a customer appears while they are missing any checked field. To research,
-              search Gateway with the last name and policy number together — the policy number lands
-              you on the right record fastest; if it finds nothing, try the last name alone and
-              confirm the date of birth before you copy anything back. Enter what Gateway shows on the
-              Customer Contact card to the right; each field saves on its own, so a phone with no
-              email is still progress. Enter one usable method and move on, and only overwrite a value
-              when you are confident Gateway is right.
-            </MentorCapPanel>
-          )}
-
           {/* No Usable Contact Information exception opened deliberately: say
               plainly that earlier research came up empty, so the worker knows
               this is a re-check, not fresh outstanding work. */}
@@ -906,12 +915,13 @@ function ContactReviewTask({
             </OperationalTag>
           )}
 
-          {/* The shared Gateway look-up — last name + policy number with Copy
-              buttons, identical to the Stewardship research task. */}
+          {/* The shared Search Gateway look-up — last name + every policy number
+              on file, each with its own Copy button; identical to the
+              Stewardship research task. */}
           <GatewayLookup
             lastName={customer.last_name}
             fallbackName={name}
-            policyNumber={customer.policy_number}
+            policyNumbers={customer.policy_numbers}
           />
 
           {saveError && (
@@ -920,69 +930,60 @@ function ContactReviewTask({
             </p>
           )}
 
-          {/* The two advancing actions, equal width and visually balanced. Skip
-              This Customer is the primary teal action: contact edits already
-              saved automatically as they were entered, so it simply advances to
-              the next customer without creating any research-history entry,
-              whether or not anything changed — the customer stays eligible for
-              future research. Nothing Usable & Next records the unsuccessful
-              research durably and continues. Both are the same structural
+          {/* The two advancing actions, equal width and visually balanced. Done
+              & Next is the primary teal action: research is complete for this
+              customer. The card already saved any found values as entered; this
+              additionally records unsuccessful research for every field STILL
+              missing, so the customer is not researched again, then advances. A
+              customer now complete simply leaves the queue. Skip This Customer
+              advances WITHOUT recording any research outcome, keeping the
+              customer eligible for future research. Both are the same structural
               control so they stay balanced, and both allow their label to WRAP
               to two lines (whitespace-normal + auto height) so neither truncates
               in the narrower equal-thirds column. */}
           <div className="grid grid-cols-2 items-stretch gap-3">
             <WorkflowButton
-              icon={Save}
+              icon={CheckCircle2}
               selected
               size="lg"
-              onClick={onSaved}
-              disabled={busy}
+              onClick={doneAndNext}
+              disabled={busy || cardPending}
               className="h-auto min-h-14 justify-center whitespace-normal rounded-xl px-5 py-3 text-center text-lg font-semibold leading-tight"
             >
-              Skip This Customer
+              Done &amp; Next
             </WorkflowButton>
             <WorkflowButton
               icon={SkipForward}
               size="lg"
-              onClick={nothingUsable}
-              disabled={busy}
+              onClick={onSkipped}
+              disabled={busy || cardPending}
               className="h-auto min-h-14 justify-center whitespace-normal rounded-xl px-5 py-3 text-center text-lg font-semibold leading-tight"
             >
-              Nothing Usable &amp; Next
+              Skip This Customer
             </WorkflowButton>
           </div>
         </ActionPanel>
       }
       context={
-        // Center column: the shared Customer Contact card (unchanged) with the
-        // read-only Policy Summary beneath it, matching the stewardship working
-        // screens so the worker sees the customer's policy facts while
-        // researching contact information.
-        <>
-          <CustomerContactCard
-            customer={toCardCustomer(customer)}
-            alert={customer.contact_alert}
-            alertEditable
-            collapsible
-            // Contact Research is research work — start expanded in the editing
-            // view so the worker can correct contact information immediately.
-            defaultExpanded
-            showName={false}
-            showMentoring={false}
-            header={
-              <CustomerNameHeading
-                customerId={customer.customer_id}
-                firstName={customer.first_name}
-                lastName={customer.last_name}
-                className="text-[33px] font-bold leading-tight tracking-tight text-brand"
-                onSaved={onContactChange}
-              />
-            }
-            onChange={onContactChange}
-          />
-          {/* The Policies card owns its single "Policies" heading. */}
-          <PolicySummaryList policies={policies} />
-        </>
+        // Center column: the self-contained Customer Contact card. It opens
+        // collapsed (the Overview) like everywhere else in Right Path; the
+        // worker clicks Edit to open the fields, and Save or Cancel returns it
+        // to the Overview. The card fetches, displays, edits, and saves all of
+        // the customer's contact information itself (name, calculated age,
+        // email, phone, mailing address, verification, email availability, Do
+        // Not Text / Text Undeliverable, and the alert); this screen no longer
+        // assembles a contact object, a name/age header, or the texting facts.
+        // `onContactChange` keeps the Missing Fields counts and the Next History
+        // Entry preview in sync from the authoritative record the card returns.
+        // The customer's available policy numbers are shown by Search Gateway in
+        // the left panel, so this surface deliberately renders no separate
+        // Policies box.
+        <CustomerContactCard
+          customerId={customer.customer_id}
+          onChange={onContactChange}
+          onPendingChange={setCardPreview}
+          onPendingStateChange={setCardPending}
+        />
       }
       history={
         // Right column: the Next History Entry preview (what completing this
@@ -996,7 +997,10 @@ function ContactReviewTask({
               previously-missing method is filled; blank until there is something
               to record (a filled value, or the deliberate Nothing Usable action
               which records the research outcome). */}
-          <NextHistoryEntry preview={researchPreview} />
+          {/* While the contact card's unified editor has pending changes, show
+              exactly what its single Save will record (the card owns that diff);
+              otherwise fall back to the research-outcome preview. */}
+          <NextHistoryEntry preview={cardPreview ?? researchPreview} />
           <CustomerHistoryCard events={history} actorTimeZone={historyTz} />
         </>
       }

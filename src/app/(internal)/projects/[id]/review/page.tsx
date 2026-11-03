@@ -1,10 +1,8 @@
 import type { Metadata } from 'next'
-import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowLeft } from 'lucide-react'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isPermanentPolicyReviewTypeName } from '@/lib/projects/workflows'
-import { WorkflowPage, WorkflowHeader } from '@/components/workflow'
+import { WorkflowPage, WorkflowPageHeader, WorkflowBackLink } from '@/components/workflow'
 import { Review1035Client } from '../Review1035Client'
 
 export const metadata: Metadata = { title: 'Work Project' }
@@ -59,25 +57,18 @@ export default async function ProjectReviewPage({
   return (
     <WorkflowPage
       heading={
-        <div className="space-y-8">
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
-            <Link
-              href="/my-work"
-              className="-ml-1 inline-flex items-center gap-1.5 text-sm font-medium text-brand-hover transition-colors hover:text-brand"
-            >
-              <ArrowLeft className="size-4" aria-hidden />
-              Back to My Work
-            </Link>
-            <Link
-              href={`/projects/${project.id}`}
-              className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-supporting transition-colors hover:text-ink"
-            >
-              Back to project
-            </Link>
-          </div>
-
-          <WorkflowHeader primary={project.name} secondary="Permanent Policy Review · Steps 2 & 3" />
-        </div>
+        <WorkflowPageHeader
+          title={project.name}
+          secondary="Permanent Policy Review · Steps 2 & 3"
+          back={
+            <>
+              <WorkflowBackLink href="/my-work">Back to My Work</WorkflowBackLink>
+              <WorkflowBackLink href={`/projects/${project.id}`} tone="muted" withArrow={false}>
+                Back to project
+              </WorkflowBackLink>
+            </>
+          }
+        />
       }
     >
       <Review1035Client projectId={project.id} initialCustomerId={initialCustomerId ?? null} />

@@ -41,6 +41,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isPermanent } from '@/lib/policies/product-type'
+import { isEverlakeCarrier } from '@/lib/policies/everlake-carrier'
 
 /** Stable workflow keys this release understands. The catalog may hold more;
  * only these have a typed completion strategy here. */
@@ -54,11 +55,25 @@ export interface ProjectWorkflow {
   workflowId: string
   key: string
   name: string
-  completionMode: 'automatic' | 'manual'
+  completionMode: CompletionMode
   position: number
   /** project_workflows.id of the workflow that gates this one (same project), or null. */
   gatedByProjectWorkflowId: string | null
 }
+
+/**
+ * How a workflow (phase) decides per-customer completion and ADVANCEMENT to the
+ * next phase. Mirrors workflows.completion_mode exactly:
+ *   - 'automatic' — completion derives from business facts; the customer
+ *     advances with no human step.
+ *   - 'manual'    — completion requires a recorded human determination.
+ *   - 'handoff'   — auto-ready, human-releases: the facts mark the phase READY
+ *     to hand off, but advancement waits for one deliberate recorded release
+ *     ("I'm done, here's the baton"), so work never silently disappears to the
+ *     next station. The readiness fact logic lives in the typed strategy keyed
+ *     on the workflow key, exactly like the other two flavors.
+ */
+export type CompletionMode = 'automatic' | 'manual' | 'handoff'
 
 /** The per-customer evaluation of one contained workflow. */
 export type WorkflowCustomerStatus =
@@ -102,8 +117,8 @@ export async function getProjectWorkflows(
     workflow_id: string
     position: number
     gated_by_workflow_id: string | null
-    workflows: { key: string; name: string; completion_mode: 'automatic' | 'manual' }
-      | { key: string; name: string; completion_mode: 'automatic' | 'manual' }[]
+    workflows: { key: string; name: string; completion_mode: CompletionMode }
+      | { key: string; name: string; completion_mode: CompletionMode }[]
       | null
   }
   const rows = (data ?? []) as unknown as Row[]
@@ -218,6 +233,31 @@ export function onboardingCompleteForPolicies(
 }
 
 /**
+ * The VERIFY gate predicate — the sibling of onboardingCompleteForPolicies, one
+ * step earlier in the workflow.
+ *
+ * A customer is BLOCKED at Verify Servicing Agent when ANY of their
+ * Everlake-eligible policies (Allstate / Lincoln Benefit Life / Everlake) is
+ * still at sa_status 'unknown': we have not established whether we are the
+ * servicing agent, so no downstream capture or review work on that customer can
+ * proceed. The block clears when every Everlake policy has a definite answer
+ * ('confirmed' or 'not_on_file').
+ *
+ * Carrier-scoped, not product-scoped: verification happens in the Everlake
+ * portal, so a non-Everlake carrier is NEVER verify work and never blocks (its
+ * 'unknown' is a different matter, handled by its own carrier). This is the same
+ * kind of per-customer, policy-derived gate the determination/review phase
+ * already uses — just moved earlier, in front of onboarding.
+ *
+ * Pure and exported so the rule is directly testable without a DB.
+ */
+export function verifyBlockedForPolicies(
+  policies: { carrier: string | null; sa_status: string | null }[],
+): boolean {
+  return policies.some((p) => p.sa_status === 'unknown' && isEverlakeCarrier(p.carrier))
+}
+
+/**
  * Evaluate a contained workflow for one customer, given the facts the strategy
  * needs. `gateComplete` is whether this workflow's gating workflow (if any) is
  * COMPLETE for this customer; callers compute it from the dependency wiring.
@@ -319,6 +359,113 @@ export function evaluateWorkflowsForCustomer(args: {
   })
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Current phase + advance behavior (the baton).
+//
+// evaluateWorkflowsForCustomer answers "what is the state of each phase for this
+// customer". The call panel and the work surfaces also need the single, direct
+// question: WHICH phase is the customer in right now, and what does advancing
+// from it mean. That is the (project_type, workflow) coordinate the call-context
+// catalog is keyed on, and the completion_mode is what decides whether finishing
+// the phase advances the customer automatically, waits on a human determination,
+// or waits on an explicit baton release.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * How advancing OUT of the current phase behaves, derived from the phase's
+ * completion mode and whether its completion facts are satisfied.
+ *   - 'auto'           automatic phase, facts not yet satisfied: it will advance
+ *                      on its own once the work is done. Nothing for a human to click.
+ *   - 'awaiting-human' manual phase: advancement needs a recorded human
+ *                      determination (e.g. Candidate / Not a Candidate).
+ *   - 'ready-release'  handoff phase whose facts are satisfied: the work is done
+ *                      and the baton is extended — one deliberate release passes
+ *                      it to the next phase. This is the explicit "I'm done,
+ *                      here's the baton" click.
+ *   - 'auto-advanced'  automatic OR handoff phase whose completion facts are
+ *                      satisfied and (for automatic) nothing remains: already
+ *                      complete, the next phase is open.
+ */
+export type AdvanceBehavior = 'auto' | 'awaiting-human' | 'ready-release' | 'auto-advanced'
+
+export interface CurrentPhase {
+  /** The project_workflows row id of the phase the customer is currently in. */
+  projectWorkflowId: string
+  workflowKey: string
+  name: string
+  completionMode: CompletionMode
+  /** Per-customer status of this phase (always 'open' or 'complete' here; a
+   * blocked phase is never "current"). */
+  status: WorkflowCustomerStatus
+  /** What finishing this phase does for this customer. */
+  advance: AdvanceBehavior
+}
+
+/**
+ * Pick the single phase a customer is CURRENTLY in, from their evaluated
+ * workflow states, and describe how advancing from it behaves.
+ *
+ * The current phase is the FIRST (lowest position) phase that is not yet
+ * complete for this customer and whose gate is satisfied — i.e. the first
+ * 'open' phase in order. A 'blocked' phase is never current (its gate has not
+ * cleared). When every phase is complete, the customer has finished the
+ * project's workflow spine and there is no current phase (returns null).
+ *
+ * Pure: it consumes the already-evaluated states plus the contained workflows
+ * (for position, name, and completion mode), so it is directly testable without
+ * a DB and never re-reads facts.
+ */
+export function resolveCurrentPhase(
+  workflows: ProjectWorkflow[],
+  states: WorkflowCustomerState[],
+): CurrentPhase | null {
+  const byId = new Map(workflows.map((w) => [w.id, w]))
+  const stateById = new Map(states.map((s) => [s.projectWorkflowId, s]))
+  // Walk phases in position order; the first open one is the current phase.
+  const ordered = [...workflows].sort((a, b) => a.position - b.position)
+  for (const w of ordered) {
+    const st = stateById.get(w.id)
+    if (!st) continue
+    if (st.status === 'open') {
+      return {
+        projectWorkflowId: w.id,
+        workflowKey: w.key,
+        name: w.name,
+        completionMode: w.completionMode,
+        status: 'open',
+        advance: advanceBehaviorFor(w.completionMode, /* factsSatisfied */ false),
+      }
+    }
+  }
+  // No open phase: either everything is complete (no current phase) or the only
+  // non-complete phases are blocked (shouldn't happen once a gate clears). Treat
+  // as finished.
+  return null
+}
+
+/**
+ * The advance behavior for a phase given its completion mode and whether its
+ * completion/readiness FACTS are satisfied. Pure and exported for direct
+ * testing and for callers that already know the facts.
+ *
+ * A 'manual' phase always awaits a human determination while open. A 'handoff'
+ * phase awaits the explicit release once its readiness facts are satisfied (and
+ * before that it is simply 'auto' — the work is still being completed). An
+ * 'automatic' phase advances on its own; while open it is 'auto', and once its
+ * facts are satisfied it has already advanced.
+ */
+export function advanceBehaviorFor(mode: CompletionMode, factsSatisfied: boolean): AdvanceBehavior {
+  switch (mode) {
+    case 'manual':
+      return factsSatisfied ? 'auto-advanced' : 'awaiting-human'
+    case 'handoff':
+      return factsSatisfied ? 'ready-release' : 'auto'
+    case 'automatic':
+    default:
+      return factsSatisfied ? 'auto-advanced' : 'auto'
+  }
+}
+
 /**
  * Evaluate EVERY contained workflow for EVERY project member, independently per
  * customer, honoring the per-customer gate between workflows. Reads membership
@@ -410,7 +557,7 @@ export interface CatalogWorkflow {
   key: string
   name: string
   description: string | null
-  completionMode: 'automatic' | 'manual'
+  completionMode: CompletionMode
 }
 
 /** The reusable workflow catalog (every definition an operator can select). */
@@ -420,7 +567,7 @@ export async function getWorkflowCatalog(supabase: SupabaseClient): Promise<Cata
     .select('id, key, name, description, completion_mode')
     .order('key', { ascending: true })
   if (error) return []
-  return ((data ?? []) as { id: string; key: string; name: string; description: string | null; completion_mode: 'automatic' | 'manual' }[])
+  return ((data ?? []) as { id: string; key: string; name: string; description: string | null; completion_mode: CompletionMode }[])
     .map((w) => ({ id: w.id, key: w.key, name: w.name, description: w.description, completionMode: w.completion_mode }))
 }
 

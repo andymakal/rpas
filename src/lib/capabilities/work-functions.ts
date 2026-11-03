@@ -37,6 +37,7 @@ export type QualificationKey =
  * separate 'contact_review' key was folded into 'research'.
  */
 export type WorkFunctionKey =
+  | 'verify_servicing_agent'
   | 'outreach'
   | 'research'
   | 'operations_prep'

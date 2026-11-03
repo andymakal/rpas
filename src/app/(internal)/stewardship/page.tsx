@@ -1,6 +1,4 @@
 import type { Metadata } from 'next'
-import Link from 'next/link'
-import { ArrowLeft } from 'lucide-react'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getDailyDirection } from '@/lib/daily-direction/stewardship'
 import type { DailyDirectionState } from '@/lib/daily-direction/types'
@@ -78,21 +76,17 @@ export default async function StewardshipPage({
 
   return (
     <div className="min-h-full bg-workflow-surface">
-      {/* Top band: back-to-My-Work + the Assistant, in the SAME shared workflow
-          width column the board below uses, on the shared workflow surface (not
-          a raw slate background or a narrower container). */}
-      <div className="px-6 pt-8 sm:px-10">
-        <div className={`${WORKFLOW_MAX_WIDTH} space-y-6`}>
-          <Link
-            href="/my-work"
-            className="-ml-1 inline-flex items-center gap-1.5 text-sm font-medium text-brand-hover transition-colors hover:text-brand"
-          >
-            <ArrowLeft className="size-4" aria-hidden />
-            Back to My Work
-          </Link>
-          {dailyDirection && <DailyDirectionBriefing state={dailyDirection} />}
+      {/* Top band: the Daily Direction Assistant, in the SAME shared workflow
+          width column the board below uses, on the shared workflow surface. The
+          "Back to My Work" link now lives in the shared page header (beside the
+          Stewardship title, rendered by StewardshipClient), not in this band. */}
+      {dailyDirection && (
+        <div className="px-6 pt-8 sm:px-10">
+          <div className={`${WORKFLOW_MAX_WIDTH} space-y-6`}>
+            <DailyDirectionBriefing state={dailyDirection} />
+          </div>
         </div>
-      </div>
+      )}
       <StewardshipClient
         agencies={agencyOptions}
         project={project}

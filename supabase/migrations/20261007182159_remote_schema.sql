@@ -1,0 +1,20 @@
+-- Baseline snapshot (Supabase `db pull`), captured as version 20261007182159.
+--
+-- This file exists ONLY so the repository has a local file matching the
+-- `20261007182159 remote_schema` row that already exists in the production
+-- `supabase_migrations.schema_migrations` ledger. Before this file, production
+-- tracked a baseline version that had no counterpart in the repo, which made
+-- `supabase migration list` report the version as remote-only.
+--
+-- It is intentionally a no-op, and it is NOT a reconstruction of the baseline
+-- schema. The objects captured by this baseline already exist in production and
+-- are carried forward by the tracked migrations that follow it (the later
+-- feature chain is reconciled into production by 20261111000001). Emitting the
+-- baseline DDL here would attempt to recreate objects that already exist, so
+-- this file deliberately runs nothing.
+--
+-- Do not add DDL to this file as a stand-in for the baseline. If the real
+-- baseline schema is ever needed as a source artifact, generate it directly
+-- from the database (e.g. `supabase db dump`); this placeholder's only job is
+-- to make the repository and the remote ledger agree on the baseline version so
+-- migration tooling stops reporting 20261007182159 as remote-only.

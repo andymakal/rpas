@@ -14,7 +14,7 @@
  * Fit first, constrain only when needed (durable, offset-free):
  *   The internal shell scrolls inside a `<main>` whose height is the viewport
  *   (its ancestor is fixed inset:0). Everything above this row — the surface
- *   gutter, the Back link, the WorkflowHeader, and any client-specific chrome —
+ *   gutter, the WorkflowPageHeader, and any client-specific chrome —
  *   is ordinary flow of varying height per screen, so a hardcoded "100vh minus N"
  *   is always a guess. Instead we MEASURE this row's own distance from the top of
  *   the viewport and the real available space below it.
@@ -38,7 +38,7 @@
  *   so small screens keep ordinary page scrolling.
  */
 
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
 
 /** The Tailwind `xl` breakpoint (px). The fill behavior is desktop-only; below
@@ -65,14 +65,43 @@ function nearestScrollParent(el: HTMLElement): HTMLElement {
  * genuinely fits into the constrained/scrolling mode. */
 const FIT_TOLERANCE = 2
 
+/**
+ * Named column-ratio presets for the three-column working screen. These are a
+ * DESIGN-TIME tuning vocabulary: a page opts into a preset by name, and the
+ * actual proportions live here in one place (not inline on each page) so the
+ * whole set is visible at a glance and tuned once. The value is only the `xl`
+ * three-column grid track; the one-column (narrow) and two-column (medium)
+ * responsive fallbacks are unaffected, so stacking behavior never changes.
+ *
+ *   even          — equal thirds (1/1/1). The default; today's layout.
+ *   wide-context  — 27/46/27, a wider CENTER for screens where the center
+ *                   column (customer context) carries the weight and the left
+ *                   action is mostly click-through.
+ *   wide-work     — 46/27/27, a wider LEFT for screens where the action/work
+ *                   column is the focus (the outbound call workbench): the
+ *                   customer context and the history each take a narrower track,
+ *                   and the history can fade to the edge.
+ */
+export type TaskColumnRatio = 'even' | 'wide-context' | 'wide-work'
+
+const COLUMN_TEMPLATES: Record<TaskColumnRatio, string> = {
+  even: 'repeat(3,minmax(0,1fr))',
+  'wide-context': 'minmax(0,27fr) minmax(0,46fr) minmax(0,27fr)',
+  'wide-work': 'minmax(0,46fr) minmax(0,27fr) minmax(0,27fr)',
+}
+
 export function TaskColumns({
   action,
   context,
   history,
+  columns = 'even',
 }: {
   action: ReactNode
   context: ReactNode
   history: ReactNode
+  /** Named column-ratio preset for the xl three-column track. Default 'even'
+   * (equal thirds). See {@link TaskColumnRatio}. */
+  columns?: TaskColumnRatio
 }) {
   const rowRef = useRef<HTMLDivElement | null>(null)
   const actionRef = useRef<HTMLDivElement | null>(null)
@@ -83,6 +112,10 @@ export function TaskColumns({
   // available space). A non-null value means the content exceeds the viewport,
   // so the row is capped to the available height and each column scrolls.
   const [fillHeight, setFillHeight] = useState<number | null>(null)
+  // Whether the layout is at the xl (three-column) breakpoint. Driven by the
+  // same measure() pass so it stays reactive to resize/zoom and SSR-safe (false
+  // on the server; corrected on mount). The ratio preset only applies when true.
+  const [isDesktop, setIsDesktop] = useState(false)
 
   const measure = useCallback(() => {
     const el = rowRef.current
@@ -90,9 +123,11 @@ export function TaskColumns({
     // Desktop only. Below xl the columns stack; leave the height to normal flow
     // so small screens scroll the page as usual.
     if (window.innerWidth < XL_BREAKPOINT) {
+      setIsDesktop(prev => (prev === false ? prev : false))
       setFillHeight(prev => (prev === null ? prev : null))
       return
     }
+    setIsDesktop(prev => (prev === true ? prev : true))
     // The ACTUAL available height below this row's top, measured purely from box
     // geometry of the scroll VIEWPORT — never from content-derived scrollHeight,
     // so the measurement does not collapse when the row is currently capped
@@ -159,11 +194,25 @@ export function TaskColumns({
 
   const active = fillHeight !== null
 
+  // The xl three-column TRACK is applied as a direct inline grid-template-columns
+  // (not a Tailwind arbitrary class or a CSS variable), gated on the measured
+  // desktop width. This is deliberate: a Tailwind `xl:grid-cols-[...]` arbitrary
+  // value only works for values Tailwind can statically see at build time, and a
+  // `var()`-based arbitrary value does not reliably resolve here. Applying the
+  // template string straight to the element guarantees the named ratio takes
+  // effect. Below xl we apply NO inline template, so the Tailwind
+  // `grid-cols-1 lg:grid-cols-2` responsive fallbacks drive the stacked layout
+  // exactly as before.
+  const rowStyle: CSSProperties = {
+    ...(isDesktop ? { gridTemplateColumns: COLUMN_TEMPLATES[columns] } : {}),
+    ...(active ? { height: `${fillHeight}px` } : {}),
+  }
+
   return (
     <div
       ref={rowRef}
-      className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-[repeat(3,minmax(0,1fr))] xl:items-start"
-      style={active ? { height: `${fillHeight}px` } : undefined}
+      className="grid grid-cols-1 gap-6 lg:grid-cols-2 xl:items-start"
+      style={rowStyle}
     >
       <div ref={actionRef} className={cn('space-y-5', active && 'xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1')}>{action}</div>
       <div ref={contextRef} className={cn('space-y-5', active && 'xl:h-full xl:min-h-0 xl:overflow-y-auto xl:pr-1')}>{context}</div>

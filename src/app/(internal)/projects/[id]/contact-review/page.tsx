@@ -1,10 +1,8 @@
 import type { Metadata } from 'next'
-import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { ArrowLeft } from 'lucide-react'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { isPermanentPolicyReviewTypeName } from '@/lib/projects/workflows'
-import { WorkflowPage, WorkflowHeader } from '@/components/workflow'
+import { WorkflowPage, WorkflowPageHeader, WorkflowBackLink } from '@/components/workflow'
 import { ContactReviewClient } from '../ContactReviewClient'
 
 export const metadata: Metadata = { title: 'Contact Research' }
@@ -54,22 +52,13 @@ export default async function ProjectContactReviewPage({
   return (
     <WorkflowPage
       heading={
-        <div className="space-y-8">
-          <div className="flex flex-wrap items-center gap-x-5 gap-y-1">
-            <Link
-              href="/my-work"
-              className="-ml-1 inline-flex items-center gap-1.5 text-base font-medium text-brand-hover transition-colors hover:text-brand"
-            >
-              <ArrowLeft className="size-4" aria-hidden />
-              Back to My Work
-            </Link>
-          </div>
-
-          {/* "Contact Research" is the page title. The project scope is
-              preserved through the project id passed to the client below; it is
-              deliberately not shown in the heading. */}
-          <WorkflowHeader primary="Contact Research" />
-        </div>
+        // "Contact Research" is the page title. The project scope is preserved
+        // through the project id passed to the client below; it is deliberately
+        // not shown in the heading.
+        <WorkflowPageHeader
+          title="Contact Research"
+          back={<WorkflowBackLink href="/my-work">Back to My Work</WorkflowBackLink>}
+        />
       }
     >
       <ContactReviewClient projectId={project.id} initialCustomerId={customer_id ?? null} />

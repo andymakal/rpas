@@ -45,10 +45,20 @@ export function NextHistoryEntry({
   preview: NextHistoryEntryPreview | null
   className?: string
 }) {
+  // While an entry is BUILDING (preview present), give the card eye-catching
+  // teal emphasis — a teal wash + a stronger teal ring — so the worker's eye is
+  // drawn to what they are about to record as it assembles. It is deliberately
+  // the brand TEAL, not green: green reads as "saved/done," and nothing is
+  // recorded until the action completes, so the preview must not imply it is
+  // final. When there is nothing to record the card rests in its plain state.
+  const building = !!preview?.summary
   return (
     <section
       className={cn(
-        'rounded-2xl border border-brand-subtle bg-surface-card p-4 font-workflow',
+        'rounded-2xl border p-4 font-workflow transition-colors',
+        building
+          ? 'border-brand-ring bg-brand-subtle ring-1 ring-brand-ring'
+          : 'border-brand-subtle bg-surface-card',
         className,
       )}
       aria-label="Next history entry"

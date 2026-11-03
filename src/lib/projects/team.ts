@@ -13,11 +13,19 @@
  *                                    destination). One row per (project, tier).
  *
  * These are kept strictly distinct from a producer's job title
- * (producers.title), their licensing facts (producers.is_*_licensed), and their
- * capability / routing eligibility (producer_work_functions / work_functions).
- * This module NEVER reads or writes any of those: a project responsibility is
- * not a capability, a license, or a work-routing assignment. Editing the team
- * here changes no work assignment.
+ * (producers.title) and their licensing facts (producers.is_*_licensed), and
+ * THIS module never reads or writes a producer's capability / routing
+ * eligibility (producer_work_functions / work_functions): a project
+ * responsibility is still modelled as its own thing here.
+ *
+ * What DID change: the Team API route now layers a capability RECONCILE on top
+ * of these writes (src/lib/projects/capability-sync.ts), so that assigning or
+ * changing a project responsibility also establishes the matching PROJECT-SCOPED
+ * work eligibility automatically. That bridge lives in the route and the sync
+ * module, deliberately NOT in here, and it only ever manages its own
+ * 'role_sync'-provenance rows — it never disturbs an agency-wide or manually
+ * granted assignment. So this module stays a pure responsibility model; the
+ * responsibility -> capability effect is composed one layer up.
  *
  * This is the single place the team is read and written, so the Overview Team
  * section, its API route, and the My Projects composition all agree. It takes a

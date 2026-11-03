@@ -341,6 +341,7 @@ function isDirectWorkingRoute(route: string | null | undefined): boolean {
 function outreachSubPopulation(
   outreach: ActivityGroup,
   match: RegExp,
+  opts?: { standing?: boolean },
 ): { count: number; route: string | null } | null {
   const matching = outreach.sources.filter(
     (src) => src.informational && match.test(src.label),
@@ -351,7 +352,13 @@ function outreachSubPopulation(
   // The sets are disjoint by construction, so this counts each customer once.
   let count = 0
   for (const s of matching) count += s.ownedByMe + s.availableToMe
-  if (count <= 0) return null
+  // A STANDING sub-population stays a reachable step even at zero: the plan
+  // shows the whole outreach workflow, and a 0 is the honest signal that the
+  // step is cleared (time to refresh the population) rather than a reason to
+  // hide it. A non-standing sub-population keeps the original "drop at zero"
+  // behavior. The composition always emits the source for an outreach-eligible
+  // employee, so at zero there is still a usable unscoped route below.
+  if (count <= 0 && !opts?.standing) return null
 
   // The distinct projects that actually carry actionable work for this
   // sub-population, gathered from each source's own project and its per-project
@@ -457,6 +464,10 @@ function outreachCustomerInteraction(
  * column); this order deliberately does NOT depend on that band.
  */
 const FIXED_WORKFLOW_ORDER: ActivityGroup['workFunction'][] = [
+  // Verify Servicing Agent is the GATE and the first thing done: a policy must
+  // have a definite servicing-agent answer before any capture/review work on it
+  // can proceed, so it leads the fixed workflow order.
+  'verify_servicing_agent',
   'research',
   'outreach',
   'operations_prep',
@@ -492,6 +503,22 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
   for (const a of actionable) {
     const emphasis = a.band === 'focus' || a.band === 'exact_time_commitment' || a.band === 'due_callback'
     switch (a.workFunction) {
+      case 'verify_servicing_agent': {
+        // The gate: confirm per policy whether we are the servicing agent before
+        // any capture/review work proceeds. The count is the unverified-policy
+        // figure the composition resolved (each policy is one unit of work).
+        steps.push({
+          key: 'verify_servicing_agent',
+          title: 'Verify servicing agent',
+          reason:
+            'Before anything else, confirm whether we are the servicing agent on each policy by looking it up in the Everlake portal. Until a policy has a definite answer, no capture or review work on it can proceed.',
+          count: actionableCountOf(a),
+          actionLabel: 'Start verifying',
+          route: primaryRouteFor(a),
+          emphasis,
+        })
+        break
+      }
       case 'research': {
         // Contact Research is now the SINGLE consolidated contact-finding step:
         // one activity covering every customer missing a usable email or phone,
@@ -522,9 +549,17 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
         // introductory emails, then due calls, then other callable customers.
         // Each sub-population is read from the composition's informational
         // sources, so the counts match the board and nothing is double-counted.
-        const intro = outreachSubPopulation(a, /introductory email/i)
-        const callsDue = outreachSubPopulation(a, /calls due/i)
-        const otherCalls = outreachSubPopulation(a, /available to call/i)
+        // All three call/email sub-populations are STANDING steps: they stay in
+        // the plan even at zero so the full outreach workflow is always visible
+        // and a 0 reads as "this step is cleared — refresh the population when
+        // every step is 0", rather than the step silently vanishing. The
+        // composition always emits their informational sources for an outreach-
+        // eligible employee, so each has a usable route even at zero. Customer
+        // Interaction and Servicing Access below are already standing the same
+        // way; this brings the email/call sub-steps in line.
+        const intro = outreachSubPopulation(a, /introductory email/i, { standing: true })
+        const callsDue = outreachSubPopulation(a, /calls due/i, { standing: true })
+        const otherCalls = outreachSubPopulation(a, /available to call/i, { standing: true })
 
         if (intro) {
           steps.push({
@@ -546,8 +581,10 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
               'A promised callback or scheduled follow-up has come due for these customers. Due calls come before other calling.',
             count: callsDue.count,
             actionLabel: 'Open Calls Due',
+            // Due calls are emphasized only when there actually are some; an
+            // empty standing step is not highlighted as urgent work.
+            emphasis: callsDue.count > 0 ? true : emphasis,
             route: callsDue.route,
-            emphasis: true,
           })
         }
         if (otherCalls) {
@@ -607,15 +644,15 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
             emphasis,
           })
         }
-        // Fallback: outreach is actionable but carries no recognized sub-
-        // population (e.g. only follow-up chases). Offer the activity directly
-        // so the step is never silently dropped. The always-present Servicing
-        // Access standing step does NOT count as a recognized actionable
-        // sub-population here: when it is the only thing present (an otherwise
-        // empty, eligible Outreach), the fallback must not add a redundant
-        // zero-count "Continue outreach" step on top of it.
-        const hasActionableSubPopulation = !!intro || !!callsDue || !!otherCalls
-        if (!hasActionableSubPopulation && !servicingAccess && !customerInteraction) {
+        // Fallback: outreach exists but no sub-population surfaced at all — e.g.
+        // an employee who is not outreach-eligible, so the composition emitted
+        // none of the standing sources. Offer the activity directly so the step
+        // is never silently dropped. For an eligible employee the three standing
+        // call/email steps (plus Customer Interaction and Servicing Access) are
+        // always present, so this fallback does not fire and no redundant
+        // "Continue outreach" row is added on top of them.
+        const hasAnyOutreachStep = !!intro || !!callsDue || !!otherCalls
+        if (!hasAnyOutreachStep && !servicingAccess && !customerInteraction) {
           steps.push({
             key: 'outreach',
             title: 'Continue outreach',

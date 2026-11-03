@@ -4,6 +4,7 @@ import {
   stillNeedsResearchRecommendation,
 } from '@/lib/stewardship/research-record'
 import { readUnusableChannelsByCustomer } from '@/lib/stewardship/attempt-history'
+import { loadGatewayPolicyNumbers } from '@/lib/stewardship/gateway-policy-numbers'
 import type { OutreachChannel } from '@/lib/stewardship/outreach-attempts'
 import { activeProjectsWithWorkflow, isPermanentPolicyReviewTypeName } from '@/lib/projects/workflows'
 import { type EmailAvailability } from '@/lib/email-availability'
@@ -89,6 +90,21 @@ export interface ContactReviewCustomer {
   customer_id: string
   first_name: string | null
   last_name: string | null
+  /** The remaining recorded name parts, carried so every name shown on the
+   * Contact Research screen renders through the shared Person Name presentation
+   * (familiar name: Goes by/First, Last, suffix when preferred). */
+  middle_name: string | null
+  suffix: string | null
+  goes_by: string | null
+  suffix_in_familiar: boolean | null
+  /** Best-available-precision age, reusing the project age logic
+   * (public.project_customer_age): exact DOB when present, else the best masked
+   * owner DOB from the customer's policies. Null when age cannot be determined
+   * (never guessed). The day is never exposed — this is age only. */
+  age: number | null
+  /** True when `age` was derived from an incomplete masked policy DOB rather
+   * than an exact date_of_birth, so the UI can label it approximate. */
+  age_approximate: boolean
   /** Current stored contact facts, shown so the worker can see what exists. */
   email: string | null
   phone: string | null
@@ -118,10 +134,19 @@ export interface ContactReviewCustomer {
    * shared CustomerContactCard shows the same alert banner here. Informational
    * only; no effect on research or routing. */
   contact_alert: string | null
-  /** Any one policy number already on file for this customer, shown so the
-   * worker can search Gateway by last name + policy number. null when the
+  /** Do Not Text — the durable customer opt-out (customers.sms_opt_out). Carried
+   * so the shared card shows the texting status on first render. Disables
+   * texting only; never calling. */
+  sms_opt_out: boolean
+  /** Text Undeliverable — whether the NUMBER on file has a recorded text-delivery
+   * failure (the value-scoped text unusable fact, already resolved against the
+   * current number in `unusableByCustomer`). Restores on a number change. */
+  text_undeliverable: boolean
+  /** Every distinct policy number reliably on file for this customer (from the
+   * customer's service policies and associated cases, de-duplicated), shown so
+   * the worker can search Gateway by last name + policy number. Empty when the
    * customer has no policy on file. */
-  policy_number: string | null
+  policy_numbers: string[]
   /**
    * REACHABILITY, which keys the two surfaces (research state sub-labels within,
    * via researched_unsuccessfully):
@@ -172,6 +197,10 @@ type CustomerRow = {
   id: string
   first_name: string | null
   last_name: string | null
+  middle_name: string | null
+  suffix: string | null
+  goes_by: string | null
+  suffix_in_familiar: boolean | null
   email: string | null
   phone: string | null
   street: string | null
@@ -184,14 +213,39 @@ type CustomerRow = {
   address_verified_at: string | null
   email_availability: EmailAvailability | null
   contact_alert: string | null
+  sms_opt_out: boolean | null
   is_test: boolean
 }
 
 /** The columns both loaders read for a Contact Review row. Includes the mailing
- * address and verification timestamps the shared CustomerContactCard needs. */
+ * address and verification timestamps the shared CustomerContactCard needs.
+ * Age is NOT read here — it comes from the reused project age logic via
+ * `readCustomerAges` (exact DOB or masked policy fallback), age only. */
 const CUSTOMER_SELECT =
-  'id, first_name, last_name, email, phone, street, address_line1, city, state, zip, ' +
-  'email_verified_at, phone_verified_at, address_verified_at, email_availability, contact_alert, is_test'
+  'id, first_name, last_name, middle_name, suffix, goes_by, suffix_in_familiar, ' +
+  'email, phone, street, address_line1, city, state, zip, ' +
+  'email_verified_at, phone_verified_at, address_verified_at, email_availability, contact_alert, sms_opt_out, is_test'
+
+/** Batch the reused project age logic for a set of customers. Returns a map of
+ * customer id -> { age, approximate }. A read failure yields an empty map, so
+ * the card simply omits age rather than guessing. */
+async function readCustomerAges(
+  supabase: SupabaseClient,
+  customerIds: readonly string[],
+): Promise<Map<string, { age: number | null; approximate: boolean }>> {
+  const out = new Map<string, { age: number | null; approximate: boolean }>()
+  const unique = Array.from(new Set(customerIds))
+  if (unique.length === 0) return out
+  const { data, error } = await supabase.rpc('project_customer_ages', { p_customer_ids: unique })
+  if (error) {
+    console.error('contact-review customer ages read error:', error.message)
+    return out
+  }
+  for (const r of (data ?? []) as { customer_id: string; age: number | null; is_approximate: boolean }[]) {
+    out.set(r.customer_id, { age: r.age ?? null, approximate: r.is_approximate === true })
+  }
+  return out
+}
 
 const usable = (v: string | null): boolean => !!v && v.trim().length > 0
 
@@ -203,35 +257,6 @@ async function chunked<T>(
   for (let i = 0; i < items.length; i += size) {
     await run(items.slice(i, i + size))
   }
-}
-
-type ServicePolicyRow = { customer_id: string | null; policy_number: string | null }
-
-/**
- * Map each given customer to ANY ONE policy number on file, read in a batched
- * pass over service_policies (non-test). Gateway look-up only needs a single
- * policy number to pair with the last name, so the first usable one wins and
- * additional policies are ignored. Customers with no policy are simply absent
- * from the map (surfaced as "no policy number" in the UI).
- */
-async function loadOnePolicyNumberPerCustomer(
-  supabase: SupabaseClient,
-  customerIds: string[],
-): Promise<Map<string, string>> {
-  const byCustomer = new Map<string, string>()
-  if (customerIds.length === 0) return byCustomer
-  await chunked(customerIds, 300, async chunk => {
-    const { data } = await supabase
-      .from('service_policies')
-      .select('customer_id, policy_number')
-      .in('customer_id', chunk)
-      .eq('is_test', false)
-    for (const p of (data ?? []) as ServicePolicyRow[]) {
-      if (!p.customer_id || !usable(p.policy_number)) continue
-      if (!byCustomer.has(p.customer_id)) byCustomer.set(p.customer_id, p.policy_number!.trim())
-    }
-  })
-  return byCustomer
 }
 
 /**
@@ -282,6 +307,8 @@ export async function buildContactReview(
     currentByCustomer,
   )
   const noneUnusable: Set<OutreachChannel> = new Set()
+  // Best-available-precision ages (reused project age logic), one batched pass.
+  const agesByCustomer = await readCustomerAges(supabase, realCustomers.map((c) => c.id))
 
   // Customers still missing a USABLE method (effective usability), before the
   // durable research suppression. Email, phone, and mailing address are the
@@ -301,8 +328,9 @@ export async function buildContactReview(
     incomplete.map((c) => c.id),
   )
 
-  // One policy number per customer for the Gateway look-up (last name + policy).
-  const policyByCustomer = await loadOnePolicyNumberPerCustomer(
+  // All distinct policy numbers per customer for the Gateway look-up (last name
+  // + policy), gathered from service policies and associated cases.
+  const policiesByCustomer = await loadGatewayPolicyNumbers(
     supabase,
     incomplete.map((c) => c.id),
   )
@@ -339,10 +367,17 @@ export async function buildContactReview(
     // removes the customer from Contact Research. A found value self-heals the
     // method (it is no longer missing), so a completed customer leaves the list
     // naturally. There is no research-history suppression.
+    const ageInfo = agesByCustomer.get(c.id)
     out.push({
       customer_id: c.id,
       first_name: c.first_name,
       last_name: c.last_name,
+      middle_name: c.middle_name,
+      suffix: c.suffix,
+      goes_by: c.goes_by,
+      suffix_in_familiar: c.suffix_in_familiar,
+      age: ageInfo?.age ?? null,
+      age_approximate: ageInfo?.approximate ?? false,
       email: c.email,
       phone: c.phone,
       has_email: hasEmail,
@@ -358,7 +393,12 @@ export async function buildContactReview(
       address_verified_at: c.address_verified_at,
       email_availability: c.email_availability,
       contact_alert: c.contact_alert,
-      policy_number: policyByCustomer.get(c.id) ?? null,
+      sms_opt_out: c.sms_opt_out === true,
+      // Value-scoped text delivery failure for the number on file (onboarding or
+      // card-recorded). `u` is already resolved against the current phone, so a
+      // replaced number has already dropped out of the set.
+      text_undeliverable: u.has('text'),
+      policy_numbers: policiesByCustomer.get(c.id) ?? [],
       // Status is reachability: no usable method at all vs missing one. The
       // No Usable Contact Information section shows every 'no_usable_contact'
       // row; researched_unsuccessfully sub-labels outstanding vs previously
@@ -437,7 +477,7 @@ export async function loadContactReviewCustomer(
   // Every method usable: there is nothing to review or research.
   if (hasEmail && hasPhone && hasAddress) return null
 
-  const policyByCustomer = await loadOnePolicyNumberPerCustomer(supabase, [row.id])
+  const policiesByCustomer = await loadGatewayPolicyNumbers(supabase, [row.id])
 
   // A deliberately-reopened customer: report the same status the active list
   // would, read from the durable research record, so the task screen can label a
@@ -448,11 +488,19 @@ export async function loadContactReviewCustomer(
     ?? { email: false, phone: false, address: false }
   const stillRecommend = stillNeedsResearchRecommendation({ hasEmail, hasPhone, hasAddress }, researched)
   const noUsableContact = !hasEmail && !hasPhone
+  // Best-available-precision age (reused project age logic).
+  const ageInfo = (await readCustomerAges(supabase, [row.id])).get(row.id)
 
   return {
     customer_id: row.id,
     first_name: row.first_name,
     last_name: row.last_name,
+    middle_name: row.middle_name,
+    suffix: row.suffix,
+    goes_by: row.goes_by,
+    suffix_in_familiar: row.suffix_in_familiar,
+    age: ageInfo?.age ?? null,
+    age_approximate: ageInfo?.approximate ?? false,
     email: row.email,
     phone: row.phone,
     has_email: hasEmail,
@@ -468,7 +516,11 @@ export async function loadContactReviewCustomer(
     address_verified_at: row.address_verified_at,
     email_availability: row.email_availability,
     contact_alert: row.contact_alert,
-    policy_number: policyByCustomer.get(row.id) ?? null,
+    sms_opt_out: row.sms_opt_out === true,
+    // Value-scoped text delivery failure for the number on file (onboarding or
+    // card-recorded), already resolved against the current phone.
+    text_undeliverable: unusable.has('text'),
+    policy_numbers: policiesByCustomer.get(row.id) ?? [],
     status: !stillRecommend && noUsableContact ? 'no_usable_contact' : 'needs_research',
     researched_unsuccessfully: !stillRecommend,
   }

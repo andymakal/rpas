@@ -41,7 +41,7 @@ import {
   normalizeUnusableValue,
   OUTCOME_MARKERS,
 } from './outreach-attempts'
-import { evaluateContactOptions, toContactFacts, initialQueueFromOptions } from './contact-options'
+import { evaluateContactOptions, resolveContactOptions, toContactFacts, initialQueueFromOptions } from './contact-options'
 import { evaluateCadenceStatus } from './cadence-status'
 
 const UTC = 'UTC'
@@ -965,4 +965,85 @@ test('parseOutcomeFromNote: recognizes BOTH the bare and the value-scoped unusab
   assert.equal(parseOutcomeFromNote(`Bad number. ${OUTCOME_MARKERS.unusable}`), 'unusable')
   assert.equal(parseOutcomeFromNote(`Bad number. ${buildUnusableMarker('call', '215-555-0100')}`), 'unusable')
   assert.equal(parseOutcomeFromNote('Servicing-agent onboarding call: Reached.'), 'touch')
+})
+
+// ── Contact-action availability after a Customer Contact Card save ───────────
+// These lock in the behavior the stewardship workflow now relies on: after the
+// self-contained card saves, the workflow recomputes the AUTHORITATIVE
+// contact_options from the saved facts via resolveContactOptions (the one
+// server path). No second client-side availability calculation exists, so these
+// exercise exactly what the reload produces. The value-scoped comparison the
+// stewardship read performs against the current phone is modeled with
+// normalizeUnusableValue, as the existing value-scoped test does.
+
+test('availability: reformatting the SAME number keeps a value-scoped call-unusable restriction (digits identity)', async () => {
+  // A recorded bad-number failure for 814-808-7526; the number on file is later
+  // shown reformatted as (814) 808-7526. The read resolves the per-number
+  // unusable fact by comparing digits, so the restriction still applies.
+  const failedDigits = unusableValueFromNote(`Bad number. ${buildUnusableMarker('call', '814-808-7526')}`)
+  const currentDigits = normalizeUnusableValue('call', '(814) 808-7526')
+  assert.equal(currentDigits, failedDigits) // reformat is the SAME number
+
+  // Because it is still unusable, the resolved options subtract call+text (both
+  // ride the number); the reformat did NOT silently restore them.
+  const opts = await resolveContactOptions(
+    { phone: '(814) 808-7526', email: null, street: null, city: null, state: null, zip: null },
+    ['call'],
+  )
+  assert.equal(opts.canCall, false)
+  assert.equal(opts.canText, false)
+  assert.equal(opts.needsResearch, true)
+})
+
+test('availability: replacing a genuinely unusable number restores BOTH calling and texting', async () => {
+  // The failed number is 814-808-7526; the card saves a DIFFERENT number.
+  const failedDigits = unusableValueFromNote(`Bad number. ${buildUnusableMarker('call', '814-808-7526')}`)
+  const replacedDigits = normalizeUnusableValue('call', '267-555-0133')
+  assert.notEqual(replacedDigits, failedDigits) // genuinely a new number
+
+  // The value-scoped mark no longer matches the current number, so the read
+  // contributes no unusable channel. resolveContactOptions then restores call
+  // AND text from the usable number — the Call/Voicemail AND Text actions all
+  // come back without a page refresh.
+  const opts = await resolveContactOptions(
+    { phone: '267-555-0133', email: null, street: null, city: null, state: null, zip: null },
+    [], // the old failure is value-scoped away by the current-number comparison
+  )
+  assert.equal(opts.canCall, true)
+  assert.equal(opts.canText, true)
+  assert.equal(opts.needsResearch, false)
+})
+
+test('availability: Do Not Text disables ONLY texting; calling stays available', async () => {
+  // A usable number with the durable Do Not Text opt-out set. resolveContactOptions
+  // subtracts texting only; calling is untouched.
+  const optedOut = await resolveContactOptions(
+    { phone: '267-555-0133', email: null, street: null, city: null, state: null, zip: null },
+    [],
+    true, // customers.sms_opt_out
+  )
+  assert.equal(optedOut.canCall, true)
+  assert.equal(optedOut.canText, false)
+
+  // Clearing Do Not Text (opt-out false) restores texting on an otherwise
+  // eligible number.
+  const cleared = await resolveContactOptions(
+    { phone: '267-555-0133', email: null, street: null, city: null, state: null, zip: null },
+    [],
+    false,
+  )
+  assert.equal(cleared.canCall, true)
+  assert.equal(cleared.canText, true)
+})
+
+test('availability: Text Undeliverable for the current number disables ONLY texting; calling stays available', async () => {
+  // The text channel is recorded unusable for the number on file (Text
+  // Undeliverable). Texting drops; calling on the same number remains.
+  const opts = await resolveContactOptions(
+    { phone: '267-555-0133', email: null, street: null, city: null, state: null, zip: null },
+    ['text'],
+  )
+  assert.equal(opts.canCall, true)
+  assert.equal(opts.canText, false)
+  assert.equal(opts.needsResearch, false)
 })

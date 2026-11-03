@@ -34,6 +34,7 @@ import {
 } from '@/lib/mentoring/MentorUi'
 import { useWorkReservation } from '@/lib/reservations/useWorkReservation'
 import { StewardshipTask } from '../StewardshipClient'
+import { CustomerSearch, type CustomerSearchHit } from '@/components/CustomerSearch'
 
 type PopulationCustomer = {
   id: string
@@ -46,16 +47,7 @@ type PopulationItem = {
   customer: PopulationCustomer
 }
 
-type SearchResult = {
-  id: string
-  first_name: string | null
-  last_name: string | null
-  phone: string | null
-}
-
-function fullName(c: PopulationCustomer | SearchResult): string {
-  return `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim() || 'this customer'
-}
+type SearchResult = CustomerSearchHit
 
 export function ServicingAccessClient({
   projectId = null,
@@ -189,32 +181,7 @@ export function ServicingAccessClient({
   const handledCount = handled.size
 
   // ── Customer search: open a specific customer when an authorization arrives ─
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState<SearchResult[]>([])
-  const [searching, setSearching] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
-
-  useEffect(() => {
-    const q = query.trim()
-    if (q.length < 2) { setResults([]); setSearchError(null); return }
-    let cancelled = false
-    setSearching(true)
-    const t = setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/customers/search?q=${encodeURIComponent(q)}`, { cache: 'no-store' })
-        const json = await res.json().catch(() => null)
-        if (cancelled) return
-        if (!res.ok) { setSearchError(json?.error ?? 'Search failed.'); setResults([]); return }
-        setSearchError(null)
-        setResults((json.data ?? json.results ?? []) as SearchResult[])
-      } catch {
-        if (!cancelled) { setSearchError('Network error during search.'); setResults([]) }
-      } finally {
-        if (!cancelled) setSearching(false)
-      }
-    }, 250)
-    return () => { cancelled = true; clearTimeout(t) }
-  }, [query])
 
   // Open a searched customer: materialize/find their servicing-access outreach
   // item, reserve it, and open it. The server ensures a durable row exists for
@@ -236,8 +203,6 @@ export function ServicingAccessClient({
       }
       const itemId = json.data.item_id as string
       await reserveOne(itemId) // deliberate open; proceeds regardless of lease
-      setQuery('')
-      setResults([])
       setOpenId(itemId)
     } catch {
       setSearchError('Network error opening the customer.')
@@ -273,43 +238,22 @@ export function ServicingAccessClient({
   }
 
   // The customer-search box, always available above the task so an employee can
-  // jump straight to a customer when a signed authorization arrives.
+  // jump straight to a customer when a signed authorization arrives. Name and
+  // phone matching, debounce, and result presentation come from the shared
+  // CustomerSearch component.
   const searchBox = (
     <div className="space-y-2 rounded-2xl border border-surface-border bg-surface-card p-4">
-      <label htmlFor="sa-search" className="flex items-center gap-2 text-sm font-semibold text-ink">
+      <p className="flex items-center gap-2 text-sm font-semibold text-ink">
         <Search className="size-4 text-ink-supporting" aria-hidden />
         A signed authorization just arrived? Find the customer
-      </label>
-      <input
-        id="sa-search"
-        value={query}
-        onChange={e => setQuery(e.target.value)}
-        placeholder="Search by name…"
-        className="w-full rounded-lg border border-surface-border-strong px-3 py-2 text-base text-ink focus:border-brand-ring focus:outline-none focus:ring-2 focus:ring-brand-wash"
+      </p>
+      <CustomerSearch<SearchResult>
+        scopePicker={{ projectId, defaultChoice: projectId ? 'project' : 'myWork' }}
+        onSelect={r => { void openCustomer(r.id) }}
+        placeholder="Search by name or phone…"
+        ariaLabel="Find a customer by name or phone"
       />
-      {searching && (
-        <p className="flex items-center gap-1.5 text-sm text-ink-supporting">
-          <Loader2 className="size-3.5 animate-spin" aria-hidden /> Searching…
-        </p>
-      )}
       {searchError && <p className="text-sm text-rose-700">{searchError}</p>}
-      {results.length > 0 && (
-        <ul className="divide-y divide-surface-border overflow-hidden rounded-lg border border-surface-border">
-          {results.map(r => (
-            <li key={r.id}>
-              <button
-                type="button"
-                disabled={opening}
-                onClick={() => void openCustomer(r.id)}
-                className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-base text-ink transition-colors hover:bg-surface-muted disabled:opacity-50"
-              >
-                <span>{fullName(r)}</span>
-                {r.phone && <span className="text-sm text-ink-supporting">{r.phone}</span>}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
       {opening && (
         <p className="flex items-center gap-1.5 text-sm text-ink-supporting">
           <Loader2 className="size-3.5 animate-spin" aria-hidden /> Opening…

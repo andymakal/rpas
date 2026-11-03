@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
-import { WorkflowHeader } from '@/components/workflow'
+import { WorkflowPageHeader, WorkflowBackLink } from '@/components/workflow'
 import {
   MentorCapButton, MentorCapPanel, useMentorDisclosure,
 } from '@/lib/mentoring/MentorUi'
@@ -50,15 +50,18 @@ export function CustomerInteractionHeading() {
 
   return (
     <div ref={headingRef} className="space-y-3">
-      <div className="flex items-center gap-3">
-        <WorkflowHeader primary="Customer Interaction" />
-        {!mentorOpen && (
-          <MentorCapButton
-            onOpen={() => setMentorOpen(true)}
-            label="Show mentoring on customer interaction"
-          />
-        )}
-      </div>
+      <WorkflowPageHeader
+        title="Customer Interaction"
+        back={<WorkflowBackLink href="/my-work">Back to My Work</WorkflowBackLink>}
+        actions={
+          !mentorOpen ? (
+            <MentorCapButton
+              onOpen={() => setMentorOpen(true)}
+              label="Show mentoring on customer interaction"
+            />
+          ) : undefined
+        }
+      />
       {mentorOpen && (
         <MentorCapPanel
           className="text-[18px] leading-relaxed"

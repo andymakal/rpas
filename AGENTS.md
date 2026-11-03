@@ -27,10 +27,20 @@ reviews, and a read-only agency portal.
 
 ### Sensitive customer data
 
-- Date of birth is stored as a `date` but must always be displayed masked as
-  `MM/xx/YYYY`. The day is never shown. Helpers already do this (for example in
-  `customers/[id]/CustomerCardClient.tsx`); reuse them and never render a full
-  DOB.
+- Date of birth. Exact DOB in `customers.date_of_birth` (`date`); partial DOB in
+  `customers.date_of_birth_approx` (masked `MM/xx/YYYY` / `xx/xx/YYYY`, day never
+  stored). DEFAULT display everywhere is masked `MM/xx/YYYY`, day never shown
+  (reuse the helpers, e.g. in `customers/[id]/CustomerCardClient.tsx`). THE ONE
+  DELIBERATE EXCEPTION: the shared Customer Contact Card
+  (`src/components/workflow/CustomerContactCard.tsx`) shows the COMPLETE known
+  DOB — `MM/DD/YYYY` exact, or `MM/YYYY` / `YYYY` when partial, never inventing a
+  missing part (via `formatDobDisplay` in `src/lib/stewardship/dob.ts`) — as the
+  one place an operator sees and corrects it. A known exact DOB is never silently
+  downgraded to partial (`wouldDowngradeExactDob` guards the card and the save
+  route). The full DOB value is NEVER recorded in routine customer history: a DOB
+  change is logged as a precision-appropriate fact (added / corrected / cleared,
+  with "a full date" / "month and year" / "year only"), never the date itself.
+  Detail and helpers: `src/lib/stewardship/dob.ts`.
 - SSN is highly sensitive PII. The Fact Finder (`FactFinderSection.tsx`) does
   capture SSN for the customer and beneficiaries, so treat it as stored-securely
   data: never log it, never surface it in search results, lists, exports, or the
@@ -45,7 +55,6 @@ reviews, and a read-only agency portal.
 - Next.js (App Router, 16.x — currently 16.3.8), React 19, TypeScript.
 - Supabase: Postgres + PostgREST + Supabase Auth, `@supabase/ssr`.
 - Tailwind CSS v4, shadcn, Radix, lucide-react.
-- Storybook.
 - Hosting: Vercel. Repo: `github.com/andymakal/rpas`.
 
 Next.js 16 note: request-interception middleware is `src/proxy.ts` exporting
@@ -145,17 +154,49 @@ guard onto `main`), do it as its own reviewed change, not silently.
 ## IPF integration (established decisions)
 
 IPF (the `bobpfromm/ipf-stewardship` repository, external to this repo) is the
-functional blueprint for Right Path's operational and assistant overlay. These
-decisions are settled and are recorded here so they travel with `main`:
+functional blueprint for Right Path's operational and assistant overlay, and its
+capabilities are the committed functional roadmap. This section is the single
+authoritative statement of these decisions for every tool and both branches; the
+steering file `.kiro/steering/ipf-integration.md` does not restate them, it only
+records the supporting reference detail (the named queue read, the Daily
+Direction behavior). Being the committed direction does not authorize expanding
+an unrelated task: reuse an IPF capability when a task's outcome calls for it,
+and do not build IPF structure a task does not need (see Working discipline and
+efficient-execution).
 
 - Reuse IPF's working capabilities, not just its ideas: GoRules ZEN
-  (`@gorules/zen-engine`) plus IPF's rule models for deterministic, attributable
-  recommendations (ZEN owns the decision matrix over normalized facts and never
-  queries the DB; TypeScript owns normalization, time math, capability
-  resolution, and the operator-facing prose); the shared-queue + optional-claim
-  model; promised-callback / preferred-window commitments; capability-based
-  routing; the always-visible recommendation with collapsible coaching; and the
-  "Daily Direction" doctrine.
+  (`@gorules/zen-engine`) plus IPF's rule models (`src/rules/*.json`) for
+  deterministic, attributable recommendations. The division of labor is fixed:
+  ZEN owns the decision matrix (eligibility, placement, priority bands) over
+  normalized facts and never queries the DB; TypeScript owns normalization, time
+  math, capability resolution, and the operator-facing prose.
+- Shared-queue + optional-claim model: queue-owned work (structural candidacy,
+  scoped to no individual) with OPTIONAL claiming that is distinct from episode
+  assignment — a lightweight soft lease recorded ON THE WORK ROW, not on a
+  generic episode assignee. In Right Path's re-homed implementation the claim is
+  the dedicated `stewardship_outreach.claimed_by_producer_id` column (plus
+  `claimed_at`), verified against the live schema and `POST
+  /api/stewardship/claim`; it is NOT an `action_context` key, and IPF's own
+  `claimedByTeamMemberId` shape does not exist in Right Path code. An unclaimed
+  item surfaces to every eligible worker as claimable; once claimed it is that
+  worker's commitment.
+- Promised-callback / preferred-window commitments, capability-based routing
+  (work functions, primary/support), and an always-visible recommendation with
+  separate, collapsible coaching.
+- Daily Direction is an implemented, GoRules-powered IPF feature, not merely
+  doctrine: a ZEN decision (`src/rules/next-best-action.json`) picks the single
+  Next Best Action from a fixed priority order (imminent fixed commitment, then
+  active work, then missed commitment, then owned Intake, then owned Outreach,
+  then other owned work, then Support, then open capacity);
+  `src/lib/daily-direction-engine.ts` normalizes facts and resolves time labels
+  and `src/composition/daily-direction.ts` assembles candidates. Reuse that
+  engine, rule JSON, and fact/candidate shape; re-home the reads on Right Path's
+  own records. (These file references are a reference catalog — reuse them when a
+  task's outcome calls for Daily Direction, not a backlog to build proactively.)
+- Assistant and Mentoring are two distinct surfaces and must stay distinct: the
+  Assistant is a system-state explanation of what to do next (the teal
+  `AssistantNotice` / `HardCommitmentNotice` treatment, driven by the Daily
+  Direction verdict); Mentoring is separate coaching prose. Do not merge them.
 - IPF is a blueprint, not a merge. Right Path stays one application and one
   database. Re-home every reused capability on Right Path's existing tables,
   auth, and single-tenant assumptions.
@@ -172,15 +213,26 @@ decisions are settled and are recorded here so they travel with `main`:
   commitment such as a promised callback or scheduled appointment; the system
   recommends and a human decides consequential outcomes.
 
-This integration is in-progress work landing on `development` first. When
-working with Kiro on `development`, the same decisions are also maintained as
-Kiro steering under `.kiro/steering/`; on `main`, this section is the reference.
-
 ## Working discipline
 
 - Make minimal, targeted changes; do not rewrite files wholesale unless asked.
+  Deliver the simplest complete solution to the agreed outcome — the whole
+  outcome, verified and shipped, with no unrequested structure. A new table,
+  component, subsystem, or cross-module responsibility is a signal to check
+  scope, not an automatic stop: build ordinary in-scope implementation
+  autonomously, and surface it first only when it materially expands the agreed
+  outcome, departs from the established architecture, or carries a consequential
+  business, data-integrity, or security tradeoff.
 - Match existing patterns, conventions, and libraries already in the repo.
-- Run `npx tsc --noEmit` (and the build / relevant checks) before claiming done.
+- Verify in proportion to the change's actual risk. A type-check (`npx tsc
+  --noEmit`) covers any code change; run the build and relevant checks before
+  claiming done, but reuse results already valid this session and recheck only
+  what a change or an error invalidates. A green compile is not proof of runtime
+  behavior; confirm behavioral changes by the cheapest sufficient means.
+- Handle routine implementation and recovery from your own mistakes
+  independently. Escalate only genuinely unresolved business decisions, material
+  architectural departures, or consequential tradeoffs — with a recommended
+  option, not a request to design the work.
 - Confirm which branch you are on and respect its deploy behavior: `main` is
   production, `development` is the shared testing line. Do not deploy or modify
   production as a side effect of ordinary work.
@@ -190,6 +242,17 @@ Kiro steering under `.kiro/steering/`; on `main`, this section is the reference.
   `https://bobdev.therightpathagency.com`, not merely pushed to GitHub. This
   project's preview is published by `vercel deploy` (CLI) and the `bobdev`
   alias is pointed at that deployment; a git push alone does NOT update the
-  preview. Only `main`/production actions require explicit authorization. The
-  full default lives in Kiro steering (`.kiro/steering/delivery-workflow.md`);
-  keep the two in step.
+  preview. Only `main`/production actions require explicit authorization. This
+  is the single authoritative statement of the delivery workflow for all tools
+  and both branches; `.kiro/steering/delivery-workflow.md` does not restate the
+  policy, it records the deploy mechanics that carry it out (the exact
+  `vercel deploy` / `vercel alias set` / `vercel inspect` sequence and the
+  stable-alias rule), as shared reference for whatever tool deploys.
+- Unfinished multi-session work: the one handoff location is
+  `.kiro/handoff/HANDOFF.md`. Read it at the start of a task if it exists — it is
+  the agent-maintained status of an in-flight effort (what's done, what's left,
+  decisions made, blockers). Keep it current while that effort is active and
+  delete it when the effort is complete. It is temporary task state, never a
+  permanent rule, and must not be placed in steering. If it describes a different
+  active task than the one you are starting, do not overwrite its context: append
+  your own clearly separated section to the same file.

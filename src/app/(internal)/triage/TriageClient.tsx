@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import type { TriageCase } from './page'
 import { fmtDate } from '@/lib/fmt'
+import { formatPhoneDisplay } from '@/lib/contact-input'
 import { setNavList } from '@/lib/nav-list'
 import { buildHouseholdName } from '@/lib/household'
 import { SCRIPTS, APPT_TYPES, TOPIC_MAP, interpolate } from '@/lib/templates'
@@ -388,7 +389,7 @@ function TriageRow({
             {c.customers?.phone && (
               <a href={`tel:${c.customers.phone}`} onClick={e => e.stopPropagation()}
                 className="text-xs text-slate-400 hover:text-blue-400 flex items-center gap-1 transition-colors">
-                <Phone className="w-3 h-3" />{c.customers.phone}
+                <Phone className="w-3 h-3" />{formatPhoneDisplay(c.customers.phone)}
               </a>
             )}
             {clientAge && <span className="text-xs text-slate-500">Age {clientAge}</span>}
@@ -861,7 +862,12 @@ export function TriageClient({ cases }: { cases: TriageCase[] }) {
         const agc   = (c.agencies?.display_name ?? c.agencies?.name ?? '').toLowerCase()
         const lsp   = c.agents ? `${c.agents.first_name} ${c.agents.last_name}`.toLowerCase() : ''
         const phone = c.customers?.phone ?? ''
-        return name.includes(q) || agc.includes(q) || lsp.includes(q) || phone.includes(q)
+        // Phone is stored as bare digits; match on digits so a query typed with
+        // any punctuation ("(215) 555", "215-555") still matches.
+        const phoneDigits = phone.replace(/\D/g, '')
+        const qDigits = q.replace(/\D/g, '')
+        const phoneHit = qDigits.length > 0 && phoneDigits.includes(qDigits)
+        return name.includes(q) || agc.includes(q) || lsp.includes(q) || phoneHit
       })
     }
     return list

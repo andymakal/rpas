@@ -16,7 +16,7 @@
 
 import Link from 'next/link'
 import { ArrowRight, Users, AlertTriangle, Play, FolderGit2 } from 'lucide-react'
-import { WorkflowPage, WorkflowHeader, OperationalTag } from '@/components/workflow'
+import { WorkflowPage, WorkflowPageHeader, OperationalTag } from '@/components/workflow'
 import { STAGE_LABEL } from '@/lib/my-work/project-labels'
 import { roleLabel, OPERATIONS_ESCALATION_LABEL } from '@/lib/projects/project-roles'
 import type { MyProjectCard, MyProjectsState } from '@/lib/my-work/projects'
@@ -33,7 +33,7 @@ const PROGRESS_STAGES: WorkflowStage[] = [
 export function MyProjectsClient({ state }: { state: MyProjectsState }) {
   if (state.noProfile) {
     return (
-      <WorkflowPage heading={<WorkflowHeader primary="My Projects" />}>
+      <WorkflowPage heading={<WorkflowPageHeader title="My Projects" />}>
         <p className="max-w-prose text-base text-ink-secondary">
           Your account does not have a team member profile yet, so there is no
           personal project view. Ask an administrator to add you on the Team page.
@@ -43,7 +43,7 @@ export function MyProjectsClient({ state }: { state: MyProjectsState }) {
   }
 
   return (
-    <WorkflowPage heading={<WorkflowHeader primary="My Projects" secondary={state.employeeName ?? undefined} />}>
+    <WorkflowPage heading={<WorkflowPageHeader title="My Projects" secondary={state.employeeName ?? undefined} />}>
       {state.projects.length === 0 ? (
         <div className="flex items-center gap-2 rounded-2xl border border-surface-border bg-surface-card p-6 text-base text-ink-secondary">
           <FolderGit2 className="size-5 text-ink-supporting" aria-hidden />

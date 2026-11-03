@@ -16,7 +16,7 @@ import {
 } from 'lucide-react'
 import {
   WorkflowPage,
-  WorkflowHeader,
+  WorkflowPageHeader,
   QueueSection,
   OperationalTag,
   WorkflowButton,
@@ -84,18 +84,20 @@ export function ProjectsClient({
   return (
     <WorkflowPage
       heading={
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <WorkflowHeader primary="Projects" />
-          <WorkflowButton
-            icon={Plus}
-            selected
-            size="lg"
-            onClick={() => setOpen(true)}
-            className="h-12 gap-2 rounded-xl px-5 text-base font-semibold"
-          >
-            Start New
-          </WorkflowButton>
-        </div>
+        <WorkflowPageHeader
+          title="Projects"
+          actions={
+            <WorkflowButton
+              icon={Plus}
+              selected
+              size="lg"
+              onClick={() => setOpen(true)}
+              className="h-12 gap-2 rounded-xl px-5 text-base font-semibold"
+            >
+              Start New
+            </WorkflowButton>
+          }
+        />
       }
     >
       {loadError && (

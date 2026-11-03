@@ -8,11 +8,11 @@
  * Right Path workflow design tokens.
  *
  * These consolidate the visual decisions already established in the workflow
- * component layer (src/components/workflow) and the Storybook reference so new
+ * component layer (src/components/workflow) so new
  * workflow surfaces inherit them instead of re-deciding per screen. See
  * .kiro/steering/workflow-visual-rules.md for the standard they encode.
  *
- * SCOPE — LIGHT THEME ONLY. These tokens are the light Storybook-based design
+ * SCOPE — LIGHT THEME ONLY. These tokens are the light-theme design
  * system. They are consumed only by the shared light-theme workflow components
  * (src/components/workflow/) and the light-theme application screens built on
  * them. They are NOT the application-wide theme: Andy's existing dark screens
@@ -40,7 +40,7 @@
   --brand:            oklch(0.6 0.118 184.704);  /* teal-600 */
   --brand-hover:      oklch(0.511 0.096 186.391); /* teal-700 */
   --brand-foreground: oklch(1 0 0);               /* white text on teal */
-  --brand-subtle:     oklch(0.953 0.051 180.801); /* teal-100 surface */
+  --brand-subtle:     oklch(0.977 0.025 181); /* softened teal wash (two steps lighter than teal-100; reads easily, still clearly teal) */
   --brand-subtle-foreground: oklch(0.437 0.078 188.216); /* teal-800 text on subtle */
   --brand-wash:       oklch(0.984 0.014 180.72);  /* teal-50, hover/selected wash */
   --brand-ring:       oklch(0.855 0.138 181.071); /* teal-300, hover border/ring */
@@ -55,6 +55,7 @@
   --surface-muted:  oklch(0.984 0.003 247.858);   /* slate-50 inset panels */
   --surface-border: oklch(0.929 0.013 255.508);   /* slate-200 hairline */
   --surface-border-strong: oklch(0.869 0.022 252.894); /* slate-300 inputs */
+  --surface-border-section: oklch(0.554 0.046 257.417); /* slate-500 section dividers — deliberately visible; the standard for step/section boundaries */
   --surface-divider: oklch(0.968 0.007 247.896);  /* slate-100 dividers */
 
   /* Operational text contrast ladder (slate 900/700/600/400). The hierarchy is
@@ -105,7 +106,7 @@
   --status-missing-strong:     oklch(0.455 0.188 13.697); /* rose-800 text */
 
   /* ── Operational tag tones (fill + border + text) ──────────────────────── */
-  --tag-reason-fill:    oklch(0.953 0.051 180.801); /* teal-100 */
+  --tag-reason-fill:    oklch(0.977 0.025 181); /* softened teal wash (matches brand-subtle) */
   --tag-reason-border:  oklch(0.91 0.096 180.426);  /* teal-200 */
   --tag-reason-text:    oklch(0.386 0.063 188.416); /* teal-900 */
 
@@ -125,7 +126,7 @@
 
   /* Modern sans-serif workflow font stack (no serif in workflow UI). Prefers
    * the app's injected --font-geist-sans, then a clean system sans fallback so
-   * Storybook (which does not inject the Next font var) still renders sans. */
+   * any context that does not inject the Next font var still renders sans. */
   --font-workflow: var(--font-geist-sans), "Inter", "Segoe UI", system-ui,
     -apple-system, "Helvetica Neue", Arial, sans-serif;
 }
@@ -154,6 +155,7 @@
   --color-surface-muted: var(--surface-muted);
   --color-surface-border: var(--surface-border);
   --color-surface-border-strong: var(--surface-border-strong);
+  --color-surface-border-section: var(--surface-border-section);
   --color-surface-divider: var(--surface-divider);
   --color-ink: var(--text-primary);
   --color-ink-secondary: var(--text-secondary);

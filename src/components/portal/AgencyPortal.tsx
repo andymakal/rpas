@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { ChevronDown, ChevronUp } from 'lucide-react'
 import { GaugeChart, GDC_BANDS, APP_BANDS } from './GaugeChart'
 import { buildHouseholdName } from '@/lib/household'
+import { formatPhoneDisplay } from '@/lib/contact-input'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1316,7 +1317,7 @@ export function AgencyPortal({
               )}
               {agency.phone && (
                 <a href={`tel:${agency.phone}`} className="flex items-center gap-2 text-xs text-slate-600 hover:text-slate-900">
-                  <span>📞</span> {agency.phone}
+                  <span>📞</span> {formatPhoneDisplay(agency.phone)}
                 </a>
               )}
               {agency.email && (

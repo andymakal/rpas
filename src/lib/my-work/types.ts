@@ -328,6 +328,15 @@ export interface MyWorkState {
   /** Activity groups, already ordered by ZEN rank then by activity sort order. */
   activities: ActivityGroup[]
   /**
+   * The employee's upcoming EXACT-TIME appointments (calendar_blocks they own).
+   * These are genuine clock commitments — the highest-priority surface — shown
+   * in the Priorities column with ready-to-render dual-clock labels (the UI does
+   * no timezone math). Empty when none are on record; this is a positive fact
+   * (real appointments), not the absence-of-appointments claim. Ordered by
+   * start, soonest first.
+   */
+  appointments: MyWorkAppointment[]
+  /**
    * The employee's standing primary/support responsibilities, from their
    * capability assignments — INCLUDING activities with no outstanding work right
    * now. This is the authoritative remit for the Practice Direction column; the
@@ -339,6 +348,34 @@ export interface MyWorkState {
   focusNotes: FocusNote[]
   /** True when nothing is actionable for this employee right now. */
   quiet: boolean
+}
+
+/**
+ * An upcoming exact-time appointment the employee owns, resolved for display.
+ * Times are ready-to-render labels on both clocks so the UI never does zone
+ * math; `clocksDiffer` flags a cross-zone appointment (e.g. a PA customer's
+ * 9:00 shown to a Central employee as their 8:00).
+ */
+export interface MyWorkAppointment {
+  id: string
+  customerId: string | null
+  customerName: string | null
+  title: string | null
+  location: string | null
+  /** Absolute instants (ISO), carried for any client-side ordering/arithmetic. */
+  startsAt: string
+  endsAt: string
+  /** The IANA zone the appointment was stated in (the customer's clock). */
+  statedTimeZone: string
+  /** Non-owning backref to the workflow that created it (e.g. stewardship). */
+  sourceType: string | null
+  sourceId: string | null
+  /** The employee's own-clock label, e.g. "Fri, Nov 13, 8:00 AM". */
+  actorLabel: string | null
+  /** The customer's stated-clock label, e.g. "Fri, Nov 13, 9:00 AM". */
+  customerLabel: string | null
+  /** True when the two clocks differ (cross-zone), so the UI shows both. */
+  clocksDiffer: boolean
 }
 
 /** A currently-active focus, flattened for display on the MY WORK banner. */

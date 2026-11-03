@@ -29,10 +29,14 @@ import {
   parseOutcomeFromNote,
   noteIndicatesReached,
   noteIndicatesInbound,
+  unusableValueFromNote,
   type Communication,
   type OutreachChannel,
   type ChannelOutcome,
 } from './outreach-attempts'
+import { dobChanged, readStoredDob, dobPrecisionLabel } from './dob'
+import { fullRecordedName, familiarName } from '@/lib/person-name'
+import { formatPhoneDisplay } from '@/lib/contact-input'
 
 /** The direction of a recorded communication, for presentations that title an
  * event by who initiated it. Derived from the stored note (the inbound marker
@@ -154,7 +158,10 @@ function contactHeading(comms: HistoryCommunication[]): string | null {
       if (automated) return 'Automated Call Reply'
       if (incoming) return 'Incoming Call'
       if (lead.outcome === 'unusable') return 'Bad Number'
-      return 'No Answer'
+      // An attempted outbound call that did not reach. The heading says "Call
+      // Attempt", never "No Answer" — the grouped channel fragments
+      // (Voicemail / No voicemail / Texted / …) carry what happened.
+      return 'Call Attempt'
     case 'voicemail':
       return 'Voicemail Left'
     case 'email':
@@ -184,6 +191,7 @@ function milestoneHeading(summary: string): string {
   if (/completed/i.test(summary)) return 'Follow-up Completed'
   if (/follow-up/i.test(summary)) return 'Follow-up Scheduled'
   if (/refus/i.test(summary)) return 'Customer Declined'
+  if (/contact updated/i.test(summary)) return 'Customer Contact Updated'
   return summary
 }
 
@@ -313,7 +321,10 @@ export const ACTIVITY_DESCRIPTIONS: Record<OutreachChannel, ChannelDescriptions>
   call: {
     reached: 'Reached',
     touch: 'Called',
-    no_contact: 'No Answer',
+    // An attempted outbound call that did not reach reads as "Call attempt",
+    // never "No Answer"; the grouped voicemail/text/email fragments say what
+    // happened on the attempt.
+    no_contact: 'Call attempt',
     unusable: 'Bad Number',
   },
   voicemail: {
@@ -381,7 +392,13 @@ const SYSTEM_OUTCOME_PHRASES: readonly RegExp[] = [
   /^Spoke with customer\.\s*Customer requested a callback(\s+on\s+\S+)?\.?/i,
   /^Spoke with customer\.\s*Customer declined servicing-agent authorization\.\s*Further outreach stopped unless deliberately reopened\.?/i,
   /^Spoke with customer\.\s*$/i,
-  // Didn't-reach call sentences (no-answer, with or without a voicemail left).
+  // Didn't-reach call sentences. The lead is "Call attempt" (an attempted
+  // outbound call), with or without a voicemail left, and the bad-number
+  // variant.
+  /^Call attempt\.(\s*Voicemail left\.)?\s*Next call scheduled\.?/i,
+  /^Call attempt\.\s*Number is not working\.\s*Customer referred to Contact Research\.?/i,
+  // Legacy "Called customer. No answer." sentences kept so existing history
+  // still cleans correctly.
   /^Called customer\.\s*No answer\.(\s*Voicemail left\.)?\s*Next call scheduled\.?/i,
   /^Called customer\.\s*Number is not working\.\s*Customer referred to Contact Research\.?/i,
   // Legacy sentences kept so existing history still cleans correctly.
@@ -417,6 +434,7 @@ export function cleanHistoryNote(note: string | null): string | null {
     .replace(/\[inbound\]/gi, '')
     .replace(/\[email-availability:[^\]]*\]/gi, '')
     .replace(/\[name-change\]/gi, '')
+    .replace(/\[contact-update\]/gi, '')
     // The outgoing "Servicing-agent onboarding <channel>" boilerplate prefix,
     // and the inbound "Customer <channel> response received" / "Automated
     // <channel> reply received" prefixes the touch route prepends — with or
@@ -460,6 +478,7 @@ function stripMarkersAndPrefix(note: string): string {
     .replace(/\[inbound\]/gi, '')
     .replace(/\[email-availability:[^\]]*\]/gi, '')
     .replace(/\[name-change\]/gi, '')
+    .replace(/\[contact-update\]/gi, '')
     .replace(/^Servicing-agent onboarding\s+(?:call|voicemail|text|email|postal)\s*[:.]?\s*/i, '')
     .replace(/^Customer\s+(?:call|voicemail|text|email|postal)\s+response received\s*[:.]?\s*/i, '')
     .replace(/^Automated\s+(?:call|voicemail|text|email|postal)\s+reply received\s*[:.]?\s*/i, '')
@@ -504,19 +523,35 @@ const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = 
       'Spoke with customer. Customer declined servicing-agent authorization. Further outreach stopped unless deliberately reopened.',
   },
   {
-    // Didn't reach · voicemail left.
-    match: /^Called customer\.\s*No answer\.\s*Voicemail left\.\s*Next call scheduled\.?$/i,
-    describe: 'Called customer. No answer. Voicemail left. Next call scheduled.',
+    // Didn't reach · voicemail left. Lead is "Call attempt", never "No answer".
+    match: /^Call attempt\.\s*Voicemail left\.\s*Next call scheduled\.?$/i,
+    describe: 'Call attempt. Voicemail left. Next call scheduled.',
   },
   {
     // Didn't reach · no voicemail.
-    match: /^Called customer\.\s*No answer\.\s*Next call scheduled\.?$/i,
-    describe: 'Called customer. No answer. Next call scheduled.',
+    match: /^Call attempt\.\s*Next call scheduled\.?$/i,
+    describe: 'Call attempt. Next call scheduled.',
   },
   {
-    // Bad number.
+    // Bad number. The dialed digits are appended by describeHistoryNote from the
+    // value-scoped [channel-unusable:<digits>] marker, so research sees exactly
+    // which number failed.
+    match: /^Call attempt\.\s*Number is not working\.\s*Customer referred to Contact Research\.?$/i,
+    describe: 'Called. Number not working.',
+  },
+  // Legacy "Called customer. No answer." sentences, normalized to the new
+  // "Call attempt" wording so old history rows read consistently.
+  {
+    match: /^Called customer\.\s*No answer\.\s*Voicemail left\.\s*Next call scheduled\.?$/i,
+    describe: 'Call attempt. Voicemail left. Next call scheduled.',
+  },
+  {
+    match: /^Called customer\.\s*No answer\.\s*Next call scheduled\.?$/i,
+    describe: 'Call attempt. Next call scheduled.',
+  },
+  {
     match: /^Called customer\.\s*Number is not working\.\s*Customer referred to Contact Research\.?$/i,
-    describe: 'Called customer. Number is not working. Customer referred to Contact Research.',
+    describe: 'Called. Number not working.',
   },
   // ── The introductory / form-send confirmations ──────────────────────────────
   {
@@ -539,6 +574,19 @@ const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = 
     match: /^Servicing-agent authorization form sent to the customer by postal mail\.?$/i,
     describe: 'Servicing-agent authorization form sent by postal mail.',
   },
+  {
+    // The customer already had the form (it rode the introductory email) and
+    // agreed to sign and return it — the reached · agreed interaction with no
+    // send. The description names that reality rather than a mailing.
+    match: /^Spoke with customer\. Customer agreed to authorize our office as servicing agent\. Customer already has the authorization form and agreed to sign and return it\. Awaiting signed authorization\.?$/i,
+    describe: 'Spoke with customer. Customer agreed to authorize and already has the form to sign and return.',
+  },
+  {
+    // A re-send context where the customer already has the form (no reached
+    // completion attached).
+    match: /^Customer already has the servicing-agent authorization form and agreed to sign and return it\.?$/i,
+    describe: 'Customer already has the servicing-agent authorization form to sign and return.',
+  },
   // ── Legacy sentences (pre-standard history still reads meaningfully) ────────
   {
     match: /^Reached the customer\.?$/i,
@@ -546,11 +594,11 @@ const SYSTEM_DESCRIPTIONS: ReadonlyArray<{ match: RegExp; describe: string }> = 
   },
   {
     match: /^Left a voicemail\.?(\s*Follow-up auto-scheduled\.?)?$/i,
-    describe: 'Called customer. No answer. Voicemail left. Next call scheduled.',
+    describe: 'Call attempt. Voicemail left. Next call scheduled.',
   },
   {
     match: /^Bad number\.?(\s*Moved to Research Needed\.?)?$/i,
-    describe: 'Called customer. Number is not working. Customer referred to Contact Research.',
+    describe: 'Called. Number not working.',
   },
   {
     match: /^Customer declined\.?(\s*Outreach stopped until deliberately reopened\.?)?$/i,
@@ -609,6 +657,20 @@ export function describeHistoryNote(note: string | null): string | null {
       if (/asked for a callback/i.test(describe) && m[2]) {
         const when = formatCallbackDate(m[2])
         return when ? `Customer asked for a callback on ${when}.` : describe
+      }
+      // Bad number: append the exact dialed digits recovered from the
+      // value-scoped [channel-unusable:<digits>] marker on the raw note, so
+      // research sees which number failed rather than just "number not working".
+      // Only genuine 10-digit US phone values are shown (a bare legacy marker,
+      // or a non-phone value, appends nothing); formatted via the one shared
+      // phone formatter.
+      if (describe === 'Called. Number not working.') {
+        const dialed = unusableValueFromNote(note)
+        const digits = dialed ? dialed.replace(/\D/g, '') : ''
+        if (digits.length === 10) {
+          return `${describe} ${formatPhoneDisplay(digits)}`
+        }
+        return describe
       }
       return describe
     }
@@ -740,6 +802,7 @@ function buildWorkflowEvents(rows: HistoryTouchRow[]): HistoryEvent[] {
     const summary =
       /follow-up completed/i.test(note) ? 'Follow-up completed'
       : /follow-up/i.test(note) ? 'Follow-up scheduled'
+      : /\[contact-update\]/i.test(note) || /^Customer name corrected/i.test(note) || /\[name-change\]/i.test(note) ? 'Customer Contact Updated'
       : /\[email-availability:/i.test(note) || /^Email (availability|marked)/i.test(note) ? 'Email availability updated'
       : /declined|refus/i.test(note) ? 'Customer refusal'
       : 'Workflow update'
@@ -807,10 +870,25 @@ function summarizeInteraction(
     return [lead, ...rest].join(' \u00b7 ')
   }
 
+  // A didn't-reach call grouped with other channels. The event heading already
+  // says "Call Attempt", so the secondary channels line must NOT echo it: drop
+  // the unanswered-call phrase and list only the OTHER channels actually
+  // completed (e.g. "Voicemail · Text · Email"). When the call is the only
+  // communication, the call phrase ("Call attempt") stands alone as the summary.
+  const unreachedCall = comms.find((c) => c.channel === 'call' && !c.reached)
+  if (unreachedCall) {
+    const others = comms.filter((c) => c !== unreachedCall)
+    const callPhrase = describeActivity('call', unreachedCall.outcome, false, overrides)
+    if (others.length === 0) return callPhrase
+    return others
+      .map((c) => describeActivity(c.channel, c.outcome, c.reached, overrides))
+      .join(' \u00b7 ')
+  }
+
   const phrases = comms.map((c) => describeActivity(c.channel, c.outcome, c.reached, overrides))
   if (phrases.length === 1) return phrases[0]
   // Join the attempt's channels into one concise line, e.g.
-  // "No Answer · Voicemail · Text".
+  // "Voicemail · Text · Email".
   return phrases.join(' \u00b7 ')
 }
 
@@ -1026,8 +1104,8 @@ export function describeNextHistoryEntry(
       const o = options?.callOutcome
       if (o === 'reached') return { summary: 'Reached' }
       if (o === 'callback') return { summary: 'Reached \u00b7 Callback Scheduled' }
-      if (o === 'bad-number') return { summary: 'No Answer \u00b7 Bad Number' }
-      return { summary: o === 'voicemail' ? 'No Answer \u00b7 Voicemail' : 'No Answer' }
+      if (o === 'bad-number') return { summary: 'Call attempt \u00b7 Bad number' }
+      return { summary: o === 'voicemail' ? 'Call attempt \u00b7 Voicemail' : 'Call attempt' }
     }
     case 'record-attempt':
     default:
@@ -1056,6 +1134,378 @@ export function describeContactResearchSelection(
 }
 
 // ---------------------------------------------------------------------------
+// Unified contact edit — one combined change set, one history entry.
+//
+// The shared CustomerContactCard edits every durable contact fact together
+// (name, email, phone, mailing address, the three verifications, email
+// availability, Do Not Text, Text Undeliverable, and the customer alert) and
+// commits them in ONE save that records exactly ONE "Customer Contact Updated"
+// history entry preserving the prior and new values for audit.
+//
+// Both halves live here as shared logic so neither the card nor any host screen
+// re-derives the diff or the recorded prose:
+//   - `describeContactUpdate(before, after)` builds the live Next History Entry
+//     preview of the pending change (null when nothing changed), so the preview
+//     component renders the combined pending change without page-specific logic.
+//   - `buildContactUpdateHistoryNote(before, after)` builds the single
+//     case_touches 'workflow' note the route records, naming each changed fact's
+//     prior -> new value so the previous value is preserved in history.
+// Both read the same `ContactSnapshot` shape, so the preview and the recorded
+// entry describe the identical set of changes in the identical order.
+// ---------------------------------------------------------------------------
+
+/** The stable machine marker identifying a case_touches 'workflow' note as a
+ * unified contact update, so the Customer History display titles it "Customer
+ * Contact Updated" while hiding the marker. */
+export const CONTACT_UPDATE_MARKER = '[contact-update]'
+
+/** The durable contact facts a unified edit can change, in one flat shape read
+ * by both the preview and the recorded-note builder. Values are the stored
+ * values (name components, the active email/phone, the four address parts, the
+ * three verification timestamps, the durable email-availability fact, the two
+ * texting restrictions, and the single customer alert). This mirrors the subset
+ * of the customers row the card and the contact route already read/write; it
+ * introduces no new field. */
+export interface ContactSnapshot {
+  first_name: string | null
+  last_name: string | null
+  /** Recorded middle name(s); part of the full recorded name. Optional so
+   * existing callers that don't track it still satisfy the type. */
+  middle_name?: string | null
+  /** Generational suffix; part of the full recorded name. Optional. */
+  suffix?: string | null
+  /** The "Goes by" / preferred first name; drives the familiar name. Optional. */
+  goes_by?: string | null
+  /** Preference for the suffix in the familiar name (null = include). Optional. */
+  suffix_in_familiar?: boolean | null
+  email: string | null
+  phone: string | null
+  street: string | null
+  city: string | null
+  state: string | null
+  zip: string | null
+  email_verified_at: string | null
+  phone_verified_at: string | null
+  address_verified_at: string | null
+  email_availability: EmailAvailabilitySnapshot
+  sms_opt_out: boolean
+  text_undeliverable: boolean
+  contact_alert: string | null
+  /** The customer's EXACT date of birth (YYYY-MM-DD) when all three parts are
+   * known, else null. Only ever rendered MASKED in history (day never shown). */
+  date_of_birth: string | null
+  /** The customer's PARTIAL date of birth (masked "MM/xx/YYYY" / "xx/xx/YYYY")
+   * when the exact date is not fully known, else null. Already dayless. */
+  date_of_birth_approx: string | null
+}
+
+/** The email-availability values the snapshot carries. Kept as a local string
+ * union (not an import) so this display module stays dependency-free; it mirrors
+ * the stored `customers.email_availability` domain (null = unknown). */
+export type EmailAvailabilitySnapshot =
+  | 'available'
+  | 'no_address'
+  | 'undeliverable'
+  | null
+
+/** Human label for an email-availability value in the history prose. */
+const EMAIL_AVAILABILITY_PROSE: Record<Exclude<EmailAvailabilitySnapshot, null>, string> = {
+  available: 'on file',
+  no_address: 'No Usable Email',
+  undeliverable: 'Undeliverable',
+}
+
+/** Collapse whitespace and trim; empty becomes null, so "present" is consistent
+ * between the preview, the note, and the card. */
+function trimOrNull(v: string | null): string | null {
+  if (v == null) return null
+  const t = v.replace(/\s+/g, ' ').trim()
+  return t.length ? t : null
+}
+
+function fullNameOf(s: ContactSnapshot): string {
+  const n = fullRecordedName({
+    firstName: trimOrNull(s.first_name),
+    middleName: trimOrNull(s.middle_name ?? null),
+    lastName: trimOrNull(s.last_name),
+    suffix: trimOrNull(s.suffix ?? null),
+    goesBy: trimOrNull(s.goes_by ?? null),
+    suffixInFamiliar: s.suffix_in_familiar ?? null,
+  })
+  return n || '(none)'
+}
+
+/** The familiar (everyday) name for a snapshot, naming the "Goes by" name and
+ * the suffix per preference. Used to describe a change to the goes-by / suffix
+ * preference in audit prose. */
+function familiarOf(s: ContactSnapshot): string {
+  const n = familiarName({
+    firstName: trimOrNull(s.first_name),
+    middleName: trimOrNull(s.middle_name ?? null),
+    lastName: trimOrNull(s.last_name),
+    suffix: trimOrNull(s.suffix ?? null),
+    goesBy: trimOrNull(s.goes_by ?? null),
+    suffixInFamiliar: s.suffix_in_familiar ?? null,
+  })
+  return n || '(none)'
+}
+
+function addressOf(s: ContactSnapshot): string {
+  const street = trimOrNull(s.street)
+  const city = trimOrNull(s.city)
+  const state = trimOrNull(s.state)
+  const zip = trimOrNull(s.zip)
+  const cityStateZip = [[city, state].filter(Boolean).join(', '), zip].filter(Boolean).join(' ').trim()
+  const full = [street, cityStateZip].filter(Boolean).join(', ')
+  return full || '(none)'
+}
+
+/** A value shown in prose, or "(none)" when empty, so prior -> new reads clearly
+ * even when one side is blank. */
+function valueOrNone(v: string | null): string {
+  return trimOrNull(v) ?? '(none)'
+}
+
+/** One described difference between two snapshots: a short label for the
+ * combined preview summary, and a full prior -> new sentence for the recorded
+ * audit note. `order` is a stable sort key so the preview and the note list the
+ * same changes in the same order. */
+interface ContactChange {
+  order: number
+  /** Short label for the combined preview summary (e.g. "email", "phone"). */
+  label: string
+  /** The audit sentence naming the prior and new value. */
+  sentence: string
+}
+
+/**
+ * Diff two contact snapshots into the ordered list of changes. This is the ONE
+ * place the unified edit decides what counts as a change, shared by the live
+ * preview and the recorded note so they never disagree. Returns an empty array
+ * when nothing changed (so no history entry is recorded and the preview stays
+ * blank). Verification is reported as checked/unchecked; an edited value that
+ * also clears its own verification reports the value change only, since the
+ * cleared verification is an automatic consequence, not a separate operator act.
+ */
+function diffContact(before: ContactSnapshot, after: ContactSnapshot): ContactChange[] {
+  const changes: ContactChange[] = []
+
+  // Name — every recorded part (first, middle, last, suffix, goes-by) plus the
+  // suffix-in-familiar preference considered together. A change to the recorded
+  // parts is described by the full recorded name; a change limited to the
+  // goes-by name or the suffix preference is described by the familiar name, so
+  // the audit sentence names what actually changed.
+  const recordedChanged =
+    (trimOrNull(before.first_name) ?? null) !== (trimOrNull(after.first_name) ?? null) ||
+    (trimOrNull(before.middle_name ?? null) ?? null) !== (trimOrNull(after.middle_name ?? null) ?? null) ||
+    (trimOrNull(before.last_name) ?? null) !== (trimOrNull(after.last_name) ?? null) ||
+    (trimOrNull(before.suffix ?? null) ?? null) !== (trimOrNull(after.suffix ?? null) ?? null)
+  const familiarChanged = familiarOf(before) !== familiarOf(after)
+  if (recordedChanged) {
+    changes.push({
+      order: 0,
+      label: 'name',
+      sentence: `Name changed from "${fullNameOf(before)}" to "${fullNameOf(after)}".`,
+    })
+  } else if (familiarChanged) {
+    // Only the goes-by name or the suffix-in-familiar preference moved, so the
+    // full recorded name is unchanged; name the familiar form.
+    changes.push({
+      order: 0,
+      label: 'name',
+      sentence: `Familiar name changed from "${familiarOf(before)}" to "${familiarOf(after)}".`,
+    })
+  }
+
+  // Email value.
+  const emailChanged = (trimOrNull(before.email) ?? null) !== (trimOrNull(after.email) ?? null)
+  if (emailChanged) {
+    changes.push({
+      order: 1,
+      label: 'email',
+      sentence: `Email changed from "${valueOrNone(before.email)}" to "${valueOrNone(after.email)}".`,
+    })
+  }
+
+  // Email availability (the durable fact), reported when it moved and is not
+  // merely a derived/automatic transition that carries no new information.
+  if ((before.email_availability ?? null) !== (after.email_availability ?? null)) {
+    const fromLabel = before.email_availability ? EMAIL_AVAILABILITY_PROSE[before.email_availability] : 'unknown'
+    const toLabel = after.email_availability ? EMAIL_AVAILABILITY_PROSE[after.email_availability] : 'unknown'
+    // Skip two no-information transitions so only a real operator decision is
+    // recorded: (1) the 'available' that always rides a saved usable email (the
+    // email change sentence conveys it), and (2) the NULL<->'available'
+    // derivation when a usable email is present on both sides — with an email on
+    // file, "unknown" and "on file" mean the same thing, so the flag catching up
+    // to the email is not a change. (Same cleanup the backfill does in bulk and
+    // the card does on open.)
+    const usableEmailAfter = !!(after.email && after.email.trim())
+    const usableEmailBefore = !!(before.email && before.email.trim())
+    const nullAvailablePair =
+      (before.email_availability ?? null) === null && after.email_availability === 'available' ||
+      before.email_availability === 'available' && (after.email_availability ?? null) === null
+    const derivedAvailability = nullAvailablePair && usableEmailAfter && usableEmailBefore
+    const automaticAvailable = (after.email_availability === 'available' && emailChanged) || derivedAvailability
+    if (!automaticAvailable) {
+      changes.push({
+        order: 2,
+        label: 'email availability',
+        sentence: `Email availability changed from ${fromLabel} to ${toLabel}.`,
+      })
+    }
+  }
+
+  // Phone value.
+  if ((trimOrNull(before.phone) ?? null) !== (trimOrNull(after.phone) ?? null)) {
+    changes.push({
+      order: 3,
+      label: 'phone',
+      sentence: `Phone changed from "${valueOrNone(before.phone)}" to "${valueOrNone(after.phone)}".`,
+    })
+  }
+
+  // Do Not Text.
+  if (before.sms_opt_out !== after.sms_opt_out) {
+    changes.push({
+      order: 4,
+      label: after.sms_opt_out ? 'Do Not Text set' : 'Do Not Text cleared',
+      sentence: after.sms_opt_out
+        ? 'Do Not Text was set (texting disabled; calling unaffected).'
+        : 'Do Not Text was cleared.',
+    })
+  }
+
+  // Text Undeliverable (recorded against the number on file).
+  if (before.text_undeliverable !== after.text_undeliverable) {
+    changes.push({
+      order: 5,
+      label: after.text_undeliverable ? 'Text Undeliverable recorded' : 'Text Undeliverable cleared',
+      sentence: after.text_undeliverable
+        ? 'Text Undeliverable was recorded for the number on file.'
+        : 'Text Undeliverable was cleared.',
+    })
+  }
+
+  // Mailing address (edited as one group).
+  const addrChanged =
+    (trimOrNull(before.street) ?? null) !== (trimOrNull(after.street) ?? null) ||
+    (trimOrNull(before.city) ?? null) !== (trimOrNull(after.city) ?? null) ||
+    (trimOrNull(before.state) ?? null) !== (trimOrNull(after.state) ?? null) ||
+    (trimOrNull(before.zip) ?? null) !== (trimOrNull(after.zip) ?? null)
+  if (addrChanged) {
+    changes.push({
+      order: 6,
+      label: 'mailing address',
+      sentence: `Mailing address changed from "${addressOf(before)}" to "${addressOf(after)}".`,
+    })
+  }
+
+  // Verification changes, reported only when NOT the automatic clear that
+  // accompanies editing that field's value (an edited value always resets its
+  // own verification; that is a consequence, not a separate act).
+  const verifyField = (
+    order: number,
+    label: string,
+    beforeAt: string | null,
+    afterAt: string | null,
+    valueEdited: boolean,
+  ) => {
+    const wasVerified = !!beforeAt
+    const isVerified = !!afterAt
+    if (wasVerified === isVerified) return
+    // An edit that cleared verification is already implied by the value change.
+    if (valueEdited && wasVerified && !isVerified) return
+    changes.push({
+      order,
+      label: isVerified ? `${label} verified` : `${label} verification cleared`,
+      sentence: isVerified
+        ? `${label} marked customer verified.`
+        : `${label} verification cleared.`,
+    })
+  }
+  verifyField(7, 'Email', before.email_verified_at, after.email_verified_at, emailChanged)
+  verifyField(
+    8, 'Phone', before.phone_verified_at, after.phone_verified_at,
+    (trimOrNull(before.phone) ?? null) !== (trimOrNull(after.phone) ?? null),
+  )
+  verifyField(9, 'Address', before.address_verified_at, after.address_verified_at, addrChanged)
+
+  // Date of birth — detected on the TRUE stored values (exact date + partial
+  // string), NOT a day-masked form, so an actual correction INCLUDING a
+  // day-only change is recorded. Routine history never prints the day: the
+  // audit sentence states that the DOB was added/corrected/cleared and names
+  // the PRECISION ("a full date", "month and year", "year only"), never the
+  // value. Ordered just after the name (identity data), before contact fields.
+  if (dobChanged(
+    before.date_of_birth, before.date_of_birth_approx,
+    after.date_of_birth, after.date_of_birth_approx,
+  )) {
+    const had = readStoredDob(before.date_of_birth, before.date_of_birth_approx).precision !== 'none'
+    const has = readStoredDob(after.date_of_birth, after.date_of_birth_approx).precision !== 'none'
+    const afterPrecision = dobPrecisionLabel(after.date_of_birth, after.date_of_birth_approx)
+    changes.push({
+      order: 0.5,
+      label: !had && has ? 'date of birth added' : !has ? 'date of birth cleared' : 'date of birth corrected',
+      sentence: !has
+        ? 'Date of birth was cleared.'
+        : `Date of birth ${had ? 'corrected' : 'added'} (${afterPrecision}).`,
+    })
+  }
+
+  // Customer alert.
+  if ((trimOrNull(before.contact_alert) ?? null) !== (trimOrNull(after.contact_alert) ?? null)) {
+    const had = !!trimOrNull(before.contact_alert)
+    const has = !!trimOrNull(after.contact_alert)
+    changes.push({
+      order: 10,
+      label: !had && has ? 'alert added' : !has ? 'alert cleared' : 'alert updated',
+      sentence: !has
+        ? 'Customer alert was cleared.'
+        : `Customer alert ${had ? 'updated' : 'added'}: "${valueOrNone(after.contact_alert)}".`,
+    })
+  }
+
+  return changes.sort((a, b) => a.order - b.order)
+}
+
+/**
+ * The live Next History Entry preview for a unified contact edit: what the one
+ * Save will record. Returns null when nothing has changed, so the preview stays
+ * blank until there is something to record (and "no changes means no history"
+ * reads the same in the preview as in the recorded result). The summary lists
+ * the changed facts; the description previews the exact audit sentences the
+ * recorded entry will carry, so the preview matches the logged entry.
+ */
+export function describeContactUpdate(
+  before: ContactSnapshot,
+  after: ContactSnapshot,
+): NextHistoryEntryPreview | null {
+  const changes = diffContact(before, after)
+  if (changes.length === 0) return null
+  return {
+    summary: `Customer Contact Updated (${changes.map((c) => c.label).join(', ')})`,
+    description: changes.map((c) => c.sentence).join(' '),
+  }
+}
+
+/**
+ * The single case_touches 'workflow' note the contact route records for a
+ * unified edit, naming each changed fact's prior -> new value so the previous
+ * value is preserved for audit. Returns null when nothing changed, so the route
+ * records no entry for a no-op. The hidden `CONTACT_UPDATE_MARKER` lets the
+ * Customer History display title the event "Customer Contact Updated" while the
+ * sentences read as plain prose.
+ */
+export function buildContactUpdateHistoryNote(
+  before: ContactSnapshot,
+  after: ContactSnapshot,
+): string | null {
+  const changes = diffContact(before, after)
+  if (changes.length === 0) return null
+  return `${changes.map((c) => c.sentence).join(' ')} ${CONTACT_UPDATE_MARKER}`
+}
+
+// ---------------------------------------------------------------------------
 // Dynamic Next History Entry — built live from the selections the worker is
 // making in the workflow, so the preview reflects exactly what completing the
 // open action will record, combined into ONE entry. This is the same honesty
@@ -1072,14 +1522,26 @@ export function describeContactResearchSelection(
 export interface CallSelection {
   /** The reach decision so far: not yet chosen, reached, or not reached. */
   reach: 'reached' | 'not-reached' | null
-  // Didn't-reach branch — only channels actually completed are previewed.
-  voicemailLeft?: boolean | null
-  textSent?: boolean
-  emailSent?: boolean
+  // Didn't-reach branch. The channel Legos (VoicemailAttempt / TextAttempt /
+  // EmailAttempt) own the wording, so the panel passes up the already-resolved
+  // history fragments ("Voicemail", "No voicemail, mailbox full", "Opted out of
+  // texting", "No email", …) and the touch count, rather than raw booleans the
+  // preview would have to re-interpret. This keeps the preview and the recorded
+  // attempt reading identically.
+  notReachedFragments?: string[]
   badNumber?: boolean
   // Reached branch — the customer's decision and, for a callback, the date.
   decision?: 'agreed' | 'callback' | 'not-interested' | null
   callbackDate?: string | null
+  /** A prebuilt callback/availability summary (e.g. "11/17/2026 at 2:00 PM" for
+   * an exact appointment, or "Mon, Tue, Wed · 3–6" for a recurring availability).
+   * When present it drives the preview wording instead of callbackDate alone, so
+   * the exact-time appointment shows its time and a recurring promise shows its
+   * days/bands. */
+  callbackLabel?: string | null
+  /** True when the callback is a specific-date exact-TIME appointment, so the
+   * preview reads "Appointment Scheduled …" rather than "Callback Scheduled …". */
+  callbackIsAppointment?: boolean
   /** Whether the authorization form has been confirmed sent on the reached ·
    * agreed path, so the preview can fold "Form Sent" into the entry. */
   formSent?: boolean
@@ -1087,6 +1549,11 @@ export interface CallSelection {
    * path, so the preview names the pending send accurately (emailed vs mailed)
    * WITHOUT claiming it has already gone out. */
   formDeliveryMethod?: 'email' | 'postal' | null
+  /** The customer ALREADY has the authorization form (it rode the introductory
+   * email), so there is nothing to send — the step is confirming they will sign
+   * and return it. When true the preview says so instead of "to be emailed/
+   * mailed", which would be inaccurate. */
+  formAlreadyHeld?: boolean
   /** The optional Call Notes the worker has typed, folded into the preview's
    * note so it reads exactly as what completion will record. */
   note?: string | null
@@ -1110,38 +1577,54 @@ export function describeCallSelection(
   // reflects exactly what completion will save with the interaction.
   const extraNote = (options?.note ?? selection.note)?.trim() || undefined
 
-  // Bad number is a distinct terminal outcome regardless of the reach choice.
-  // The description is the exact sentence the completion will record.
-  if (selection.badNumber) {
+  // A didn't-reach attempt (including a bad number). The TITLE is just the event
+  // type, "Call attempt" — matching "Email Sent" / "Reached" — never "No
+  // answer" and never the channel list. The channel fragments the Legos emit
+  // (and the bad-number fragment) go in the explanatory DESCRIPTION line, where
+  // the detail belongs. The touch count is NOT shown here: touches are counted
+  // as their own case_touches rows (one per completed channel), which is the
+  // queryable source for any per-customer / per-project touch total; echoing a
+  // number in the preview would only duplicate that and risk disagreeing with it.
+  if (selection.reach === 'not-reached' || selection.badNumber) {
+    const fragments = [...(selection.notReachedFragments ?? [])]
+    if (selection.badNumber) {
+      return {
+        summary: 'Call attempt',
+        description: [
+          fragments.length ? `${fragments.join('. ')}.` : null,
+          'Number not working.',
+        ].filter(Boolean).join(' '),
+        note: extraNote,
+      }
+    }
     return {
-      summary: 'No Answer · Bad Number',
-      description: 'Called customer. Number is not working. Customer referred to Contact Research.',
+      summary: 'Call attempt',
+      description: [
+        fragments.length ? `${fragments.join('. ')}.` : null,
+        'Next call scheduled.',
+      ].filter(Boolean).join(' '),
       note: extraNote,
     }
   }
 
-  if (selection.reach === 'not-reached') {
-    // Only completed channels are previewed, matching how the attempt records.
-    const parts = ['No Answer']
-    if (selection.voicemailLeft) parts.push('Voicemail')
-    if (selection.textSent) parts.push('Text')
-    if (selection.emailSent) parts.push('Email')
-    // The recorded call sentence is honest about whether a voicemail was left;
-    // the extra channels (text/email) are preserved alongside but the call line
-    // is the one the preview shows as the description.
-    const description = selection.voicemailLeft
-      ? 'Called customer. No answer. Voicemail left. Next call scheduled.'
-      : 'Called customer. No answer. Next call scheduled.'
-    return { summary: parts.join(' \u00b7 '), description, note: extraNote }
-  }
-
   if (selection.reach === 'reached') {
     if (selection.decision === 'callback') {
-      const when = selection.callbackDate ? formatCallbackDate(selection.callbackDate) : null
+      // Prefer the prebuilt label (carries the exact time, or the recurring
+      // days×bands availability); fall back to the plain date for older callers.
+      const label =
+        selection.callbackLabel?.trim() ||
+        (selection.callbackDate ? formatCallbackDate(selection.callbackDate) : null)
+      if (selection.callbackIsAppointment && label) {
+        return {
+          summary: `Reached · Appointment Scheduled ${label}`,
+          description: `Spoke with customer. Appointment set for ${label}.`,
+          note: extraNote,
+        }
+      }
       return {
-        summary: when ? `Reached · Callback Scheduled ${when}` : 'Reached · Callback Scheduled',
-        description: when
-          ? `Spoke with customer. Customer requested a callback on ${when}.`
+        summary: label ? `Reached · Callback Scheduled ${label}` : 'Reached · Callback Scheduled',
+        description: label
+          ? `Spoke with customer. Customer requested a callback: ${label}.`
           : 'Spoke with customer. Customer requested a callback.',
         note: extraNote,
       }
@@ -1166,6 +1649,20 @@ export function describeCallSelection(
       // The summary likewise distinguishes the still-pending agreement
       // ("Reached · Agreed") from the completed send ("Reached · Form Sent").
       const method = selection.formDeliveryMethod ?? null
+      // The customer already has the form (it rode the introductory email), so
+      // nothing is being sent — the agreement is to sign and return what they
+      // already have. This clause is accurate whether or not a delivery method
+      // was ever chosen, so it takes precedence over the send wording.
+      if (selection.formAlreadyHeld) {
+        return {
+          summary: 'Reached · Agreed',
+          description:
+            'Spoke with customer. Customer agreed to authorize our office as servicing agent. ' +
+            'Customer already has the authorization form and agreed to sign and return it. ' +
+            'Awaiting signed authorization.',
+          note: extraNote,
+        }
+      }
       const pendingClause =
         method === 'postal' ? ' Authorization form to be mailed.'
         : method === 'email' ? ' Authorization form to be emailed.'

@@ -10,6 +10,7 @@ import {
   removeEscalationContact,
 } from '@/lib/projects/team'
 import { isProjectRole } from '@/lib/projects/project-roles'
+import { syncParticipantCapabilities } from '@/lib/projects/capability-sync'
 
 /**
  * Project TEAM management — add / edit / remove project participants, assign
@@ -92,11 +93,32 @@ export async function POST(
         roles,
         body.note && body.note.trim() ? body.note.trim() : null,
       )
+      // Establish (or reconcile) the project-scoped work eligibility the stored
+      // responsibilities imply, so assigning a responsibility actually lets the
+      // person do that work. Mirrors upsertParticipant's own role cleaning so
+      // the sync reconciles against exactly what was stored. The capability sync
+      // only touches its own 'role_sync' project-scoped rows (never agency-wide,
+      // manual, or migration_seed), so this cannot disturb an explicit grant.
+      if (result.ok) {
+        const storedRoles = Array.from(
+          new Set(roles.filter((r) => r && r !== 'operations_escalation' && r !== 'owner')),
+        )
+        const sync = await syncParticipantCapabilities(supabase, id, body.producer_id, storedRoles)
+        if (!sync.ok) result = sync
+      }
       break
     }
     case 'remove-participant': {
       if (!body.producer_id) return Response.json({ error: 'producer_id is required' }, { status: 400 })
       result = await removeParticipant(supabase, id, body.producer_id)
+      // The person no longer holds any responsibility on this project, so revoke
+      // the project-scoped capability this sync established for them here (an
+      // empty role set justifies no role_sync activity). Agency-wide and
+      // manually-granted rows are left untouched.
+      if (result.ok) {
+        const sync = await syncParticipantCapabilities(supabase, id, body.producer_id, [])
+        if (!sync.ok) result = sync
+      }
       break
     }
     case 'set-escalation': {

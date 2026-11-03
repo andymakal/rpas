@@ -162,6 +162,7 @@ function devLikeState(): MyWorkState {
     employeeName: 'Test Worker',
     noProfile: false,
     activities: [outreach, research],
+    appointments: [],
     responsibilities: [],
     focusNotes: [],
     quiet: false,
