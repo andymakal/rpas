@@ -41,6 +41,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isPermanent } from '@/lib/policies/product-type'
+import { isEverlakeCarrier } from '@/lib/policies/everlake-carrier'
 
 /** Stable workflow keys this release understands. The catalog may hold more;
  * only these have a typed completion strategy here. */
@@ -229,6 +230,31 @@ export function onboardingCompleteForPolicies(
   const permanent = policies.filter((p) => isPermanent(p.product_type))
   if (permanent.length === 0) return true // nothing to establish
   return permanent.every((p) => p.sa_status === 'confirmed')
+}
+
+/**
+ * The VERIFY gate predicate — the sibling of onboardingCompleteForPolicies, one
+ * step earlier in the workflow.
+ *
+ * A customer is BLOCKED at Verify Servicing Agent when ANY of their
+ * Everlake-eligible policies (Allstate / Lincoln Benefit Life / Everlake) is
+ * still at sa_status 'unknown': we have not established whether we are the
+ * servicing agent, so no downstream capture or review work on that customer can
+ * proceed. The block clears when every Everlake policy has a definite answer
+ * ('confirmed' or 'not_on_file').
+ *
+ * Carrier-scoped, not product-scoped: verification happens in the Everlake
+ * portal, so a non-Everlake carrier is NEVER verify work and never blocks (its
+ * 'unknown' is a different matter, handled by its own carrier). This is the same
+ * kind of per-customer, policy-derived gate the determination/review phase
+ * already uses — just moved earlier, in front of onboarding.
+ *
+ * Pure and exported so the rule is directly testable without a DB.
+ */
+export function verifyBlockedForPolicies(
+  policies: { carrier: string | null; sa_status: string | null }[],
+): boolean {
+  return policies.some((p) => p.sa_status === 'unknown' && isEverlakeCarrier(p.carrier))
 }
 
 /**

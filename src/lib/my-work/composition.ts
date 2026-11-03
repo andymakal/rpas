@@ -28,7 +28,7 @@ import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, derivePhoneRouti
 import { createTimeContext, commitmentClocks } from '@/lib/time'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
-import { activeProjectsWithWorkflow, onboardingCompleteForPolicies } from '@/lib/projects/workflows'
+import { activeProjectsWithWorkflow, onboardingCompleteForPolicies, verifyBlockedForPolicies } from '@/lib/projects/workflows'
 import { isEverlakeCarrier } from '@/lib/policies/everlake-carrier'
 import { buildContactReview, summarizeContactReview } from '@/lib/projects/contact-review'
 import { deriveOnboardingPopulation } from '@/lib/stewardship/derived-onboarding'
@@ -585,24 +585,35 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   // as advanced (matching the board's `policies.length > 0` guard), so a
   // customer with no known policy is never dropped by accident.
   const onboardingCompleteCustomerIds = new Set<string>()
+  // VERIFY GATE: customers with ANY Everlake-eligible policy still at sa_status
+  // 'unknown' are blocked from ALL downstream work until every such policy has a
+  // definite answer (confirmed or not_on_file). They surface ONLY under Verify
+  // Servicing Agent. This set is seeded from the board-customer policy read here
+  // and EXTENDED with project members below (a project member with no board row
+  // is still gated). verifyBlocked() is the single predicate every downstream
+  // consumer checks. See the verify-population + gate application below.
+  const verifyBlockedCustomerIds = new Set<string>()
   if (boardCustomerIds.length > 0) {
-    const policiesByCustomer = new Map<string, { product_type: string | null; sa_status: string | null }[]>()
+    const policiesByCustomer = new Map<string, { product_type: string | null; carrier: string | null; sa_status: string | null }[]>()
     for (let i = 0; i < boardCustomerIds.length; i += 300) {
       const chunk = boardCustomerIds.slice(i, i + 300)
       const { data: pols } = await supabase
         .from('service_policies')
-        .select('customer_id, product_type, sa_status, is_test')
+        .select('customer_id, product_type, carrier, sa_status, is_test')
         .in('customer_id', chunk)
         .eq('is_test', false)
-      for (const p of (pols ?? []) as { customer_id: string; product_type: string | null; sa_status: string | null }[]) {
+      for (const p of (pols ?? []) as { customer_id: string; product_type: string | null; carrier: string | null; sa_status: string | null }[]) {
         const list = policiesByCustomer.get(p.customer_id) ?? []
-        list.push({ product_type: p.product_type, sa_status: p.sa_status })
+        list.push({ product_type: p.product_type, carrier: p.carrier, sa_status: p.sa_status })
         policiesByCustomer.set(p.customer_id, list)
       }
     }
     for (const [cid, policies] of policiesByCustomer) {
       if (policies.length > 0 && onboardingCompleteForPolicies(policies)) {
         onboardingCompleteCustomerIds.add(cid)
+      }
+      if (verifyBlockedForPolicies(policies)) {
+        verifyBlockedCustomerIds.add(cid)
       }
     }
   }
@@ -622,7 +633,11 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   // owns the recommended-vs-exception split, and the board route keeps its own
   // independent research_unsuccessful flagging for the board view.
   const openRows = openRowsBase.filter(
-    (r) => !onboardingCompleteCustomerIds.has(r.customer_prereviews.customer_id),
+    (r) =>
+      !onboardingCompleteCustomerIds.has(r.customer_prereviews.customer_id) &&
+      // VERIFY GATE: a customer with an unverified Everlake policy is not
+      // downstream outreach work yet — they must be verified first.
+      !verifyBlockedCustomerIds.has(r.customer_prereviews.customer_id),
   )
 
   // Project association for the open board customers: which project(s) each
@@ -1437,11 +1452,45 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   if (proj) {
     const projectId = proj.id
     const projectName = proj.name || 'Review Preparation'
-    const workflow = await buildProjectWorkflow(supabase, projectId)
+    const workflowAll = await buildProjectWorkflow(supabase, projectId)
+    const reviewRoute = `/projects/${projectId}/review`
+
+    // VERIFY GATE source read: the project members' Everlake policies, read once
+    // (carrier + status) and used BOTH to count the unverified policies (the
+    // Verify Servicing Agent activity) AND to extend the downstream verify-block
+    // set. A member with any Everlake-eligible policy still at 'unknown' is
+    // blocked from the project's downstream work (operations prep, determination,
+    // research, derived onboarding) until it is verified. verifyPolicyCount is
+    // per POLICY (each policy is one unit of verify work); the block set is per
+    // CUSTOMER.
+    const memberIds = workflowAll.map((w) => w.customer_id)
+    let verifyPolicyCount = 0
+    for (let i = 0; i < memberIds.length; i += 300) {
+      const chunk = memberIds.slice(i, i + 300)
+      if (chunk.length === 0) continue
+      const { data: pols } = await supabase
+        .from('service_policies')
+        .select('customer_id, carrier, sa_status')
+        .in('customer_id', chunk)
+        .eq('is_test', false)
+        .eq('sa_status', 'unknown')
+      for (const p of (pols ?? []) as { customer_id: string; carrier: string | null; sa_status: string }[]) {
+        if (isEverlakeCarrier(p.carrier)) {
+          verifyPolicyCount += 1
+          verifyBlockedCustomerIds.add(p.customer_id)
+        }
+      }
+    }
+
+    // The workflow rows that are NOT blocked by the verify gate drive the
+    // downstream operations-prep / determination counts: a member with an
+    // unverified Everlake policy is verify work, not prep/determination work
+    // yet. The gated rows are also what the derived-onboarding and research
+    // passes below filter against.
+    const workflow = workflowAll.filter((w) => !verifyBlockedCustomerIds.has(w.customer_id))
     const summary = summarizeWorkflow(workflow)
     const prepCount = summary.by.operations_prep
     const determineCount = summary.by.bob_evaluation
-    const reviewRoute = `/projects/${projectId}/review`
 
     // These project activities are inherently scoped to this project, so
     // eligibility and focus are judged against THIS project only (never
@@ -1500,45 +1549,21 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         if (itemFocusElevated(key, projectSet)) a.focusEligible += count
       }
     }
+    // VERIFY SERVICING AGENT — the gate activity. The unverified-policy count was
+    // computed from the single Everlake read above (per POLICY: each policy is
+    // one unit of verify work, matching the per-policy worklist the verify
+    // screen shows). The block set it produced has already pulled these members
+    // OUT of operations_prep / determination (via the gated `workflow` above) and
+    // out of research / derived-onboarding (filtered below), so a customer with
+    // an unverified Everlake policy appears ONLY here until it is resolved.
+    addProjectActivity(
+      'verify_servicing_agent',
+      verifyPolicyCount,
+      `/projects/${projectId}/verify-servicing-agent`,
+    )
+
     addProjectActivity('operations_prep', prepCount)
     addProjectActivity('determination', determineCount)
-
-    // VERIFY SERVICING AGENT — step 1 of capture, derived purely from FACTS
-    // (service_policies), not the board or a workflow stage. A project member is
-    // verify work when ANY of their Everlake-eligible policies (Allstate /
-    // Lincoln Benefit Life / Everlake) is still at sa_status 'unknown' — i.e. we
-    // have not yet established whether we are the servicing agent. Non-Everlake
-    // carriers are never verified in Everlake, so they never create verify work.
-    // Counted once per customer; the source opens the project's verify surface.
-    // OPTION B: this SURFACES the work only; it does NOT yet gate downstream
-    // activities (the gate is an immediate fast-follow).
-    {
-      const memberIds = workflow.map((w) => w.customer_id)
-      // Count unverified POLICIES (not customers): verification is per policy —
-      // the operator checks each policy number in Everlake one at a time — so
-      // the activity count must match the per-policy worklist the verify screen
-      // shows, not a per-customer rollup. A customer with three unverified
-      // policies is three units of verify work.
-      let verifyPolicyCount = 0
-      for (let i = 0; i < memberIds.length; i += 300) {
-        const chunk = memberIds.slice(i, i + 300)
-        if (chunk.length === 0) continue
-        const { data: pols } = await supabase
-          .from('service_policies')
-          .select('carrier, sa_status')
-          .in('customer_id', chunk)
-          .eq('is_test', false)
-          .eq('sa_status', 'unknown')
-        for (const p of (pols ?? []) as { carrier: string | null; sa_status: string }[]) {
-          if (isEverlakeCarrier(p.carrier)) verifyPolicyCount += 1
-        }
-      }
-      addProjectActivity(
-        'verify_servicing_agent',
-        verifyPolicyCount,
-        `/projects/${projectId}/verify-servicing-agent`,
-      )
-    }
 
     // Servicing Agent Onboarding — the first-touch OUTREACH populations, derived
     // from FACTS for members who have no outreach record yet. A freshly
@@ -1679,7 +1704,14 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         const crProjectId = crp.id
         const crProjectName = crp.name || 'Review Preparation'
         const crRoute = `/projects/${crProjectId}/contact-review`
-        const crRows = await buildContactReview(supabase, crProjectId)
+        const crRowsAll = await buildContactReview(supabase, crProjectId)
+        // VERIFY GATE: a customer with an unverified Everlake policy is not
+        // research work yet — they must be verified first, so drop them from the
+        // research population. verifyBlockedCustomerIds is authoritative for the
+        // active review project's members (and all board customers), which is the
+        // research population today; a future multi-review-project world would
+        // extend the block computation to every scanned project here.
+        const crRows = crRowsAll.filter((row) => !verifyBlockedCustomerIds.has(row.customer_id))
         const crSummary = summarizeContactReview(crRows)
         // Three figures, kept distinct so the breakdown reads from real history:
         //   actionable  = OUTSTANDING ("not yet researched"), drives the band;
