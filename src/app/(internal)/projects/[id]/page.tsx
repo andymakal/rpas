@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import { Users, FolderPlus, Play } from 'lucide-react'
+import { Users, FolderPlus, Play, ShieldCheck } from 'lucide-react'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { projectHasWorkflow, isPermanentPolicyReviewTypeName } from '@/lib/projects/workflows'
 import {
@@ -117,6 +117,13 @@ export default async function ProjectDetailPage({
                   {/* Add Population — administrative action, authorized internal
                       staff only. Available on an existing project to add another
                       run. */}
+                  <Link
+                    href={`/projects/${project.id}/verify-servicing-agent`}
+                    className="inline-flex h-10 items-center gap-2 rounded-xl border border-surface-border bg-surface-card px-4 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted"
+                  >
+                    <ShieldCheck className="size-4" aria-hidden />
+                    Verify Servicing Agent
+                  </Link>
                   <Link
                     href={`/projects/${project.id}/population`}
                     className="inline-flex h-10 items-center gap-2 rounded-xl border border-surface-border bg-surface-card px-4 text-sm font-semibold text-ink transition-colors hover:bg-surface-muted"
