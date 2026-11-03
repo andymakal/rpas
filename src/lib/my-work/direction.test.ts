@@ -416,3 +416,18 @@ test('direction: actionableCount counts owned + available only (due is a subset)
   const row = [...d.primary, ...d.support][0]
   assert.equal(row?.actionableCount, 3)
 })
+
+test('plan: Verify Servicing Agent is the GATE and always leads, even against higher-priority work', () => {
+  const d = deriveMyWorkDirection(
+    state([
+      // A focus-elevated outreach activity (rank 2) outranks verify by ZEN band,
+      // but the fixed workflow order puts the verify gate first regardless.
+      activity({ workFunction: 'outreach', band: 'focus', rank: 2, label: 'Outreach', availableCount: 5, isFocusElevated: true }),
+      activity({ workFunction: 'research', band: 'shared', rank: 5, label: 'Contact Research', availableCount: 3 }),
+      activity({ workFunction: 'verify_servicing_agent', band: 'shared', rank: 5, label: 'Verify servicing agent', availableCount: 172 }),
+    ]),
+  )
+  assert.equal(d.workingPlan[0].key, 'verify_servicing_agent')
+  // The verify step shows the per-policy count it was given (not a re-sum).
+  assert.equal(d.workingPlan[0].count, 172)
+})

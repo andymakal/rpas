@@ -58,6 +58,12 @@ export interface ActivityGuidance {
  * completeness so no activity renders without a description.
  */
 export const ACTIVITY_GUIDANCE: Record<WorkFunctionKey, ActivityGuidance> = {
+  verify_servicing_agent: {
+    whatItIs:
+      'Confirming, per policy, whether we are the servicing agent. Copy the policy number, look it up in the Everlake Agent Portal, and record Yes or No. The preliminary step before any capture outreach — a policy stays unverified until it has a definite answer.',
+    workMode: 'quiet',
+    note: WORK_MODE_NOTE.quiet,
+  },
   outreach: {
     whatItIs:
       'Contacting customers to establish servicing access. Emails are quiet work you can send any time; calls are for live phone conversations.',

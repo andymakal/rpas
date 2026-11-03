@@ -49,6 +49,37 @@ grouped. Breaking the current `primitives.tsx` into per-component files is an
 agreed future refactor to be done deliberately as its own reviewed change, not
 piecemeal mid-task.
 
+## Build it as a Lego first (component-first is the default)
+
+New operator-facing UI is built FROM components, not as bespoke markup that is
+later extracted. When you write a piece of interaction, the default is to make
+it a Lego (or compose existing Legos) from the start, not to hand-write the
+markup inline and leave extraction for "later". Extraction-later is how the same
+ten lines end up copied across a hundred screens.
+
+Concretely:
+
+- A recurring interaction pattern is a Lego, defined once and called in one
+  line everywhere it appears. The reference example is the Done / Skip action
+  pair (`DoneSkipActions`): Done COMMITS the captured input (grayed until the
+  host says it is ready), Skip ABANDONS the pending input and advances to the
+  next item — identical behavior everywhere — so a surface wires it with a
+  single component, never by re-writing the two buttons and their gating. Build
+  such patterns as a shared Lego the first time a second use appears (and
+  proactively when you can already see the pattern will recur), rather than
+  pasting the markup again.
+- Prefer composing existing Legos over writing new markup. Before hand-writing a
+  control, check the barrel (`@/components/workflow`) for one that already does
+  it, and extend it (a new prop, a new tone) rather than duplicating it.
+- Do not drive component granularity to the molecular level for its own sake. A
+  Lego must earn its existence by being reused OR by cleanly owning one unit of
+  logic/display; a one-off arrangement with no reuse and no self-contained logic
+  can stay inline. When a genuinely shared pattern would be overkill to extract,
+  say so rather than extracting reflexively. The test is reuse and cohesion, not
+  "smallest possible piece".
+- A new reusable Lego follows the File organization rule above: its own file in
+  `src/components/workflow/`, exported through the barrel.
+
 ## Call workbenches are situation-specific
 
 The Guided Call Workbench is specifically the outbound outreach (marketing)
