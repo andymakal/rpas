@@ -1876,18 +1876,36 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     // work (0 when quiet) and the ZEN band is the ordinary empty/shared band.
     const hasStandingEntryPoint = eligible && a.sources.some((s) => s.informational && !!s.route)
 
+    // The FULL WORKFLOW SPINE stays visible (even at zero) for an employee who
+    // is eligible for it, so the operator always sees the whole pipeline and can
+    // watch work move through it as the gate releases customers. While Verify
+    // Servicing Agent is gating, the downstream steps are legitimately empty —
+    // the work is stacked at Verify, not gone — and showing them at 0 is the
+    // honest "here is the workflow; nothing has reached this step yet" signal
+    // rather than hiding the step entirely. Scoped to eligible employees so an
+    // unassigned worker is not shown an irrelevant spine.
+    const SPINE_WORK_FUNCTIONS = new Set<WorkFunctionKey>([
+      'verify_servicing_agent',
+      'research',
+      'outreach',
+      'operations_prep',
+      'determination',
+    ])
+    const isWorkflowSpine = eligible && SPINE_WORK_FUNCTIONS.has(a.workFunction)
+
     // Drop activities with no work that are not a directed focus for this
-    // eligible employee AND have no standing entry point. (An ineligible, empty
-    // activity is simply not shown.) "No work" means no OUTSTANDING items AND no
-    // unresolved population: an activity whose outstanding count has reached zero
-    // but still has unresolved customers (e.g. Research with only
-    // researched-unsuccessfully customers left) stays visible as long as
-    // unresolved work remains.
+    // eligible employee, have no standing entry point, AND are not part of the
+    // always-visible workflow spine. (An ineligible, empty activity is simply
+    // not shown.) "No work" means no OUTSTANDING items AND no unresolved
+    // population: an activity whose outstanding count has reached zero but still
+    // has unresolved customers (e.g. Research with only researched-unsuccessfully
+    // customers left) stays visible as long as unresolved work remains.
     if (
       a.total === 0 &&
       a.unresolved === 0 &&
       !(focusElevated && eligible) &&
-      !hasStandingEntryPoint
+      !hasStandingEntryPoint &&
+      !isWorkflowSpine
     ) continue
 
     // The employee's capability STANDING for this activity, across the scopes it
