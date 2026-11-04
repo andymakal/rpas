@@ -126,9 +126,9 @@ export type StageLookup = { id: string; internal_status: string; agency_label: s
 export type AgencyLookup = { id: string; name: string; display_name: string | null }
 export type AgentOption  = { id: string; first_name: string; last_name: string; email: string | null }
 export type ProducerOption = { id: string; first_name: string; last_name: string }
-export type ProductLookup = { id: string; name: string; carrier_id: string | null; carriers: { short_name: string } | null }
+export type ProductLookup = { id: string; name: string; carrier_id: string | null; gdc_multiplier: number; carriers: { short_name: string } | null }
 export type RateClassLookup = { id: string; name: string }
-export type PremiumModeLookup = { id: string; name: string }
+export type PremiumModeLookup = { id: string; name: string; modal_factor: number | null }
 export type LostReasonLookup = { id: string; agency_label: string }
 export type SnoozeReasonLookup = { id: string; agency_label: string }
 export type PendingRequirementLookup = { id: string; name: string; sort_order: number; has_date_fields: boolean }
@@ -220,7 +220,7 @@ export default async function CaseDetailPage({
       .order('name'),
     supabase
       .from('products')
-      .select('id, name, carrier_id, carriers ( short_name )')
+      .select('id, name, carrier_id, gdc_multiplier, carriers ( short_name )')
       .order('name'),
     supabase
       .from('rate_classes')
@@ -228,7 +228,7 @@ export default async function CaseDetailPage({
       .order('sort_order'),
     supabase
       .from('premium_modes')
-      .select('id, name')
+      .select('id, name, modal_factor')
       .order('sort_order'),
     supabase
       .from('lost_reasons')

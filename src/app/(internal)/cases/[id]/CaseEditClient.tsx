@@ -204,10 +204,42 @@ export default function CaseEditClient({
   const [productId,      setProductId]      = useState(caseData.products?.id ?? '')
   const [faceAmount,     setFaceAmount]     = useState(caseData.face_amount?.toString() ?? '')
   const [annualPremium,  setAnnualPremium]  = useState(caseData.annual_premium?.toString() ?? '')
+  const [modalPremium,   setModalPremium]   = useState('')
   const [rateClassId,    setRateClassId]    = useState(caseData.rate_classes?.id ?? '')
   const [tableRating,    setTableRating]    = useState(caseData.table_rating?.toString() ?? '')
   const [premiumModeId,  setPremiumModeId]  = useState(caseData.premium_modes?.id ?? '')
   const [policyNumber,   setPolicyNumber]   = useState(caseData.policy_number ?? '')
+
+  // ── Derived: annualized premium from modal entry ───────────────
+  const selectedMode  = premiumModes.find(m => m.id === premiumModeId)
+  const selectedProduct = products.find(p => p.id === productId)
+  const modalFactor   = selectedMode?.modal_factor ?? null
+
+  function handleModalPremiumChange(val: string) {
+    setModalPremium(val)
+    if (val && modalFactor) {
+      const annual = parseFloat(val) * modalFactor
+      setAnnualPremium(isNaN(annual) ? '' : annual.toFixed(2))
+    }
+  }
+  function handleModeChange(val: string) {
+    setPremiumModeId(val)
+    if (modalPremium) {
+      const mode = premiumModes.find(m => m.id === val)
+      const factor = mode?.modal_factor ?? null
+      if (factor) {
+        const annual = parseFloat(modalPremium) * factor
+        setAnnualPremium(isNaN(annual) ? '' : annual.toFixed(2))
+      }
+    }
+  }
+
+  const estGdc = (() => {
+    const ap  = parseFloat(annualPremium)
+    const gdc = selectedProduct?.gdc_multiplier
+    if (!ap || !gdc) return null
+    return ap * gdc
+  })()
   const [placedAt,       setPlacedAt]       = useState(
     caseData.placed_at ? caseData.placed_at.split('T')[0] : ''
   )
@@ -1624,7 +1656,7 @@ export default function CaseEditClient({
               </select>
             </div>
 
-            {/* Face amount + annual premium */}
+            {/* Face amount + modal premium */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-slate-500 mb-1">Face Amount</label>
@@ -1633,9 +1665,9 @@ export default function CaseEditClient({
                   className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600" />
               </div>
               <div>
-                <label className="block text-xs text-slate-500 mb-1">Annual Premium</label>
-                <input type="number" min="0" step="1" value={annualPremium}
-                  onChange={e => setAnnualPremium(e.target.value)} placeholder="0"
+                <label className="block text-xs text-slate-500 mb-1">Modal Premium</label>
+                <input type="number" min="0" step="0.01" value={modalPremium}
+                  onChange={e => handleModalPremiumChange(e.target.value)} placeholder="per period"
                   className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600" />
               </div>
             </div>
@@ -1652,11 +1684,33 @@ export default function CaseEditClient({
               </div>
               <div>
                 <label className="block text-xs text-slate-500 mb-1">Premium Mode</label>
-                <select value={premiumModeId} onChange={e => setPremiumModeId(e.target.value)}
+                <select value={premiumModeId} onChange={e => handleModeChange(e.target.value)}
                   className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2.5 focus:outline-none focus:border-blue-500 cursor-pointer">
                   <option value="">— none —</option>
                   {premiumModes.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
+              </div>
+            </div>
+
+            {/* Annual premium + GDC estimate */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Annual Premium</label>
+                <input type="number" min="0" step="1" value={annualPremium}
+                  onChange={e => setAnnualPremium(e.target.value)} placeholder="0"
+                  className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600" />
+              </div>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Est. GDC</label>
+                <div className={`w-full text-sm rounded-lg px-3 py-2 border ${
+                  estGdc != null
+                    ? 'bg-emerald-950/40 border-emerald-800/50 text-emerald-300'
+                    : 'bg-slate-800/50 border-slate-700 text-slate-600'
+                }`}>
+                  {estGdc != null
+                    ? `$${estGdc.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+                    : '—'}
+                </div>
               </div>
             </div>
 
