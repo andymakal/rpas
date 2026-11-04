@@ -999,14 +999,45 @@ function AvailableWorkColumn({
   const [showAll, setShowAll] = useState(false)
   const classes = useMemo(() => groupPlanByClass(direction.workingPlan), [direction.workingPlan])
 
+  // Which classes are open. Held here (not inside each card) so one control can
+  // expand or collapse the whole column, while each class can still be toggled
+  // on its own. Starts collapsed.
+  const [openClasses, setOpenClasses] = useState<ReadonlySet<string>>(() => new Set())
+  const allOpen = classes.length > 0 && classes.every((g) => openClasses.has(g.workClass))
+  const toggleClass = (workClass: string) =>
+    setOpenClasses((prev) => {
+      const next = new Set(prev)
+      if (next.has(workClass)) next.delete(workClass)
+      else next.add(workClass)
+      return next
+    })
+  const toggleAll = () =>
+    setOpenClasses(allOpen ? new Set() : new Set(classes.map((g) => g.workClass)))
+
   return (
     <section aria-label="Available work" className="space-y-3">
-      <ColumnHeader title="Available Work" />
+      <div className="flex items-baseline justify-between gap-3">
+        <ColumnHeader title="Available Work" />
+        {classes.length > 0 && (
+          <button
+            type="button"
+            onClick={toggleAll}
+            className="shrink-0 text-sm font-medium text-brand-hover hover:underline"
+          >
+            {allOpen ? 'Collapse all' : 'Expand all'}
+          </button>
+        )}
+      </div>
 
       {classes.length > 0 ? (
         <div className="space-y-2.5">
           {classes.map((group) => (
-            <WorkClassCard key={group.workClass} group={group} />
+            <WorkClassCard
+              key={group.workClass}
+              group={group}
+              open={openClasses.has(group.workClass)}
+              onToggle={() => toggleClass(group.workClass)}
+            />
           ))}
         </div>
       ) : (
@@ -1044,13 +1075,20 @@ function AvailableWorkColumn({
  * class list stays short until the employee opens a class. A class with a single
  * activity still discloses it (consistent one interaction model); the activity
  * row is the direct link to the work. */
-function WorkClassCard({ group }: { group: WorkClassGroup }) {
-  const [open, setOpen] = useState(false)
+function WorkClassCard({
+  group,
+  open,
+  onToggle,
+}: {
+  group: WorkClassGroup
+  open: boolean
+  onToggle: () => void
+}) {
   return (
     <article className="rounded-xl border border-surface-border bg-surface-card">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={onToggle}
         aria-expanded={open}
         className="flex w-full items-center gap-3 rounded-xl p-3 text-left hover:bg-brand-wash"
       >
