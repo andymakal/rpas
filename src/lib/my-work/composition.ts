@@ -93,19 +93,6 @@ function introductoryEmailsRoute(projectId?: string | null): string {
   return projectId ? `${base}?project_id=${encodeURIComponent(projectId)}` : base
 }
 
-/**
- * The Call Reachable Customers DIRECT WORKING SCREEN for the Available to Call
- * population. This is the dedicated continuous calling surface that lands
- * straight on the first available customer and advances automatically after each
- * recorded interaction — the same working-screen pattern as Contact Research and
- * Send Introductory Emails. Project scope is carried through so a project-scoped
- * link works exactly that project's Available to Call population. Calls Due is
- * worked on the same guided workbench in due mode (callsDueRoute).
- */
-function availableToCallRoute(projectId?: string | null): string {
-  const base = `${STEWARDSHIP_ROUTE}/available-to-call`
-  return projectId ? `${base}?project_id=${encodeURIComponent(projectId)}` : base
-}
 
 /**
  * The Make the Calls That Are Due DIRECT WORKING SCREEN for the Calls Due
@@ -1025,11 +1012,9 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     const outreach = acc.get('outreach')
     if (outreach) {
       let callsDue = 0
-      let availableToCall = 0
       // Per-project subsets of the two call populations, so the Project filter
       // can show exactly a project's callable work. Keyed by project id.
       const callsDueByProject = new Map<string, number>()
-      const availableToCallByProject = new Map<string, number>()
       const bumpCall = (m: Map<string, number>, projects: Set<string>) => {
         for (const pid of projects) m.set(pid, (m.get(pid) ?? 0) + 1)
       }
@@ -1063,8 +1048,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         if (!canActOnItem(profile, 'outreach', requiredQualByActivity.get('outreach') ?? null, itemProjects)) continue
         if (claimedByOther(r.claimed_by_producer_id, myProducerId)) continue
 
-        if (population === 'calls-due') { callsDue += 1; bumpCall(callsDueByProject, itemProjects) }
-        else { availableToCall += 1; bumpCall(availableToCallByProject, itemProjects) }
+        callsDue += 1; bumpCall(callsDueByProject, itemProjects)
       }
 
       // Build per-project scopes for a call population: each entry opens exactly
@@ -1077,11 +1061,8 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       // per-project counts where they exist.
       const callScopes = (
         byProject: Map<string, number>,
-        population: 'calls-due' | 'available-to-call',
-        due: boolean,
       ): Record<string, WorkSourceProjectScope> | undefined => {
-        const routeFor = (pid: string) =>
-          population === 'available-to-call' ? availableToCallRoute(pid) : callsDueRoute(pid)
+        const routeFor = (pid: string) => callsDueRoute(pid)
         const out: Record<string, WorkSourceProjectScope> = {}
         for (const pid of outreach.projectIds) {
           out[pid] = {
@@ -1102,7 +1083,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
             availableToMe: n,
             claimedByOthers: 0,
             notEligible: 0,
-            dueToMe: due ? n : 0,
+            dueToMe: n,
             // Both call populations open the SAME guided calling workbench for
             // exactly this project's slice: Available to Call in its default
             // mode, Calls Due in due mode. Neither uses the board's intermediate
@@ -1137,26 +1118,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
           notEligible: 0,
           dueToMe: callsDue,
           informational: true,
-          projectScopes: callScopes(callsDueByProject, 'calls-due', true),
-        })
-      }
-      if (availableToCall > 0 || callEligibleAnywhere) {
-        outreach.sources.push({
-          kind: 'stewardship',
-          label: 'Shared Stewardship board — Available to Call',
-          count: availableToCall,
-          // Opens the Call Reachable Customers direct working screen (callable,
-          // not yet due), landing straight on the first available customer —
-          // exactly the set this counted — instead of the board's list.
-          route: availableToCallRoute(),
-          projectId: null,
-          ownedByMe: 0,
-          availableToMe: availableToCall,
-          claimedByOthers: 0,
-          notEligible: 0,
-          dueToMe: 0,
-          informational: true,
-          projectScopes: callScopes(availableToCallByProject, 'available-to-call', false),
+          projectScopes: callScopes(callsDueByProject),
         })
       }
 
@@ -1633,8 +1595,8 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         const focusElevated = canPickUp && eligible && itemFocusElevated('outreach', projectSet)
 
         const introEmailCount = derivedOnboarding.filter((d) => d.isIntroEmail).length
-        const availableToCallCount = derivedOnboarding.filter(
-          (d) => d.callPopulation === 'available-to-call',
+        const callsDueCount = derivedOnboarding.filter(
+          (d) => d.callPopulation === 'calls-due',
         ).length
 
         // The Outreach activity TOTAL counts each derived onboarding customer
@@ -1678,17 +1640,17 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
             informational: true,
           })
         }
-        if (availableToCallCount > 0) {
+        if (callsDueCount > 0) {
           outreach.sources.push({
             kind: 'project',
-            label: `${projectName} — Available to call`,
-            count: availableToCallCount,
+            label: `${projectName} — Calls due`,
+            count: callsDueCount,
             route: stewardshipRoute('ready-to-call', projectId),
             projectId,
             ownedByMe: 0,
-            availableToMe: canPickUp ? availableToCallCount : 0,
+            availableToMe: canPickUp ? callsDueCount : 0,
             claimedByOthers: 0,
-            notEligible: canPickUp ? 0 : availableToCallCount,
+            notEligible: canPickUp ? 0 : callsDueCount,
             dueToMe: 0,
             informational: true,
           })

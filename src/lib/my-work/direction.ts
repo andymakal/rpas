@@ -273,7 +273,7 @@ export function deriveMyWorkDirection(state: MyWorkState): MyWorkDirection {
   // from the actionable activities, with Outreach expanded into its real
   // sub-populations. Available Work ALWAYS follows the fixed workflow order
   // (find missing contact information, send introductory emails, make the calls
-  // that are due, call other reachable customers, process servicing access,
+  // that are due, process servicing access,
   // advance operations preparation), enforced by sorting planActivities with
   // byFixedWorkflowOrder above. ZEN priority still classifies each activity's
   // band (which drives the yellow highlight and the Priorities column), but it
@@ -358,7 +358,7 @@ export interface PlanStep {
  * board list, which the working plan must never use for these sub-populations.
  */
 function isDirectWorkingRoute(route: string | null | undefined): boolean {
-  return !!route && /\/stewardship\/(introductory-emails|available-to-call|calls-due)\b/.test(route)
+  return !!route && /\/stewardship\/(introductory-emails|calls-due)\b/.test(route)
 }
 
 /**
@@ -505,7 +505,7 @@ function outreachCustomerInteraction(
 /**
  * The fixed workflow order Available Work always follows, by work function. The
  * six operator-facing steps run research -> outreach (introductory emails, then
- * due calls, then other reachable customers, then servicing access) ->
+ * due calls, then servicing access) ->
  * operations preparation; the Outreach sub-steps are sequenced inside
  * buildWorkingPlan. Any work function not listed here keeps a stable position
  * after the known steps, so a new activity is never dropped. ZEN still computes
@@ -612,7 +612,6 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
         // way; this brings the email/call sub-steps in line.
         const intro = outreachSubPopulation(a, /introductory email/i, { standing: true })
         const callsDue = outreachSubPopulation(a, /calls due/i, { standing: true })
-        const otherCalls = outreachSubPopulation(a, /available to call/i, { standing: true })
 
         if (intro) {
           steps.push({
@@ -631,25 +630,13 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
             key: 'outreach:calls-due',
             title: 'Make the calls that are due',
             reason:
-              'A promised callback or scheduled follow-up has come due for these customers. Due calls come before other calling.',
+              'These customers are owed a call: a first call, a cadence retry whose business day has arrived, or a promised callback that has come due.',
             count: callsDue.count,
             actionLabel: 'Open Calls Due',
             // Due calls are emphasized only when there actually are some; an
             // empty standing step is not highlighted as urgent work.
             emphasis: callsDue.count > 0 ? true : emphasis,
             route: callsDue.route,
-          })
-        }
-        if (otherCalls) {
-          steps.push({
-            key: 'outreach:calls-other',
-            title: 'Call other reachable customers',
-            reason:
-              'These customers are callable now with no scheduled time. Good calling-hours work once due calls are handled.',
-            count: otherCalls.count,
-            actionLabel: 'Start calling',
-            route: otherCalls.route,
-            emphasis,
           })
         }
         // Customer Interaction sits between calling and Servicing Access in the
@@ -704,7 +691,7 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
         // call/email steps (plus Customer Interaction and Servicing Access) are
         // always present, so this fallback does not fire and no redundant
         // "Continue outreach" row is added on top of them.
-        const hasAnyOutreachStep = !!intro || !!callsDue || !!otherCalls
+        const hasAnyOutreachStep = !!intro || !!callsDue
         if (!hasAnyOutreachStep && !servicingAccess && !customerInteraction) {
           steps.push({
             key: 'outreach',

@@ -71,7 +71,6 @@ export const ASSISTANT_STEP_KEYS: readonly string[] = [
   'research:retry',
   'outreach:intro',
   'outreach:calls-due',
-  'outreach:calls-other',
   'outreach:customer-interaction',
   'outreach:servicing-access',
   'outreach',
@@ -87,7 +86,6 @@ const STEP_WORK_FUNCTION: Record<string, WorkFunctionKey> = {
   'research:retry': 'research',
   'outreach:intro': 'outreach',
   'outreach:calls-due': 'outreach',
-  'outreach:calls-other': 'outreach',
   'outreach:customer-interaction': 'outreach',
   'outreach:servicing-access': 'outreach',
   outreach: 'outreach',
@@ -96,7 +94,7 @@ const STEP_WORK_FUNCTION: Record<string, WorkFunctionKey> = {
 }
 
 /** Live phone work: the only steps held back by call hours. */
-const CALL_STEPS = new Set(['outreach:calls-due', 'outreach:calls-other'])
+const CALL_STEPS = new Set(['outreach:calls-due'])
 
 /** Normalize one step and the current conditions into the rule's facts. A retry
  * is never focus-elevated: Focus points at fresh work, not at retries. */

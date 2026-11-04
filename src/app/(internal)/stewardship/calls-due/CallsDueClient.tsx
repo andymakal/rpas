@@ -72,7 +72,7 @@ type PopulationItem = {
 
 /** Which callable population this workbench session is working. Both are worked
  * with the identical guided call flow; only the fetched set differs. */
-export type CallingPopulation = 'available-to-call' | 'calls-due'
+export type CallingPopulation = 'calls-due'
 
 /** Per-population copy. The call flow, reservation, and follow-up scheduling are
  * identical; only the wording of the loading/completion/mentoring text changes
@@ -89,20 +89,6 @@ const COPY: Record<CallingPopulation, {
   emptyBody: string
   footer: string
 }> = {
-  'available-to-call': {
-    populationParam: 'available-to-call',
-    loading: 'Loading reachable customers…',
-    loadError: 'Failed to load reachable customers.',
-    mentorButton: 'Show mentoring on calling reachable customers',
-    mentorHeading: 'About calling reachable customers',
-    completeTitle: 'Calling complete',
-    completeBody: n =>
-      `You handled ${n} ${n === 1 ? 'customer' : 'customers'} this session. There are no more reachable customers to call right now.`,
-    emptyTitle: 'No reachable customers right now',
-    emptyBody:
-      'There are no reachable customers waiting for a call. Due callbacks, if any, are handled from Make the Calls That Are Due. Check back as customers become callable.',
-    footer: 'Call Other Reachable Customers',
-  },
   'calls-due': {
     populationParam: 'calls-due',
     loading: 'Loading due calls…',
@@ -114,13 +100,13 @@ const COPY: Record<CallingPopulation, {
       `You handled ${n} due ${n === 1 ? 'call' : 'calls'} this session. There are no more calls due right now.`,
     emptyTitle: 'No calls are due right now',
     emptyBody:
-      'There are no promised callbacks or automatic retries due right now. You can continue with ordinary available calls or head back to My Work.',
+      'Nobody is owed a call right now. Customers waiting on their next scheduled call come back here on their business day. When the list stays empty, it is time to load a new batch of customers into the project.',
     footer: 'Make the Calls That Are Due',
   },
 }
 
-export function AvailableToCallClient({
-  population = 'available-to-call',
+export function CallsDueClient({
+  population = 'calls-due',
   projectId = null,
   actorTimeZone = null,
 }: {
@@ -143,6 +129,11 @@ export function AvailableToCallClient({
   const [error, setError] = useState<string | null>(null)
   // The customer open right now. null while loading or on the completion state.
   const [openId, setOpenId] = useState<string | null>(null)
+  // The customer_id of the open customer, captured when it is reserved. For a
+  // just-materialized virtual (never-contacted) customer this is the ONLY way to
+  // tie the real openId back to its still-virtual row in `items`, so skip and
+  // advance can push/exclude it by its virtual key.
+  const openCustomerIdRef = useRef<string | null>(null)
   // Customers handled this session, so a reload of the population (which the
   // task triggers after a recorded interaction) does not re-present someone
   // already handled and the completion tally is accurate.
@@ -246,7 +237,10 @@ export function AvailableToCallClient({
     directOpenedRef.current = true
     void reserveNextDirectCandidate(orderedCandidates, reserveNext)
       .then(reserved => {
-        if (reserved) setOpenId(reserved)
+        if (reserved) {
+          openCustomerIdRef.current = reserved.customerId
+          setOpenId(reserved.outreachId)
+        }
         // else: a successful empty result — nobody available. Completion shows.
       })
       .catch(() => {
@@ -266,13 +260,14 @@ export function AvailableToCallClient({
     if (!openId) return
     const handledId = openId
     // Mark handled by both keys that can identify this customer: the real id now
-    // open (which also covers a materialized virtual item once reloaded) and, if
-    // the open customer came from a still-virtual candidate, its virtual key.
-    const handledVirtual = remaining.find(it => it.virtual && it.customer_id && it.id === null)
+    // open, and — when the open customer came from a still-virtual candidate —
+    // its virtual key, identified by the open customer_id captured at reserve
+    // time (NOT "any virtual row", which breaks with several no-email customers).
+    const handledCustomerId = openCustomerIdRef.current
     setHandled(prev => {
       const next = new Set(prev)
       next.add(handledId)
-      if (handledVirtual?.customer_id) next.add(`virtual:${handledVirtual.customer_id}`)
+      if (handledCustomerId) next.add(`virtual:${handledCustomerId}`)
       return next
     })
     // The handled customer has left this population for the session; release its
@@ -283,11 +278,12 @@ export function AvailableToCallClient({
     // Walk the SEQUENCE order so advancing still reaches un-skipped customers
     // before skipped ones.
     const candidates = orderedCandidates.filter(
-      it => it.id !== handledId && candidateKey(it) !== (handledVirtual ? `virtual:${handledVirtual.customer_id}` : ''),
+      it => it.id !== handledId && candidateKey(it) !== (handledCustomerId ? `virtual:${handledCustomerId}` : ''),
     )
     void reserveNextDirectCandidate(candidates, reserveNext)
       .then(reserved => {
-        setOpenId(reserved) // reserved id, or null -> completion state renders
+        openCustomerIdRef.current = reserved?.customerId ?? null
+        setOpenId(reserved?.outreachId ?? null) // null -> completion state renders
       })
       .catch(() => {
         // A failure advancing is an error, not "all done": keep the worker from
@@ -308,9 +304,18 @@ export function AvailableToCallClient({
   // This is the same skip behavior as Send Introductory Emails.
   const advanceAfterSkip = useCallback(() => {
     if (!openId) return
-    // Identify the skipped customer by the key that matches it in `remaining`:
-    // its real outreach id (recorded or just-materialized and open).
-    const skippedKey = openId
+    // Identify the skipped customer by the key that matches it in `remaining`.
+    // A recorded row matches on its real outreach id. A virtual (never-contacted)
+    // customer was materialized on open, so `openId` is now its real id, but its
+    // row in `remaining` is STILL virtual (id null) and keyed
+    // `virtual:<customer_id>`. Skip by THAT key — identified by the open
+    // customer_id captured at reserve time — or the just-skipped customer is
+    // never moved to the back and the same one is re-presented. This was the bug
+    // where Skip for now did nothing on the no-email customers.
+    const openCustomerId = openCustomerIdRef.current
+    const stillVirtual =
+      !!openCustomerId && remaining.some(it => it.id === null && it.customer_id === openCustomerId)
+    const skippedKey = stillVirtual ? `virtual:${openCustomerId}` : openId
     // Push to the back of the skip order. If it was already skipped earlier,
     // move it to the very back (re-skipping sends it around again).
     setSkipOrder(prev => [...prev.filter(k => k !== skippedKey), skippedKey])
@@ -333,7 +338,8 @@ export function AvailableToCallClient({
     ]
     void reserveNextDirectCandidate(resequenced, reserveNext)
       .then(reserved => {
-        setOpenId(reserved) // reserved id, or null -> completion state renders
+        openCustomerIdRef.current = reserved?.customerId ?? null
+        setOpenId(reserved?.outreachId ?? null) // null -> completion state renders
       })
       .catch(() => {
         setOpenId(null)
@@ -420,7 +426,6 @@ export function AvailableToCallClient({
   // from "there was nothing to do" by the session tally. In the due mode it also
   // offers continuing with ordinary available calls, since the point of the
   // activity is to clear the due work and then keep calling.
-  const isDue = population === 'calls-due'
   return (
     <section className="space-y-5">
       <div className="flex items-center gap-3">
@@ -434,8 +439,7 @@ export function AvailableToCallClient({
       </div>
       {mentorOpen && (
         <MentorCapPanel onClose={() => setMentorOpen(false)}>
-          {isDue ? (
-            <>
+          <>
               These are customers whose promised callback or automatic retry is due now — the calls
               to make first. Open each customer, use the opening script, and choose Reached or
               Didn&apos;t Reach. If you don&apos;t reach them, read the voicemail script and record
@@ -445,18 +449,6 @@ export function AvailableToCallClient({
               customer&apos;s history, schedules the right follow-up, and moves you to the next due
               customer.
             </>
-          ) : (
-            <>
-              These are customers with a usable phone and no scheduled call time — good calling-hours
-              work once any due callbacks are handled. Open each customer, use the opening script, and
-              choose Reached or Didn&apos;t Reach. If you don&apos;t reach them, read the voicemail
-              script and record what you actually did — voicemail, a Hearsay text, a follow-up email —
-              as one attempt. If you reach them, confirm their contact information, explain the
-              servicing-agent authorization, and capture their decision. Everything saves once,
-              updates the customer&apos;s history, schedules the right follow-up, and moves you to the
-              next customer.
-            </>
-          )}
         </MentorCapPanel>
       )}
 
@@ -478,21 +470,6 @@ export function AvailableToCallClient({
             <ArrowLeft className="size-5" aria-hidden />
             Back to My Work
           </Link>
-          {/* Due mode: continue with ordinary available calls. Same guided
-              workbench, the Available to Call population — not a separate
-              workflow. Project scope is carried through so the follow-on run
-              stays within the same project when scoped. */}
-          {isDue && (
-            <Link
-              href={projectId
-                ? `/stewardship/available-to-call?project_id=${encodeURIComponent(projectId)}`
-                : '/stewardship/available-to-call'}
-              className="inline-flex items-center gap-2 rounded-xl border border-surface-border-strong px-5 py-3 text-lg font-medium text-ink-secondary transition-colors hover:bg-surface-muted"
-            >
-              <Phone className="size-5" aria-hidden />
-              Continue with available calls
-            </Link>
-          )}
           <button
             type="button"
             onClick={() => {

@@ -64,10 +64,12 @@ async function materialize(customerId: string): Promise<string | null> {
   }
 }
 
-/** The resolved next customer: the reserved real outreach id, or null when no
- * candidate could be reserved (empty, all held by teammates, or none could be
- * materialized). */
-export type DirectReserveResult = string | null
+/** The resolved next customer: the reserved real outreach id and the
+ * customer_id it belongs to, or null when no candidate could be reserved
+ * (empty, all held by teammates, or none could be materialized). The
+ * customer_id lets a caller identify a just-materialized virtual customer whose
+ * local row is still keyed virtually. */
+export type DirectReserveResult = { outreachId: string; customerId: string | null } | null
 
 /**
  * Reserve the next workable customer from an ordered candidate list, resolving
@@ -94,12 +96,19 @@ export async function reserveNextDirectCandidate(
   candidates: DirectCandidate[],
   reserveNext: (candidateIds: string[]) => Promise<string | null>,
 ): Promise<DirectReserveResult> {
+  // customer_id for a reserved recorded id, so the caller can identify it.
+  const customerByRealId = new Map<string, string | null>()
+  for (const c of candidates) {
+    if (!c.virtual && c.id) customerByRealId.set(c.id, c.customer_id ?? null)
+  }
+
   // Fast path: when nothing is virtual, this is exactly the original call —
   // offer every real id and let the hook reserve the first free one.
   if (!candidates.some(c => c.virtual)) {
-    return reserveNext(
+    const id = await reserveNext(
       candidates.map(c => c.id).filter((id): id is string => !!id),
     )
+    return id ? { outreachId: id, customerId: customerByRealId.get(id) ?? null } : null
   }
 
   // Mixed list: resolve lazily in order. Accumulate the real ids seen so far and,
@@ -117,8 +126,9 @@ export async function reserveNextDirectCandidate(
     if (!c.customer_id) continue // malformed virtual item — skip
     const realId = await materialize(c.customer_id)
     if (!realId) continue // cannot start (no policy / test record) — skip
+    customerByRealId.set(realId, c.customer_id)
     const reserved = await reserveNext([...leadingReal, realId])
-    if (reserved) return reserved
+    if (reserved) return { outreachId: reserved, customerId: customerByRealId.get(reserved) ?? null }
     // Nothing in this batch was free (every leading real id and the just-created
     // one are held by teammates). The materialized row is real now, so fold it
     // into the leading set and keep walking.
@@ -128,6 +138,9 @@ export async function reserveNextDirectCandidate(
   // After the last candidate, any trailing real ids not yet offered (a tail of
   // recorded items after the final virtual one) still need a chance. Offer the
   // full accumulated real set once more; returns the first free one or null.
-  if (leadingReal.length > 0) return reserveNext(leadingReal)
+  if (leadingReal.length > 0) {
+    const id = await reserveNext(leadingReal)
+    return id ? { outreachId: id, customerId: customerByRealId.get(id) ?? null } : null
+  }
   return null
 }

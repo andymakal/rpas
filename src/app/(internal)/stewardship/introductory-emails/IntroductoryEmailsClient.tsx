@@ -88,6 +88,10 @@ export function IntroductoryEmailsClient({
   const [error, setError] = useState<string | null>(null)
   // The customer open right now. null while loading or on the completion state.
   const [openId, setOpenId] = useState<string | null>(null)
+  // The open customer's customer_id, captured at reserve time, so a
+  // just-materialized virtual (never-emailed) customer can be tied back to its
+  // still-virtual row for skip/advance keying.
+  const openCustomerIdRef = useRef<string | null>(null)
   // Customers sent this session, so a reload of the population (which the task
   // triggers after a send) does not re-present someone already handled and the
   // completion tally is accurate.
@@ -187,7 +191,10 @@ export function IntroductoryEmailsClient({
     if (loading || directOpenedRef.current) return
     directOpenedRef.current = true
     void reserveNextDirectCandidate(orderedCandidates, reserveNext).then(reserved => {
-      if (reserved) setOpenId(reserved)
+      if (reserved) {
+        openCustomerIdRef.current = reserved.customerId
+        setOpenId(reserved.outreachId)
+      }
       // else: nothing available (empty or all reserved) — completion state shows
       // (openId stays null).
     })
@@ -201,13 +208,14 @@ export function IntroductoryEmailsClient({
     if (!openId) return
     const sentId = openId
     // Mark handled by both keys that can identify this customer: the real id now
-    // open (which also covers a materialized virtual item once reloaded) and, if
-    // the open customer came from a still-virtual candidate, its virtual key.
-    const sentVirtualKey = remaining.find(it => it.virtual && it.customer_id && it.id === null)
+    // open, and — when the open customer came from a still-virtual candidate —
+    // its virtual key, identified by the open customer_id captured at reserve
+    // time (not "any virtual row", which misfires with several virtual items).
+    const sentCustomerId = openCustomerIdRef.current
     setHandled(prev => {
       const next = new Set(prev)
       next.add(sentId)
-      if (sentVirtualKey?.customer_id) next.add(`virtual:${sentVirtualKey.customer_id}`)
+      if (sentCustomerId) next.add(`virtual:${sentCustomerId}`)
       return next
     })
     // The sent customer has left Ready to Email and is handled; release its
@@ -218,10 +226,11 @@ export function IntroductoryEmailsClient({
     // Walk the SEQUENCE order so a send still reaches un-skipped customers before
     // skipped ones.
     const candidates = orderedCandidates.filter(
-      it => it.id !== sentId && candidateKey(it) !== (sentVirtualKey ? `virtual:${sentVirtualKey.customer_id}` : ''),
+      it => it.id !== sentId && candidateKey(it) !== (sentCustomerId ? `virtual:${sentCustomerId}` : ''),
     )
     void reserveNextDirectCandidate(candidates, reserveNext).then(reserved => {
-      setOpenId(reserved) // reserved id, or null -> completion state renders
+      openCustomerIdRef.current = reserved?.customerId ?? null
+      setOpenId(reserved?.outreachId ?? null) // null -> completion state renders
     })
     // Keep the local population in step with the server (the sent customer has
     // left Ready to Email); harmless if it is already gone.
@@ -236,9 +245,15 @@ export function IntroductoryEmailsClient({
   // `handled`, so the live count is unchanged by a skip.
   const advanceAfterSkip = useCallback(() => {
     if (!openId) return
-    // Identify the skipped customer by the key that matches it in `remaining`:
-    // its real outreach id (recorded or just-materialized and open).
-    const skippedKey = openId
+    // Identify the skipped customer by the key that matches it in `remaining`.
+    // A recorded row matches on its real outreach id. A never-emailed virtual
+    // customer was materialized on open, so `openId` is now its real id while its
+    // row in `remaining` is still virtual; skip by the virtual key (via the open
+    // customer_id captured at reserve time) or the same customer re-presents.
+    const openCustomerId = openCustomerIdRef.current
+    const stillVirtual =
+      !!openCustomerId && remaining.some(it => it.id === null && it.customer_id === openCustomerId)
+    const skippedKey = stillVirtual ? `virtual:${openCustomerId}` : openId
     // Push to the back of the skip order. If it was already skipped earlier,
     // move it to the very back (re-skipping sends it around again).
     setSkipOrder(prev => [...prev.filter(k => k !== skippedKey), skippedKey])
@@ -260,7 +275,8 @@ export function IntroductoryEmailsClient({
         .sort((a, b) => (skipIndex.get(candidateKey(a)) ?? 0) - (skipIndex.get(candidateKey(b)) ?? 0)),
     ]
     void reserveNextDirectCandidate(resequenced, reserveNext).then(reserved => {
-      setOpenId(reserved) // reserved id, or null -> completion state renders
+      openCustomerIdRef.current = reserved?.customerId ?? null
+      setOpenId(reserved?.outreachId ?? null) // null -> completion state renders
     })
   }, [openId, skipOrder, remaining, release, reserveNext, candidateKey])
 

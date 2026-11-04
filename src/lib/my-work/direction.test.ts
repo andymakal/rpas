@@ -148,7 +148,7 @@ test('plan: follows the fixed workflow order regardless of ZEN priority band', (
   assert.equal(outreachStep!.emphasis, true)
 })
 
-test('plan: outreach expands into intro emails -> due calls -> other calls, in order', () => {
+test('plan: outreach expands into intro emails then the single call list, in order', () => {
   const outreach = activity({
     workFunction: 'outreach',
     band: 'shared',
@@ -158,16 +158,15 @@ test('plan: outreach expands into intro emails -> due calls -> other calls, in o
     sources: [
       infoSource('Shared Stewardship board — Introductory emails', 3, '/stewardship?queue=ready-to-email'),
       infoSource('Shared Stewardship board — Calls Due', 2, '/stewardship?population=calls-due'),
-      infoSource('Shared Stewardship board — Available to Call', 4, '/stewardship?population=available-to-call'),
     ],
   })
   const d = deriveMyWorkDirection(state([outreach]))
   assert.deepEqual(
     d.workingPlan.map((s) => s.key),
-    ['outreach:intro', 'outreach:calls-due', 'outreach:calls-other'],
+    ['outreach:intro', 'outreach:calls-due'],
   )
   // Counts come from the informational sources, not re-summed.
-  assert.deepEqual(d.workingPlan.map((s) => s.count), [3, 2, 4])
+  assert.deepEqual(d.workingPlan.map((s) => s.count), [3, 2])
   // Due calls carry emphasis (a genuine scheduled commitment); the others do not.
   assert.equal(d.workingPlan[1].emphasis, true)
   assert.equal(d.workingPlan[0].emphasis, false)
@@ -186,7 +185,7 @@ test('plan: Customer Interaction sits between calling and Servicing Access, alwa
     availableCount: 7,
     sources: [
       infoSource('Shared Stewardship board — Introductory emails', 3, '/stewardship?queue=ready-to-email'),
-      infoSource('Shared Stewardship board — Available to Call', 4, '/stewardship?population=available-to-call'),
+      infoSource('Shared Stewardship board — Calls Due', 4, '/stewardship/calls-due'),
       // Always-present standing sources (count 0), order in sources should not
       // matter — the plan's push order fixes the step order.
       infoSource('Shared Stewardship board — Customer interaction', 0, '/stewardship/customer-interaction'),
@@ -196,7 +195,7 @@ test('plan: Customer Interaction sits between calling and Servicing Access, alwa
   const d = deriveMyWorkDirection(state([outreach]))
   assert.deepEqual(
     d.workingPlan.map((s) => s.key),
-    ['outreach:intro', 'outreach:calls-other', 'outreach:customer-interaction', 'outreach:servicing-access'],
+    ['outreach:intro', 'outreach:calls-due', 'outreach:customer-interaction', 'outreach:servicing-access'],
   )
   const ci = d.workingPlan.find((s) => s.key === 'outreach:customer-interaction')
   assert.ok(ci)
@@ -260,9 +259,9 @@ test('plan: outreach sub-population sums recorded + derived sources and routes t
   }
   const recordedCalls: WorkSource = {
     kind: 'stewardship',
-    label: 'Shared Stewardship board — Available to Call',
+    label: 'Shared Stewardship board — Calls Due',
     count: 1,
-    route: '/stewardship/available-to-call',
+    route: '/stewardship/calls-due',
     projectId: null,
     ownedByMe: 0,
     availableToMe: 1,
@@ -270,11 +269,11 @@ test('plan: outreach sub-population sums recorded + derived sources and routes t
     notEligible: 0,
     dueToMe: 0,
     informational: true,
-    projectScopes: { [PID]: { count: 1, ownedByMe: 0, availableToMe: 1, claimedByOthers: 0, notEligible: 0, dueToMe: 0, route: `/stewardship/available-to-call?project_id=${PID}` } },
+    projectScopes: { [PID]: { count: 1, ownedByMe: 0, availableToMe: 1, claimedByOthers: 0, notEligible: 0, dueToMe: 0, route: `/stewardship/calls-due?project_id=${PID}` } },
   }
   const derivedCalls: WorkSource = {
     kind: 'project',
-    label: 'Q4 1035 Review — Available to call',
+    label: 'Q4 1035 Review — Calls due',
     count: 137,
     route: `/stewardship?queue=ready-to-call&project_id=${PID}`,
     projectId: PID,
@@ -292,16 +291,16 @@ test('plan: outreach sub-population sums recorded + derived sources and routes t
   })
   const d = deriveMyWorkDirection(state([outreach]))
   const intro = d.workingPlan.find((s) => s.key === 'outreach:intro')
-  const calls = d.workingPlan.find((s) => s.key === 'outreach:calls-other')
+  const calls = d.workingPlan.find((s) => s.key === 'outreach:calls-due')
   assert.ok(intro, 'intro step present')
-  assert.ok(calls, 'available-to-call step present')
+  assert.ok(calls, 'calls-due step present')
   // Count is the SUM of recorded (1) + derived (116 / 137), each customer once.
   assert.equal(intro!.count, 117)
   assert.equal(calls!.count, 138)
   // Route opens the DIRECT working screen, scoped to the single project that
   // carries the work — never the board queue list.
   assert.equal(intro!.route, `/stewardship/introductory-emails?project_id=${PID}`)
-  assert.equal(calls!.route, `/stewardship/available-to-call?project_id=${PID}`)
+  assert.equal(calls!.route, `/stewardship/calls-due?project_id=${PID}`)
 })
 
 test('plan: outreach with no recognized sub-population falls back to one step', () => {

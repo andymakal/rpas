@@ -2,35 +2,28 @@ import type { Metadata } from 'next'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { WorkflowPage, WorkflowPageHeader, WorkflowBackLink } from '@/components/workflow'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
-import { AvailableToCallClient } from '../available-to-call/AvailableToCallClient'
+import { CallsDueClient } from './CallsDueClient'
 
 export const metadata: Metadata = { title: 'Make the Calls That Are Due' }
 export const dynamic = 'force-dynamic'
 
 /**
- * Make the Calls That Are Due — the direct working surface for the Calls Due
- * population of the shared Stewardship board (customers whose promised callback
- * or automatic retry is due now).
+ * Make the Calls That Are Due: the ONE calling list. Everybody owed a call
+ * appears here, whatever the reason: a first call, a cadence retry whose
+ * business day has arrived, or a promised callback that has come due. A customer
+ * leaves the list only when someone records an attempt (which puts them back on
+ * hold for the next business-day cadence date). Customers on hold, future
+ * callbacks, and customers who still need an introductory email are not on it.
  *
- * It reuses the SAME guided calling workbench as Call Other Reachable Customers
- * (AvailableToCallClient), driven with population="calls-due". There is no
- * intermediate Calls Due customer list: clicking the activity in My Work lands
- * straight on the first due customer, guides the call on a single page, records
- * the interaction once, applies the established transition and follow-up
- * scheduling, and advances automatically to the next DUE customer. When no due
- * calls remain, the completion state offers continuing with ordinary available
- * calls or returning to My Work.
- *
+ * Clicking the activity in My Work lands straight on the first customer, guides
+ * the call on a single page, records the interaction once, applies the
+ * established transition and follow-up scheduling, and advances automatically.
  * The business behavior is the EXISTING stewardship task driven into its guided
- * call flow: the same record-attempt grouping, outcome vocabulary, callback
- * persistence, follow-up scheduling, shared Customer Contact card, and
- * authorization-form process. The due and available activities differ only in
- * which customers are fetched — not in the call flow, the follow-up timing, or
- * any workflow. This is one calling workflow, not two.
+ * call flow.
  *
  * The whole (internal) route group is gated to internal staff; the stewardship
  * API routes additionally enforce requireInternalAdmin and the capability/claim
- * gate, so the opened population equals exactly what My Work counted.
+ * gate, so the opened list equals exactly what My Work counted.
  */
 export default async function CallsDuePage({
   searchParams,
@@ -63,15 +56,14 @@ export default async function CallsDuePage({
       heading={
         // "Make the Calls That Are Due" is the page title. The project scope,
         // when set, is preserved through the project id passed to the client; it
-        // is deliberately not shown in the heading, matching Call Other Reachable
-        // Customers.
+        // is deliberately not shown in the heading, matching the other working screens.
         <WorkflowPageHeader
           title="Make the Calls That Are Due"
           back={<WorkflowBackLink href="/my-work">Back to My Work</WorkflowBackLink>}
         />
       }
     >
-      <AvailableToCallClient
+      <CallsDueClient
         population="calls-due"
         projectId={project?.id ?? null}
         actorTimeZone={actorTimeZone}

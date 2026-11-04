@@ -37,9 +37,9 @@ export type BoardItem = {
   // so the board can flag it as a due chase. Set by the board route.
   follow_up_due_now?: boolean
   // The derived call action population this item belongs to (callability-based,
-  // not its stored queue): 'calls-due' | 'available-to-call' | null. Set by the
+  // not its stored queue): 'calls-due' | null. Set by the
   // board route so a population view lists exactly the counted customers.
-  call_population?: 'calls-due' | 'available-to-call' | null
+  call_population?: 'calls-due' | null
   // Whether this item is in the first-touch introductory-email population (the
   // untouched subset of Ready to Email). Set by the board route so the
   // introductory-email population view lists exactly the counted customers.
@@ -65,17 +65,14 @@ export type BoardItem = {
  * populations, the first-touch introductory-email subset of Ready to Email, and
  * the declined basin (customers who explicitly said no — the one view that
  * surfaces refused items instead of suppressing them). */
-export type OpenPopulation = 'calls-due' | 'available-to-call' | 'introductory-emails' | 'declined'
+export type OpenPopulation = 'calls-due' | 'introductory-emails' | 'declined'
 
 export const POPULATION_META: Record<OpenPopulation, { label: string; blurb: string }> = {
   'calls-due': {
     label: 'Calls Due',
     blurb: 'Customers with a scheduled call that has come due: a promised callback or an automatic retry.',
   },
-  'available-to-call': {
-    label: 'Available to Call',
-    blurb: 'Customers with a usable phone who can be called now, not on a scheduled due date.',
-  },
+
   'introductory-emails': {
     label: 'Introductory emails',
     blurb: 'First-touch customers in Ready to Email: send the introductory servicing-agent email that carries the authorization form.',
