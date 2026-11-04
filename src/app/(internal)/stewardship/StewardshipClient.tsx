@@ -122,7 +122,7 @@ export function StewardshipClient({
   // customer id being materialized (so its card can show a brief busy state).
   const [materializingCustomerId, setMaterializingCustomerId] = useState<string | null>(null)
   // A derived call population view (opened from a My Work "Calls Due" /
-  // "Available to Call" link). When set, the board shows exactly that
+  // link). When set, the board shows exactly that
   // population's customers, fetched from the server with the population filter.
   const [openPopulation, setOpenPopulation] = useState<OpenPopulation | null>(null)
   const [populationItems, setPopulationItems] = useState<BoardItem[]>([])
@@ -152,7 +152,7 @@ export function StewardshipClient({
     }
   }, [queueParam])
 
-  // Respond to the ?population= param (a My Work Calls Due / Available to Call
+  // Respond to the ?population= param (a My Work Calls Due
   // link). Opens the derived population view, which lists exactly the customers
   // the population counted, fetched server-side with the population filter so
   // the counted and opened sets always match.
@@ -163,7 +163,6 @@ export function StewardshipClient({
     lastAppliedPopulationParam.current = populationParam
     if (
       populationParam === 'calls-due' ||
-      populationParam === 'available-to-call' ||
       populationParam === 'introductory-emails' ||
       populationParam === 'declined'
     ) {
@@ -449,7 +448,7 @@ export function StewardshipClient({
     )
   }
 
-  // A derived call population view (Calls Due / Available to Call). Lists exactly
+  // A derived call population view (Calls Due). Lists exactly
   // the customers the server derived for this population, so the counted and
   // opened sets match and a callable customer appears here even when their
   // stored queue is Ready to Email. Due items are shown first.

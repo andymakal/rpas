@@ -25,7 +25,7 @@ import {
   nextAutomaticCallDate,
   resolveNextCallDate,
   isNonresponsive,
-  EARLY_CALL_SPACING_DAYS,
+  EARLY_CALL_SPACING_BUSINESS_DAYS,
   NONRESPONSIVE_ATTEMPT_THRESHOLD,
 } from './call-cadence'
 import { applyAction, callPopulationOf, deriveFollowUpRouting, deriveEmailRouting, derivePhoneRouting, isIntroductoryEmail, introNeededForReplacedEmail, normalizeRecipientEmail, type OutreachState } from './queues'
@@ -109,14 +109,27 @@ test('cadence: after intro email the first call is due in 24h (1 day)', () => {
   assert.equal(d, '2026-01-06') // Mon -> Tue
 })
 
-test('cadence: early schedule is 24h, 24h, 2d, 3d by attempt index', () => {
-  assert.deepEqual(EARLY_CALL_SPACING_DAYS, [1, 1, 2, 3])
+test('cadence: early schedule is 1, 1, 2, 4 business days by attempt index', () => {
+  assert.deepEqual(EARLY_CALL_SPACING_BUSINESS_DAYS, [1, 1, 2, 4])
   // index 1 (after 1st unsuccessful call): +1 day
   assert.equal(nextAutomaticCallDate({ priorUnsuccessfulAttempts: 1, now: MONDAY, actorTimeZone: UTC }), '2026-01-06')
   // index 2 (after 2nd): +2 days
   assert.equal(nextAutomaticCallDate({ priorUnsuccessfulAttempts: 2, now: MONDAY, actorTimeZone: UTC }), '2026-01-07')
-  // index 3 (after 3rd): +3 days
-  assert.equal(nextAutomaticCallDate({ priorUnsuccessfulAttempts: 3, now: MONDAY, actorTimeZone: UTC }), '2026-01-08')
+  // index 3 (after 3rd): +4 business days (Mon -> Fri)
+  assert.equal(nextAutomaticCallDate({ priorUnsuccessfulAttempts: 3, now: MONDAY, actorTimeZone: UTC }), '2026-01-09')
+})
+
+test('cadence: early steps skip weekends (Friday -> Monday, never Saturday or Sunday)', () => {
+  const FRIDAY = new Date('2026-01-09T12:00:00Z')
+  const SATURDAY = new Date('2026-01-10T12:00:00Z')
+  // Email or call on a Friday: next day owed is Monday.
+  assert.equal(nextAutomaticCallDate({ priorUnsuccessfulAttempts: 0, now: FRIDAY, actorTimeZone: UTC }), '2026-01-12')
+  assert.equal(nextAutomaticCallDate({ priorUnsuccessfulAttempts: 1, now: FRIDAY, actorTimeZone: UTC }), '2026-01-12')
+  // 2 business days from Friday: Tuesday. 4 business days from Friday: Thursday.
+  assert.equal(nextAutomaticCallDate({ priorUnsuccessfulAttempts: 2, now: FRIDAY, actorTimeZone: UTC }), '2026-01-13')
+  assert.equal(nextAutomaticCallDate({ priorUnsuccessfulAttempts: 3, now: FRIDAY, actorTimeZone: UTC }), '2026-01-15')
+  // Recorded on a weekend: the next business day.
+  assert.equal(nextAutomaticCallDate({ priorUnsuccessfulAttempts: 0, now: SATURDAY, actorTimeZone: UTC }), '2026-01-12')
 })
 
 test('cadence: 4th+ attempts are every 6 business days (never a weekend) and rotate the weekday', () => {
@@ -447,43 +460,54 @@ test('calls-due is read from durable call_reason, so it survives a later read', 
   assert.equal(pop, 'calls-due')
 })
 
-test('a due promised callback reads Calls Due; a plain ready-to-call reads Available', () => {
+test('one call list: everybody in Ready to Call is owed a call (first call, retry, or due callback)', () => {
+  // A due promised callback.
   assert.equal(
     callPopulationOf({ effectiveQueue: 'ready-to-call', callReason: 'callback-due', hasUsablePhone: true, callbackDue: true }),
     'calls-due',
   )
+  // A first call with no email on file: owed now.
   assert.equal(
     callPopulationOf({ effectiveQueue: 'ready-to-call', callReason: null, hasUsablePhone: true, callbackDue: false }),
-    'available-to-call',
+    'calls-due',
+  )
+  // A cadence retry that came due.
+  assert.equal(
+    callPopulationOf({ effectiveQueue: 'ready-to-call', callReason: 'no-response', hasUsablePhone: true, callbackDue: false }),
+    'calls-due',
   )
 })
 
-test('a FUTURE promised callback is Available to Call, not Calls Due, until its date arrives', () => {
+test('a FUTURE promised callback is not on the call list until its date arrives', () => {
   // call_reason is stamped 'callback-due' the moment the callback is scheduled,
-  // with a future callback_date. Before that date (callbackDue=false) it must
-  // NOT appear in Calls Due; the 'callback-due' reason alone is not "due now".
+  // with a future callback_date. It is a commitment, not owed work, until then.
   assert.equal(
     callPopulationOf({ effectiveQueue: 'ready-to-call', callReason: 'callback-due', hasUsablePhone: true, callbackDue: false }),
-    'available-to-call',
+    null,
   )
-  // On/after the scheduled date, callbackDue flips true and it becomes Calls Due.
+  // On/after the scheduled date, callbackDue flips true and it is owed.
   assert.equal(
     callPopulationOf({ effectiveQueue: 'ready-to-call', callReason: 'callback-due', hasUsablePhone: true, callbackDue: true }),
     'calls-due',
   )
 })
 
-test('a callable ready-to-email customer is Available to Call; no phone is in no call population', () => {
+test('customers on hold or needing an email first are not on the call list; no phone is on no list', () => {
+  // Email first: Ready to Email is not owed a call yet.
   assert.equal(
     callPopulationOf({ effectiveQueue: 'ready-to-email', callReason: null, hasUsablePhone: true, callbackDue: false }),
-    'available-to-call',
+    null,
+  )
+  // Cadence hold: waiting for response is not callable until promoted.
+  assert.equal(
+    callPopulationOf({ effectiveQueue: 'waiting-for-response', callReason: null, hasUsablePhone: true, callbackDue: false }),
+    null,
   )
   assert.equal(
     callPopulationOf({ effectiveQueue: 'ready-to-call', callReason: 'no-response', hasUsablePhone: false, callbackDue: false }),
     null,
   )
 })
-
 // ── Reached-from-Ready-to-Email proceeds to authorization, not an intro (Issue 2)
 
 test('a reached call from Ready to Email keeps the item callable and lets form-sent advance to Waiting for Form', () => {
@@ -766,7 +790,7 @@ test('derivePhoneRouting: never touches an authorization/carrier stage (onboardi
   }
 })
 
-test('derivePhoneRouting end-to-end: a replaced bad number actually surfaces as Available to Call', () => {
+test('derivePhoneRouting end-to-end: a replaced bad number actually returns to the call list', () => {
   // The requirement is not merely that the number is usable, but that the
   // customer returns to calling work. Compose the two pure steps the reads use:
   // the effective queue from the phone re-derivation, then the call population.
@@ -779,7 +803,7 @@ test('derivePhoneRouting end-to-end: a replaced bad number actually surfaces as 
     engaged: false,
   })
   assert.equal(eff, 'ready-to-call')
-  assert.equal(population, 'available-to-call')
+  assert.equal(population, 'calls-due')
 })
 
 test('derivePhoneRouting end-to-end: still in research while no replacement exists', () => {

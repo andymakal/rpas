@@ -89,7 +89,6 @@ const STEP_CLASS: Record<string, WorkClass> = {
   'outreach:intro': 'preparation',
   // Outreach
   'outreach:calls-due': 'outreach',
-  'outreach:calls-other': 'outreach',
   // Customer Engagement
   'outreach:customer-interaction': 'customer_engagement',
   // Casework

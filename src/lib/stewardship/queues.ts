@@ -330,8 +330,7 @@ function addDays(iso: string, days: number): string {
  * the single shared definition both My Work (counting the population) and the
  * board route (opening it) use, so the counted set and the opened set are always
  * identical (Rule 1). Callability is independent of the stored queue: a customer
- * with a usable phone is callable even while sitting in Ready to Email awaiting a
- * reply, so they belong to the call population too.
+ * is owed a call exactly when they are in Ready to Call (see below).
  *
  *   - 'calls-due'          callable AND a scheduled call has arrived: a promised
  *                          callback due today, or an automatic cadence retry
@@ -342,13 +341,10 @@ function addDays(iso: string, days: number): string {
  *                          callback_date), so it survives repeated reads,
  *                          refreshes, and the queue transition until the
  *                          scheduled call is actually handled.
- *   - 'available-to-call'  callable and actionable now, not on a scheduled due
- *                          date (Ready to Call without a due marker, or a
- *                          callable Ready to Email item).
  *   - null                 not a call opportunity (no usable phone, or a
  *                          non-actionable / research / waiting-not-due state).
  */
-export type CallPopulation = 'calls-due' | 'available-to-call'
+export type CallPopulation = 'calls-due'
 
 /**
  * Whether an open item is an INTRODUCTORY EMAIL: the first-touch subset of Ready
@@ -469,23 +465,17 @@ export function callPopulationOf(input: {
   if (!input.hasUsablePhone) return null
   // An engaged customer belongs to Customer Interaction, not routine calling.
   // Their active conversation — including a promised callback — is worked there,
-  // so they are never surfaced in Calls Due / Available to Call.
+  // so they are never surfaced in the call list.
   if (input.engaged) return null
-  const callable = input.effectiveQueue === 'ready-to-call' || input.effectiveQueue === 'ready-to-email'
-  if (!callable) return null
-  // A scheduled call has come due when, in the call flow, EITHER a promised
-  // callback has reached its scheduled date (callbackDue), OR the row durably
-  // carries a cadence retry that already lapsed ('no-response', stamped by the
-  // follow-up promotion only once overdue). A 'callback-due' reason is NOT an
-  // independent due signal: it is set when the callback is scheduled (future
-  // date), so a future promised callback stays Available to Call until its date
-  // arrives, at which point `callbackDue` turns it to Calls Due. Both remaining
-  // triggers are durable until the call is handled, so Calls Due does not flip
-  // back to Available on a later read.
-  const due =
-    input.effectiveQueue === 'ready-to-call' &&
-    (input.callbackDue || input.callReason === 'no-response')
-  return due ? 'calls-due' : 'available-to-call'
+  // ONE call list: a customer is owed a call exactly when they are in Ready to
+  // Call. Waiting for Response is the cadence hold (not callable until its
+  // business-day date arrives and it is promoted here). Ready to Email is email
+  // first, so not a call yet.
+  if (input.effectiveQueue !== 'ready-to-call') return null
+  // A promised callback whose date has not arrived is a commitment, not owed
+  // work: it comes onto the list on its date.
+  if (input.callReason === 'callback-due' && !input.callbackDue) return null
+  return 'calls-due'
 }
 
 /**

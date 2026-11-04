@@ -18,7 +18,7 @@ import { buildCustomerHistory, type HistoryTouchRow } from '@/lib/stewardship/cu
  * subset of Ready to Email. Each opens EXACTLY the customers My Work counted,
  * gated by the same capability + claim rules.
  */
-type PopulationFilter = 'calls-due' | 'available-to-call' | 'introductory-emails' | 'servicing-access' | 'customer-interaction' | 'declined'
+type PopulationFilter = 'calls-due' | 'introductory-emails' | 'servicing-access' | 'customer-interaction' | 'declined'
 
 /**
  * GET /api/stewardship
@@ -55,7 +55,6 @@ export async function GET(request: NextRequest) {
   const populationParam = url.searchParams.get('population')?.trim() || null
   const populationFilter: PopulationFilter | null =
     populationParam === 'calls-due' ||
-    populationParam === 'available-to-call' ||
     populationParam === 'introductory-emails' ||
     populationParam === 'servicing-access' ||
     populationParam === 'customer-interaction' ||
@@ -708,14 +707,12 @@ export async function GET(request: NextRequest) {
   const populationCounts = populationFilter
     ? {
         'calls-due': items.filter(it => isActionableToMe(it, 'calls-due')).length,
-        'available-to-call': items.filter(it => isActionableToMe(it, 'available-to-call')).length,
         'introductory-emails': items.filter(it => isActionableToMe(it, 'introductory-emails')).length,
         'servicing-access': items.filter(it => isActionableToMe(it, 'servicing-access')).length,
         'customer-interaction': items.filter(it => isActionableToMe(it, 'customer-interaction')).length,
       }
     : {
         'calls-due': items.filter(it => it.call_population === 'calls-due').length,
-        'available-to-call': items.filter(it => it.call_population === 'available-to-call').length,
         'introductory-emails': items.filter(it => it.is_intro_email === true).length,
         'servicing-access': items.filter(it => it.servicing_access === true).length,
         'customer-interaction': items.filter(it => it.customer_interaction === true).length,

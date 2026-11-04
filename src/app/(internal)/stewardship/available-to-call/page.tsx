@@ -1,77 +1,21 @@
-import type { Metadata } from 'next'
-import { createAdminClient } from '@/lib/supabase/admin'
-import { WorkflowPage, WorkflowPageHeader, WorkflowBackLink } from '@/components/workflow'
-import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
-import { AvailableToCallClient } from './AvailableToCallClient'
+import { redirect } from 'next/navigation'
 
-export const metadata: Metadata = { title: 'Call Reachable Customers' }
 export const dynamic = 'force-dynamic'
 
 /**
- * Call Reachable Customers — the direct working surface for the Available to
- * Call population of the shared Stewardship board. It mirrors the Send
- * Introductory Emails / Contact Research working-screen pattern: clicking the
- * activity in My Work lands straight on the first available customer (no
- * intermediate list and no separate Assistant panel), guides the call on a
- * single page (Reached / Didn't Reach), records the interaction once, applies
- * the established transition and follow-up scheduling, and advances
- * automatically to the next available customer.
- *
- * The business behavior is the EXISTING stewardship task (reused, not
- * reimplemented) driven into its guided call flow: the same record-attempt
- * grouping, outcome vocabulary, callback persistence, follow-up scheduling,
- * shared Customer Contact card, and authorization-form process. This route only
- * changes the SHAPE of the session from browse-a-list to a continuous
- * open/call/record/next pass over exactly the customers this employee is
- * eligible to call.
- *
- * The whole (internal) route group is gated to internal staff; the stewardship
- * API routes additionally enforce requireInternalAdmin and the capability/claim
- * gate, so the opened population equals exactly what My Work counted.
+ * Retired. "Call Other Reachable Customers" was merged into the single call list
+ * at /stewardship/calls-due (everybody owed a call). This route stays only so a
+ * saved link still lands somewhere sensible; project scope is carried through.
  */
-export default async function AvailableToCallPage({
+export default async function AvailableToCallRedirect({
   searchParams,
 }: {
   searchParams: Promise<{ project_id?: string }>
 }) {
   const { project_id: projectId } = await searchParams
-  const supabase = createAdminClient()
-
-  // Optional project scope: when present, scope the session to that project's
-  // Available to Call population exactly as the board population view does. The
-  // project id is carried through to the population fetch; an unknown id simply
-  // yields an empty population (nothing to work).
-  let project: { id: string; name: string } | null = null
-  if (projectId) {
-    const { data } = await supabase
-      .from('projects')
-      .select('id, name')
-      .eq('id', projectId)
-      .maybeSingle()
-    if (data) project = { id: data.id as string, name: data.name as string }
-  }
-
-  // The signed-in employee's detected timezone, used to judge date-only callback
-  // due on the actor's calendar for the population ordering (same as the board).
-  const actorTimeZone = await getActorTimeZone()
-
-  return (
-    <WorkflowPage
-      heading={
-        // "Call Reachable Customers" is the page title. The project scope, when
-        // set, is preserved through the project id passed to the client; it is
-        // deliberately not shown in the heading, matching Contact Research and
-        // Send Introductory Emails.
-        <WorkflowPageHeader
-          title="Call Reachable Customers"
-          back={<WorkflowBackLink href="/my-work">Back to My Work</WorkflowBackLink>}
-        />
-      }
-    >
-      <AvailableToCallClient
-        projectId={project?.id ?? null}
-        actorTimeZone={actorTimeZone}
-      />
-    </WorkflowPage>
+  redirect(
+    projectId
+      ? `/stewardship/calls-due?project_id=${encodeURIComponent(projectId)}`
+      : '/stewardship/calls-due',
   )
 }

@@ -13,10 +13,11 @@
  *   - After the introductory email: call in 24 hours.
  *   - After the 1st unsuccessful call: retry in 24 hours.
  *   - After the 2nd unsuccessful call: retry in 2 days.
- *   - After the 3rd unsuccessful call: retry in 3 days.
- *   - After the 4th and every subsequent unsuccessful call: retry every 6
- *     business days, rotating weekdays (so the attempt does not always land on
- *     the same weekday, and never on a weekend).
+ *   - After the 3rd unsuccessful call: retry in 4 days.
+ *   - After the 4th and every subsequent unsuccessful call: retry every 6 days.
+ *   ALL spacing counts BUSINESS days (Monday to Friday), so an email or call on
+ *   a Friday is next due Monday, and the 6-day rotation advances the weekday
+ *   each time. Nothing is ever due on a weekend.
  *   - Honor promised callbacks and employee overrides: an explicit
  *     customer-promised callback date or an employee-chosen date takes
  *     precedence over the computed cadence date.
@@ -37,17 +38,17 @@ import { DateTime } from 'luxon'
 import { FALLBACK_ACTOR_TIME_ZONE, isValidTimeZone } from '@/lib/time'
 
 /**
- * The fixed early-stage spacing, in CALENDAR days, indexed by how many
+ * The fixed early-stage spacing, in BUSINESS days, indexed by how many
  * unsuccessful calls have ALREADY been made when we schedule the next one.
  *
  *   index 0 -> the first call after the introductory email (24h / 1 day)
  *   index 1 -> after the 1st unsuccessful call (24h / 1 day)
  *   index 2 -> after the 2nd unsuccessful call (2 days)
- *   index 3 -> after the 3rd unsuccessful call (3 days)
+ *   index 3 -> after the 3rd unsuccessful call (4 days)
  *
  * After these, the cadence switches to the business-day rotation below.
  */
-export const EARLY_CALL_SPACING_DAYS: readonly number[] = [1, 1, 2, 3]
+export const EARLY_CALL_SPACING_BUSINESS_DAYS: readonly number[] = [1, 1, 2, 4]
 
 /**
  * Once past the early stage, retries are spaced this many BUSINESS days apart.
@@ -124,10 +125,10 @@ export function nextAutomaticCallDate(input: NextCallDateInput): string {
   const attempts = Math.max(0, Math.floor(input.priorUnsuccessfulAttempts || 0))
   const today = actorDate(input.now ?? new Date(), input.actorTimeZone ?? null)
 
-  if (attempts < EARLY_CALL_SPACING_DAYS.length) {
-    // Early stage: fixed calendar-day spacing (24h, 24h, 2d, 3d).
-    const days = EARLY_CALL_SPACING_DAYS[attempts]
-    return today.plus({ days }).toFormat('yyyy-LL-dd')
+  if (attempts < EARLY_CALL_SPACING_BUSINESS_DAYS.length) {
+    // Early stage: fixed business-day spacing (1, 1, 2, 4), never a weekend.
+    const days = EARLY_CALL_SPACING_BUSINESS_DAYS[attempts]
+    return addBusinessDays(today, days).toFormat('yyyy-LL-dd')
   }
 
   // Late stage: every 6 business days, which rotates the weekday forward and
