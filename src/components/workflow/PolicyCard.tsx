@@ -69,9 +69,9 @@ function SummaryRow({
 }) {
   const present = value != null && value.trim().length > 0
   return (
-    <div className={cn('flex items-baseline justify-between gap-4 py-2.5', !first && 'pt-2.5')}>
-      <dt className="text-sm uppercase tracking-wide text-ink-supporting">{label}</dt>
-      <dd className={cn('text-right text-base', present ? 'font-medium text-ink' : 'italic text-ink-muted')}>
+    <div className={cn('flex items-baseline justify-between gap-4 py-1', first && 'pt-0.5')}>
+      <dt className="text-xs uppercase leading-5 tracking-wide text-ink-supporting">{label}</dt>
+      <dd className={cn('text-right text-base leading-5', present ? 'font-medium text-ink' : 'italic text-ink-muted')}>
         {present ? value : 'Not on file'}
       </dd>
     </div>
