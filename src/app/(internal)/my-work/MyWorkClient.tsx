@@ -55,7 +55,7 @@ import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
 import {
   Sparkles, ArrowRight, Phone, Mail, Users, CheckCircle2, Lock,
   ListChecks, ChevronRight, ChevronDown, SlidersHorizontal,
-  CalendarClock, Briefcase, Hourglass, Compass, PlayCircle,
+  CalendarClock, Briefcase, Hourglass, Compass, PlayCircle, Clock,
 } from 'lucide-react'
 import {
   Select,
@@ -95,8 +95,14 @@ import {
 import {
   deriveMyWorkDirection,
   type MyWorkDirection,
-  type PlanStep,
 } from '@/lib/my-work/direction'
+import {
+  rankAssistantItems,
+  assistantAlternative,
+  type AssistantItem,
+  type AssistantVerdicts,
+} from '@/lib/my-work/assistant'
+import { CALL_HOURS, isCallHoursOpen } from '@/lib/my-work/call-hours'
 import {
   groupPlanByClass,
   type WorkClassGroup,
@@ -151,11 +157,28 @@ const BAND_META: Record<PriorityBand, { title: string; tone: OperationalTone }> 
 export function MyWorkClient({
   state,
   initialProjectId = null,
+  assistantVerdicts,
+  nowIso,
 }: {
   state: MyWorkState
   /** Project pre-selected from a "Work Project" deep link (?project_id=…). */
   initialProjectId?: string | null
+  /** ZEN's ranking of every Assistant step under each clock/backlog combination,
+   * evaluated on the server. Null if the rule could not be evaluated. */
+  assistantVerdicts: AssistantVerdicts | null
+  /** The server's current instant, so the first render matches the server's and
+   * hydration is stable. The clock then ticks on the client. */
+  nowIso: string
 }) {
+  // The Assistant depends on the time of day (call hours). Start from the
+  // server's instant (stable hydration), then tick so it flips at 9 am and 6 pm
+  // Eastern without a reload. Hooks stay above every early return.
+  const [now, setNow] = useState<Date>(() => new Date(nowIso))
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 30_000)
+    return () => clearInterval(id)
+  }, [])
+
   // Two combinable filters over the SAME resolved work. They narrow what is
   // shown; they never change eligibility, routes, counts, or ZEN ordering — the
   // server composition already decided all of that. 'all' means no narrowing.
@@ -291,7 +314,12 @@ export function MyWorkClient({
               <PrioritiesColumn state={filteredState} />
             </div>
             <div className="lg:col-span-5">
-              <AssistantColumn direction={direction} state={state} />
+              <AssistantColumn
+                direction={direction}
+                state={state}
+                verdicts={assistantVerdicts}
+                now={now}
+              />
             </div>
             <div className="lg:col-span-4">
               <AvailableWorkColumn direction={direction} state={filteredState} />
@@ -738,47 +766,69 @@ function PriorityCard({
 // COLUMN 2 — Assistant Recommendations. The PRIMARY working area: "what should I
 // work on now, and why?" Everybody has an assistant. It presents the single
 // recommended next step prominently (what, why, how much, and a direct way to
-// begin), then the rest of the established ZEN + catalog working plan as the
-// ordered sequence to follow. The recommendation is ADVISORY — the employee is
-// always free to pick anything from Available Work instead. Mentoring (the
-// purple cap) accompanies the recommendation here; it never becomes a separate
-// column. No new ranking is introduced: the order is the one ZEN already
-// produced (deriveMyWorkDirection → workingPlan).
+// begin), then a short "next up". It is a judgment, not a menu: only steps with
+// real actionable work appear, ordered by the GoRules ZEN rule
+// src/rules/my-work-assistant.json (the funnel principle: work that moves
+// customers out ranks above work that feeds more in). Call work is left out
+// entirely outside call hours (9 am to 6 pm Eastern). Commitments are not ranked
+// here; they live in Priorities & Commitments. The recommendation is ADVISORY:
+// the employee is always free to pick anything from Available Work instead.
+// Mentoring (the purple cap) accompanies the recommendation; it never becomes a
+// separate column.
 // ─────────────────────────────────────────────────────────────────────────────
+
+// How many steps the Assistant shows behind its top pick. Short on purpose: the
+// Assistant is a judgment, not the menu. Everything else is in Available Work.
+const NEXT_UP_LIMIT = 3
 
 function AssistantColumn({
   direction,
   state,
+  verdicts,
+  now,
 }: {
   direction: MyWorkDirection
   /** Unfiltered state — the standing responsibilities accompaniment reflects the
    * employee's durable remit, not today's filtered queue. */
   state: MyWorkState
+  /** ZEN's per-step ranking for each clock/backlog combination (server-evaluated). */
+  verdicts: AssistantVerdicts | null
+  /** The current instant; call hours are judged against it. */
+  now: Date
 }) {
-  const plan = direction.workingPlan
-  // The recommended next step is the first ACTIONABLE step in the plan (the plan
-  // can carry zeroed standing/spine steps for orientation; the recommendation
-  // must be real work to start). Falls back to the first step so the Assistant
-  // always points somewhere reachable when any plan exists.
-  const recommended =
-    plan.find((s) => (s.unresolvedCount ?? s.count) > 0) ?? plan[0] ?? null
-  const rest = recommended ? plan.filter((s) => s.key !== recommended.key) : plan
+  const callHoursOpen = isCallHoursOpen(now)
+
+  // Only steps with real actionable work, in ZEN's order, with call work left out
+  // when call hours are closed. Zero-work steps never appear here; they remain on
+  // Available Work, which is the map.
+  const items = rankAssistantItems(direction.workingPlan, verdicts, callHoursOpen)
+  const pick = items[0] ?? null
+  const alternative = assistantAlternative(items)
+  const nextUp = items
+    .slice(1)
+    .filter((i) => i !== alternative)
+    .slice(0, NEXT_UP_LIMIT)
 
   return (
     <section aria-label="Assistant recommendations" className="space-y-3">
       <ColumnHeader title="Assistant" />
 
-      {recommended ? (
-        <>
-          <RecommendationCard step={recommended} />
+      <p className="flex items-center gap-1.5 text-xs text-ink-supporting">
+        <Clock className="size-3.5" aria-hidden />
+        Call hours ({CALL_HOURS.label}): {callHoursOpen ? 'open' : 'closed'}
+      </p>
 
-          {rest.length > 0 && (
+      {pick ? (
+        <>
+          <RecommendationCard item={pick} alternative={alternative} />
+
+          {nextUp.length > 0 && (
             <div className="space-y-2.5">
               <p className="pt-1 text-xs font-semibold uppercase tracking-[0.1em] text-ink-supporting">
-                Then, in order
+                Next up
               </p>
-              {rest.map((step) => (
-                <WorkStepCard key={step.key} step={step} />
+              {nextUp.map((item) => (
+                <WorkStepCard key={item.step.key} item={item} />
               ))}
             </div>
           )}
@@ -787,10 +837,14 @@ function AssistantColumn({
         <div className="rounded-xl border border-surface-border bg-surface-card p-4">
           <p className="flex items-center gap-2 text-sm text-ink-secondary">
             <CheckCircle2 className="size-4 shrink-0 text-status-confirmed" aria-hidden />
-            Nothing is waiting for you to start right now. You have open capacity.
+            {callHoursOpen
+              ? 'Nothing is waiting for you to start right now. You have open capacity.'
+              : 'Nothing quiet is waiting for you right now.'}
           </p>
           <p className="mt-1 text-xs text-ink-supporting">
-            When work arrives, the Assistant will recommend where to start.
+            {callHoursOpen
+              ? 'When work arrives, the Assistant will recommend where to start.'
+              : `Call hours are closed (${CALL_HOURS.label}). You can still make calls from Available Work.`}
           </p>
         </div>
       )}
@@ -809,8 +863,17 @@ function AssistantColumn({
  * HOW MUCH there is, WHY it comes first, and gives a direct START control.
  * Mentoring (purple cap) accompanies it — distinct from the teal "what to do".
  * Advisory: a line makes clear the employee may choose other work. */
-function RecommendationCard({ step }: { step: PlanStep }) {
-  const headline = step.unresolvedCount ?? step.count
+function RecommendationCard({
+  item,
+  alternative,
+}: {
+  item: AssistantItem
+  /** The other reasonable choice when two steps are close (a large research
+   * backlog vs the calls), offered as a single "or" beside the pick. */
+  alternative: AssistantItem | null
+}) {
+  const step = item.step
+  const headline = step.count
   const focus = TONE.focus
   const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
   return (
@@ -828,17 +891,12 @@ function RecommendationCard({ step }: { step: PlanStep }) {
         </span>
       </div>
 
-      {/* WHY — the deterministic rationale ZEN/catalog already produced. */}
-      <p className="mt-1.5 text-sm leading-snug text-ink-secondary">{step.reason}</p>
-
-      {/* Operational breakdown (Research attempted-vs-unresolved) stays visible. */}
-      {step.unresolvedCount != null && (step.unsuccessfulCount ?? 0) > 0 && (
-        <p className="mt-1 text-xs text-ink-supporting">
-          {step.unresolvedCount - (step.unsuccessfulCount ?? 0)} not yet researched
-          {' · '}
-          {step.unsuccessfulCount} researched unsuccessfully
-        </p>
+      {/* WHY it is first: the short note tied to ZEN's verdict, then the
+          step's own description. */}
+      {item.note && (
+        <p className={cn('mt-1.5 text-sm font-medium leading-snug', focus.label)}>{item.note}</p>
       )}
+      <p className="mt-1 text-sm leading-snug text-ink-secondary">{step.reason}</p>
 
       <div className="mt-3 flex flex-wrap items-center gap-3">
         {step.route && (
@@ -854,6 +912,23 @@ function RecommendationCard({ step }: { step: PlanStep }) {
 
       {mentorOpen && (
         <MentorCapPanel className="mt-2" onClose={() => setMentorOpen(false)}>{step.reason}</MentorCapPanel>
+      )}
+
+      {alternative && (
+        <p className="mt-3 text-sm text-ink-secondary">
+          Or{' '}
+          {alternative.step.route ? (
+            <Link
+              href={alternative.step.route}
+              className="font-semibold text-brand-hover hover:underline"
+            >
+              {alternative.step.title.charAt(0).toLowerCase() + alternative.step.title.slice(1)}
+            </Link>
+          ) : (
+            alternative.step.title.charAt(0).toLowerCase() + alternative.step.title.slice(1)
+          )}{' '}
+          ({alternative.step.count} waiting).
+        </p>
       )}
 
       <p className="mt-2.5 text-xs text-ink-supporting">
@@ -1029,8 +1104,9 @@ function WorkClassCard({ group }: { group: WorkClassGroup }) {
  * the count, any operational breakdown kept in view, and the explanatory
  * description tucked into a collapsed mentoring disclosure. Order comes from the
  * plan; no new ranking here. */
-function WorkStepCard({ step }: { step: PlanStep }) {
-  const headline = step.unresolvedCount ?? step.count
+function WorkStepCard({ item }: { item: AssistantItem }) {
+  const step = item.step
+  const headline = step.count
   const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
   return (
     <article
@@ -1064,14 +1140,9 @@ function WorkStepCard({ step }: { step: PlanStep }) {
         <span className="shrink-0 text-xl font-semibold leading-none tabular-nums text-ink">{headline}</span>
       </div>
 
-      {/* Operational information stays OUTSIDE mentoring — always visible. */}
-      {step.unresolvedCount != null && (step.unsuccessfulCount ?? 0) > 0 && (
-        <p className="mt-1 text-xs text-ink-supporting">
-          {step.unresolvedCount - (step.unsuccessfulCount ?? 0)} not yet researched
-          {' · '}
-          {step.unsuccessfulCount} researched unsuccessfully
-        </p>
-      )}
+      {/* Why it is here, in one line. Operational information stays OUTSIDE
+          mentoring, so this note is always visible. */}
+      {item.note && <p className="mt-1 text-xs text-ink-supporting">{item.note}</p>}
 
       {/* The explanatory description, available only when requested. */}
       {mentorOpen && (
