@@ -506,3 +506,128 @@ sit under the Assistant).
 - Throwaway verification scripts were deleted. The jiti pattern in
   `scripts/run-dd-tests.mjs` loads real modules; `server-only` needs aliasing to
   an empty module to run the composition outside Next.
+
+
+---
+---
+
+# HANDOFF (newest) — Outreach calls: business-day cadence + single ordered call list — SHIPPED TO PRODUCTION
+
+Added 2026-11-04. All of this is COMMITTED, on `development` AND `main` (PR #34
+merged, prod deploy Ready), and live at the preview. `development` is in sync
+with `main`. No database migrations in any of it. This is step 2's call branch
+of Servicing-Agent Capture (the one call list), plus the cadence rule and two
+small My Work fixes, done this session with Bob branch-by-branch. Re-verify live
+facts before relying on them.
+
+Verification baseline this session: `npx tsc --noEmit` clean, `npm run test:dd`
+273/273, `npm run build` clean.
+
+## What shipped (three commits, one earlier policy-card PR)
+
+1. PR #33 (earlier today): My Work Available Work research count shows ONLY
+   not-yet-researched customers (the headline excludes researched-unsuccessfully;
+   those are the separate "Retry contact research" step). Fixed in
+   `direction.ts` (`count: unresolved - unsuccessfulCount`), `work-classes.ts`
+   and `MyWorkClient.tsx` (headline = `step.count`, not `unresolvedCount`). ALSO
+   in #33: the PolicyCard / ServicingAgentStatus Legos (see the separate policy-
+   card note if one exists; the card now shows insured — defaults to "Owner" when
+   no separate insured — servicing agent Yes/No/Unknown, coverage status in
+   parentheses on the collapsed row, annual premium, rate class; rows tightened
+   to ~60% height; order insured, type, carrier, issue date, face, premium, rate,
+   cash value).
+
+2. The CADENCE (settled with Bob, now the business rule in
+   `src/lib/stewardship/call-cadence.ts`): spacing after each unsuccessful call is
+   1, 1, 2, 4 BUSINESS days, then every 6 business days. `EARLY_CALL_SPACING_DAYS`
+   was renamed `EARLY_CALL_SPACING_BUSINESS_DAYS = [1,1,2,4]` and the early stage
+   now uses `addBusinessDays` (previously calendar days), so WEEKENDS ARE SKIPPED
+   THROUGHOUT — an email or call on a Friday is next due Monday, nothing is ever
+   due on a weekend. (Bob changed the 3rd-call wait from 3 to 4 days; everything
+   else matched.) The intro email counts as the first contact and schedules the
+   first call 1 business day later. Precedence unchanged: promised callback >
+   employee override > computed cadence. No attempt cap; nonresponsive flag at 7
+   is still recommendation-only. ONLY affects calls/emails recorded from now on;
+   customers already on a hold keep their stored date.
+
+3. ONE CALL LIST. "Call Other Reachable Customers" is retired as a concept.
+   `CallPopulation` is now just `'calls-due'` (the `'available-to-call'` value is
+   gone). `callPopulationOf` (`queues.ts`): a customer is owed a call iff
+   effectiveQueue === 'ready-to-call' AND not engaged AND (not a future-dated
+   callback). Ready-to-Email is email-first (not a call yet); Waiting-for-Response
+   is the cadence hold (not callable until promoted). A FUTURE promised callback
+   is NOT on the list until its date arrives (it is a commitment). The
+   `available-to-call` route/page is now a redirect to `calls-due`; the client was
+   renamed `CallsDueClient.tsx` (component `CallsDueClient`). Removed the second
+   source/step everywhere: `composition.ts` (one `callsDue` source, derived-
+   onboarding `callsDueCount`), `direction.ts` (dropped `outreach:calls-other`),
+   `assistant.ts`, `work-classes.ts`, `my-work-assistant.json` (dropped rule r10),
+   `types.ts` (POPULATION_META, OpenPopulation), the board route's population
+   filter. My Work now shows a single "Make the calls that are due" step.
+
+4. CALL LIST ORDER (new, in the board route `GET /api/stewardship` for the
+   `calls-due` population). Pure comparator `compareCallListOrder` in `queues.ts`
+   (+ test). Order: (a) due promised callbacks first (commitment), earliest
+   first; (b) everyone else by `due_since` OLDEST first. `due_since` = the due
+   callback date, else `follow_up_due` (scheduled next-call date), else the
+   PROJECT-ENTRY date (`project_customers.added_at`) for a never-contacted
+   customer. Because project-entry is always earlier than any email+1-business-day
+   date, the NO-EMAIL never-contacted customers naturally lead the list without a
+   special rule, and once they generate their own cadence dates everyone merges
+   into one age-sorted pool. The route now selects `customer_prereviews.created_at`
+   and `project_customers.added_at`; each item carries `due_since` + `is_due_callback`.
+   The client preserves server order (no re-sort). SKIPPING is session-only
+   (`skipOrder` is component state, resets on mount): it moves a customer to the
+   back of THIS session's carousel, never changes their scheduled date or standing
+   priority. Leaving to My Work and returning restarts the list in standing order.
+
+5. BUG FIX (same commit as the order, then a follow-up commit): Skip for now did
+   nothing on the never-contacted (virtual) customers. A virtual row has id null
+   and is keyed `virtual:<customer_id>`; on open it is materialized to a real id,
+   but its local row stays virtual, so skipping by the real id matched no row and
+   the same customer re-presented (an infinite loop on the no-email tail).
+   `reserveNextDirectCandidate` now returns `{ outreachId, customerId }` (was just
+   the id); both `CallsDueClient` and `IntroductoryEmailsClient` capture the open
+   customer_id in `openCustomerIdRef` at reserve time and use it to key skip and
+   advance. IntroductoryEmails had the identical latent bug; fixed too.
+
+## Decisions Bob made this session (business rules)
+
+- Cadence spacing 1,1,2,4 then 6, ALL business days, weekends never due.
+- One call list, not two. The reason a customer is owed a call does not change
+  the workflow; only the filter that brings them in differs.
+- Future promised callbacks are commitments: off the call list until their date.
+- First-call definition settled: sending the intro email IS the first contact,
+  so almost everyone with an email already has a scheduled call date. The only
+  TRUE first calls are no-email customers (phone, no email) routed straight to
+  Ready to Call. They lead the list via their project-entry date — Bob's point:
+  do not keep re-dialing the same 50 while new names pile at the back.
+- First calls do NOT automatically lose to every retry; they compete on age
+  (oldest-owed first), which with the project-entry date puts no-email first.
+- Skipping is temporary and session-scoped; it is a "not right now," not a
+  priority or schedule change.
+
+## Open / next (NOT started)
+
+- Steps 3–5 of Servicing-Agent Capture (authorization form + wet signature,
+  carrier confirmation (already built), hand-off to 1035 review). Walk with Bob.
+- The "didn't connect" redesign (bad-number branch) is still its own in-flight
+  effort — see the Call-Workflow Redesign section above. Bob has raised the
+  bad-number-to-research point twice; handle it there.
+- Verify (My Work handoff) open follow-ups still stand: retire Operations Prep
+  (own PR), the "Next up" cap of 3, etc.
+- NOTE for whoever revisits the My Work "calls due mixes callbacks + retries"
+  follow-up (item 3 in the My Work section above): the call LIST now keeps due
+  callbacks ahead of retries in its order, but they still share the one list; if
+  Bob wants callbacks pulled out into Commitments entirely, that is a further
+  change.
+
+## Live facts (point-in-time, re-verify)
+
+- Straight DB counts this session (no per-user eligibility/claim filter, so they
+  do NOT match any one operator's My Work screen): ~10,159 non-test policies;
+  issue_date on 9,983 (176 missing, 172 of them active); coverage_status is dirty
+  (Active (Inforce)/Active/active/ACTIVE/Issued all in use — a normalization is a
+  candidate cleanup, not done). insured name on 10,110; ~997 differ from
+  client_name. A handful of bad-number customers now carry a replacement phone and
+  will surface as owed a call — worth a look.
