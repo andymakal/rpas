@@ -1514,6 +1514,7 @@ export function CustomerCardClient({
                 <div>
                   <label className="block text-xs text-slate-500 mb-1">Premium (billed)</label>
                   <input value={newPremium} onChange={e => setNewPremium(e.target.value)} type="number" min="0" step="1" placeholder="e.g. 148" className={inputCls} />
+                  {(() => { const ap = newPremium ? calcAP(parseFloat(newPremium), newPremiumMode) : null; return ap && newPremiumMode.toLowerCase() !== 'annual' ? <p className="text-xs text-slate-500 mt-0.5 tabular-nums">AP {fmt(ap)}/yr</p> : null })()}
                 </div>
               </div>
               <div className="grid grid-cols-3 gap-3">
@@ -1777,6 +1778,7 @@ export function CustomerCardClient({
                               <div>
                                 <label className="block text-xs text-slate-500 mb-1">Premium (billed)</label>
                                 <input value={editPolPremium} onChange={e => setEditPolPremium(e.target.value)} type="number" min="0" step="1" className={inputCls} />
+                                {(() => { const ap = editPolPremium ? calcAP(parseFloat(editPolPremium), editPolPremiumMode) : null; return ap && editPolPremiumMode.toLowerCase() !== 'annual' ? <p className="text-xs text-slate-500 mt-0.5 tabular-nums">AP {fmt(ap)}/yr</p> : null })()}
                               </div>
                               <div>
                                 <label className="block text-xs text-slate-500 mb-1">Coverage status</label>

@@ -20,6 +20,16 @@ import { fmtDate } from '@/lib/fmt'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+function calcAP(amount: number | null, mode: string | null): number | null {
+  if (!amount) return null
+  const m = (mode ?? 'annual').toLowerCase().trim()
+  if (m === 'single') return null
+  if (m === 'semi-annual') return amount * 2
+  if (m === 'quarterly')   return amount * 4
+  if (m === 'monthly' || m === 'eft monthly') return amount * 12
+  return null // annual → no separate AP line needed
+}
+
 function fmt(n: number | null | undefined): string {
   if (n == null) return '—'
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`
@@ -247,9 +257,10 @@ function CategoryFieldsEdit({
       )}
       {sf.annual_premium && (
         <div>
-          <label className="block text-xs text-slate-500 mb-1">{sf.annual_premium} ($)</label>
+          <label className="block text-xs text-slate-500 mb-1">Billed Premium ($)</label>
           <input type="number" value={editFields.annual_premium} onChange={ef('annual_premium')}
             className={inputCls} placeholder="—" />
+          {(() => { const ap = editFields.annual_premium ? calcAP(parseFloat(editFields.annual_premium), editFields.premium_mode || null) : null; return ap ? <p className="text-xs text-slate-500 mt-0.5 tabular-nums">AP {fmt(ap)}/yr</p> : null })()}
         </div>
       )}
 

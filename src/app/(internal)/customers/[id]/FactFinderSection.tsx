@@ -116,6 +116,17 @@ type FF = {
   bene_notes: string; ff_notes: string
 }
 
+function calcAP(amount: string, mode: string): number | null {
+  const n = parseFloat(amount)
+  if (!n) return null
+  const m = mode.toLowerCase().trim()
+  if (m === 'single') return null
+  if (m === 'semi-annual') return n * 2
+  if (m === 'quarterly')   return n * 4
+  if (m === 'monthly' || m === 'eft monthly') return n * 12
+  return null // annual → no separate AP line needed
+}
+
 function formatDobInput(raw: string): string {
   const digits = raw.replace(/\D/g, '').slice(0, 8)
   if (digits.length <= 2) return digits
@@ -1025,7 +1036,11 @@ export function FactFinderSection({
                     </div>
                   </div>
                   <div className="grid grid-cols-3 gap-2">
-                    <div><label className="block text-xs text-slate-500 mb-1">Premium (billed)</label><input value={p.premium_amount} onChange={e => setPolicy(i, 'premium_amount', e.target.value)} type="number" min="0" step="1" placeholder="e.g. 148" className={inpSm} /></div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Premium (billed)</label>
+                      <input value={p.premium_amount} onChange={e => setPolicy(i, 'premium_amount', e.target.value)} type="number" min="0" step="1" placeholder="e.g. 148" className={inpSm} />
+                      {(() => { const ap = calcAP(p.premium_amount, p.billing_mode); return ap ? <p className="text-xs text-slate-500 mt-0.5 tabular-nums">AP ${ap.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}/yr</p> : null })()}
+                    </div>
                     <div><label className="block text-xs text-slate-500 mb-1">Billing mode</label>
                       <select value={p.billing_mode} onChange={e => setPolicy(i, 'billing_mode', e.target.value)} className={inpSm}>
                         {['Annual','Semi-Annual','Quarterly','Monthly','EFT Monthly','Single'].map(m => <option key={m} value={m}>{m}</option>)}
