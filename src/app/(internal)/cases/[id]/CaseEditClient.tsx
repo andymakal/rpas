@@ -772,7 +772,7 @@ export default function CaseEditClient({
               <span className={`inline-flex items-center rounded px-2.5 py-1 text-xs font-medium ${statusBadgeClass(caseData.stage_translations)}`}>
                 {caseData.stage_translations?.agency_label ?? caseData.internal_status}
               </span>
-              <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium border ${staleBadgeClass(daysInStatus)}`}>
+              <span className={`inline-flex items-center rounded px-1.5 py-0.5 text-xs font-medium border ${isWon || isLost ? 'bg-slate-800/50 text-slate-500 border-slate-700' : staleBadgeClass(daysInStatus)}`}>
                 {daysInStatus}d in status
               </span>
               {caseData.submitted_at && (
