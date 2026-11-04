@@ -18,7 +18,17 @@
 
 import { ZenEngine } from '@gorules/zen-engine'
 import myWorkModel from '@/rules/my-work-priority.json'
+import assistantModel from '@/rules/my-work-assistant.json'
 import { capabilityStatusExplanation } from '@/lib/capabilities/explanations'
+import {
+  ASSISTANT_STEP_KEYS,
+  assistantStepFacts,
+  verdictCombo,
+  type AssistantBand,
+  type AssistantVerdict,
+  type AssistantVerdicts,
+  type VerdictCombo,
+} from './assistant'
 import type {
   ActivityFacts,
   ActivityBandVerdict,
@@ -42,7 +52,10 @@ function getEngine(): ZenEngine {
     engine = new ZenEngine({
       loader: {
         type: 'static',
-        content: { 'my-work-priority.json': myWorkModel },
+        content: {
+          'my-work-priority.json': myWorkModel,
+          'my-work-assistant.json': assistantModel,
+        },
       },
     })
   }
@@ -63,6 +76,38 @@ export async function evaluateActivityBand(
     rank: Number(response.result.rank),
     reasonCode: response.result.reasonCode as string,
   }
+}
+
+/**
+ * Evaluate the Assistant rule for every known working-plan step under every
+ * combination of call hours (open/closed) and research backlog (large/small).
+ * ZEN is server-only and the clock moves, so the client picks the combination
+ * for the current time from this table instead of calling the server again.
+ * `focusedFunctions` is the set of work functions Today's Focus elevates for
+ * this employee (the ZEN priority band 'focus').
+ */
+export async function evaluateAssistantVerdicts(
+  focusedFunctions: ReadonlySet<string>,
+): Promise<AssistantVerdicts> {
+  const zen = getEngine()
+  const combos: [boolean, boolean][] = [
+    [true, true], [true, false], [false, true], [false, false],
+  ]
+  const out = {} as AssistantVerdicts
+  for (const [open, large] of combos) {
+    const table: Record<string, AssistantVerdict> = {}
+    for (const key of ASSISTANT_STEP_KEYS) {
+      const facts = assistantStepFacts(key, open, large, focusedFunctions)
+      const response = await zen.evaluate('my-work-assistant.json', facts)
+      table[key] = {
+        band: response.result.band as AssistantBand,
+        rank: Number(response.result.rank),
+        reasonCode: response.result.reasonCode as string,
+      }
+    }
+    out[verdictCombo(open, large) as VerdictCombo] = table
+  }
+  return out
 }
 
 /**

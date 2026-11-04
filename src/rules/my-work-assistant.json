@@ -1,0 +1,134 @@
+{
+  "_comment": "Right Path MY WORK ASSISTANT decision. Companion to my-work-priority.json (which ranks whole work FUNCTIONS into bands) and built on the same GoRules ZEN layer. This decision ranks ONE working-plan STEP (e.g. 'Make the calls that are due', 'Find missing contact information') for the Assistant, because a work function such as Outreach holds several steps with different timing and different places in the funnel. ZEN owns the ordering; TypeScript owns normalization (turning the step and the clock into the facts below), the call-hours time math, the research-backlog threshold, and the operator-facing prose. The Assistant only ranks steps that have real actionable work, so 'no work' is not a case here. Commitments (appointments, promised callbacks) are NOT ranked here: they live in Priorities & Commitments and are never weighed against other work. GOVERNING PRINCIPLE (the funnel): work that moves customers OUT of the pipeline ranks above work that feeds more IN, so the funnel keeps flowing. Order (lower rank = higher priority): (1) Today's Focus; (10-13) late-stage work closest to done: verify servicing agent (the gate for newly added policies), determination (producer only), servicing access and operations preparation (operations prep is being retired separately), active customer conversations; (29) contact research WHEN the not-yet-researched backlog is large, because a large backlog holds up outreach; (30-31) calls due, then other reachable calls; (40) introductory emails; (41) contact research; (60) retries of research already attempted once. CALL WORK OUTSIDE CALL HOURS (9 am to 6 pm Eastern) is not recommended at all (band not_now): it is still in Available Work, but the Assistant does not offer it. Quiet work is never held back by the clock, so it surfaces at any hour. Focus elevates but never overrides a customer commitment and never hides other work.",
+  "nodes": [
+    {
+      "id": "input",
+      "type": "inputNode",
+      "name": "Assistant step facts",
+      "position": { "x": 0, "y": 150 },
+      "content": {}
+    },
+    {
+      "id": "my-work-assistant-table",
+      "type": "decisionTableNode",
+      "name": "Assistant step priority",
+      "position": { "x": 300, "y": 150 },
+      "content": {
+        "hitPolicy": "first",
+        "inputs": [
+          { "id": "i1", "name": "Working-plan step", "field": "stepKey" },
+          { "id": "i2", "name": "Step is live phone CALL work", "field": "isCallWork" },
+          { "id": "i3", "name": "Call hours are open now", "field": "callHoursOpen" },
+          { "id": "i4", "name": "Elevated by Today's Focus", "field": "isFocusElevated" },
+          { "id": "i5", "name": "Not-yet-researched backlog is large", "field": "researchBacklogLarge" }
+        ],
+        "outputs": [
+          { "id": "o1", "name": "Assistant band", "field": "band" },
+          { "id": "o2", "name": "Rank (lower = higher priority)", "field": "rank" },
+          { "id": "o3", "name": "Reason code", "field": "reasonCode" }
+        ],
+        "rules": [
+          {
+            "_id": "r1",
+            "_description": "Call work outside call hours is not recommended. It stays in Available Work; the Assistant simply does not offer it.",
+            "i1": "", "i2": "true", "i3": "false", "i4": "", "i5": "",
+            "o1": "\"not_now\"", "o2": "99", "o3": "\"after_hours_call\""
+          },
+          {
+            "_id": "r2",
+            "_description": "Management elevated this in Today's Focus and it can be acted on now.",
+            "i1": "", "i2": "", "i3": "", "i4": "true", "i5": "",
+            "o1": "\"focus\"", "o2": "1", "o3": "\"focus_elevated\""
+          },
+          {
+            "_id": "r3",
+            "_description": "Verify servicing agent: the gate for newly added policies. Quick per-policy work that gets customers into the pipeline.",
+            "i1": "\"verify_servicing_agent\"", "i2": "", "i3": "", "i4": "", "i5": "",
+            "o1": "\"gate\"", "o2": "10", "o3": "\"gate\""
+          },
+          {
+            "_id": "r4",
+            "_description": "Determination: the finish line for a customer. Only a licensed producer sees it (capability), so it appears only on their list.",
+            "i1": "\"determination\"", "i2": "", "i3": "", "i4": "", "i5": "",
+            "o1": "\"finish\"", "o2": "11", "o3": "\"finish\""
+          },
+          {
+            "_id": "r5",
+            "_description": "Process servicing access: a signed form in hand starts the carrier clock, and confirmation moves the customer on.",
+            "i1": "\"outreach:servicing-access\"", "i2": "", "i3": "", "i4": "", "i5": "",
+            "o1": "\"late_stage\"", "o2": "12", "o3": "\"late_stage\""
+          },
+          {
+            "_id": "r6",
+            "_description": "Advance operations preparation. Being retired in a separate change; until then it sits beside servicing access.",
+            "i1": "\"operations_prep\"", "i2": "", "i3": "", "i4": "", "i5": "",
+            "o1": "\"late_stage\"", "o2": "12", "o3": "\"late_stage\""
+          },
+          {
+            "_id": "r7",
+            "_description": "Active customer conversations: customers who have responded and go cold if left waiting.",
+            "i1": "\"outreach:customer-interaction\"", "i2": "", "i3": "", "i4": "", "i5": "",
+            "o1": "\"late_stage\"", "o2": "13", "o3": "\"late_stage\""
+          },
+          {
+            "_id": "r8",
+            "_description": "Contact research when the not-yet-researched backlog is large: it holds up outreach, so it moves ahead of the calls. The Assistant offers the calls as the alternative.",
+            "i1": "\"research\"", "i2": "", "i3": "", "i4": "", "i5": "true",
+            "o1": "\"research_large\"", "o2": "29", "o3": "\"research_backlog_large\""
+          },
+          {
+            "_id": "r9",
+            "_description": "Make the calls that are due (call hours are open; the after-hours case was handled by r1).",
+            "i1": "\"outreach:calls-due\"", "i2": "", "i3": "", "i4": "", "i5": "",
+            "o1": "\"calls\"", "o2": "30", "o3": "\"calls_open\""
+          },
+          {
+            "_id": "r10",
+            "_description": "Call other reachable customers (call hours are open).",
+            "i1": "\"outreach:calls-other\"", "i2": "", "i3": "", "i4": "", "i5": "",
+            "o1": "\"calls\"", "o2": "31", "o3": "\"calls_open\""
+          },
+          {
+            "_id": "r11",
+            "_description": "Send introductory emails: quick, any hour. Below the calls during call hours, above research within the prep work.",
+            "i1": "\"outreach:intro\"", "i2": "", "i3": "", "i4": "", "i5": "",
+            "o1": "\"prep\"", "o2": "40", "o3": "\"prep\""
+          },
+          {
+            "_id": "r12",
+            "_description": "Find missing contact information (not-yet-researched customers) when the backlog is not large.",
+            "i1": "\"research\"", "i2": "", "i3": "", "i4": "", "i5": "",
+            "o1": "\"prep\"", "o2": "41", "o3": "\"prep\""
+          },
+          {
+            "_id": "r13",
+            "_description": "Retry contact research that was already attempted once and came up empty. Lowest priority.",
+            "i1": "\"research:retry\"", "i2": "", "i3": "", "i4": "", "i5": "",
+            "o1": "\"retry\"", "o2": "60", "o3": "\"research_retry\""
+          },
+          {
+            "_id": "r14",
+            "_description": "Any other step (a future activity): an ordinary workflow step, after the known ones.",
+            "i1": "", "i2": "", "i3": "", "i4": "", "i5": "",
+            "o1": "\"workflow\"", "o2": "50", "o3": "\"workflow\""
+          }
+        ],
+        "passThrough": true,
+        "inputField": null,
+        "outputPath": null,
+        "executionMode": "single"
+      }
+    },
+    {
+      "id": "output",
+      "type": "outputNode",
+      "name": "Response",
+      "position": { "x": 600, "y": 150 },
+      "content": {}
+    }
+  ],
+  "edges": [
+    { "id": "e1", "sourceId": "input", "targetId": "my-work-assistant-table", "sourceHandle": null, "type": "edge" },
+    { "id": "e2", "sourceId": "my-work-assistant-table", "targetId": "output", "sourceHandle": null, "type": "edge" }
+  ]
+}

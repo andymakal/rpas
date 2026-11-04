@@ -3,6 +3,8 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { getMyWork } from '@/lib/my-work/composition'
+import { evaluateAssistantVerdicts } from '@/lib/my-work/engine'
+import type { AssistantVerdicts } from '@/lib/my-work/assistant'
 import type { MyWorkState } from '@/lib/my-work/types'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { MyWorkClient } from './MyWorkClient'
@@ -64,5 +66,28 @@ export default async function MyWorkPage({
     }
   }
 
-  return <MyWorkClient state={state} initialProjectId={initialProjectId ?? null} />
+  // The Assistant's step ranking is a ZEN decision (server-only). Evaluate it for
+  // every clock/backlog combination so the client can pick the right one as the
+  // time moves, without another round trip. Today's Focus elevates a step only
+  // through the activity's existing ZEN band ('focus' means elevated AND eligible).
+  // If the rule cannot be evaluated the Assistant degrades to the plain working
+  // plan order rather than failing the page.
+  let assistantVerdicts: AssistantVerdicts | null = null
+  try {
+    const focused = new Set(
+      state.activities.filter((a) => a.band === 'focus').map((a) => a.workFunction as string),
+    )
+    assistantVerdicts = await evaluateAssistantVerdicts(focused)
+  } catch (err) {
+    console.error('MY WORK assistant rule failed:', err)
+  }
+
+  return (
+    <MyWorkClient
+      state={state}
+      initialProjectId={initialProjectId ?? null}
+      assistantVerdicts={assistantVerdicts}
+      nowIso={new Date().toISOString()}
+    />
+  )
 }
