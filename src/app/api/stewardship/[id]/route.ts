@@ -176,7 +176,7 @@ export async function GET(
   const [{ data: allPolicies }, { data: requestLinks }] = await Promise.all([
     supabase
       .from('service_policies')
-      .select('id, policy_number, carrier, product_type, face_amount, cash_value_amount, issue_date, coverage_status, insured_first_name, insured_last_name, sa_status, sa_form_sent_at')
+      .select('id, policy_number, carrier, product_type, face_amount, cash_value_amount, issue_date, coverage_status, annual_premium, rate_class, insured_first_name, insured_last_name, sa_status, sa_form_sent_at')
       .eq('customer_id', customerId)
       .eq('is_test', false),
     supabase
@@ -196,6 +196,8 @@ export async function GET(
     cash_value_amount: p.cash_value_amount as number | null,
     issue_date: p.issue_date as string | null,
     coverage_status: p.coverage_status as string,
+    annual_premium: p.annual_premium as number | null,
+    rate_class: p.rate_class as string | null,
     insured_name: [p.insured_first_name, p.insured_last_name].filter(Boolean).join(' ') || null,
     sa_status: p.sa_status as string,
     sa_form_sent_at: p.sa_form_sent_at as string | null,

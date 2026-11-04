@@ -1375,6 +1375,11 @@ function holdingToPolicySummary(h: Holding): PolicySummary {
     issue_date: h.issue_date,
     cash_value_amount: h.cash_value_amount,
     carrier: h.carrier,
+    coverage_status: h.coverage_status,
+    annual_premium: h.annual_premium,
+    rate_class: h.rate_class,
+    insured_name: h.insured_name,
+    sa_status: h.sa_status,
   }
 }
 
