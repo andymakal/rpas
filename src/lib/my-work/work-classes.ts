@@ -104,6 +104,12 @@ export function classOfStep(step: Pick<PlanStep, 'key'>): WorkClass {
   return STEP_CLASS[step.key] ?? 'casework'
 }
 
+/** The plan steps that belong to one class, in the plan's own order. Used by the
+ * Work type filter to narrow the Assistant and Available Work to a single class. */
+export function stepsInClass(plan: PlanStep[], workClass: WorkClass): PlanStep[] {
+  return plan.filter((step) => classOfStep(step) === workClass)
+}
+
 /** One class with the plan steps that belong to it and a rolled-up actionable
  * count (the sum of each step's headline count). Steps keep their own counts and
  * routes; the class count is only a roll-up for the collapsed class row. */

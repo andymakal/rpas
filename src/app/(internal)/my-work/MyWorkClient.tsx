@@ -41,7 +41,7 @@
  * The full per-activity inventory (band-grouped cards with sources, counts,
  * claim-state, and per-item guidance) is preserved on demand under Available
  * Work, so every existing route, count, eligibility distinction, and claim
- * breakdown remains reachable. The Project + Activity filters, the deep-link
+ * breakdown remains reachable. The Project + Work type filters, the deep-link
  * project pre-select, and the Mentoring disclosures are unchanged.
  *
  * Built on the shared workflow design system (src/components/workflow) and the
@@ -88,7 +88,6 @@ import type { ActivityGroup, MyWorkAppointment, MyWorkState, PriorityBand } from
 import {
   ALL,
   applyWorkFilters,
-  activityFilterOptions,
   projectFilterOptions,
   type FilterOption,
 } from '@/lib/my-work/filters'
@@ -105,6 +104,10 @@ import {
 import { CALL_HOURS, isCallHoursOpen } from '@/lib/my-work/call-hours'
 import {
   groupPlanByClass,
+  stepsInClass,
+  WORK_CLASS_META,
+  WORK_CLASS_ORDER,
+  type WorkClass,
   type WorkClassGroup,
 } from '@/lib/my-work/work-classes'
 
@@ -183,14 +186,15 @@ export function MyWorkClient({
   // shown; they never change eligibility, routes, counts, or ZEN ordering — the
   // server composition already decided all of that. 'all' means no narrowing.
   const projectOptions = useMemo(() => projectFilterOptions(state), [state])
-  const activityOptions = useMemo(() => activityFilterOptions(state), [state])
 
   const seededProject =
     initialProjectId && projectOptions.some((o) => o.id === initialProjectId)
       ? initialProjectId
       : ALL
   const [projectFilter, setProjectFilter] = useState<string>(seededProject)
-  const [activityFilter, setActivityFilter] = useState<string>(ALL)
+  // The Work type filter: one of the four universal classes, or ALL. It narrows
+  // the Assistant and Available Work to that class. Commitments are not affected.
+  const [classFilter, setClassFilter] = useState<string>(ALL)
 
   // Live updates. When another employee completes or claims shared work, the
   // rows My Work reads change; this subscribes to those tables and refreshes the
@@ -233,12 +237,14 @@ export function MyWorkClient({
   // The filtered state the columns render. Commitments are exempt from the
   // filters upstream, so a promised callback stays visible regardless.
   const filteredState = useMemo(
-    () => applyWorkFilters(state, projectFilter, activityFilter),
-    [state, projectFilter, activityFilter],
+    // Only the Project filter narrows the resolved state. The Work type filter
+    // works on the plan's steps (below), because a single work function such as
+    // Outreach holds steps that belong to different classes.
+    () => applyWorkFilters(state, projectFilter, ALL),
+    [state, projectFilter],
   )
 
-  const hasFilters = projectOptions.length > 0 || activityOptions.length > 1
-  const filtersActive = projectFilter !== ALL || activityFilter !== ALL
+  const filtersActive = projectFilter !== ALL || classFilter !== ALL
 
   if (state.noProfile) {
     return (
@@ -270,23 +276,31 @@ export function MyWorkClient({
 
   // Derive the Daily Direction from the FILTERED state. This reads ZEN's
   // already-decided ordering; it does not re-rank or add a data source.
-  const direction = deriveMyWorkDirection(filteredState)
+  const fullDirection = deriveMyWorkDirection(filteredState)
+  // Narrow the plan to the chosen class, if any. Both the Assistant and Available
+  // Work read this, so choosing a class changes both. The class list is a fixed
+  // set, so a stale selection is simply an empty view, never an error.
+  const direction: MyWorkDirection =
+    classFilter === ALL
+      ? fullDirection
+      : {
+          ...fullDirection,
+          workingPlan: stepsInClass(fullDirection.workingPlan, classFilter as WorkClass),
+        }
 
-  const filters: WorkFiltersProps | null = hasFilters
-    ? {
-        projectOptions,
-        activityOptions,
-        projectFilter,
-        activityFilter,
-        onProjectChange: setProjectFilter,
-        onActivityChange: setActivityFilter,
-        onClear: () => {
-          setProjectFilter(ALL)
-          setActivityFilter(ALL)
-        },
-        active: filtersActive,
-      }
-    : null
+  const filters: WorkFiltersProps = {
+    projectOptions,
+    classOptions: CLASS_OPTIONS,
+    projectFilter,
+    classFilter,
+    onProjectChange: setProjectFilter,
+    onClassChange: setClassFilter,
+    onClear: () => {
+      setProjectFilter(ALL)
+      setClassFilter(ALL)
+    },
+    active: filtersActive,
+  }
 
   return (
     // Fixed title band + scrolling work area. The page title stays visible while
@@ -301,7 +315,7 @@ export function MyWorkClient({
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-8 pt-6 sm:px-8">
         <div className={`${WORKFLOW_MAX_WIDTH} space-y-6`}>
-          {filters && <WorkFilters {...filters} />}
+          <WorkFilters {...filters} />
 
           {/* The three columns, each answering one question:
               LEFT   "What needs my attention?"      — commitments, focus
@@ -354,28 +368,36 @@ function ComingSoon({ children }: { children: React.ReactNode }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// The filter bar (Project + Activity). Unchanged behavior; moved above the
-// columns so it governs all three. Fixed-time commitments stay visible.
+// The filter bar (Project + Work type). Project narrows the resolved work; Work
+// type narrows the Assistant and Available Work to one of the four universal
+// classes. Commitments in Priorities stay visible whatever is chosen.
 // ─────────────────────────────────────────────────────────────────────────────
+
+/** The Work type options: the four universal classes, in their canonical order.
+ * Always all four, so the control keeps a fixed, learnable shape. */
+const CLASS_OPTIONS: FilterOption[] = WORK_CLASS_ORDER.map((wc) => ({
+  id: wc,
+  label: WORK_CLASS_META[wc].label,
+}))
 
 interface WorkFiltersProps {
   projectOptions: FilterOption[]
-  activityOptions: FilterOption[]
+  classOptions: FilterOption[]
   projectFilter: string
-  activityFilter: string
+  classFilter: string
   onProjectChange: (v: string) => void
-  onActivityChange: (v: string) => void
+  onClassChange: (v: string) => void
   onClear: () => void
   active: boolean
 }
 
 function WorkFilters({
   projectOptions,
-  activityOptions,
+  classOptions,
   projectFilter,
-  activityFilter,
+  classFilter,
   onProjectChange,
-  onActivityChange,
+  onClassChange,
   onClear,
   active,
 }: WorkFiltersProps) {
@@ -412,22 +434,20 @@ function WorkFilters({
           </label>
         )}
 
-        {activityOptions.length > 1 && (
-          <label className="flex items-center gap-2 text-sm text-ink-secondary">
-            <span className="sr-only">Activity</span>
-            <Select value={activityFilter} onValueChange={onActivityChange}>
-              <SelectTrigger className="h-9 min-w-44 font-workflow" aria-label="Activity">
-                <SelectValue placeholder="All activities" />
-              </SelectTrigger>
-              <SelectContent className="font-workflow">
-                <SelectItem value={ALL}>All activities</SelectItem>
-                {activityOptions.map((o) => (
-                  <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </label>
-        )}
+        <label className="flex items-center gap-2 text-sm text-ink-secondary">
+          <span className="sr-only">Work type</span>
+          <Select value={classFilter} onValueChange={onClassChange}>
+            <SelectTrigger className="h-9 min-w-44 font-workflow" aria-label="Work type">
+              <SelectValue placeholder="All work types" />
+            </SelectTrigger>
+            <SelectContent className="font-workflow">
+              <SelectItem value={ALL}>All work types</SelectItem>
+              {classOptions.map((o) => (
+                <SelectItem key={o.id} value={o.id}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </label>
 
         {active && (
           <button
@@ -449,8 +469,9 @@ function WorkFilters({
             particular objective, working everything one project needs.
           </span>
           <span className="mt-1 block">
-            <span className="font-semibold">By activity:</span> work efficiently
-            through similar tasks across projects.
+            <span className="font-semibold">By work type:</span> choose Preparation,
+            Outreach, Customer Engagement, or Casework to see only that kind of
+            work, and work efficiently through similar tasks across projects.
           </span>
         </MentorCapPanel>
       )}
