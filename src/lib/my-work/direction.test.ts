@@ -505,15 +505,57 @@ test('plan: a capable project step kept at ZERO stays visible even when its empt
       },
     ],
   })
-  const d = deriveMyWorkDirection(
-    state([
+  // "Capable" is carried by the worker's standing responsibilities (a routable
+  // assignment always appears there), which is what keeps a step they hold.
+  const d = deriveMyWorkDirection({
+    ...state([
       verifyAtZero,
       activity({ workFunction: 'determination', band: 'shared', rank: 5, label: 'Determination', availableCount: 2 }),
     ]),
-  )
+    responsibilities: [
+      { workFunction: 'verify_servicing_agent', label: 'Verify servicing agent', routedAs: 'primary' },
+    ],
+  })
   const verifyStep = d.workingPlan.find((s) => s.key === 'verify_servicing_agent')
   assert.ok(verifyStep, 'verify step present at zero')
   assert.equal(verifyStep.count, 0)
   // And it leads (fixed workflow order).
   assert.equal(d.workingPlan[0].key, 'verify_servicing_agent')
+})
+
+test('plan: a project step the worker has no standing in is dropped (Determination for a non-producer)', () => {
+  // The composition can emit a project source for an activity the worker cannot
+  // work, so its band reads unassigned/unlicensed. With no responsibility and no
+  // routable/assist standing it must not appear, not even at 0.
+  const determinationNotMine: ActivityGroup = activity({
+    workFunction: 'determination',
+    band: 'unlicensed',
+    rank: 8,
+    label: 'Determination',
+    availableCount: 0,
+    totalCount: 0,
+    sources: [
+      {
+        kind: 'project',
+        label: 'Q4 1035 Review',
+        count: 0,
+        route: '/projects/p1/review',
+        projectId: 'p1',
+        ownedByMe: 0,
+        availableToMe: 0,
+        claimedByOthers: 0,
+        notEligible: 0,
+        dueToMe: 0,
+      },
+    ],
+  })
+  const d = deriveMyWorkDirection({
+    ...state([
+      determinationNotMine,
+      activity({ workFunction: 'research', band: 'shared', rank: 5, label: 'Contact Research', availableCount: 3 }),
+    ]),
+    responsibilities: [{ workFunction: 'research', label: 'Contact Research', routedAs: 'primary' }],
+  })
+  assert.ok(!d.workingPlan.some((s) => s.key === 'determination'), 'determination hidden for a non-producer')
+  assert.ok(d.workingPlan.some((s) => s.key === 'research'), 'their own step still shows')
 })

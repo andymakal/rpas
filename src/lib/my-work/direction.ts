@@ -229,8 +229,20 @@ export function deriveMyWorkDirection(state: MyWorkState): MyWorkDirection {
   const AWARENESS_ONLY = new Set<PriorityBand>(['unassigned', 'unlicensed'])
   const hasProjectSource = (a: ActivityGroup): boolean =>
     a.sources.some((s) => s.kind === 'project')
+  // A kept project step must also be THIS worker's. The composition can emit a
+  // project source for an activity the worker has no standing in (so the band
+  // reads unassigned/unlicensed), which would otherwise show a step they can
+  // never work (for example Determination at 0 for a non-producer). Their
+  // standing responsibilities (primary/support at ANY scope, including a
+  // project-scoped assignment that reads unassigned while the step is empty)
+  // or an assist/routable capability status mark a step as theirs.
+  const myFunctions = new Set<string>(state.responsibilities.map((r) => r.workFunction))
+  const isMine = (a: ActivityGroup): boolean =>
+    myFunctions.has(a.workFunction) ||
+    a.capabilityStatus === 'routable' ||
+    a.capabilityStatus === 'assist'
   const planActivities = state.activities
-    .filter((a) => !AWARENESS_ONLY.has(a.band) || hasProjectSource(a))
+    .filter((a) => !AWARENESS_ONLY.has(a.band) || (hasProjectSource(a) && isMine(a)))
     .sort(byFixedWorkflowOrder)
 
   // QUIET is about actual ACTIONABLE work, not the always-visible spine. The
