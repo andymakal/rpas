@@ -117,10 +117,10 @@ export function PolicyCard({
             <SummaryRow label="Insured" value={insured || 'Owner'} first />
             <SummaryRow label="Policy type" value={policy.product_type} />
             {policy.carrier && <SummaryRow label="Carrier" value={policy.carrier} />}
+            <SummaryRow label="Issue date" value={formatIssueDate(policy.issue_date)} />
             <SummaryRow label="Face amount" value={currency(policy.face_amount)} />
             <SummaryRow label="Annual premium" value={currency(policy.annual_premium)} />
             <SummaryRow label="Rate class" value={policy.rate_class ?? null} />
-            <SummaryRow label="Issue date" value={formatIssueDate(policy.issue_date)} />
             {hasCashValue && <SummaryRow label="Cash value" value={currency(policy.cash_value_amount)} />}
           </dl>
         </div>
