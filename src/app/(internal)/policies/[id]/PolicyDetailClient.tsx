@@ -159,16 +159,21 @@ function CategoryFieldsView({
       {sf.death_benefit_amount && <Row label={sf.death_benefit_amount} value={fmt(policy.death_benefit_amount)} />}
       {sf.cash_value_amount && <Row label={sf.cash_value_amount} value={fmt(policy.cash_value_amount)} />}
       {sf.cost_basis && <Row label={sf.cost_basis} value={fmt(policy.cost_basis)} />}
-      {sf.annual_premium && (
-        <Row
-          label={
-            sf.premium_mode && policy.premium_mode && policy.premium_mode.toLowerCase() !== 'annual'
-              ? `${sf.annual_premium} (paid ${policy.premium_mode.toLowerCase()})`
-              : sf.annual_premium
-          }
-          value={fmt(policy.annual_premium)}
-        />
-      )}
+      {sf.annual_premium && policy.annual_premium != null && (() => {
+        const mLow  = (policy.premium_mode ?? 'annual').toLowerCase().trim()
+        const short: Record<string, string> = { annual: '/yr', 'semi-annual': '/semi', quarterly: '/qtr', monthly: '/mo', 'eft monthly': '/mo', single: '' }
+        const ap    = calcAP(policy.annual_premium, policy.premium_mode ?? null)
+        return (
+          <Row label="Billed Premium" value={
+            <div>
+              <span>{fmt(policy.annual_premium)}<span className="text-slate-500 text-xs ml-0.5">{short[mLow] ?? '/yr'}</span></span>
+              {ap != null && mLow !== 'annual' && (
+                <p className="text-xs text-slate-500 tabular-nums">AP {fmt(ap)}/yr</p>
+              )}
+            </div>
+          } />
+        )
+      })()}
       {sf.term_length && <Row label={sf.term_length} value={policy.term_length ?? '—'} />}
       {sf.rate_class && <Row label={sf.rate_class} value={policy.rate_class ?? '—'} />}
       {sf.riders && policy.riders && <Row label={sf.riders} value={policy.riders} />}
