@@ -1129,7 +1129,7 @@ function WorkClassCard({
       {open && (
         <ul className="space-y-1 border-t border-surface-border px-3 py-2">
           {group.steps.map((step) => {
-            const headline = step.unresolvedCount ?? step.count
+            const headline = step.count
             return (
               <li key={step.key}>
                 {step.route ? (

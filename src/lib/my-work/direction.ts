@@ -585,7 +585,10 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
           title: 'Find missing contact information',
           reason:
             'These customers are missing a usable email or phone — some have none at all, some are missing one. Finding a working contact method keeps them reachable and prepares them for outreach.',
-          count: unresolved,
+          // The headline is only the customers NOT YET researched. Those already
+          // researched without success are retry work (a separate, lowest-priority
+          // Assistant step) and must not inflate the Available Work figure.
+          count: Math.max(0, unresolved - (a.unsuccessfulCount ?? 0)),
           unresolvedCount: a.unresolvedCount,
           unsuccessfulCount: a.unsuccessfulCount,
           actionLabel: 'Start contact research',
