@@ -54,7 +54,7 @@ export async function GET(
   // Non-test only; existing policy data only, nothing invented.
   const { data: policyRows } = await supabase
     .from('service_policies')
-    .select('id, policy_number, carrier, product_type, face_amount, cash_value_amount, issue_date')
+    .select('id, policy_number, carrier, product_type, face_amount, cash_value_amount, issue_date, coverage_status, annual_premium, rate_class, insured_first_name, insured_last_name, sa_status')
     .eq('customer_id', customerId)
     .eq('is_test', false)
     .order('issue_date', { ascending: false })
@@ -66,6 +66,11 @@ export async function GET(
     issue_date: p.issue_date,
     cash_value_amount: p.cash_value_amount,
     carrier: p.carrier,
+    coverage_status: p.coverage_status,
+    annual_premium: p.annual_premium,
+    rate_class: p.rate_class,
+    insured_name: [p.insured_first_name, p.insured_last_name].filter(Boolean).join(' ') || null,
+    sa_status: p.sa_status,
   }))
 
   return Response.json({
@@ -81,4 +86,10 @@ type PolicyRow = {
   face_amount: number | null
   cash_value_amount: number | null
   issue_date: string | null
+  coverage_status: string | null
+  annual_premium: number | null
+  rate_class: string | null
+  insured_first_name: string | null
+  insured_last_name: string | null
+  sa_status: string | null
 }

@@ -95,6 +95,8 @@ export type Holding = {
   cash_value_amount: number | null
   issue_date: string | null
   coverage_status: string
+  annual_premium: number | null
+  rate_class: string | null
   insured_name: string | null
   sa_status: string
   sa_form_sent_at: string | null

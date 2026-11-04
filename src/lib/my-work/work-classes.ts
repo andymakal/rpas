@@ -127,7 +127,7 @@ export interface WorkClassGroup {
  * distinguishes attempted-vs-unresolved, else its actionable count). Matches the
  * working plan's own headline so the class roll-up and the step agree. */
 function stepHeadline(step: PlanStep): number {
-  return step.unresolvedCount ?? step.count
+  return step.count
 }
 
 /**

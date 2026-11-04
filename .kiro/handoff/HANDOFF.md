@@ -379,3 +379,130 @@ Open business decisions to resolve WITH Bob as the spec is walked (do not guess)
 - Supabase MCP: `supabase-development` (read/write) and `supabase-prod-readonly`
   (read only) are available to verify live schema/data.
 - Delete this section when the call-workflow redesign is shipped.
+
+
+---
+---
+
+# HANDOFF (third active task) - My Work: assistant-driven board - SHIPPED, follow-ups open
+
+Added 2026-11-03 by the session that redesigned My Work. The redesign itself is
+LIVE IN PRODUCTION (PR #32, `main` at f905eec, production deploy Ready
+2026-11-03 23:09 Central). This section is reference for the follow-ups, not
+unfinished redesign work. Delete it when the follow-ups below are done or dropped.
+Re-verify live facts against the database before relying on them.
+
+## What shipped
+
+Three columns, each answering one question: Priorities & Commitments (what needs
+my attention), Assistant (what should I work on now, and why), Available Work
+(what else could I work on). Mentoring accompanies items; there is no longer a
+separate Practice Direction column (Today's Focus moved left, responsibilities
+sit under the Assistant).
+
+- Available Work: four universal classes (Preparation, Outreach, Customer
+  Engagement, Casework). Classification keys off the working-plan STEP key, not
+  the work function, because `outreach` spans three classes.
+  `src/lib/my-work/work-classes.ts`. Per-class carets plus an additive
+  Expand all / Collapse all on the title line.
+- Filters: Project (unchanged) and Work type (the four classes). The old Activity
+  filter is gone. Work type narrows the Assistant and Available Work, NOT the
+  "See all available work" inventory (that stays grouped by work function) and
+  NOT Priorities & Commitments.
+- Assistant: a new GoRules ZEN rule, `src/rules/my-work-assistant.json`, ranks
+  each working-plan STEP. Companion to `my-work-priority.json` (which still ranks
+  work functions). Evaluator is `evaluateAssistantVerdicts` in
+  `src/lib/my-work/engine.ts` (server only). Pure normalization and client
+  ranking are in `src/lib/my-work/assistant.ts`. Call hours are in
+  `src/lib/my-work/call-hours.ts`. `page.tsx` pre-evaluates all four
+  call-hours/backlog combinations and the client picks one against a live clock
+  (30 second tick), so it flips at 9 am and 6 pm Eastern with no reload.
+- `direction.ts`: a project step is kept at zero only if it is the worker's own
+  (responsibility or routable/assist status). This is why Determination does not
+  appear for non-producers. A test covers it. Baseline now: `npx tsc --noEmit`
+  clean, `npm run test:dd` 271/271, `npm run build` clean.
+
+## Decisions Bob made (the business rules in the rule file)
+
+- Commitments (appointments, promised callbacks, scheduled call times) are NOT
+  ranked. They live in Priorities & Commitments and are never weighed against
+  other work.
+- Funnel principle: work that moves customers OUT of the pipeline ranks above
+  work that feeds more IN.
+- A step with nothing actionable never appears in the Assistant. No zero rows,
+  no "so somebody can see it". Available Work is the map and may show zeros.
+- Call hours are 9 am to 6 pm Eastern. Outside them the two call steps are not
+  offered at all (still in Available Work).
+- Weekends and holidays are deliberately NOT modeled. If someone opens it on a
+  Saturday and wants to call, let them. Do not add a rule for this.
+- Contact research counts only not-yet-researched customers (13, not 41). The
+  tried-and-failed ones are a separate "Retry contact research", lowest priority.
+- Research jumps ahead of the calls when the not-yet-researched backlog is above
+  25 (`RESEARCH_BACKLOG_LARGE_ABOVE` in `assistant.ts`). Tune that one number.
+- Verify and Determination belong to different people (operations vs producer),
+  so they never share a list and their relative order does not matter.
+- Order now (call hours open): Today's Focus, Verify / Determination, servicing
+  access and operations prep, active conversations, calls due, other calls,
+  introductory emails, research, research retries. After hours: same with the
+  calls removed. Introductory emails sitting below calls and above research is a
+  first guess; Bob said build it and tune it against real use.
+
+## Open follow-ups (none started)
+
+1. RETIRE OPERATIONS PREP (own PR, not part of the Assistant work). Bob: carrier
+   statement and reprojection no longer matter. Servicing access becomes: pull up
+   the signed form, confirm in Everlake that it shows ALL the customer's
+   policies, mark complete, and the customer goes straight to determination.
+   Findings so far: the stage is derived in `src/lib/projects/review-1035.ts`
+   (`deriveStage`, `prepGateSatisfied`, `prep_status`); the gate exists only for
+   documents; `POST /api/projects/[id]/review-1035/[customerId]` has a `set_prep`
+   action that enforces it; the servicing-access screen navigates to Operations
+   Prep on the final confirmation (`ServicingAccessClient.tsx`, and
+   `operations_prep_project_id` from `api/stewardship/[id]/route.ts`); the plan
+   step, labels (`project-labels.ts`), `projects.ts` ACTIVE_STAGES, and
+   `composition.ts` `addProjectActivity('operations_prep', ...)` all reference it.
+   NOT VERIFIED: whether the determination screen or save route checks the
+   document gate itself, and `composition.ts` (~line 1849) counts failed-review
+   retries under the operations_prep activity (untraced; do not orphan it). Do
+   NOT delete the work function or anyone's assignments, just stop showing it.
+   About 6 customers sit in operations prep today; they would move to
+   determination.
+2. BAD NUMBER should send the customer back into research instead of just
+   marking the number bad. Bob raised it again here. It overlaps the Call-Workflow
+   Redesign section above ("didn't connect" branch); handle it there.
+3. "Calls due" mixes promised callbacks (a commitment, belongs left, not ranked)
+   with automatic cadence retries (ordinary calling work). Decide whether to
+   split them so only retries are ranked as calls.
+4. Tuning once used for real: the "Next up" cap is 3 (`NEXT_UP_LIMIT` in
+   `MyWorkClient.tsx`), so with several late-stage steps both research and calls
+   can be hidden from the Assistant; the "or" line only appears when research is
+   the top pick. Revisit if that feels wrong.
+5. Known small edge: an overqualified (assist) worker with a project-scoped
+   assignment sees that step hidden at zero, since only routable responsibilities
+   are listed. Rare; ignore unless it comes up.
+
+## Live facts (verified 2026-11-03; re-verify)
+
+- The DEV copy of the Q4 1035 Review project (id `205c934d-c0fc-4047-bda3-2c45347dc4e4`,
+  142 customers, 179 policies) had its `sa_status` set to match PRODUCTION:
+  9 confirmed, 169 not_on_file, 1 unknown (a Protective Life policy, not an
+  Everlake carrier, so it blocks nothing). Done by policy id, 178 rows, dev only.
+  A later dev refresh from production resets it, which is fine. Production Verify
+  is essentially complete.
+- PROD work-function assignments: Angie (operations_prep, research, verify
+  primary; outreach support), Dulce and Eunice (outreach primary; the rest
+  project-scoped), Bob (determination primary; others project-scoped). Andy,
+  Abigail, Ashley, Don, Gabe, Lucas, Nikki, Tyler have NONE, so their Assistant
+  is empty. Same capability rules as before, not new.
+
+## Notes for the next session
+
+- The earlier Verify section says ordering "lives in FIXED_WORKFLOW_ORDER, NOT
+  the ZEN band". That is still true for the Available Work PLAN order, but the
+  Assistant's order now lives in `my-work-assistant.json`.
+- Deploy to the preview with `--scope makal-financial-services-llc` if a bare
+  `vercel deploy` says "Not authorized" (it was intermittent here too; a retry
+  worked).
+- Throwaway verification scripts were deleted. The jiti pattern in
+  `scripts/run-dd-tests.mjs` loads real modules; `server-only` needs aliasing to
+  an empty module to run the composition outside Next.

@@ -361,7 +361,7 @@ test('plan: a capable activity stays visible even when every item is claimed by 
   assert.deepEqual(d.support, [])
 })
 
-test('plan: Research shows the full unresolved population with the attempted breakdown', () => {
+test('plan: Research headline is only the not-yet-researched, with the attempted breakdown carried', () => {
   const d = deriveMyWorkDirection(
     state([
       activity({
@@ -372,8 +372,8 @@ test('plan: Research shows the full unresolved population with the attempted bre
   )
   const step = d.workingPlan.find((s) => s.key === 'research')
   assert.ok(step)
-  // Headline is the full unresolved population (not the outstanding 8).
-  assert.equal(step!.count, 9)
+  // Headline excludes the 1 researched unsuccessfully (9 unresolved - 1 = 8).
+  assert.equal(step!.count, 8)
   assert.equal(step!.unresolvedCount, 9)
   assert.equal(step!.unsuccessfulCount, 1)
 })
@@ -393,7 +393,7 @@ test('plan: Research stays in the plan when outstanding is zero but unresolved r
   assert.equal(d.quiet, false)
   const step = d.workingPlan.find((s) => s.key === 'research')
   assert.ok(step, 'research step is present even with zero outstanding')
-  assert.equal(step!.count, 3)
+  assert.equal(step!.count, 0)
   assert.equal(step!.unsuccessfulCount, 3)
   assert.equal(step!.route, '/stewardship?queue=research-needed')
 })
