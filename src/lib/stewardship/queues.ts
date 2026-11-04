@@ -437,6 +437,34 @@ export function introNeededForReplacedEmail(input: {
   return current !== sentTo
 }
 
+/**
+ * One row's place in the single call list's working order. `isDueCallback` is a
+ * customer commitment (a promised callback that has come due) and sorts ahead of
+ * all routine calling. `dueSince` is the date the customer has been owed a call
+ * since — a due callback's date, else the scheduled next-call date, else the
+ * project-entry date for a never-contacted customer. A missing date sorts last.
+ */
+export interface CallListSortKey {
+  isDueCallback: boolean
+  dueSince: string | null
+}
+
+/**
+ * Compare two call-list rows for the standing working order: due callbacks
+ * first, then everyone else by how long they have been owed a call (oldest
+ * first). Pure and deterministic; the board route applies it, skipping is a
+ * separate client-side session reorder that never changes this order.
+ */
+export function compareCallListOrder(a: CallListSortKey, b: CallListSortKey): number {
+  if (a.isDueCallback !== b.isDueCallback) return a.isDueCallback ? -1 : 1
+  const ms = (v: string | null): number => {
+    if (!v) return Number.POSITIVE_INFINITY
+    const t = Date.parse(v)
+    return Number.isNaN(t) ? Number.POSITIVE_INFINITY : t
+  }
+  return ms(a.dueSince) - ms(b.dueSince)
+}
+
 export function callPopulationOf(input: {
   /** Effective queue after follow-up promotion (deriveFollowUpRouting applied). */
   effectiveQueue: OutreachQueue

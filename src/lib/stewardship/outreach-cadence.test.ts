@@ -28,7 +28,7 @@ import {
   EARLY_CALL_SPACING_BUSINESS_DAYS,
   NONRESPONSIVE_ATTEMPT_THRESHOLD,
 } from './call-cadence'
-import { applyAction, callPopulationOf, deriveFollowUpRouting, deriveEmailRouting, derivePhoneRouting, isIntroductoryEmail, introNeededForReplacedEmail, normalizeRecipientEmail, type OutreachState } from './queues'
+import { applyAction, callPopulationOf, compareCallListOrder, deriveFollowUpRouting, deriveEmailRouting, derivePhoneRouting, isIntroductoryEmail, introNeededForReplacedEmail, normalizeRecipientEmail, type OutreachState } from './queues'
 import {
   groupIntoAttempts,
   countCallAttempts,
@@ -458,6 +458,24 @@ test('calls-due is read from durable call_reason, so it survives a later read', 
     callbackDue: false,
   })
   assert.equal(pop, 'calls-due')
+})
+
+test('call list order: due callbacks first, then oldest-owed first; no-email leads, missing date last', () => {
+  const rows = [
+    { id: 'fresh-retry', isDueCallback: false, dueSince: '2026-02-01' },
+    { id: 'no-email-firstcall', isDueCallback: false, dueSince: '2026-01-05' }, // project entry, earliest
+    { id: 'overdue-retry', isDueCallback: false, dueSince: '2026-01-20' },
+    { id: 'due-callback', isDueCallback: true, dueSince: '2026-02-10' },
+    { id: 'no-date', isDueCallback: false, dueSince: null },
+  ]
+  const ordered = [...rows].sort(compareCallListOrder).map(r => r.id)
+  assert.deepEqual(ordered, [
+    'due-callback',        // commitment, ahead of all routine calling
+    'no-email-firstcall',  // earliest due-since (project entry)
+    'overdue-retry',
+    'fresh-retry',
+    'no-date',             // missing date sorts last
+  ])
 })
 
 test('one call list: everybody in Ready to Call is owed a call (first call, retry, or due callback)', () => {

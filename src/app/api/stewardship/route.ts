@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { resolveCapabilityProfile, loadWorkFunctions } from '@/lib/capabilities/resolve'
 import { canActOnItem, claimedByOther } from '@/lib/capabilities/work-functions'
-import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, derivePhoneRouting, isWaitingFollowUpDue, callPopulationOf, isIntroductoryEmail, isCustomerInteraction, isEngaged, isServicingAccess, engagedAtOf, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
+import { QUEUE_META, deriveFollowUpRouting, deriveEmailRouting, derivePhoneRouting, isWaitingFollowUpDue, callPopulationOf, compareCallListOrder, isIntroductoryEmail, isCustomerInteraction, isEngaged, isServicingAccess, engagedAtOf, type OutreachQueue, type CallReason, type ResearchReason, type CallOutcome } from '@/lib/stewardship/queues'
 import { readResearchedUnsuccessfullyBatch, stillNeedsResearchRecommendation } from '@/lib/stewardship/research-record'
 import { getProjectWorkflows, projectContainsWorkflow, onboardingCompleteForPolicies } from '@/lib/projects/workflows'
 import { deriveOnboardingPopulation } from '@/lib/stewardship/derived-onboarding'
@@ -66,6 +66,7 @@ export async function GET(request: NextRequest) {
   // then filtered to these customers so counts and lists show only this
   // project's work. An empty project yields an empty board.
   let projectCustomerIds: Set<string> | null = null
+  const projectEntryByCustomer = new Map<string, string>()
   if (projectId) {
     // Servicing Agent Onboarding is objective-driven and evaluated from facts.
     // The board NEVER creates records on read: a member who needs access is
@@ -74,13 +75,18 @@ export async function GET(request: NextRequest) {
     // operator actually acts on the customer — not by opening this page.
     const { data: members, error: memberErr } = await supabase
       .from('project_customers')
-      .select('customer_id')
+      .select('customer_id, added_at')
       .eq('project_id', projectId)
     if (memberErr) {
       console.error('stewardship board: project membership query error', memberErr)
       return Response.json({ error: memberErr.message }, { status: 500 })
     }
     projectCustomerIds = new Set((members ?? []).map((m: { customer_id: string }) => m.customer_id))
+    // Project-entry date per member, the due-since for a never-contacted
+    // (virtual) item that has no scheduled call date yet.
+    for (const m of (members ?? []) as { customer_id: string; added_at: string | null }[]) {
+      if (m.added_at) projectEntryByCustomer.set(m.customer_id, m.added_at)
+    }
     if (projectCustomerIds.size === 0) {
       const emptyCounts = Object.fromEntries(
         (Object.keys(QUEUE_META) as OutreachQueue[]).map(q => [q, 0]),
@@ -275,7 +281,7 @@ export async function GET(request: NextRequest) {
       callback_date, email_sent_at, intro_email_recipient, follow_up_due, form_received_at, submitted_at, carrier_correction,
       refused_at, action_context, updated_at, claimed_by_producer_id,
       customer_prereviews!inner (
-        id, customer_id, source_agency_id, decision,
+        id, customer_id, source_agency_id, decision, created_at,
         customers!inner ( id, first_name, last_name, email, phone )
       )
     `)
@@ -323,6 +329,7 @@ export async function GET(request: NextRequest) {
     customer_prereviews: {
       id: string
       decision: string | null
+      created_at: string | null
       customers: { id: string; first_name: string; last_name: string; email: string | null; phone: string | null }
     }
   }
@@ -480,6 +487,21 @@ export async function GET(request: NextRequest) {
       // The call action population (null when the item is not a call opportunity).
       // Carried so the board can open a population link exactly as counted.
       call_population: population,
+      // The date this customer has been OWED a call since — the key the single
+      // call list sorts by, oldest first. A due promised callback uses its
+      // callback date; otherwise the scheduled next-call date (follow_up_due);
+      // otherwise (a never-contacted item with no schedule) the project-entry
+      // date, which is always earlier than any email-plus-one-day date, so
+      // customers with no email naturally sort ahead of everyone emailed first.
+      due_since:
+        (isCallbackDue(r.callback_date, actorTimeZone) ? r.callback_date : null) ??
+        r.follow_up_due ??
+        r.customer_prereviews.created_at ??
+        r.callback_date ??
+        null,
+      // True when this item is a promised callback that has come due: these are
+      // customer commitments and sort ahead of all routine calling.
+      is_due_callback: isCallbackDue(r.callback_date, actorTimeZone),
       // Whether this item is in the first-touch introductory-email population,
       // carried so the board can open that population exactly as counted.
       is_intro_email: introEmail,
@@ -567,6 +589,11 @@ export async function GET(request: NextRequest) {
         carrier_correction: null,
         follow_up_due_now: false,
         call_population: d.callPopulation,
+        // Never-contacted: no scheduled date, so the project-entry date is the
+        // due-since. It is earlier than any email-plus-one-day date, so a no-email
+        // first call sorts ahead of everyone who was emailed first.
+        due_since: projectEntryByCustomer.get(d.customerId) ?? null,
+        is_due_callback: false,
         // A derived onboarding item is untouched by construction (no email sent,
         // no call outcome, no callback), so it is an introductory email exactly
         // when its opening queue is ready-to-email (the helper computes this).
@@ -689,6 +716,22 @@ export async function GET(request: NextRequest) {
         // live by a newly-added email), which the DB eq could not express.
         items.filter(it => it.queue === 'ready-to-email')
       : items
+
+  // The ONE call list is worked in a deliberate order (not the raw updated_at
+  // the board query used): promised callbacks that have come due first (customer
+  // commitments), earliest first; then everyone else owed a call by how long
+  // they have been owed it (due_since), oldest first — so a never-contacted
+  // no-email customer (project-entry date) leads, overdue retries follow by how
+  // overdue they are, and freshly-due calls come last. Skipping is a client-side
+  // session reorder only; it never changes this standing order.
+  if (populationFilter === 'calls-due') {
+    visibleItems.sort((a, b) =>
+      compareCallListOrder(
+        { isDueCallback: a.is_due_callback, dueSince: a.due_since },
+        { isDueCallback: b.is_due_callback, dueSince: b.due_since },
+      ),
+    )
+  }
 
   const counts = Object.fromEntries(
     (Object.keys(QUEUE_META) as OutreachQueue[]).map(q => [q, 0]),
