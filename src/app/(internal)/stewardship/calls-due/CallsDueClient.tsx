@@ -129,6 +129,11 @@ export function CallsDueClient({
   const [error, setError] = useState<string | null>(null)
   // The customer open right now. null while loading or on the completion state.
   const [openId, setOpenId] = useState<string | null>(null)
+  // The customer_id of the open customer, captured when it is reserved. For a
+  // just-materialized virtual (never-contacted) customer this is the ONLY way to
+  // tie the real openId back to its still-virtual row in `items`, so skip and
+  // advance can push/exclude it by its virtual key.
+  const openCustomerIdRef = useRef<string | null>(null)
   // Customers handled this session, so a reload of the population (which the
   // task triggers after a recorded interaction) does not re-present someone
   // already handled and the completion tally is accurate.
@@ -232,7 +237,10 @@ export function CallsDueClient({
     directOpenedRef.current = true
     void reserveNextDirectCandidate(orderedCandidates, reserveNext)
       .then(reserved => {
-        if (reserved) setOpenId(reserved)
+        if (reserved) {
+          openCustomerIdRef.current = reserved.customerId
+          setOpenId(reserved.outreachId)
+        }
         // else: a successful empty result — nobody available. Completion shows.
       })
       .catch(() => {
@@ -252,13 +260,14 @@ export function CallsDueClient({
     if (!openId) return
     const handledId = openId
     // Mark handled by both keys that can identify this customer: the real id now
-    // open (which also covers a materialized virtual item once reloaded) and, if
-    // the open customer came from a still-virtual candidate, its virtual key.
-    const handledVirtual = remaining.find(it => it.virtual && it.customer_id && it.id === null)
+    // open, and — when the open customer came from a still-virtual candidate —
+    // its virtual key, identified by the open customer_id captured at reserve
+    // time (NOT "any virtual row", which breaks with several no-email customers).
+    const handledCustomerId = openCustomerIdRef.current
     setHandled(prev => {
       const next = new Set(prev)
       next.add(handledId)
-      if (handledVirtual?.customer_id) next.add(`virtual:${handledVirtual.customer_id}`)
+      if (handledCustomerId) next.add(`virtual:${handledCustomerId}`)
       return next
     })
     // The handled customer has left this population for the session; release its
@@ -269,11 +278,12 @@ export function CallsDueClient({
     // Walk the SEQUENCE order so advancing still reaches un-skipped customers
     // before skipped ones.
     const candidates = orderedCandidates.filter(
-      it => it.id !== handledId && candidateKey(it) !== (handledVirtual ? `virtual:${handledVirtual.customer_id}` : ''),
+      it => it.id !== handledId && candidateKey(it) !== (handledCustomerId ? `virtual:${handledCustomerId}` : ''),
     )
     void reserveNextDirectCandidate(candidates, reserveNext)
       .then(reserved => {
-        setOpenId(reserved) // reserved id, or null -> completion state renders
+        openCustomerIdRef.current = reserved?.customerId ?? null
+        setOpenId(reserved?.outreachId ?? null) // null -> completion state renders
       })
       .catch(() => {
         // A failure advancing is an error, not "all done": keep the worker from
@@ -294,9 +304,18 @@ export function CallsDueClient({
   // This is the same skip behavior as Send Introductory Emails.
   const advanceAfterSkip = useCallback(() => {
     if (!openId) return
-    // Identify the skipped customer by the key that matches it in `remaining`:
-    // its real outreach id (recorded or just-materialized and open).
-    const skippedKey = openId
+    // Identify the skipped customer by the key that matches it in `remaining`.
+    // A recorded row matches on its real outreach id. A virtual (never-contacted)
+    // customer was materialized on open, so `openId` is now its real id, but its
+    // row in `remaining` is STILL virtual (id null) and keyed
+    // `virtual:<customer_id>`. Skip by THAT key — identified by the open
+    // customer_id captured at reserve time — or the just-skipped customer is
+    // never moved to the back and the same one is re-presented. This was the bug
+    // where Skip for now did nothing on the no-email customers.
+    const openCustomerId = openCustomerIdRef.current
+    const stillVirtual =
+      !!openCustomerId && remaining.some(it => it.id === null && it.customer_id === openCustomerId)
+    const skippedKey = stillVirtual ? `virtual:${openCustomerId}` : openId
     // Push to the back of the skip order. If it was already skipped earlier,
     // move it to the very back (re-skipping sends it around again).
     setSkipOrder(prev => [...prev.filter(k => k !== skippedKey), skippedKey])
@@ -319,7 +338,8 @@ export function CallsDueClient({
     ]
     void reserveNextDirectCandidate(resequenced, reserveNext)
       .then(reserved => {
-        setOpenId(reserved) // reserved id, or null -> completion state renders
+        openCustomerIdRef.current = reserved?.customerId ?? null
+        setOpenId(reserved?.outreachId ?? null) // null -> completion state renders
       })
       .catch(() => {
         setOpenId(null)
