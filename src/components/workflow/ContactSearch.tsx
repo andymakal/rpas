@@ -25,12 +25,29 @@
  * buttons sitting beside each value) since this is dense informational content.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { Copy, Check, FileText, ExternalLink } from 'lucide-react'
 import { WorkflowButton } from './primitives'
-import { MentorGuidance } from '@/lib/mentoring/MentorUi'
+import { MentorCapButton, MentorCapPanel, useMentorDisclosure } from '@/lib/mentoring/MentorUi'
 
 const FAST_PEOPLE_SEARCH_URL = 'https://www.fastpeoplesearch.com/'
+
+/** One section's title with its own bare mentoring cap: the cap sits beside the
+ * title, and tapping it reveals the coaching beneath — the standard inline cap
+ * pattern used across the app (just the cap, no label text). Each section has
+ * its own disclosure so the two caps open independently. */
+function SearchSectionHeader({ title, children }: { title: ReactNode; children: ReactNode }) {
+  const { open, setOpen } = useMentorDisclosure()
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2">
+        {title}
+        {!open && <MentorCapButton onOpen={() => setOpen(true)} />}
+      </div>
+      {open && <MentorCapPanel onClose={() => setOpen(false)}>{children}</MentorCapPanel>}
+    </div>
+  )
+}
 
 type CopyKey = 'gw-last' | `gw-policy-${number}` | 'fps-name' | 'fps-location'
 
@@ -95,12 +112,11 @@ export function ContactSearch({
     <div className="space-y-2.5">
       {/* 1. Gateway */}
       <div className="space-y-1.5 rounded-xl border border-surface-border bg-surface-muted/40 p-3">
-        <div className="flex items-center gap-2">
-          <p className="text-lg font-bold leading-tight tracking-tight text-brand">Search Gateway</p>
-          <MentorGuidance label="How to search Gateway">
-            Select Other locations, then search by last name and policy number.
-          </MentorGuidance>
-        </div>
+        <SearchSectionHeader
+          title={<p className="text-lg font-bold leading-tight tracking-tight text-brand">Search Gateway</p>}
+        >
+          Select Other locations, then search by last name and policy number.
+        </SearchSectionHeader>
         {valueRow('gw-last', lastDisplay, { disabled: !lastDisplay })}
         {hasPolicy ? (
           <div className="space-y-1">
@@ -120,20 +136,21 @@ export function ContactSearch({
 
       {/* 2. Fast People Search */}
       <div className="space-y-1.5 rounded-xl border border-surface-border bg-surface-muted/40 p-3">
-        <div className="flex items-center gap-2">
-          <a
-            href={FAST_PEOPLE_SEARCH_URL}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-lg font-bold leading-tight tracking-tight text-brand transition-colors hover:text-brand-hover"
-          >
-            Fast People Search <ExternalLink className="size-4" aria-hidden />
-          </a>
-          <MentorGuidance label="How to search Fast People Search">
-            Search by full name and city and state. The name alone often finds the person; the city
-            and state narrow it.
-          </MentorGuidance>
-        </div>
+        <SearchSectionHeader
+          title={
+            <a
+              href={FAST_PEOPLE_SEARCH_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-lg font-bold leading-tight tracking-tight text-brand transition-colors hover:text-brand-hover"
+            >
+              Fast People Search <ExternalLink className="size-4" aria-hidden />
+            </a>
+          }
+        >
+          Search by full name and city and state. The name alone often finds the person; the city
+          and state narrow it.
+        </SearchSectionHeader>
         {valueRow('fps-name', fullName, { disabled: !fullName })}
         {cityState
           ? valueRow('fps-location', cityState)
