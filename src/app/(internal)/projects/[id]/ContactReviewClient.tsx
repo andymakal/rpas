@@ -760,19 +760,17 @@ function ContactReviewTask({
             <WorkflowButton
               icon={CheckCircle2}
               selected
-              size="lg"
               onClick={doneAndNext}
               disabled={busy || cardPending}
-              className="h-auto min-h-14 justify-center whitespace-normal rounded-xl px-5 py-3 text-center text-lg font-semibold leading-tight"
+              className="justify-center whitespace-normal rounded-xl text-center font-semibold"
             >
               Researched, Next
             </WorkflowButton>
             <WorkflowButton
               icon={SkipForward}
-              size="lg"
               onClick={onSkipped}
               disabled={busy || cardPending}
-              className="h-auto min-h-14 justify-center whitespace-normal rounded-xl px-5 py-3 text-center text-lg font-semibold leading-tight"
+              className="justify-center whitespace-normal rounded-xl text-center font-semibold"
             >
               Skip
             </WorkflowButton>
