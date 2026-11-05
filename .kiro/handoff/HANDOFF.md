@@ -834,11 +834,27 @@ Makal). Bob/Kiro do not touch it on main or production. Facts for Andy only:
   factors correct) but no ledger row for it and no column comment. How and
   whether to reconcile prod is Andy's call.
 
-Production, NOT done (needs explicit authorization; normal promotion PR first):
-1. When development is next promoted to main, the PR will carry the premium-mode
-   rename. Andy should know before that merges.
-3. Prod still needs `20261201000001` applied (+ ledger row) when the restriction
-   is promoted.
-4. The workflow's PRODUCTION apply step lacks `--yes` and would fail the same
-   way; add it when that path is set up (prod secret + reviewer gate still
-   missing).
+RELEASE STATUS (2026-11-05): PR #35 (`release/other-specialist-restriction` ->
+main) is OPEN, checks green, Andy requested as reviewer. It is a focused branch
+off main carrying only the restriction, its follow-up gap fixes (board, Daily
+Direction, derived onboarding, review/contact-research builders, annual-reviews
+cron), the premium-mode rename (content unchanged), and `--yes` on both
+workflow apply steps. NOT merged, NOTHING applied to production. Waiting on
+Bob's explicit release authorization (and Andy's OK on his migration).
+
+Release order is DATABASE FIRST (new code throws if the columns are missing;
+the old prod app is unaffected by the additive migration):
+1. Prod SQL editor (owner, Kiro has read-only prod): run
+   `20261130000002_premium_mode_modal_factor.sql` unchanged (net effect: adds
+   the column comment only), run `20261201000001_other_specialist_restriction.sql`,
+   then insert ledger rows ('20261130000002','premium_mode_modal_factor') and
+   ('20261201000001','other_specialist_restriction').
+2. Merge PR #35 (Vercel git integration deploys main to production).
+3. Read-only post-release checks: prod ledger == main files, new schema present,
+   restricted count 0, row counts unchanged, prod deployment = merge commit.
+
+Prod pre-flight (read-only, verified): ledger matches main's files exactly
+except the two new versions; view body identical to the one being replaced;
+all dependencies present; no name collisions; premium_modes has no triggers.
+The Production GitHub Environment has NO reviewer rule and NO DB secret, so the
+workflow production path is still unusable; SQL editor remains the path.
