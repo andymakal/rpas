@@ -30,6 +30,7 @@ import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildProjectWorkflow, summarizeWorkflow } from '@/lib/projects/review-1035'
 import { activeProjectsWithWorkflow, onboardingCompleteForPolicies, verifyBlockedForPolicies } from '@/lib/projects/workflows'
 import { isEverlakeCarrier } from '@/lib/policies/everlake-carrier'
+import { loadHandsOffCustomerIds } from '@/lib/customers/other-specialist'
 import { buildContactReview, summarizeContactReview } from '@/lib/projects/contact-review'
 import { deriveOnboardingPopulation } from '@/lib/stewardship/derived-onboarding'
 import {
@@ -592,7 +593,12 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
   // and EXTENDED with project members below (a project member with no board row
   // is still gated). verifyBlocked() is the single predicate every downstream
   // consumer checks. See the verify-population + gate application below.
-  const verifyBlockedCustomerIds = new Set<string>()
+  //
+  // The set is seeded with HANDS-OFF customers (already working with another
+  // active specialist, see @/lib/customers/other-specialist): they are out of
+  // every downstream consumer of this set, and never counted as Verify work.
+  const handsOffCustomerIds = await loadHandsOffCustomerIds(supabase)
+  const verifyBlockedCustomerIds = new Set<string>(handsOffCustomerIds)
   if (boardCustomerIds.length > 0) {
     const policiesByCustomer = new Map<string, { product_type: string | null; carrier: string | null; sa_status: string | null }[]>()
     for (let i = 0; i < boardCustomerIds.length; i += 300) {
@@ -1518,6 +1524,7 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
         .eq('is_test', false)
         .eq('sa_status', 'unknown')
       for (const p of (pols ?? []) as { customer_id: string; carrier: string | null; sa_status: string }[]) {
+        if (handsOffCustomerIds.has(p.customer_id)) continue
         if (isEverlakeCarrier(p.carrier)) {
           verifyPolicyCount += 1
           verifyBlockedCustomerIds.add(p.customer_id)
