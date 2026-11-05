@@ -32,14 +32,14 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  Loader2, CheckCircle2, SkipForward,
+  Loader2,
 } from 'lucide-react'
 import {
-  TaskShell, ActionPanel, WorkflowButton,
+  TaskShell, ActionPanel,
   AssistantPanel,
   CustomerContactCard, type CustomerContact,
   CustomerHistoryCard, NextHistoryEntry,
-  QueueEmptyState, OperationalTag, ContactSearch,
+  QueueEmptyState, OperationalTag, ContactSearch, DoneSkipActions,
 } from '@/components/workflow'
 import {
   describeContactResearchSelection,
@@ -756,25 +756,15 @@ function ContactReviewTask({
               control so they stay balanced, and both allow their label to WRAP
               to two lines (whitespace-normal + auto height) so neither truncates
               in the narrower equal-thirds column. */}
-          <div className="grid grid-cols-2 items-stretch gap-3">
-            <WorkflowButton
-              icon={CheckCircle2}
-              selected
-              onClick={doneAndNext}
-              disabled={busy || cardPending}
-              className="justify-center whitespace-normal rounded-xl text-center font-semibold"
-            >
-              Researched, Next
-            </WorkflowButton>
-            <WorkflowButton
-              icon={SkipForward}
-              onClick={onSkipped}
-              disabled={busy || cardPending}
-              className="justify-center whitespace-normal rounded-xl text-center font-semibold"
-            >
-              Skip
-            </WorkflowButton>
-          </div>
+          <DoneSkipActions
+            canComplete
+            busy={busy || cardPending}
+            doneLabel="Researched, Next"
+            busyLabel="Saving…"
+            skipLabel="Skip"
+            onDone={doneAndNext}
+            onSkip={onSkipped}
+          />
         </ActionPanel>
       }
       context={

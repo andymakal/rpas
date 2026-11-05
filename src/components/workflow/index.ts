@@ -90,6 +90,8 @@ export {
 } from './panels'
 
 export { ContactSearch } from './ContactSearch'
+export { GatewaySearchSource } from './GatewaySearchSource'
+export { FastPeopleSearchSource } from './FastPeopleSearchSource'
 
 export { DoneSkipActions } from './DoneSkipActions'
 
