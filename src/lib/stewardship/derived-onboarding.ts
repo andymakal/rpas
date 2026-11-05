@@ -34,6 +34,7 @@ import {
   type CallPopulation,
 } from '@/lib/stewardship/queues'
 import { initialQueueFromOptions, resolveContactOptions } from '@/lib/stewardship/contact-options'
+import { loadHandsOffCustomerIds } from '@/lib/customers/other-specialist'
 import {
   getProjectWorkflows,
   projectContainsWorkflow,
@@ -106,7 +107,12 @@ export async function deriveOnboardingPopulation(
   },
 ): Promise<DerivedOnboardingItem[]> {
   const exclude = new Set(options.excludeCustomerIds ?? [])
-  const memberIds = Array.from(new Set(options.memberCustomerIds)).filter((id) => !exclude.has(id))
+  const candidateIds = Array.from(new Set(options.memberCustomerIds)).filter((id) => !exclude.has(id))
+  if (candidateIds.length === 0) return []
+  // Hands-off customers (working with another active specialist) are never
+  // derived as onboarding work, for every consumer of this derivation.
+  const handsOff = await loadHandsOffCustomerIds(supabase, candidateIds)
+  const memberIds = candidateIds.filter((id) => !handsOff.has(id))
   if (memberIds.length === 0) return []
 
   // REFUSED members are a deliberate dead stop, not derivable work. A declined

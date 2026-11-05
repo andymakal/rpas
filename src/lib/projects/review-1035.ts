@@ -32,6 +32,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { isPermanent } from '@/lib/policies/product-type'
+import { loadHandsOffCustomerIds } from '@/lib/customers/other-specialist'
 
 /** The two Step-3 documents operations must collect. */
 export const REQUIRED_DOCUMENT_TYPES = ['carrier_statement', 'reprojection'] as const
@@ -229,9 +230,14 @@ export async function buildProjectWorkflow(
     .from('project_customers')
     .select('customer_id')
     .eq('project_id', projectId)
-  const customerIds = Array.from(
+  const allMemberIds = Array.from(
     new Set(((members ?? []) as ProjectCustomerRow[]).map(m => m.customer_id)),
   )
+  if (allMemberIds.length === 0) return []
+  // Hands-off members (working with another active specialist) stay project
+  // members but are not workflow work.
+  const handsOff = await loadHandsOffCustomerIds(supabase, allMemberIds)
+  const customerIds = allMemberIds.filter(id => !handsOff.has(id))
   if (customerIds.length === 0) return []
 
   // 2. Customers (exclude test rows).

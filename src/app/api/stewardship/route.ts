@@ -11,6 +11,7 @@ import { deriveOnboardingPopulation } from '@/lib/stewardship/derived-onboarding
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { buildCustomerHistory, type HistoryTouchRow } from '@/lib/stewardship/customer-history'
+import { loadHandsOffCustomerIds } from '@/lib/customers/other-specialist'
 
 /**
  * A derived population a My Work count can open on the board: the two
@@ -382,10 +383,15 @@ export async function GET(request: NextRequest) {
   // onboarding is DERIVED-COMPLETE (they have advanced to review preparation),
   // so a lingering record never contradicts the authoritative servicing-access
   // fact.
+  // Hands-off customers (working with another active specialist) are never
+  // outreach work on the board, its queues, or the call workbench. (Derived
+  // onboarding items are excluded inside deriveOnboardingPopulation.)
+  const handsOffCustomerIds = await loadHandsOffCustomerIds(supabase)
   const rows = ((data ?? []) as unknown as Row[]).filter(r => {
     if (r.customer_prereviews?.decision != null) return false
     if (r.refused_at != null) return false
     const cid = r.customer_prereviews.customers.id
+    if (handsOffCustomerIds.has(cid)) return false
     if (projectCustomerIds && !projectCustomerIds.has(cid)) return false
     if (onboardingCompleteMemberIds.has(cid)) return false
     return true
