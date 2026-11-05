@@ -1,7 +1,7 @@
 'use client'
 
 import { Search, ExternalLink } from 'lucide-react'
-import { ActionPanel, PrimaryAction, OperationalTag, NextNote, GatewayLookup } from '@/components/workflow'
+import { ActionPanel, PrimaryAction, OperationalTag, NextNote, ContactSearch } from '@/components/workflow'
 import type { Detail, Holding } from '../types'
 import { fullName } from '../shared'
 
@@ -47,10 +47,13 @@ export function ResearchAction({
       {/* The shared Search Gateway look-up — last name + every policy number on
           file, each with its own Copy button; identical to the consolidated
           Contact Research task. */}
-      <GatewayLookup
+      <ContactSearch
         lastName={detail.customer.last_name}
+        firstName={detail.customer.first_name}
         fallbackName={fullName(detail.customer)}
         policyNumbers={policyNumbers}
+        city={detail.customer.city}
+        state={detail.customer.state}
       />
       {/* Hand off to the ONE consolidated Contact Research task. The capture,
           the "nothing usable" outcome, and the save-and-recalculate all live

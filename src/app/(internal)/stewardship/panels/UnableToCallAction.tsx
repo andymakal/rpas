@@ -2,43 +2,31 @@
 
 /**
  * People We Can't Call — the action panel for an active outreach customer with
- * NO usable phone. Two things in one place:
+ * NO usable phone. The worker is walked through two GATED steps so the search
+ * genuinely happens first:
  *
- *   1. RESEARCH FOR A PHONE FIRST (the first line of defense): the shared
- *      Gateway look-up plus the other phone-finding sources. If the worker finds
- *      a number, they save it on the Customer Contact card (center column);
- *      saving reloads the task, the customer now HAS a phone, and the parent
- *      task flips to the guided call flow so the worker calls right here — they
- *      are never silently dropped back into the queue.
+ *   STEP 1 — SEARCH for the customer (the shared ContactSearch Lego: Gateway +
+ *   Fast People Search). It looks for ANY missing detail — a phone, an email, a
+ *   mailing address — not only a phone. If the worker finds a PHONE and saves it
+ *   on the Customer Contact card, the customer becomes callable and the task
+ *   hands off to the guided call flow right here (handled by the parent). If
+ *   they find an email or address instead, saving it on the card keeps them
+ *   reachable. When nothing new turns up, the worker confirms that and step 2
+ *   unlocks.
  *
- *   2. REACH BY MAIL (when no phone can be found): generate the authorization
- *      email + form AND the postal packet (two PDFs: a cover letter for
- *      letterhead and the form for plain paper), so the form reaches the
- *      customer by every route at once (the hardest-to-reach customers; postal
- *      is slow, so it starts immediately rather than after an email cadence).
+ *   STEP 2 — SEND THE AUTHORIZATION by email and postal mail together (Option
+ *   B): the form rides every email, and the postal packet goes at the same time.
+ *   Hidden until step 1 is acknowledged, so searching is not skipped.
  *
- * The form generation, the email body, and the postal packet all reuse the
- * existing ServicingFormDelivery unit; this panel only arranges the research +
- * delivery for the no-phone context. Recording the send advances to the next
- * customer via the standard email-sent transition.
+ * The form generation, email body, and postal packet reuse ServicingFormDelivery.
  */
 
-import { Search, ExternalLink, PhoneOff } from 'lucide-react'
-import { ActionPanel, OperationalTag, NextNote, GatewayLookup } from '@/components/workflow'
+import { useState } from 'react'
+import { Search, PhoneOff, Check } from 'lucide-react'
+import { ActionPanel, OperationalTag, NextNote, ContactSearch, WorkflowButton } from '@/components/workflow'
 import type { Detail, Holding } from '../types'
 import { fullName } from '../shared'
 import { ServicingFormDelivery } from './ServicingFormDelivery'
-
-/**
- * Additional phone-finding sources beyond Gateway (the lookup sites Angie
- * shared: search by the customer's name and mailing address for a number).
- * Kept as data so the specific sites can be edited without touching the panel;
- * add `{ label, href }` entries as the exact URLs are confirmed.
- */
-const PHONE_LOOKUP_SOURCES: { label: string; href: string }[] = [
-  { label: 'Fast People Search', href: 'https://www.fastpeoplesearch.com/' },
-  { label: 'Melissa Lookups', href: 'https://lookups.melissa.com/home/onelookup/' },
-]
 
 export function UnableToCallAction({
   detail, request, name, busy, act, hasNextInActivity = false, onSkip,
@@ -49,10 +37,12 @@ export function UnableToCallAction({
   busy: boolean
   act: (action: unknown, successNote?: string, opts?: { advanceToNext?: boolean }) => void
   hasNextInActivity?: boolean
-  /** Skip this customer without sending/recording; send to the back of the
-   * session's working sequence. */
   onSkip?: () => void
 }) {
+  // The hard gate: step 2 (send by mail) stays hidden until the worker confirms
+  // the search turned up nothing new, so the search is never skipped.
+  const [searchedNothingFound, setSearchedNothingFound] = useState(false)
+
   const policyNumbers =
     detail.gateway_policy_numbers && detail.gateway_policy_numbers.length > 0
       ? detail.gateway_policy_numbers
@@ -65,81 +55,74 @@ export function UnableToCallAction({
   return (
     <ActionPanel heading={`Reach ${fullName(detail.customer)} — no phone on file`}>
       <div className="flex items-center gap-2 rounded-xl border border-status-missing-border bg-status-missing-soft p-4 text-base text-status-missing-strong">
-        <PhoneOff className="size-5" aria-hidden /> No phone number on file, so this customer cannot be called.
+        <PhoneOff className="size-5" aria-hidden /> No phone number on file, so this customer cannot be called yet.
       </div>
 
-      {/* 1. Research for a phone first. */}
+      {/* STEP 1 — search. */}
       <div className="space-y-2">
         <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wide text-ink-supporting">
-          <Search className="size-4" aria-hidden /> First, look for a phone number
+          <Search className="size-4" aria-hidden /> Step 1 — search for the customer
         </div>
-        <GatewayLookup
+        <ContactSearch
           lastName={detail.customer.last_name}
+          firstName={detail.customer.first_name}
           fallbackName={fullName(detail.customer)}
           policyNumbers={policyNumbers}
+          city={detail.customer.city}
+          state={detail.customer.state}
         />
-        {PHONE_LOOKUP_SOURCES.length > 0 && (
-          <div className="rounded-xl border border-surface-border bg-surface-card p-3">
-            <p className="mb-2 text-sm text-ink-supporting">
-              Also try these by the customer&apos;s name and mailing address:
-            </p>
-            <ul className="space-y-1">
-              {PHONE_LOOKUP_SOURCES.map(s => (
-                <li key={s.href}>
-                  <a
-                    href={s.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-base font-medium text-brand transition-colors hover:text-brand-hover"
-                  >
-                    <ExternalLink className="size-4" aria-hidden /> {s.label}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
         <OperationalTag tone="info">
-          Found a number? Add it on the Customer Contact card. The customer becomes callable and this
-          screen hands you straight into the call so you can try it now.
+          Found a phone, email, or address? Add it on the Customer Contact card. A phone makes the
+          customer callable and hands you straight into the call.
         </OperationalTag>
+
+        {/* The gate to step 2. Confirming that the search found nothing new
+            unlocks the send-by-mail step below. */}
+        {!searchedNothingFound && (
+          <WorkflowButton
+            icon={Check}
+            onClick={() => setSearchedNothingFound(true)}
+            disabled={busy}
+            className="w-full justify-center"
+          >
+            Searched — nothing new found
+          </WorkflowButton>
+        )}
       </div>
 
-      {/* 2. No phone found — reach by mail. The form rides every email, and the
-          postal packet (cover letter + form) goes at the same time. */}
-      <div className="space-y-2 border-t border-surface-border pt-4">
-        <div className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">
-          If no phone can be found, send the authorization
+      {/* STEP 2 — send by mail. Gated: only after the search is acknowledged. */}
+      {searchedNothingFound && (
+        <div className="space-y-2 border-t border-surface-border pt-4">
+          <div className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">
+            Step 2 — send the authorization by email and postal mail
+          </div>
+          <ServicingFormDelivery
+            heading="Send the servicing-agent authorization form"
+            detail={detail}
+            request={request}
+            name={name}
+            busy={busy}
+            act={act}
+            confirmLabelFor={(m, alreadyHeld) =>
+              alreadyHeld
+                ? `Customer already has the form. Mark sent${nextSuffix}`
+                : m === 'postal' ? `Form mailed to customer${nextSuffix}` : `Form attached and email sent${nextSuffix}`
+            }
+            onConfirm={() => act(
+              { type: 'email-sent' },
+              'Authorization sent. Scheduled the follow-up.',
+              { advanceToNext: true },
+            )}
+            onSkip={onSkip}
+          />
         </div>
-        <ServicingFormDelivery
-          heading="Send the servicing-agent authorization form"
-          detail={detail}
-          request={request}
-          name={name}
-          busy={busy}
-          act={act}
-          confirmLabelFor={(m, alreadyHeld) =>
-            alreadyHeld
-              ? `Customer already has the form. Mark sent${nextSuffix}`
-              : m === 'postal' ? `Form mailed to customer${nextSuffix}` : `Form attached and email sent${nextSuffix}`
-          }
-          // Recording the send uses the standard email-sent transition: it logs
-          // the send, schedules the cadence follow-up, and advances to the next
-          // customer. (Postal records the same send with the chosen method.)
-          onConfirm={() => act(
-            { type: 'email-sent' },
-            'Authorization sent. Scheduled the follow-up.',
-            { advanceToNext: true },
-          )}
-          onSkip={onSkip}
-        />
-      </div>
+      )}
 
       <NextNote>
-        These customers have no phone, so calling is blocked. Look for a number first (a found number
-        drops them back into calling); otherwise send the authorization by email and postal mail
-        together. The form rides every email. Recording the send schedules the follow-up and moves
-        you to the next customer.
+        These customers have no phone, so calling is blocked. Search for them first — a phone drops
+        them back into calling, and an email or address keeps them reachable. If nothing new turns
+        up, send the authorization by email and postal mail together; the form rides every email.
+        Recording the send schedules the follow-up and moves you to the next customer.
       </NextNote>
     </ActionPanel>
   )

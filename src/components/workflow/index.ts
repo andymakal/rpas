@@ -89,7 +89,7 @@ export {
   AssistantPanel,
 } from './panels'
 
-export { GatewayLookup } from './GatewayLookup'
+export { ContactSearch } from './ContactSearch'
 
 export { DoneSkipActions } from './DoneSkipActions'
 

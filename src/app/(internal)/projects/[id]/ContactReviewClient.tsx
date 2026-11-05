@@ -36,10 +36,10 @@ import {
 } from 'lucide-react'
 import {
   TaskShell, ActionPanel, WorkflowButton,
-  AssistantPanel, GatewayLookup,
+  AssistantPanel,
   CustomerContactCard, type CustomerContact,
   CustomerHistoryCard, NextHistoryEntry,
-  QueueEmptyState, OperationalTag,
+  QueueEmptyState, OperationalTag, ContactSearch,
 } from '@/components/workflow'
 import {
   describeContactResearchSelection,
@@ -727,13 +727,16 @@ function ContactReviewTask({
             </OperationalTag>
           )}
 
-          {/* The shared Search Gateway look-up — last name + every policy number
-              on file, each with its own Copy button; identical to the
-              Stewardship research task. */}
-          <GatewayLookup
+          {/* The shared contact search Lego — Gateway (last name + policy
+              numbers) and Fast People Search (name + city/state). The one search
+              block used by every contact-research surface. */}
+          <ContactSearch
             lastName={customer.last_name}
+            firstName={customer.first_name}
             fallbackName={name}
             policyNumbers={customer.policy_numbers}
+            city={customer.city}
+            state={customer.state}
           />
 
           {saveError && (
