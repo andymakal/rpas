@@ -631,3 +631,175 @@ Verification baseline this session: `npx tsc --noEmit` clean, `npm run test:dd`
   candidate cleanup, not done). insured name on 10,110; ~997 differ from
   client_name. A handful of bad-number customers now carry a replacement phone and
   will surface as owed a call — worth a look.
+
+
+---
+---
+
+# HANDOFF (newest) — Stewardship module simplification: Contact Research, People We Can't Call, the Contact Search Lego — ON PREVIEW, NOT IN PRODUCTION
+
+Added 2026-11-04 (later same day as the cadence/call-list section above). Branch
+`development`, 11 commits ahead of `main`, ALL live on the shared preview
+`https://bobdev.therightpathagency.com` and NONE promoted to production yet.
+`development` is in sync with origin. No database migrations in any of it.
+Working tree clean except untracked `.kiro/settings/`, `supabase/.temp/`, and the
+spec file below. Verification baseline: `npx tsc --noEmit` clean, `npm run
+test:dd` 273/273, `npm run build` clean.
+
+The spec for this effort is `.kiro/specs/servicing-agent-capture/people-we-cant-call.md`
+(the People We Can't Call branch) — read it. The broader simplification Bob
+articulated (below) is NOT yet in a spec; capture it when the next screens are built.
+
+## Bob's module model (the frame for the remaining work)
+
+Stewardship is ONE module whose job is: take a population, get servicing-agent
+status, then work the relationship to hand-off. It should DRAIN STAGE BY STAGE to
+zero until a new population is pulled in:
+1. PREPARATION drains to zero — verify servicing agent (one-time scrub; unknown
+   must be researched, yes/not_on_file both just proceed), then find missing
+   contact info (search once, found or not it leaves the list), then introductory
+   emails.
+2. OUTREACH — make the calls that are due; People We Can't Call for the no-phone
+   ones (search for a number, else email/postal).
+3. ENGAGEMENT — work active conversations once a customer responds.
+4. HAND-OFF — process forms / move to determination.
+Goal: Preparation reaches zero and stays there until a new population comes in.
+
+## What shipped THIS effort (on preview)
+
+1. POLICY CARD (PR #33, already in production from the earlier session — listed
+   in the cadence section above; the Legos `PolicyCard` + `ServicingAgentStatus`).
+
+2. PEOPLE WE CAN'T CALL — a real working screen, the no-phone branch of Outreach.
+   - Board population `unable-to-call` added to `GET /api/stewardship` (route.ts):
+     active outreach customer, NO usable phone, not engaged, not servicing-access,
+     not refused/decided. Counted in `populationCounts`.
+   - A standing Outreach sub-step on My Work directly under "Make the calls that
+     are due" (`outreach:unable-to-call` in composition.ts `unableToCallRoute` +
+     the standing source, direction.ts plan step, work-classes.ts class map). Shows
+     even at zero.
+   - Screen: `/stewardship/unable-to-call` (page + `UnableToCallClient`, the
+     continuous reserve/advance pattern copied from CallsDueClient). Panel is
+     `UnableToCallAction` (`panels/`), driven by a new `forceUnableToCall` prop on
+     `StewardshipTask`. GATED TWO STEPS: step 1 search (the ContactSearch Lego),
+     step 2 (send authorization by email AND postal) stays HIDDEN until the worker
+     clicks "Searched — nothing new found" (hard gate so search happens first).
+   - THE FORK: a phone found and saved on the Customer Contact card makes
+     `detail.customer.phone` truthy; `StewardshipTask` computes
+     `unableToCallWithPhone` and flips the panel to the guided CALL flow right
+     there (forceCall), so the worker calls on the spot. No silent re-queue.
+   - Email/postal reuse `ServicingFormDelivery`; the send records via the standard
+     `email-sent` transition and advances.
+
+3. CONTACT SEARCH LEGO — generalized `GatewayLookup` into a reusable search Lego,
+   then SPLIT per the Lego discipline:
+   - `GatewaySearchSource` (own file) — last name + policy numbers, its cap. Shown
+     ONLY when the customer has an Allstate policy number (Bob: no policy = not a
+     Gateway customer = nothing to search; the gate lives in ContactSearch).
+   - `FastPeopleSearchSource` (own file) — full name + city/state, links to
+     fastpeoplesearch.com, its cap. Always shown; works for anyone. (Melissa and
+     Whitepages were dropped — Melissa is a data-append tool behind a login,
+     Whitepages is premium. Fast People Search found even Vertadean from name +
+     "PA" alone.)
+   - `ContactSearch` (own file) — the SUBASSEMBLY that composes the sources and
+     decides which show (Gateway gated on a policy number). A new lookup site
+     later = a new source Lego dropped in here.
+   - `contactSearchShared.tsx` — internal shared bits (copy hook, ValueRow, the
+     bare-cap SourceHeader, SourceCard); NOT exported as a component.
+   - Instructions are the BARE mentoring cap (MentorCapButton/Panel, no label) —
+     NOT MentorGuidance (the labeled purple bar). I used the wrong one first; the
+     bare cap is the app-wide pattern. Compact: tighter padding, small Copy
+     buttons via a new `WorkflowButton size="sm"`.
+   - `GatewayLookup.tsx` DELETED; all four call sites (ContactReviewClient,
+     ResearchAction, UnableToCallAction, and the contact-review task) use
+     ContactSearch now.
+
+4. CONTACT RESEARCH SIMPLIFIED (biggest behavior change, Bob's decision):
+   - It is ONE continuous carousel of the NOT-YET-RESEARCHED customers only. No
+     lists, no method filter, no "No Usable Contact Information" section, no done
+     screen (loops back to the first at the end; shows all-caught-up only when
+     genuinely empty).
+   - DROPPED the "Include previously unsuccessful research" toggle and its
+     re-pass entirely. Searched-empty ("Researched, Next") marks
+     `researched_unsuccessfully` and the customer LEAVES for good. The flag stays
+     ONLY as a quiet history fact so they never reappear as fresh work. Rationale
+     (settled with Bob): the missing detail gets another look at the natural
+     moment — when the customer surfaces for a call — so a standing re-research
+     list earns nothing. Missing contact info never blocks outreach; a customer
+     missing a method is already worked in the outreach queues in parallel.
+   - Button is "Researched, Next" / "Skip" via the shared `DoneSkipActions` Lego
+     (Bob: two-buttons-on-every-screen is a reused pattern, use the Lego). The
+     Next-History-Entry preview is the indicator of what will record
+     ("Researched, nothing found (email, phone)" / "Contact updated (phone) ·
+     still missing email" / "Contact updated (...)") — see
+     `describeContactResearchSelection` in customer-history.ts.
+
+## NEXT UP (agreed order; walk ONE screen at a time with Bob, new chat)
+
+1. BAD-NUMBER SEARCH on the call panel (Piece 2, designed, NOT built). On a
+   "number not in service" outcome in `OutreachCallPanel.tsx`, clicking bad
+   number should OPEN THE ContactSearch BOX INLINE (go find a better number)
+   rather than immediately ejecting. Found + saved -> stays callable, call it.
+   "I can't find another number" -> record the bad number, which (BACKEND ALREADY
+   DOES THIS) saves the dialed digits to history as unusable and CLEARS
+   customers.phone; with no phone the customer now automatically surfaces on
+   People We Can't Call (no separate eject-to-research needed — that is just old
+   wording; the data already lands them right). Confirmed with Bob: one state
+   (People We Can't Call) handles both the has-email and the truly-unreachable
+   cases; no distinct "no way to reach at all" treatment. This is a UI change to
+   the busiest panel (the record path) — do it carefully, verify the record
+   transition and channel gating. `OutreachCallPanel` `badNumber` state is at
+   ~line 127, the toggle ~line 564, the record grouping ~line 340.
+
+2. Confirm the stage-drains-to-zero model end to end once bad-number is done:
+   Preparation (verify -> research -> intro email) should reach zero and stay
+   there until a new population is pulled.
+
+## Still-open, smaller (deferred, not blocking)
+
+- POSTAL = TWO SEPARATE PDFs (letter on letterhead, form on plain paper). Today
+  the postal packet is the existing single combined PDF (cover + form) from
+  `src/lib/servicing-agent-form.ts` (`buildPostalCoverPage`). Splitting into two
+  PDFs is a small generator change, not yet done.
+- PRINT-AND-MAIL QUEUE for remote staff with no printer (Dulce). Decision: generate
+  the PDFs now; routing a print job to whoever does office mailing is its own
+  later branch (who is the handler, real queue vs forward). Bob not worried yet.
+- EMAIL WORDING rewrite: the authorization email body is the existing placeholder
+  (`saEmailBody` / `saFollowUpEmailBody` in stewardship/shared.tsx). Bob to rewrite;
+  do NOT invent final customer wording. Do NOT claim "we tried to call you" for a
+  no-phone customer we never called.
+- SYSTEM-WIDE PAGE PADDING: Bob floated tightening the light theme globally. I
+  tightened at the component level (ContactSearch, the sm Copy button, slimmer
+  action buttons) but did NOT touch the `WorkflowPage`/`ActionPanel` page gutters —
+  that is a broad change across every light screen; do it deliberately at the
+  token/shared-component level if Bob wants it, after he eyeballs the tightened
+  components.
+- Fast People Search state-only fallback: Bob found name + "PA" (state only, no
+  city) works. Could fall back to state-only when no city is on file. Small
+  enhancement, not done.
+
+## PROMOTION
+
+Nothing from this effort is in production. When Bob approves, promote the whole
+set (the 11 commits: People We Can't Call, the Contact Search Lego split, the
+Contact Research simplification, plus the My Work wiring) to `main` via one
+focused PR, then apply NO migrations (there are none). dev↔prod currently differ
+by these 11 commits.
+
+## Working-rule reminders
+
+- `development` shared; `main` is production (do not touch main except an
+  authorized focused PR). Deploy to preview: `vercel deploy --force --scope
+  makal-financial-services-llc` -> `vercel alias set <url>
+  bobdev.therightpathagency.com --scope makal-financial-services-llc` -> `vercel
+  inspect`. The `vercel deploy` URL capture occasionally printed a transient null
+  in PowerShell; just re-run deploy+alias and it points correctly.
+- POWERSHELL GOTCHA: the project path has `[id]` in it. `Get-Content`/`Set-Content`
+  treat `[id]` as a glob and FAIL ("does not exist ... or filtered"); use
+  `-LiteralPath`. The grep/read/edit tools are fine; this only bites raw PS file cmdlets.
+- supabase MCP: `supabase-development` (read/write) and `supabase-prod-readonly`
+  (read only). This feature is DEV-only, so verify counts against DEV, not prod.
+- Live DEV fact (re-verify): Q4 1035 Review project `205c934d-...`, 142 members;
+  13 have no phone — 12 in research-needed WITH an email (the People We Can't Call
+  population), 1 (Vertadean Butler) with no phone, no email, no address (true dead
+  end; stays in Contact Research, not on People We Can't Call).
