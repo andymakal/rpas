@@ -141,4 +141,7 @@ jobs:
       - name: Apply committed migrations to PRODUCTION
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL_PRODUCTION }}
-        run: supabase db push --db-url "$SUPABASE_DB_URL"
+        # --yes: newer CLIs refuse to apply without a terminal confirmation. The
+        # authorization is the typed confirm input plus the Production
+        # Environment's required-reviewer approval, both enforced above.
+        run: supabase db push --db-url "$SUPABASE_DB_URL" --yes
