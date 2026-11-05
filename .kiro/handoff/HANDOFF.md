@@ -803,3 +803,37 @@ by these 11 commits.
   13 have no phone — 12 in research-needed WITH an email (the People We Can't Call
   population), 1 (Vertadean Butler) with no phone, no email, no address (true dead
   end; stays in Contact Research, not on People We Can't Call).
+
+
+---
+---
+
+# HANDOFF - Other-specialist restriction + migration-version fix (dev DONE, prod pending)
+
+Added 2026-11-05. Delete this section once the production items below are done.
+
+Done on development (live on preview, dev DB migrated by the workflow):
+- `financial_specialists` lookup + `customers.other_specialist_status`
+  (unknown | clear | hands_off) + `other_specialist_id` (required iff hands_off).
+  Migration `20261201000001_other_specialist_restriction.sql`. Rule module
+  `src/lib/customers/other-specialist.ts`. Hands-off customers are excluded from
+  project_population_source, My Work counts/scope, Verify worklist, and new
+  onboarding. No restriction data populated (Bob fills it).
+- Duplicate version fixed: `premium_mode_modal_factor` renamed
+  `20261103000001` -> `20261130000002` (content unchanged, idempotent).
+- Dev ledger row for verify_servicing_agent corrected from `20261103123350` to
+  `20261130000001` (matches its file; prod ledger already had it right).
+- Workflow dev apply step now passes `--yes` (newer CLI refuses otherwise).
+
+Production, NOT done (needs explicit authorization; normal promotion PR first):
+1. `main` still carries the duplicate filename; the rename reaches main with the
+   next development -> main PR.
+2. Prod already has `premium_modes.modal_factor` (integer, nullable) with all
+   four factors correct, but NO ledger row and NO column comment. Reconcile by
+   running the renamed file in prod (only effect: adds the comment) and inserting
+   ledger row `20261130000002 / premium_mode_modal_factor`.
+3. Prod still needs `20261201000001` applied (+ ledger row) when the restriction
+   is promoted.
+4. The workflow's PRODUCTION apply step lacks `--yes` and would fail the same
+   way; add it when that path is set up (prod secret + reviewer gate still
+   missing).
