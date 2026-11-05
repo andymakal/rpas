@@ -62,22 +62,25 @@ export async function loadHandsOffCustomerIds(
     for (let i = 0; i < customerIds.length; i += 300) {
       const chunk = customerIds.slice(i, i + 300)
       if (chunk.length === 0) continue
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('customers')
         .select('id')
         .in('id', chunk)
         .eq('other_specialist_status', 'hands_off')
+      // Fail loudly: a failed read must never let hands-off customers through.
+      if (error) throw new Error(`Hands-off customer read failed: ${error.message}`)
       for (const r of (data ?? []) as { id: string }[]) out.add(r.id)
     }
     return out
   }
   const pageSize = 1000
   for (let from = 0; ; from += pageSize) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('customers')
       .select('id')
       .eq('other_specialist_status', 'hands_off')
       .range(from, from + pageSize - 1)
+    if (error) throw new Error(`Hands-off customer read failed: ${error.message}`)
     const rows = (data ?? []) as { id: string }[]
     for (const r of rows) out.add(r.id)
     if (rows.length < pageSize) break
