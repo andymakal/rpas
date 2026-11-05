@@ -36,7 +36,8 @@ import { ServicingFormDelivery } from './ServicingFormDelivery'
  * add `{ label, href }` entries as the exact URLs are confirmed.
  */
 const PHONE_LOOKUP_SOURCES: { label: string; href: string }[] = [
-  // e.g. { label: 'TruePeopleSearch', href: 'https://www.truepeoplesearch.com/' },
+  { label: 'Fast People Search', href: 'https://www.fastpeoplesearch.com/' },
+  { label: 'Melissa Lookups', href: 'https://lookups.melissa.com/home/onelookup/' },
 ]
 
 export function UnableToCallAction({
