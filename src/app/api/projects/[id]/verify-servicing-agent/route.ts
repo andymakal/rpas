@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { isEverlakeCarrier } from '@/lib/policies/everlake-carrier'
+import { loadHandsOffCustomerIds } from '@/lib/customers/other-specialist'
 
 /**
  * Step 1 of servicing-agent capture — VERIFY whether we are the servicing agent,
@@ -54,9 +55,13 @@ export async function GET(
   if (memErr) {
     return Response.json({ error: memErr.message }, { status: 500 })
   }
-  const customerIds = Array.from(
+  // Hands-off customers (working with another active specialist) are never
+  // verified or worked.
+  const memberIds = Array.from(
     new Set((members ?? []).map((m: { customer_id: string }) => m.customer_id).filter(Boolean)),
   )
+  const handsOff = await loadHandsOffCustomerIds(supabase, memberIds)
+  const customerIds = memberIds.filter((cid) => !handsOff.has(cid))
   if (customerIds.length === 0) {
     return Response.json({ data: { policies: [], summary: { total: 0, verified: 0, remaining: 0 } } })
   }
