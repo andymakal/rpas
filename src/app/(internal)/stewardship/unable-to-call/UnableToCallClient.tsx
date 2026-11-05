@@ -1,45 +1,61 @@
 'use client'
 
 /**
- * People We Can't Call — PLACEHOLDER.
+ * People We Can't Call — the continuous working screen for active outreach
+ * customers with NO usable phone. Same shape as the other outreach working
+ * screens (Calls Due, Introductory Emails): land straight on the first eligible
+ * customer, work them, advance automatically.
  *
- * The outreach surface for customers we cannot reach by phone: an active
- * outreach customer (not decided, not declined) with NO usable phone on file.
- * This is the dead-end sibling of "Make the Calls That Are Due": calling is
- * blocked, so the work is to recover a way to reach them.
+ * Per customer (the panel is UnableToCallAction, driven by forceUnableToCall):
+ *   1. Research for a phone (Gateway + the other lookup sources).
+ *   2. Found one -> save it on the Customer Contact card; the customer becomes
+ *      callable and the task hands off to the guided call flow RIGHT HERE, so
+ *      the worker calls now. On the next pass they are in the normal Calls Due
+ *      queue and never appear on this screen again.
+ *   3. No phone -> generate the authorization email + form AND the postal packet
+ *      (Option B: both at once), record the send, and advance.
  *
- * INTENDED WORKFLOW (not built yet — this placeholder only lists the population
- * so it surfaces and nobody is stranded):
- *   1. Prompt the operator: "Can you find a phone number by any means?" using
- *      Gateway and the other sources Angie provided.
- *   2. YES -> update the customer's phone, then open the SAME guided call card
- *      used by Calls Due (Reached / Didn't reach / log the attempt) RIGHT HERE,
- *      so the operator tries the call while they are on the record. The customer
- *      then flows into the normal Calls Due queue on the next pass. (This is a
- *      branch, deliberately NOT a silent drop back into the queue.)
- *   3. NO -> the email / postal-mail workflow (generate, operator sends on
- *      Allstate's rails, confirm). Deferred: the customer-facing scripts need
- *      Bob's approval before anything is generated.
- *
- * For now: list the population with a link to each customer so the work is
- * visible. The guided recover-a-phone branch and the email/postal workflow are
- * the next build.
+ * Reuses the shared reservation + direct-candidate machinery so two workers
+ * never land on the same customer, exactly like Calls Due.
  */
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { Loader2, PhoneOff } from 'lucide-react'
+import { Loader2, CheckCircle2, ArrowLeft, RefreshCw, PhoneOff } from 'lucide-react'
+import { MentorCapButton, MentorCapPanel, useMentorDisclosure } from '@/lib/mentoring/MentorUi'
+import { useWorkReservation } from '@/lib/reservations/useWorkReservation'
+import { reserveNextDirectCandidate } from '@/lib/reservations/reserveNextDirectCandidate'
+import { StewardshipTask } from '../StewardshipClient'
 
-type UnableCustomer = {
-  id: string
-  customer_id: string | null
-  customer: { id: string; first_name: string | null; last_name: string | null; email: string | null }
+type PopulationCustomer = { id: string; first_name: string | null; last_name: string | null }
+type PopulationItem = {
+  id: string | null
+  virtual?: boolean
+  customer_id?: string | null
+  customer: PopulationCustomer
 }
 
-export function UnableToCallClient({ projectId = null }: { projectId?: string | null }) {
-  const [items, setItems] = useState<UnableCustomer[]>([])
+export function UnableToCallClient({
+  projectId = null,
+}: {
+  projectId?: string | null
+}) {
+  const [items, setItems] = useState<PopulationItem[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [openId, setOpenId] = useState<string | null>(null)
+  const openCustomerIdRef = useRef<string | null>(null)
+  const [handled, setHandled] = useState<Set<string>>(() => new Set())
+  const [skipOrder, setSkipOrder] = useState<string[]>([])
+  const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
+
+  // The no-phone customers are worked on the SAME reservation key as calling
+  // ('available_to_call'): recovering a phone hands straight into the call, so a
+  // customer reserved here must look busy to the calling activity too.
+  const { reserveNext, release } = useWorkReservation({
+    activity: 'available_to_call',
+    subjectType: 'stewardship_outreach',
+  })
 
   const load = useCallback(async () => {
     setError(null)
@@ -49,15 +65,108 @@ export function UnableToCallClient({ projectId = null }: { projectId?: string | 
       const res = await fetch(`/api/stewardship?${params.toString()}`, { cache: 'no-store' })
       const json = await res.json().catch(() => null)
       if (!res.ok) { setError(json?.error ?? 'Failed to load.'); return }
-      setItems((json.data.items ?? []) as UnableCustomer[])
+      setItems((json.data.items ?? []) as PopulationItem[])
     } catch {
-      setError('Network error. Try again.')
+      setError('Network error loading the population. Try again.')
     } finally {
       setLoading(false)
     }
   }, [projectId])
 
   useEffect(() => { void load() }, [load])
+
+  const candidateKey = useCallback(
+    (it: PopulationItem): string => it.id ?? `virtual:${it.customer_id ?? ''}`,
+    [],
+  )
+
+  const remaining = useMemo(
+    () => items.filter(it => !handled.has(candidateKey(it))),
+    [items, handled, candidateKey],
+  )
+
+  const orderedCandidates = useMemo(() => {
+    if (skipOrder.length === 0) return remaining
+    const skipIndex = new Map(skipOrder.map((key, i) => [key, i]))
+    const notSkipped = remaining.filter(it => !skipIndex.has(candidateKey(it)))
+    const skipped = remaining
+      .filter(it => skipIndex.has(candidateKey(it)))
+      .sort((a, b) => (skipIndex.get(candidateKey(a)) ?? 0) - (skipIndex.get(candidateKey(b)) ?? 0))
+    return [...notSkipped, ...skipped]
+  }, [remaining, skipOrder, candidateKey])
+
+  const directOpenedRef = useRef(false)
+  useEffect(() => {
+    if (loading || error || directOpenedRef.current) return
+    directOpenedRef.current = true
+    void reserveNextDirectCandidate(orderedCandidates, reserveNext)
+      .then(reserved => {
+        if (reserved) {
+          openCustomerIdRef.current = reserved.customerId
+          setOpenId(reserved.outreachId)
+        }
+      })
+      .catch(() => {
+        directOpenedRef.current = false
+        setError('Could not reserve a customer. Try again.')
+      })
+  }, [loading, error, orderedCandidates, reserveNext])
+
+  const advanceAfterSend = useCallback(() => {
+    if (!openId) return
+    const handledId = openId
+    const handledCustomerId = openCustomerIdRef.current
+    setHandled(prev => {
+      const next = new Set(prev)
+      next.add(handledId)
+      if (handledCustomerId) next.add(`virtual:${handledCustomerId}`)
+      return next
+    })
+    void release()
+    const candidates = orderedCandidates.filter(
+      it => it.id !== handledId && candidateKey(it) !== (handledCustomerId ? `virtual:${handledCustomerId}` : ''),
+    )
+    void reserveNextDirectCandidate(candidates, reserveNext)
+      .then(reserved => {
+        openCustomerIdRef.current = reserved?.customerId ?? null
+        setOpenId(reserved?.outreachId ?? null)
+      })
+      .catch(() => {
+        setOpenId(null)
+        setError('Could not advance to the next customer. Try again.')
+      })
+    void load()
+  }, [openId, orderedCandidates, load, release, reserveNext, candidateKey])
+
+  const advanceAfterSkip = useCallback(() => {
+    if (!openId) return
+    const openCustomerId = openCustomerIdRef.current
+    const stillVirtual =
+      !!openCustomerId && remaining.some(it => it.id === null && it.customer_id === openCustomerId)
+    const skippedKey = stillVirtual ? `virtual:${openCustomerId}` : openId
+    setSkipOrder(prev => [...prev.filter(k => k !== skippedKey), skippedKey])
+    void release()
+    const skipIndex = new Map(
+      [...skipOrder.filter(k => k !== skippedKey), skippedKey].map((key, i) => [key, i]),
+    )
+    const resequenced = [
+      ...remaining.filter(it => !skipIndex.has(candidateKey(it))),
+      ...remaining
+        .filter(it => skipIndex.has(candidateKey(it)))
+        .sort((a, b) => (skipIndex.get(candidateKey(a)) ?? 0) - (skipIndex.get(candidateKey(b)) ?? 0)),
+    ]
+    void reserveNextDirectCandidate(resequenced, reserveNext)
+      .then(reserved => {
+        openCustomerIdRef.current = reserved?.customerId ?? null
+        setOpenId(reserved?.outreachId ?? null)
+      })
+      .catch(() => {
+        setOpenId(null)
+        setError('Could not advance to the next customer. Try again.')
+      })
+  }, [openId, skipOrder, remaining, release, reserveNext, candidateKey])
+
+  const handledCount = handled.size
 
   if (loading) {
     return (
@@ -66,63 +175,88 @@ export function UnableToCallClient({ projectId = null }: { projectId?: string | 
       </div>
     )
   }
+
   if (error) {
     return (
-      <div className="rounded-2xl border border-tag-blocked-border bg-tag-blocked-fill p-6 text-tag-blocked-text">
-        {error}
+      <div className="space-y-4 rounded-2xl border border-tag-blocked-border bg-tag-blocked-fill p-6 text-tag-blocked-text">
+        <p>{error}</p>
+        <button
+          type="button"
+          onClick={() => { setError(null); setHandled(new Set()); directOpenedRef.current = false; setLoading(true); void load() }}
+          className="inline-flex items-center gap-2 rounded-xl border border-surface-border-strong bg-surface-card px-4 py-2 text-base font-medium text-ink-secondary transition-colors hover:bg-surface-muted"
+        >
+          <RefreshCw className="size-4" aria-hidden /> Try again
+        </button>
       </div>
     )
   }
 
-  const name = (c: UnableCustomer) =>
-    [c.customer?.first_name, c.customer?.last_name].filter(Boolean).join(' ') || 'Unknown customer'
+  if (openId) {
+    const otherRemaining = remaining.filter(it => it.id !== null && it.id !== openId)
+    const remainingVirtuals = remaining.filter(it => it.id === null)
+    const hasNext = otherRemaining.length > 0 || remainingVirtuals.length > 1
+    return (
+      <StewardshipTask
+        key={openId}
+        itemId={openId}
+        forceUnableToCall
+        hideBackHeader
+        hasNextInActivity={hasNext}
+        onAdvanceToNext={advanceAfterSend}
+        onSkip={advanceAfterSkip}
+        onBack={() => { void load() }}
+      />
+    )
+  }
 
   return (
     <section className="space-y-5">
-      <div className="rounded-2xl border border-surface-border bg-surface-card p-4">
-        <p className="text-base text-ink-secondary">
-          These customers are active in outreach but have no phone number on file, so we cannot call
-          them. The workflow to recover a phone (and fall back to email or postal mail when none can
-          be found) is being built. For now they are listed here so none are overlooked. Open a
-          customer to research a phone; once one is on file, they return to the calls that are due.
+      <div className="flex items-center gap-3">
+        <p className="text-base font-semibold text-ink">About People We Can&apos;t Call</p>
+        {!mentorOpen && (
+          <MentorCapButton onOpen={() => setMentorOpen(true)} label="Show mentoring on people we can't call" />
+        )}
+      </div>
+      {mentorOpen && (
+        <MentorCapPanel onClose={() => setMentorOpen(false)}>
+          These customers have no phone on file, so we cannot call them. First try to find a number
+          using Gateway and the other lookup sources. If you find one, add it on the Customer Contact
+          card and the screen hands you straight into the call. If none can be found, send the
+          authorization by email and postal mail together — the form rides every email — and move on.
+        </MentorCapPanel>
+      )}
+
+      <div className="flex flex-col items-center gap-4 rounded-2xl border border-surface-border bg-surface-card p-10 text-center">
+        <CheckCircle2 className="size-12 text-status-confirmed-strong" aria-hidden />
+        <div className="space-y-1">
+          <p className="text-xl font-semibold text-ink">
+            {handledCount > 0 ? 'All handled' : 'Nobody is unreachable by phone right now'}
+          </p>
+          <p className="text-lg text-ink-secondary">
+            {handledCount > 0
+              ? `You handled ${handledCount} ${handledCount === 1 ? 'customer' : 'customers'} this session.`
+              : 'Everyone in outreach has a phone on file, or is being worked elsewhere.'}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <Link
+            href="/my-work"
+            className="inline-flex items-center gap-2 rounded-xl bg-brand px-5 py-3 text-lg font-semibold text-white transition-colors hover:bg-brand-hover"
+          >
+            <ArrowLeft className="size-5" aria-hidden /> Back to My Work
+          </Link>
+          <button
+            type="button"
+            onClick={() => { setHandled(new Set()); directOpenedRef.current = false; setLoading(true); void load() }}
+            className="inline-flex items-center gap-2 rounded-xl border border-surface-border-strong px-5 py-3 text-lg font-medium text-ink-secondary transition-colors hover:bg-surface-muted"
+          >
+            <RefreshCw className="size-5" aria-hidden /> Check again
+          </button>
+        </div>
+        <p className="inline-flex items-center gap-1.5 text-sm text-ink-supporting">
+          <PhoneOff className="size-4" aria-hidden /> People We Can&apos;t Call
         </p>
       </div>
-
-      <div className="flex items-center gap-2">
-        <PhoneOff className="size-5 text-ink-supporting" aria-hidden />
-        <h2 className="text-[22px] font-semibold leading-tight text-ink">People We Can&apos;t Call</h2>
-        <span className="rounded-full bg-surface-muted px-2 py-0.5 text-sm font-medium text-ink-supporting">
-          {items.length}
-        </span>
-      </div>
-
-      {items.length === 0 ? (
-        <div className="rounded-2xl border border-surface-border bg-surface-card p-6 text-ink-supporting">
-          Nobody is unreachable by phone right now.
-        </div>
-      ) : (
-        <ul className="divide-y divide-surface-border rounded-2xl border border-surface-border bg-surface-card">
-          {items.map((c) => (
-            <li key={c.id} className="flex items-center justify-between gap-4 px-4 py-3">
-              <div>
-                <p className="text-base font-medium text-ink">{name(c)}</p>
-                <p className="text-sm text-ink-supporting">
-                  {c.customer?.email?.trim() ? `Email on file: ${c.customer.email}` : 'No email on file'}
-                  {' · '}No phone
-                </p>
-              </div>
-              {c.customer?.id && (
-                <Link
-                  href={`/customers/${c.customer.id}`}
-                  className="shrink-0 text-sm font-medium text-brand transition-colors hover:text-brand-hover"
-                >
-                  Open customer
-                </Link>
-              )}
-            </li>
-          ))}
-        </ul>
-      )}
     </section>
   )
 }
