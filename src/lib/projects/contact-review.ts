@@ -8,6 +8,7 @@ import { loadGatewayPolicyNumbers } from '@/lib/stewardship/gateway-policy-numbe
 import type { OutreachChannel } from '@/lib/stewardship/outreach-attempts'
 import { activeProjectsWithWorkflow, isPermanentPolicyReviewTypeName } from '@/lib/projects/workflows'
 import { type EmailAvailability } from '@/lib/email-availability'
+import { loadHandsOffCustomerIds } from '@/lib/customers/other-specialist'
 
 /**
  * Effective contact usability folds the recorded-UNUSABLE fact into mere
@@ -274,9 +275,14 @@ export async function buildContactReview(
     .select('customer_id')
     .eq('project_id', projectId)
 
-  const customerIds = Array.from(
+  const allMemberIds = Array.from(
     new Set(((members ?? []) as ProjectCustomerRow[]).map(m => m.customer_id)),
   )
+  if (allMemberIds.length === 0) return []
+  // Hands-off members (working with another active specialist) are never
+  // contact-research work.
+  const handsOff = await loadHandsOffCustomerIds(supabase, allMemberIds)
+  const customerIds = allMemberIds.filter(id => !handsOff.has(id))
   if (customerIds.length === 0) return []
 
   const customers: CustomerRow[] = []
@@ -454,6 +460,7 @@ export async function loadContactReviewCustomer(
     .eq('customer_id', customerId)
     .maybeSingle()
   if (!member) return null
+  if ((await loadHandsOffCustomerIds(supabase, [customerId])).has(customerId)) return null
 
   const { data: c } = await supabase
     .from('customers')

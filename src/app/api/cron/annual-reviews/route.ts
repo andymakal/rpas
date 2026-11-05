@@ -1,6 +1,7 @@
 'use server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest }        from 'next/server'
+import { loadHandsOffCustomerIds } from '@/lib/customers/other-specialist'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -135,6 +136,10 @@ export async function GET(request: NextRequest) {
   let skipped  = 0
   const errors: string[] = []
 
+  // Hands-off customers (working with another active specialist) never get
+  // proactive review work or notifications.
+  const handsOff = await loadHandsOffCustomerIds(supabase)
+
   // ── PATH A: Explorer — placed_at 350–370 days ago ─────────────────────────
 
   const lo = new Date(now); lo.setDate(now.getDate() - 370)
@@ -192,6 +197,7 @@ export async function GET(request: NextRequest) {
     for (const c of placedRows) {
       const policy = policyByCaseId.get(c.id)
       if (!policy) continue
+      if (handsOff.has(c.customer_id)) { skipped++; continue }
       if (alreadyQueued.has(policy.id)) { skipped++; continue }
 
       const flags         = computeFlags(policy)
@@ -286,6 +292,7 @@ export async function GET(request: NextRequest) {
     ;(existing ?? []).forEach((r: { policy_id: string }) => alreadyQueued.add(r.policy_id))
 
     for (const p of anniversaryDue) {
+      if (p.customer_id && handsOff.has(p.customer_id)) { skipped++; continue }
       if (alreadyQueued.has(p.id)) { skipped++; continue }
 
       const flags = computeFlags(p)

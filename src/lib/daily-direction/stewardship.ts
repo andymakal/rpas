@@ -34,6 +34,7 @@ import { readResearchedUnsuccessfullyBatch, stillNeedsResearchRecommendation } f
 import { createTimeContext } from '@/lib/time'
 import { decideDailyDirection } from './engine'
 import { isCallbackDue } from './business-calendar'
+import { loadHandsOffCustomerIds } from '@/lib/customers/other-specialist'
 import type { DailyDirectionState, QueueCandidate, DueCallback } from './types'
 
 /** The Stewardship board route. The board opens the matching queue list when it
@@ -111,8 +112,14 @@ export async function getDailyDirection(
   // board route filters.
   // Open items only, and never a refused one (an explicit refusal stops outreach
   // until a deliberate reopen), matching the board's suppression.
+  // Hands-off customers (working with another active specialist) are never
+  // recommended or counted.
+  const handsOff = await loadHandsOffCustomerIds(supabase)
   const rows = ((data ?? []) as unknown as BoardRow[]).filter(
-    (r) => r.customer_prereviews?.decision == null && r.refused_at == null,
+    (r) =>
+      r.customer_prereviews?.decision == null &&
+      r.refused_at == null &&
+      !handsOff.has(r.customer_prereviews.customers?.id ?? ''),
   )
 
   // READ-ONLY follow-up routing. The board route persists the promotion of

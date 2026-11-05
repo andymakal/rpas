@@ -33,6 +33,7 @@ import { resolveCapabilityProfile, loadWorkFunctions } from '@/lib/capabilities/
 import { canActOnItem } from '@/lib/capabilities/work-functions'
 import { onboardingCompleteForPolicies, verifyBlockedForPolicies, activeProjectsWithWorkflow } from '@/lib/projects/workflows'
 import { deriveOnboardingPopulation } from '@/lib/stewardship/derived-onboarding'
+import { loadHandsOffCustomerIds } from '@/lib/customers/other-specialist'
 
 type BoardRow = {
   refused_at: string | null
@@ -95,7 +96,9 @@ export async function getMyWorkCustomerIds(
   // VERIFY GATE: customers with an unverified Everlake policy, excluded from the
   // searchable outreach scope just as they are excluded from the My Work
   // outreach counts (composition parity).
-  const verifyBlocked = new Set<string>()
+  // The set is seeded with HANDS-OFF customers (already working with another
+  // active specialist): never searchable work, same as composition.
+  const verifyBlocked = await loadHandsOffCustomerIds(supabase)
   if (boardCustomerIds.length > 0) {
     const policiesByCustomer = new Map<
       string,

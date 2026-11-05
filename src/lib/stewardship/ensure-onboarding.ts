@@ -33,6 +33,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { resolveContactOptions, initialQueueFromOptions } from '@/lib/stewardship/contact-options'
+import { loadHandsOffCustomerIds } from '@/lib/customers/other-specialist'
 
 /**
  * The per-customer onboarding decision, from the two facts that matter:
@@ -92,6 +93,16 @@ export async function ensureOnboardingForCustomers(
 ): Promise<EnsureResult> {
   const result: EnsureResult = { started: 0, skipped: 0, skippedNoPolicy: 0 }
   if (candidates.length === 0) return result
+
+  // Hands-off customers (already working with another active specialist) never
+  // get onboarding work started.
+  const handsOff = await loadHandsOffCustomerIds(supabase, candidates.map((c) => c.id))
+  if (handsOff.size > 0) {
+    const allowed = candidates.filter((c) => !handsOff.has(c.id))
+    result.skipped += candidates.length - allowed.length
+    candidates = allowed
+    if (candidates.length === 0) return result
+  }
 
   const policyFilterAgencyId = opts?.policyFilterAgencyId ?? null
   const customerIds = candidates.map((c) => c.id)
