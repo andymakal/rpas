@@ -612,6 +612,7 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
         // way; this brings the email/call sub-steps in line.
         const intro = outreachSubPopulation(a, /introductory email/i, { standing: true })
         const callsDue = outreachSubPopulation(a, /calls due/i, { standing: true })
+        const unableToCall = outreachSubPopulation(a, /unable to call/i, { standing: true })
 
         if (intro) {
           steps.push({
@@ -637,6 +638,22 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
             // empty standing step is not highlighted as urgent work.
             emphasis: callsDue.count > 0 ? true : emphasis,
             route: callsDue.route,
+          })
+        }
+        // People We Can't Call sits directly under the calls that are due: the
+        // same reaching-the-customer work, the branch where there is no phone to
+        // dial. A STANDING step (shown even at zero), so the outreach workflow is
+        // always visible and a newly-populated no-phone customer has a home.
+        if (unableToCall) {
+          steps.push({
+            key: 'outreach:unable-to-call',
+            title: "People we can't call",
+            reason:
+              'These customers are in outreach but have no phone number on file. Research a phone to drop them back into calling; if none can be found, reach them by email or postal mail.',
+            count: unableToCall.count,
+            actionLabel: "Open People We Can't Call",
+            route: unableToCall.route,
+            emphasis,
           })
         }
         // Customer Interaction sits between calling and Servicing Access in the
@@ -691,7 +708,7 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
         // call/email steps (plus Customer Interaction and Servicing Access) are
         // always present, so this fallback does not fire and no redundant
         // "Continue outreach" row is added on top of them.
-        const hasAnyOutreachStep = !!intro || !!callsDue
+        const hasAnyOutreachStep = !!intro || !!callsDue || !!unableToCall
         if (!hasAnyOutreachStep && !servicingAccess && !customerInteraction) {
           steps.push({
             key: 'outreach',

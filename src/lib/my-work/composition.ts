@@ -142,6 +142,19 @@ function customerInteractionRoute(projectId?: string | null): string {
 }
 
 /**
+ * The People We Can't Call DIRECT WORKING SCREEN for the unable-to-call
+ * population: active outreach customers with NO usable phone, who are not in an
+ * engaged conversation (that is Customer Interaction) and do not yet have a
+ * signed authorization (Servicing Access). The work is to recover a phone (and
+ * drop back into calling) or reach them by email/postal mail. Project scope is
+ * carried through.
+ */
+function unableToCallRoute(projectId?: string | null): string {
+  const base = `${STEWARDSHIP_ROUTE}/unable-to-call`
+  return projectId ? `${base}?project_id=${encodeURIComponent(projectId)}` : base
+}
+
+/**
  * Which stewardship queues map to which MY WORK activity. The shared board's
  * outreach queues (ready-to-call, ready-to-email, and the overdue follow-ups
  * routed into ready-to-call) are the Outreach activity. Waiting queues are not
@@ -1290,6 +1303,74 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
             dueToMe: 0,
             informational: true,
             projectScopes: ciScopes,
+          })
+        }
+      }
+
+      // People We Can't Call: active outreach customers with NO usable phone.
+      // The sibling of Calls Due under Outreach — same reaching-the-customer
+      // work, the branch where calling is blocked. Excludes engaged customers
+      // (Customer Interaction) and signed-authorization customers (Servicing
+      // Access), so a customer is in exactly one outreach sub-step. Membership
+      // mirrors the board route's 'unable-to-call' population. Informational and
+      // STANDING (always a reachable entry point for an outreach-eligible
+      // employee), like Customer Interaction, so it never inflates the activity
+      // total or invents a ZEN band.
+      let unableToCall = 0
+      const unableToCallByProject = new Map<string, number>()
+      for (const r of openRows) {
+        const cust = r.customer_prereviews.customers
+        if (cust?.phone?.trim()) continue // callable: not on this list
+        const eff = effectiveQueue(r)
+        const engaged = isEngaged({
+          lastCallOutcome: r.last_call_outcome as CallOutcome | null,
+          callbackDate: r.callback_date,
+          engagedAt: engagedAtOf(r.action_context),
+        })
+        if (engaged) continue // Customer Interaction, not here
+        if (isServicingAccess({ formReceivedAt: r.form_received_at, refusedAt: r.refused_at })) continue
+        const itemProjects = projectsByCustomer.get(r.customer_prereviews.customer_id) ?? new Set<string>()
+        if (!canActOnItem(profile, 'outreach', requiredQualByActivity.get('outreach') ?? null, itemProjects)) continue
+        if (claimedByOther(r.claimed_by_producer_id, myProducerId)) continue
+        unableToCall += 1
+        for (const pid of itemProjects) {
+          unableToCallByProject.set(pid, (unableToCallByProject.get(pid) ?? 0) + 1)
+        }
+      }
+      {
+        const utcEligibleAnywhere =
+          agencyWideEligible('outreach') || scopedProjectsFor('outreach').size > 0
+        if (unableToCall > 0 || utcEligibleAnywhere) {
+          const utcScopes = ((): Record<string, WorkSourceProjectScope> | undefined => {
+            const out: Record<string, WorkSourceProjectScope> = {}
+            for (const pid of outreach.projectIds) {
+              out[pid] = {
+                count: 0, ownedByMe: 0, availableToMe: 0, claimedByOthers: 0,
+                notEligible: 0, dueToMe: 0, route: unableToCallRoute(pid),
+              }
+            }
+            for (const [pid, n] of unableToCallByProject) {
+              if (n <= 0) continue
+              out[pid] = {
+                count: n, ownedByMe: 0, availableToMe: n, claimedByOthers: 0,
+                notEligible: 0, dueToMe: 0, route: unableToCallRoute(pid),
+              }
+            }
+            return Object.keys(out).length > 0 ? out : undefined
+          })()
+          outreach.sources.push({
+            kind: 'stewardship',
+            label: 'Shared Stewardship board — Unable to call',
+            count: unableToCall,
+            route: unableToCallRoute(),
+            projectId: null,
+            ownedByMe: 0,
+            availableToMe: unableToCall,
+            claimedByOthers: 0,
+            notEligible: 0,
+            dueToMe: 0,
+            informational: true,
+            projectScopes: utcScopes,
           })
         }
       }
