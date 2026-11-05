@@ -804,57 +804,29 @@ by these 11 commits.
   population), 1 (Vertadean Butler) with no phone, no email, no address (true dead
   end; stays in Contact Research, not on People We Can't Call).
 
-
 ---
 ---
 
-# HANDOFF - Other-specialist restriction + migration-version fix (dev DONE, prod pending)
+# HANDOFF - Other-specialist restriction: SHIPPED TO PRODUCTION (2 follow-ups open)
 
-Added 2026-11-05. Delete this section once the production items below are done.
+2026-11-05. PR #35 merged to main (merge 26d693f); Vercel production deploy
+dpl_3j6UYntvq9U2DVfBdn59cD4nps2c Ready on www.therightpathagency.com. Prod DB
+migration `20261201000001` applied by Bob via SQL editor + ledger row (prod
+ledger 124, max 20261201000001). development merged with main (in sync).
+No restriction data populated (0 specialists, 0 restricted) - Bob fills it.
+Rule module: `src/lib/customers/other-specialist.ts`.
 
-Done on development (live on preview, dev DB migrated by the workflow):
-- `financial_specialists` lookup + `customers.other_specialist_status`
-  (unknown | clear | hands_off) + `other_specialist_id` (required iff hands_off).
-  Migration `20261201000001_other_specialist_restriction.sql`. Rule module
-  `src/lib/customers/other-specialist.ts`. Hands-off customers are excluded from
-  project_population_source, My Work counts/scope, Verify worklist, and new
-  onboarding. No restriction data populated (Bob fills it).
-- Duplicate version fixed: `premium_mode_modal_factor` renamed
-  `20261103000001` -> `20261130000002` (content unchanged, idempotent).
-- Dev ledger row for verify_servicing_agent corrected from `20261103123350` to
-  `20261130000001` (matches its file; prod ledger already had it right).
-- Workflow dev apply step now passes `--yes` (newer CLI refuses otherwise).
+Open follow-ups (delete this section when both are settled):
+1. ANDY'S premium-mode migration: main now carries it as
+   `20261130000002_premium_mode_modal_factor.sql` (renamed only; content
+   unchanged). Prod has his column + values but NO ledger row and NO column
+   comment. Deliberately left for Andy (Bob's call). Until reconciled, an
+   automated prod `db push` would try to apply it (harmless: idempotent).
+2. My Projects card total excludes hands-off members (e.g. 142 -> 141) while
+   memberships stay intact. Bob to decide whether the card should show all
+   members.
 
-PREMIUM MODE IS ANDY'S (commit f26e4cd, author "Amaka", believed to be Andy
-Makal). Bob/Kiro do not touch it on main or production. Facts for Andy only:
-- On development the file was renamed `20261103000001` -> `20261130000002`
-  (content unchanged) solely because the duplicate version blocked every dev
-  migration deploy. `main` still has the original filename.
-- Prod already has `premium_modes.modal_factor` (integer, nullable, all four
-  factors correct) but no ledger row for it and no column comment. How and
-  whether to reconcile prod is Andy's call.
-
-RELEASE STATUS (2026-11-05): PR #35 (`release/other-specialist-restriction` ->
-main) is OPEN, checks green, Andy requested as reviewer. It is a focused branch
-off main carrying only the restriction, its follow-up gap fixes (board, Daily
-Direction, derived onboarding, review/contact-research builders, annual-reviews
-cron), the premium-mode rename (content unchanged), and `--yes` on both
-workflow apply steps. NOT merged, NOTHING applied to production. Waiting on
-Bob's explicit release authorization (and Andy's OK on his migration).
-
-Release order is DATABASE FIRST (new code throws if the columns are missing;
-the old prod app is unaffected by the additive migration):
-1. Prod SQL editor (owner, Kiro has read-only prod): run
-   `20261130000002_premium_mode_modal_factor.sql` unchanged (net effect: adds
-   the column comment only), run `20261201000001_other_specialist_restriction.sql`,
-   then insert ledger rows ('20261130000002','premium_mode_modal_factor') and
-   ('20261201000001','other_specialist_restriction').
-2. Merge PR #35 (Vercel git integration deploys main to production).
-3. Read-only post-release checks: prod ledger == main files, new schema present,
-   restricted count 0, row counts unchanged, prod deployment = merge commit.
-
-Prod pre-flight (read-only, verified): ledger matches main's files exactly
-except the two new versions; view body identical to the one being replaced;
-all dependencies present; no name collisions; premium_modes has no triggers.
-The Production GitHub Environment has NO reviewer rule and NO DB secret, so the
-workflow production path is still unusable; SQL editor remains the path.
+Not exercised on production yet: no staff work traffic since deploy (after
+hours). The same code ran against the identical schema on development.
+Production GitHub Environment still has no reviewer rule and no DB secret;
+production migrations remain a SQL-editor step.
