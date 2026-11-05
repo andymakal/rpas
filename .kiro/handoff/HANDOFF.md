@@ -825,13 +825,18 @@ Done on development (live on preview, dev DB migrated by the workflow):
   `20261130000001` (matches its file; prod ledger already had it right).
 - Workflow dev apply step now passes `--yes` (newer CLI refuses otherwise).
 
+PREMIUM MODE IS ANDY'S (commit f26e4cd, author "Amaka", believed to be Andy
+Makal). Bob/Kiro do not touch it on main or production. Facts for Andy only:
+- On development the file was renamed `20261103000001` -> `20261130000002`
+  (content unchanged) solely because the duplicate version blocked every dev
+  migration deploy. `main` still has the original filename.
+- Prod already has `premium_modes.modal_factor` (integer, nullable, all four
+  factors correct) but no ledger row for it and no column comment. How and
+  whether to reconcile prod is Andy's call.
+
 Production, NOT done (needs explicit authorization; normal promotion PR first):
-1. `main` still carries the duplicate filename; the rename reaches main with the
-   next development -> main PR.
-2. Prod already has `premium_modes.modal_factor` (integer, nullable) with all
-   four factors correct, but NO ledger row and NO column comment. Reconcile by
-   running the renamed file in prod (only effect: adds the comment) and inserting
-   ledger row `20261130000002 / premium_mode_modal_factor`.
+1. When development is next promoted to main, the PR will carry the premium-mode
+   rename. Andy should know before that merges.
 3. Prod still needs `20261201000001` applied (+ ledger row) when the restriction
    is promoted.
 4. The workflow's PRODUCTION apply step lacks `--yes` and would fail the same
