@@ -103,7 +103,9 @@ jobs:
           # `db push` applies only the migrations tracked in supabase/migrations.
           # A failing migration makes this exit non-zero, which fails the job and
           # stops the deployment — no silent partial apply.
-          supabase db push --db-url "$SUPABASE_DB_URL"
+          # --yes: newer CLIs refuse to apply without a terminal confirmation;
+          # this job's trigger (a push to development) is the confirmation.
+          supabase db push --db-url "$SUPABASE_DB_URL" --yes
 
   # ---------------------------------------------------------------------------
   # PRODUCTION — explicit, authorized promotion only. Never runs on a push.
