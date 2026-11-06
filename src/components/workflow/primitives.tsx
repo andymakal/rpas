@@ -527,8 +527,12 @@ export function WorkflowButton({
       className={cn(
         // A workflow action is read and clicked, so it carries a comfortable
         // readable size (>=16px) and target height regardless of the shadcn
-        // Button's small default. [&_svg] keeps the icon proportionate.
-        'h-11 gap-2 px-4 text-base [&_svg]:size-5',
+        // Button's small default. [&_svg] keeps the icon proportionate. The `sm`
+        // size is the compact variant for incidental controls (a Copy button
+        // beside a value): shorter and tighter, still a comfortable target.
+        size === 'sm'
+          ? 'h-8 gap-1.5 px-2.5 text-sm [&_svg]:size-4'
+          : 'h-11 gap-2 px-4 text-base [&_svg]:size-5',
         selected
           // Selected / active: solid Right Path teal, from the brand token.
           ? 'border-transparent bg-brand text-brand-foreground hover:bg-brand-hover'

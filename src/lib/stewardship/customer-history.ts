@@ -1129,8 +1129,24 @@ export function describeContactResearchSelection(
   if (!before.hasEmail && now.hasEmail) filled.push('email')
   if (!before.hasPhone && now.hasPhone) filled.push('phone')
   if (!before.hasAddress && now.hasAddress) filled.push('mailing address')
-  if (filled.length === 0) return null
-  return { summary: `Contact Updated (${filled.join(', ')})` }
+  // Methods STILL missing after whatever the worker has entered so far.
+  const stillMissing: string[] = []
+  if (!now.hasEmail) stillMissing.push('email')
+  if (!now.hasPhone) stillMissing.push('phone')
+  if (!now.hasAddress) stillMissing.push('mailing address')
+
+  // The preview is the one indicator of what "Researched, Next" will record, so
+  // it is NEVER blank. Three shapes:
+  //   - nothing found at all        -> "Researched, nothing found (email, phone)"
+  //   - something found, gaps remain -> "Contact updated (phone) · still missing email"
+  //   - everything found            -> "Contact updated (email, phone)"
+  if (filled.length === 0) {
+    return { summary: `Researched, nothing found (${stillMissing.join(', ')})` }
+  }
+  if (stillMissing.length > 0) {
+    return { summary: `Contact updated (${filled.join(', ')}) \u00b7 still missing ${stillMissing.join(', ')}` }
+  }
+  return { summary: `Contact updated (${filled.join(', ')})` }
 }
 
 // ---------------------------------------------------------------------------

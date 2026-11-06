@@ -55,6 +55,7 @@ import { ResearchAction } from './panels/ResearchAction'
 import { FormAction } from './panels/FormAction'
 import { ServicingAccessAction } from './panels/ServicingAccessAction'
 import { CustomerInteractionAction } from './panels/CustomerInteractionAction'
+import { UnableToCallAction } from './panels/UnableToCallAction'
 import { RecordAttemptPanel } from './panels/RecordAttemptPanel'
 import { HoldingsContext } from './panels/HoldingsContext'
 
@@ -909,7 +910,7 @@ function ProjectOnboardingNote({ project }: { project: { id: string; name: strin
 
 export function StewardshipTask({
   itemId, onBack, hasNextInActivity = false, onAdvanceToNext, onSkip, onComplete, hideBackHeader = false, forceCall = false,
-  forceServicingAccess = false, forceCustomerInteraction = false,
+  forceServicingAccess = false, forceCustomerInteraction = false, forceUnableToCall = false,
 }: {
   itemId: string
   onBack: () => void
@@ -963,6 +964,12 @@ export function StewardshipTask({
    * telephone-calling flow. Due follow-ups surface here as actionable. Every
    * other caller leaves this false, so their behavior is unchanged. */
   forceCustomerInteraction?: boolean
+  /** Drive the People We Can't Call working screen: an active outreach customer
+   * with no usable phone. Renders the research-for-a-phone + authorization
+   * email/postal panel. If a phone is found and saved (so the customer becomes
+   * callable), the screen hands off to the guided call flow right here. Every
+   * other caller leaves this false. */
+  forceUnableToCall?: boolean
 }) {
   const [detail, setDetail] = useState<Detail | null>(null)
   const [busy, setBusy] = useState(false)
@@ -1119,7 +1126,11 @@ export function StewardshipTask({
   // two-column action/context layout, so their behavior is unchanged.
   const introEmail = isIntroductoryEmailActivity(detail)
   const research = detail.queue === 'research-needed'
-  const isWorkingScreen = introEmail || research || forceCall || forceServicingAccess || forceCustomerInteraction
+  const isWorkingScreen = introEmail || research || forceCall || forceServicingAccess || forceCustomerInteraction || forceUnableToCall
+  // On the People We Can't Call screen, a phone found and saved during research
+  // makes the customer callable: hand straight off to the guided call flow so
+  // the worker calls now, instead of the no-phone email/postal panel.
+  const unableToCallWithPhone = forceUnableToCall && !!detail.customer.phone?.trim()
 
   return (
     <TaskChrome chromeless={hideBackHeader}>
@@ -1128,7 +1139,7 @@ export function StewardshipTask({
         // Panel, so give the work column the weight (46/27/27); the customer
         // context and history each take a narrower track. Other working screens
         // keep equal thirds.
-        columns={forceCall ? 'wide-work' : 'even'}
+        columns={(forceCall || unableToCallWithPhone) ? 'wide-work' : 'even'}
         header={hideBackHeader ? null : <SlimTaskHeader onBack={onBack} backLabel="All queues" />}
         action={
           forceServicingAccess ? (
@@ -1144,7 +1155,11 @@ export function StewardshipTask({
           ) : (
             <TaskAction
               detail={detail} request={request} busy={busy} note={note} act={act}
-              hasNextInActivity={hasNextInActivity} forceCall={forceCall}
+              hasNextInActivity={hasNextInActivity}
+              // A phone found on the no-phone screen flips this into the guided
+              // call flow right here.
+              forceCall={forceCall || unableToCallWithPhone}
+              forceUnableToCall={forceUnableToCall && !unableToCallWithPhone}
               onSkip={onSkip}
               onCallSelectionChange={reportCallSelection}
               callNote={callNote}
@@ -1154,7 +1169,7 @@ export function StewardshipTask({
         context={
           <StewardshipContextPanel
             detail={detail} request={request} context={context} busy={busy} act={act}
-            setDetail={setDetail} reload={load} forceCall={forceCall}
+            setDetail={setDetail} reload={load} forceCall={forceCall || unableToCallWithPhone}
             forceCustomerInteraction={forceCustomerInteraction}
             withHistoryColumn={isWorkingScreen}
             // The guided call's live reach decision, lifted through the SAME
@@ -1169,7 +1184,7 @@ export function StewardshipTask({
         }
         history={isWorkingScreen
           ? <StewardshipHistoryColumn
-              detail={detail} forceCall={forceCall} callSelection={callSelection}
+              detail={detail} forceCall={forceCall || unableToCallWithPhone} callSelection={callSelection}
               interactionSelection={interactionSelection}
               forceServicingAccess={forceServicingAccess}
               forceCustomerInteraction={forceCustomerInteraction}
@@ -1587,6 +1602,7 @@ function StewardshipCustomerContact({
  */
 function TaskAction({
   detail, request, busy, note, act, hasNextInActivity = false, forceCall = false,
+  forceUnableToCall = false,
   onSkip, onCallSelectionChange, callNote = '',
 }: {
   detail: Detail
@@ -1601,6 +1617,10 @@ function TaskAction({
   /** Force the guided call flow regardless of the stored queue (the Call
    * Reachable Customers workbench). */
   forceCall?: boolean
+  /** Force the People We Can't Call panel (no-phone research + email/postal).
+   * Only set when the customer has NO phone; once a phone is found the parent
+   * switches to forceCall instead. */
+  forceUnableToCall?: boolean
   /** Skip the open intro-email customer without sending/recording (fast flow). */
   onSkip?: () => void
   /** Report the live guided-call selection up so the history column can preview
@@ -1645,6 +1665,18 @@ function TaskAction({
           onSkip={onSkip}
           onSelectionChange={onCallSelectionChange}
           callNote={callNote}
+        />
+      )
+    }
+    // People We Can't Call: no-phone research + authorization email/postal. Owns
+    // the whole no-phone flow regardless of the stored queue; a phone found here
+    // flips the parent to forceCall (handled above), so this only renders while
+    // there is still no phone.
+    if (forceUnableToCall) {
+      return (
+        <UnableToCallAction
+          detail={detail} request={request} name={name} busy={busy} act={act}
+          hasNextInActivity={hasNextInActivity} onSkip={onSkip}
         />
       )
     }

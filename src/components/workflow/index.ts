@@ -89,7 +89,9 @@ export {
   AssistantPanel,
 } from './panels'
 
-export { GatewayLookup } from './GatewayLookup'
+export { ContactSearch } from './ContactSearch'
+export { GatewaySearchSource } from './GatewaySearchSource'
+export { FastPeopleSearchSource } from './FastPeopleSearchSource'
 
 export { DoneSkipActions } from './DoneSkipActions'
 

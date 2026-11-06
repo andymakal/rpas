@@ -19,7 +19,7 @@ import { loadHandsOffCustomerIds } from '@/lib/customers/other-specialist'
  * subset of Ready to Email. Each opens EXACTLY the customers My Work counted,
  * gated by the same capability + claim rules.
  */
-type PopulationFilter = 'calls-due' | 'introductory-emails' | 'servicing-access' | 'customer-interaction' | 'declined'
+type PopulationFilter = 'calls-due' | 'introductory-emails' | 'servicing-access' | 'customer-interaction' | 'declined' | 'unable-to-call'
 
 /**
  * GET /api/stewardship
@@ -59,7 +59,8 @@ export async function GET(request: NextRequest) {
     populationParam === 'introductory-emails' ||
     populationParam === 'servicing-access' ||
     populationParam === 'customer-interaction' ||
-    populationParam === 'declined'
+    populationParam === 'declined' ||
+    populationParam === 'unable-to-call'
       ? populationParam
       : null
 
@@ -697,6 +698,14 @@ export async function GET(request: NextRequest) {
     pop === 'introductory-emails' ? it.is_intro_email === true
       : pop === 'servicing-access' ? it.servicing_access === true
       : pop === 'customer-interaction' ? it.customer_interaction === true
+      // Unable to call: an active outreach customer with NO usable phone, who is
+      // not already in an engaged conversation (that is Customer Interaction) and
+      // is not a servicing-access item. These are the dead-end-for-calling
+      // customers the "People We Can't Call" surface works: find a phone to drop
+      // them back into calling, otherwise reach them by email/postal mail.
+      // Refused/decided are already excluded from `items` upstream.
+      : pop === 'unable-to-call'
+        ? !it.customer?.phone?.trim() && it.customer_interaction !== true && it.servicing_access !== true
       : it.call_population === pop
 
   // The caller's actionable items for a requested population: in that population,
@@ -759,12 +768,14 @@ export async function GET(request: NextRequest) {
         'introductory-emails': items.filter(it => isActionableToMe(it, 'introductory-emails')).length,
         'servicing-access': items.filter(it => isActionableToMe(it, 'servicing-access')).length,
         'customer-interaction': items.filter(it => isActionableToMe(it, 'customer-interaction')).length,
+        'unable-to-call': items.filter(it => isActionableToMe(it, 'unable-to-call')).length,
       }
     : {
         'calls-due': items.filter(it => it.call_population === 'calls-due').length,
         'introductory-emails': items.filter(it => it.is_intro_email === true).length,
         'servicing-access': items.filter(it => it.servicing_access === true).length,
         'customer-interaction': items.filter(it => it.customer_interaction === true).length,
+        'unable-to-call': items.filter(it => inPopulation(it, 'unable-to-call')).length,
       }
 
   // Last recorded interaction, for the Customer Interaction relationship list.
