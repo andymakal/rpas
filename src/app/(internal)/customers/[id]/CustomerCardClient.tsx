@@ -21,6 +21,7 @@ import { fmtDate } from '@/lib/fmt'
 import { formatPhone } from '@/lib/format-phone'
 import { CustomerSearch } from '@/components/CustomerSearch'
 import { FactFinderSection } from './FactFinderSection'
+import { OTHER_SPECIALIST_LABELS, requiresSpecialist, type OtherSpecialistStatus } from '@/lib/customers/other-specialist'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1236,6 +1237,21 @@ export function CustomerCardClient({
                     >
                       My Money
                     </button>
+
+                    {/* Other financial specialist (read-only). Shown only when another
+                        EFS is named: Life Authorized (informational) or Hands Off. */}
+                    {requiresSpecialist(customer.other_specialist_status) && (
+                      <span
+                        className={`inline-flex items-center text-xs border rounded-full px-2.5 py-0.5 font-medium ${
+                          customer.other_specialist_status === 'hands_off'
+                            ? 'bg-red-900/40 text-red-300 border-red-800'
+                            : 'bg-amber-900/40 text-amber-300 border-amber-800'
+                        }`}
+                      >
+                        {OTHER_SPECIALIST_LABELS[customer.other_specialist_status as OtherSpecialistStatus]}
+                        {customer.financial_specialists?.name ? `: ${customer.financial_specialists.name}` : ''}
+                      </span>
+                    )}
 
                     </div>{/* end flex row */}
                   </div>

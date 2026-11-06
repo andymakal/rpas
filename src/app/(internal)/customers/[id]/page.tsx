@@ -59,6 +59,9 @@ export type CustomerDetail = {
   is_former_client: boolean
   is_prospect:     boolean
   is_emoney_client: boolean
+  other_specialist_status: string
+  /** The named other EFS (customers.other_specialist_id -> financial_specialists). */
+  financial_specialists: { name: string } | null
 }
 
 export type LinkedCase = {
@@ -161,7 +164,9 @@ export default async function CustomerCardPage({
       customer_group_id, segment, drive_folder_url,
       fact_finder, fact_finder_verified_at, fact_finder_verified_by,
       phone_verified_at, email_verified_at, address_verified_at,
-      is_deceased, is_former_client, is_prospect, is_emoney_client
+      is_deceased, is_former_client, is_prospect, is_emoney_client,
+      other_specialist_status,
+      financial_specialists ( name )
     `)
     .eq('id', id)
     .single()
@@ -406,7 +411,7 @@ export default async function CustomerCardPage({
 
   return (
     <CustomerCardClient
-      customer={customer as CustomerDetail}
+      customer={customer as unknown as CustomerDetail}
       cases={(cases ?? []) as unknown as LinkedCase[]}
       policies={policies}
       pendingCasePolicies={pendingCasePolicies}
