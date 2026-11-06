@@ -666,7 +666,9 @@ export function ReferralEditClient({
   const agencyName     = displayAgencyName
   const agentFirstName = referral.agents?.first_name ?? 'there'
   const agentEmail     = referral.agents?.email ?? null
-  const agencyEmail    = referral.agencies?.contact_email ?? null
+  const agencyEmail    = (referral.agencies?.use_manager_for_lsp_email && referral.agencies?.manager_email)
+    ? referral.agencies.manager_email
+    : referral.agencies?.contact_email ?? null
   const isOwner        = referral.is_owner_referral
 
   const rewarmDaysElapsed = referral.created_at

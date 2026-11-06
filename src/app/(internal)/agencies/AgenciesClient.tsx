@@ -27,6 +27,9 @@ type EditState = {
   slug:                   string
   parent_agency_id:       string
   is_securities_licensed: boolean
+  manager_name:              string
+  manager_email:             string
+  use_manager_for_lsp_email: boolean
 }
 
 type RowStatus = 'idle' | 'saving' | 'saved' | 'error'
@@ -49,6 +52,9 @@ function toEdit(a: AgencyRow): EditState {
     slug:                   a.slug,
     parent_agency_id:       a.parent_agency_id ?? '',
     is_securities_licensed: a.is_securities_licensed,
+    manager_name:              a.manager_name ?? '',
+    manager_email:             a.manager_email ?? '',
+    use_manager_for_lsp_email: a.use_manager_for_lsp_email,
   }
 }
 
@@ -102,7 +108,10 @@ function isDirty(a: AgencyRow, e: EditState) {
     (e.portal_pin     || null) !== (a.portal_pin     ?? null) ||
     e.slug                     !== a.slug                     ||
     (e.parent_agency_id || null) !== (a.parent_agency_id ?? null) ||
-    e.is_securities_licensed   !== a.is_securities_licensed
+    e.is_securities_licensed   !== a.is_securities_licensed   ||
+    (e.manager_name  || null) !== (a.manager_name  ?? null) ||
+    (e.manager_email || null) !== (a.manager_email ?? null) ||
+    e.use_manager_for_lsp_email !== a.use_manager_for_lsp_email
   )
 }
 
@@ -176,6 +185,9 @@ export function AgenciesClient({ agencies, teams }: Props) {
         slug:                   edit.slug,
         parent_agency_id:       edit.parent_agency_id || null,
         is_securities_licensed: edit.is_securities_licensed,
+        manager_name:              edit.manager_name  || null,
+        manager_email:             edit.manager_email || null,
+        use_manager_for_lsp_email: edit.use_manager_for_lsp_email,
       }),
     })
 
@@ -787,6 +799,43 @@ export function AgenciesClient({ agencies, teams }: Props) {
                               </select>
                               <p className="text-xs text-slate-600 mt-1">Data from this agency rolls up into the parent&apos;s portal.</p>
                             </div>
+                          </div>
+
+                          {/* Agency Manager / LSP re-warm routing */}
+                          <div className="col-span-8 border-t border-slate-700/50 pt-3">
+                            <label className="flex items-center gap-2 cursor-pointer w-fit">
+                              <input
+                                type="checkbox"
+                                checked={edit?.use_manager_for_lsp_email ?? false}
+                                onChange={e => update(agency.id, 'use_manager_for_lsp_email', e.target.checked)}
+                                className="w-3.5 h-3.5 accent-indigo-500"
+                              />
+                              <span className="text-xs text-slate-400">Route LSP Re-Warm emails to Agency Manager instead of owner</span>
+                            </label>
+                            {edit?.use_manager_for_lsp_email && (
+                              <div className="mt-2 flex gap-3">
+                                <div className="flex-1">
+                                  <label className="text-xs text-slate-500 mb-1 block">Manager Name</label>
+                                  <input
+                                    type="text"
+                                    value={edit?.manager_name ?? ''}
+                                    onChange={e => update(agency.id, 'manager_name', e.target.value)}
+                                    placeholder="Jane Smith"
+                                    className={INPUT}
+                                  />
+                                </div>
+                                <div className="flex-1">
+                                  <label className="text-xs text-slate-500 mb-1 block">Manager Email</label>
+                                  <input
+                                    type="email"
+                                    value={edit?.manager_email ?? ''}
+                                    onChange={e => update(agency.id, 'manager_email', e.target.value)}
+                                    placeholder="manager@agency.com"
+                                    className={INPUT}
+                                  />
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                       </td>

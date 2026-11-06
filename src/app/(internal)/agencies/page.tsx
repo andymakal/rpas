@@ -25,6 +25,9 @@ export type AgencyRow = {
   portal_pin:             string | null
   parent_agency_id:       string | null
   is_securities_licensed: boolean
+  manager_name:              string | null
+  manager_email:             string | null
+  use_manager_for_lsp_email: boolean
 }
 
 export type SmlTeamOption = { id: string; code: string; display_name: string }
@@ -35,7 +38,7 @@ export default async function AgenciesPage() {
   const [{ data: agencies }, { data: teams }] = await Promise.all([
     supabase
       .from('agencies')
-      .select('id, name, display_name, slug, is_active, sml_team_id, sml_teams(display_name), agent_number, allstate_partner_number, contact_phone, contact_email, contact_street, contact_city, contact_state, contact_zip, portal_pin, parent_agency_id, is_securities_licensed')
+      .select('id, name, display_name, slug, is_active, sml_team_id, sml_teams(display_name), agent_number, allstate_partner_number, contact_phone, contact_email, contact_street, contact_city, contact_state, contact_zip, portal_pin, parent_agency_id, is_securities_licensed, manager_name, manager_email, use_manager_for_lsp_email')
       .eq('is_test', false)
       .order('name'),
     supabase
@@ -64,6 +67,9 @@ export default async function AgenciesPage() {
     portal_pin:             a.portal_pin as string | null,
     parent_agency_id:       a.parent_agency_id as string | null,
     is_securities_licensed: (a.is_securities_licensed as boolean) ?? false,
+    manager_name:              a.manager_name as string | null,
+    manager_email:             a.manager_email as string | null,
+    use_manager_for_lsp_email: (a.use_manager_for_lsp_email as boolean) ?? false,
   }))
 
   return (
