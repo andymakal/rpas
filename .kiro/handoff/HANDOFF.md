@@ -828,9 +828,10 @@ Open follow-ups (delete this section when all are settled):
    run failed at dry-run: the `Production` GitHub Environment has no
    `SUPABASE_DB_URL_PRODUCTION` secret (nothing applied). A repo owner/admin
    must add it, then re-run the workflow (target=production), or Bob records
-   the ledger row via SQL editor as before. Deploy note: `vercel deploy` needs
-   `--scope makal-financial-services-llc` (the default scope is Bob's personal
-   team and returns "Not authorized").
+   the ledger row via SQL editor as before. Deploy note: one `vercel deploy`
+   returned "Not authorized" on 2026-11-06 and did not repeat (the CLI default
+   scope is already the Makal team, so no `--scope` is needed). Cause unknown;
+   if it recurs, retry once, then check `vercel whoami` / re-login.
 1. ANDY'S premium-mode migration: main now carries it as
    `20261130000002_premium_mode_modal_factor.sql` (renamed only; content
    unchanged). Prod has his column + values but NO ledger row and NO column
