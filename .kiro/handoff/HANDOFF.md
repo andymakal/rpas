@@ -813,10 +813,24 @@ by these 11 commits.
 dpl_3j6UYntvq9U2DVfBdn59cD4nps2c Ready on www.therightpathagency.com. Prod DB
 migration `20261201000001` applied by Bob via SQL editor + ledger row (prod
 ledger 124, max 20261201000001). development merged with main (in sync).
-No restriction data populated (0 specialists, 0 restricted) - Bob fills it.
+UPDATE 2026-11-06: four statuses now (unknown, clear, life_authorized,
+hands_off). life_authorized and hands_off both require a named specialist; only
+hands_off restricts. The specialist chip shows read-only on the customer card
+(`customers/[id]`). Shipped to dev and prod (PR #37). Prod data was populated
+by hand (68 life_authorized, 144 hands_off, 11,371 unknown; verified live).
+There is NO picker/save route for the status yet: it is set in the database
+only. Build one if staff need to edit it.
 Rule module: `src/lib/customers/other-specialist.ts`.
 
-Open follow-ups (delete this section when both are settled):
+Open follow-ups (delete this section when all are settled):
+0. Prod ledger lacks `20261202000001` (the life_authorized migration; schema is
+   already live in prod, the file is an idempotent no-op). The prod workflow
+   run failed at dry-run: the `Production` GitHub Environment has no
+   `SUPABASE_DB_URL_PRODUCTION` secret (nothing applied). A repo owner/admin
+   must add it, then re-run the workflow (target=production), or Bob records
+   the ledger row via SQL editor as before. Deploy note: `vercel deploy` needs
+   `--scope makal-financial-services-llc` (the default scope is Bob's personal
+   team and returns "Not authorized").
 1. ANDY'S premium-mode migration: main now carries it as
    `20261130000002_premium_mode_modal_factor.sql` (renamed only; content
    unchanged). Prod has his column + values but NO ledger row and NO column
