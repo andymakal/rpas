@@ -3,15 +3,16 @@
  * is off limits because they already work with another active financial
  * specialist.
  *
- * Three states (same shape as service_policies.sa_status):
- *   unknown    never checked (the default for every customer)
- *   clear      checked, fair game
- *   hands_off  do not touch
+ * Four states:
+ *   unknown          never checked (the default for every customer)
+ *   clear            checked, no other EFS ("No Other EFS")
+ *   life_authorized  another EFS exists but life work is authorized (informational)
+ *   hands_off        another EFS exists, do not touch
  *
- * ONLY hands_off restricts anything. unknown must stay workable or all
- * outreach would stop. A hands_off customer always carries a specialist
+ * ONLY hands_off restricts anything. unknown and life_authorized must stay
+ * workable. life_authorized and hands_off always carry a named specialist
  * (customers.other_specialist_id), enforced by a database check constraint, so
- * nobody is excluded without a specific reason.
+ * nothing is flagged without a specific reason. unknown and clear carry none.
  *
  * Every consumer reads the restriction through these functions. Do not compare
  * the status string elsewhere.
@@ -19,18 +20,32 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-export const OTHER_SPECIALIST_STATUSES = ['unknown', 'clear', 'hands_off'] as const
+export const OTHER_SPECIALIST_STATUSES = ['unknown', 'clear', 'life_authorized', 'hands_off'] as const
 export type OtherSpecialistStatus = (typeof OTHER_SPECIALIST_STATUSES)[number]
 
-/** True when the customer must be left alone. Null/unknown/clear are workable. */
+/** Operator-facing label for each selection. */
+export const OTHER_SPECIALIST_LABELS: Record<OtherSpecialistStatus, string> = {
+  unknown: 'Unknown',
+  clear: 'No Other EFS',
+  life_authorized: 'Other EFS \u2014 Life Authorized',
+  hands_off: 'Other EFS \u2014 Hands Off',
+}
+
+/** True when the customer must be left alone. Only hands_off restricts. */
 export function isHandsOff(status: string | null | undefined): boolean {
   return status === 'hands_off'
 }
 
+/** True when the status names another specialist (life_authorized, hands_off). */
+export function requiresSpecialist(status: string | null | undefined): boolean {
+  return status === 'life_authorized' || status === 'hands_off'
+}
+
 /**
- * Validate a status change before it is written. hands_off needs a specialist;
- * unknown and clear must not carry one (mirrors the database constraint so the
- * caller gets a readable reason instead of a constraint error).
+ * Validate a status change before it is written. life_authorized and hands_off
+ * need a named specialist; unknown and clear must not carry one (mirrors the
+ * database constraint so the caller gets a readable reason instead of a
+ * constraint error).
  */
 export function validateOtherSpecialist(
   status: string,
@@ -39,11 +54,11 @@ export function validateOtherSpecialist(
   if (!(OTHER_SPECIALIST_STATUSES as readonly string[]).includes(status)) {
     return { ok: false, reason: 'Unrecognized status.' }
   }
-  if (status === 'hands_off' && !specialistId) {
-    return { ok: false, reason: 'A hands-off customer needs the specialist they work with.' }
+  if (requiresSpecialist(status) && !specialistId) {
+    return { ok: false, reason: 'This selection needs the named financial specialist.' }
   }
-  if (status !== 'hands_off' && specialistId) {
-    return { ok: false, reason: 'Only a hands-off customer is tied to a specialist.' }
+  if (!requiresSpecialist(status) && specialistId) {
+    return { ok: false, reason: 'Only a life-authorized or hands-off customer is tied to a specialist.' }
   }
   return { ok: true }
 }
