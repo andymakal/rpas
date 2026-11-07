@@ -112,17 +112,29 @@ async function promoteCaseToPolicy(
   const productType = abbrevProductType(product?.product_types?.name ?? null)
     ?? (c as unknown as Record<string, unknown>).quoted_product_type as string | null
 
-  // One service_policy per case (unique index on source_case_id enforces this)
-  const { data: existing } = await supabase
+  // Find existing: first by source_case_id (ideal), then by policy_number + customer
+  // (handles records created before the case was placed, or manually imported).
+  let { data: existing } = await supabase
     .from('service_policies')
     .select('id')
     .eq('source_case_id', caseId)
     .maybeSingle()
 
+  if (!existing) {
+    const { data: byNumber } = await supabase
+      .from('service_policies')
+      .select('id')
+      .eq('policy_number', c.policy_number!.trim())
+      .eq('customer_id', c.customer_id)
+      .maybeSingle()
+    existing = byNumber
+  }
+
   if (existing) {
     await supabase
       .from('service_policies')
       .update({
+        source_case_id: caseId,
         policy_number:  c.policy_number,
         face_amount:    c.face_amount    ?? null,
         annual_premium: c.annual_premium ?? null,
