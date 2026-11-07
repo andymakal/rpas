@@ -99,6 +99,7 @@ export type LinkedPolicy = {
   premium_mode:        string | null
   pay_period:          string | null
   rate_class:          string | null
+  term_length:         string | null
   coverage_status:     string
   sa_status:           string
   sa_form_sent_at:     string | null
@@ -247,6 +248,7 @@ export default async function CustomerCardPage({
     premium_mode:        (p as unknown as Record<string, unknown>).premium_mode as string | null ?? null,
     pay_period:          (p as unknown as Record<string, unknown>).pay_period as string | null ?? null,
     rate_class:          (p as unknown as Record<string, unknown>).rate_class as string | null ?? null,
+    term_length:         (p as unknown as Record<string, unknown>).term_length as string | null ?? null,
     coverage_status:     p.coverage_status,
     sa_status:           p.sa_status,
     sa_form_sent_at:     p.sa_form_sent_at,
@@ -327,7 +329,7 @@ export default async function CustomerCardPage({
   let serviceRequests: LinkedServiceRequest[] = []
   let policyReviews:   LinkedReview[]         = []
 
-  const [srResult, reviewResult, producerResult] = await Promise.all([
+  const [srResult, reviewResult, producerResult, rateClassResult] = await Promise.all([
     supabase
       .from('service_requests')
       .select('id, sr_number, request_type, workflow_status, date_received, service_policies ( policy_number, client_name )')
@@ -345,6 +347,10 @@ export default async function CustomerCardPage({
       .select('id, first_name, last_name')
       .eq('is_active', true)
       .order('first_name'),
+    supabase
+      .from('rate_classes')
+      .select('id, name')
+      .order('name'),
   ])
 
   // These three drive servicing, review, and assignment UI. A failed read must
@@ -424,6 +430,7 @@ export default async function CustomerCardPage({
       householdMembers={householdMembers}
       onboarding={onboarding}
       researchAgainProjectId={researchAgainPid}
+      rateClasses={(rateClassResult.data ?? []) as { id: string; name: string }[]}
     />
   )
 }

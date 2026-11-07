@@ -26,7 +26,7 @@ function calcAP(amount: number | null, mode: string | null): number | null {
   if (m === 'single') return null
   if (m === 'semi-annual') return amount * 2
   if (m === 'quarterly')   return amount * 4
-  if (m === 'monthly' || m === 'eft monthly') return amount * 12
+  if (m === 'monthly eft' || m === 'eft monthly' || m === 'monthly') return amount * 12
   return null // annual → no separate AP line needed
 }
 
@@ -161,7 +161,7 @@ function CategoryFieldsView({
       {sf.cost_basis && <Row label={sf.cost_basis} value={fmt(policy.cost_basis)} />}
       {sf.annual_premium && policy.annual_premium != null && (() => {
         const mLow  = (policy.premium_mode ?? 'annual').toLowerCase().trim()
-        const short: Record<string, string> = { annual: '/yr', 'semi-annual': '/semi', quarterly: '/qtr', monthly: '/mo', 'eft monthly': '/mo', single: '' }
+        const short: Record<string, string> = { annual: '/yr', 'semi-annual': '/semi', quarterly: '/qtr', 'monthly eft': '/mo', 'eft monthly': '/mo', monthly: '/mo', single: '' }
         const ap    = calcAP(policy.annual_premium, policy.premium_mode ?? null)
         return (
           <Row label="Billed Premium" value={
@@ -275,7 +275,7 @@ function CategoryFieldsEdit({
           <label className="block text-xs text-slate-500 mb-1">{sf.premium_mode}</label>
           <select value={editFields.premium_mode} onChange={ef('premium_mode')} className={selectCls}>
             <option value="">—</option>
-            {['Annual','Semi-Annual','Quarterly','Monthly','EFT Monthly'].map(m => (
+            {['Annual','Semi-Annual','Quarterly','Monthly EFT'].map(m => (
               <option key={m} value={m}>{m}</option>
             ))}
           </select>
@@ -756,7 +756,7 @@ export function PolicyDetailClient({
                         <label className="block text-xs text-slate-500 mb-1">Premium Mode</label>
                         <select value={editFields.premium_mode} onChange={ef('premium_mode')} className={selectCls}>
                           <option value="">—</option>
-                          {['Annual','Semi-Annual','Quarterly','Monthly','EFT Monthly'].map(m => (
+                          {['Annual','Semi-Annual','Quarterly','Monthly EFT'].map(m => (
                             <option key={m} value={m}>{m}</option>
                           ))}
                         </select>

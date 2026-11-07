@@ -123,7 +123,7 @@ function calcAP(amount: string, mode: string): number | null {
   if (m === 'single') return null
   if (m === 'semi-annual') return n * 2
   if (m === 'quarterly')   return n * 4
-  if (m === 'monthly' || m === 'eft monthly') return n * 12
+  if (m === 'monthly eft' || m === 'eft monthly' || m === 'monthly') return n * 12
   return null // annual → no separate AP line needed
 }
 
@@ -1043,7 +1043,7 @@ export function FactFinderSection({
                     </div>
                     <div><label className="block text-xs text-slate-500 mb-1">Billing mode</label>
                       <select value={p.billing_mode} onChange={e => setPolicy(i, 'billing_mode', e.target.value)} className={inpSm}>
-                        {['Annual','Semi-Annual','Quarterly','Monthly','EFT Monthly','Single'].map(m => <option key={m} value={m}>{m}</option>)}
+                        {['Annual','Semi-Annual','Quarterly','Monthly EFT','Single'].map(m => <option key={m} value={m}>{m}</option>)}
                       </select>
                     </div>
                     <div><label className="block text-xs text-slate-500 mb-1">Pay period</label>
