@@ -1657,7 +1657,11 @@ export function CustomerCardClient({
                             {c.agencies?.display_name ?? c.agencies?.name ?? '—'}
                           </p>
                         </td>
-                        <td className="px-4 py-3 font-mono text-slate-600 text-xs">—</td>
+                        <td className="px-4 py-3 font-mono text-xs">
+                          {c.policy_number
+                            ? <span className="text-slate-300">{c.policy_number}</span>
+                            : <span className="text-slate-600">—</span>}
+                        </td>
                         <td className="px-4 py-3">
                           {ptype
                             ? <TypeBadge type={ptype} />
@@ -1668,7 +1672,7 @@ export function CustomerCardClient({
                         </td>
                         <td className="px-4 py-3">
                           <span className="inline-flex items-center gap-1 text-xs bg-amber-900/40 text-amber-300 px-1.5 py-0.5 rounded-full">
-                            Placed — no policy #
+                            {c.policy_number ? 'Placed — add policy record above' : 'Placed — no policy #'}
                           </span>
                         </td>
                         <td className="px-4 py-3" />
@@ -1676,7 +1680,7 @@ export function CustomerCardClient({
                           <Link
                             href={`/cases/${c.id}`}
                             className="flex items-center justify-end text-amber-600 hover:text-amber-400 transition-colors"
-                            title="Open case to add policy number"
+                            title={c.policy_number ? 'Open case' : 'Open case to add policy number'}
                           >
                             <ChevronRight className="w-4 h-4" />
                           </Link>
