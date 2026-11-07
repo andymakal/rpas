@@ -17,6 +17,7 @@ export type CustomerRow = {
   is_former_client: boolean
   is_prospect: boolean
   source_client_id: string | null
+  customer_number: string | null
   date_of_birth: string | null
   created_at: string
   policy_count: number

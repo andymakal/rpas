@@ -60,6 +60,7 @@ export type CustomerDetail = {
   is_prospect:     boolean
   is_emoney_client: boolean
   other_specialist_status: string
+  customer_number: string | null
   /** The named other EFS (customers.other_specialist_id -> financial_specialists). */
   financial_specialists: { name: string } | null
 }
@@ -166,7 +167,7 @@ export default async function CustomerCardPage({
       fact_finder, fact_finder_verified_at, fact_finder_verified_by,
       phone_verified_at, email_verified_at, address_verified_at,
       is_deceased, is_former_client, is_prospect, is_emoney_client,
-      other_specialist_status,
+      other_specialist_status, customer_number,
       financial_specialists ( name )
     `)
     .eq('id', id)

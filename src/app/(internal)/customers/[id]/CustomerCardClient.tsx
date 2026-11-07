@@ -1150,9 +1150,14 @@ export function CustomerCardClient({
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h1 className="text-white text-xl font-semibold leading-tight">
-                      {displayFirst} {displayLast}
-                    </h1>
+                    <div className="flex items-baseline gap-2">
+                      <h1 className="text-white text-xl font-semibold leading-tight">
+                        {displayFirst} {displayLast}
+                      </h1>
+                      {customer.customer_number && (
+                        <span className="text-xs text-slate-500 font-mono">{customer.customer_number}</span>
+                      )}
+                    </div>
 
                     {/* Segment + Status controls */}
                     <div className="flex items-center gap-3 mt-1.5">
