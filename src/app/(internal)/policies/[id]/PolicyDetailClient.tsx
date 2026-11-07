@@ -7,7 +7,7 @@ import { formatPhoneDisplay } from '@/lib/contact-input'
 import {
   ArrowLeft, CheckCircle, ShieldOff, FileQuestion, Send,
   AlertTriangle, ChevronRight, X, Building2, User,
-  Link2, Link2Off, ClipboardList, Pencil, Save,
+  Link2, Link2Off, ClipboardList, Pencil, Save, Plus,
 } from 'lucide-react'
 import { CustomerSearch } from '@/components/CustomerSearch'
 import type { PolicyDetail, PolicyReviewRow, RateClassOption } from './page'
@@ -17,6 +17,13 @@ import {
   type PolicyCategory, type CategoryConfig, type TypeDataField,
 } from '@/lib/policy/categories'
 import { fmtDate } from '@/lib/fmt'
+
+const SR_TYPES = [
+  'Billing Issue', 'Change Payment Info', 'Beneficiary Change',
+  'Statement of Insurance', 'Address Update', 'Lapse / Reinstatement',
+  'Claims Assistance', 'General Coverage Question',
+  'Policy Review', 'Policy Surrender', 'Other',
+]
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -495,6 +502,10 @@ export function PolicyDetailClient({
   const [agencySaving,  setAgencySaving]  = useState(false)
   const [err,           setErr]           = useState<string | null>(null)
   const [queuingReview, setQueuingReview] = useState(false)
+  const [srModalOpen,   setSrModalOpen]   = useState(false)
+  const [srType,        setSrType]        = useState('')
+  const [srNotes,       setSrNotes]       = useState('')
+  const [creatingSr,    setCreatingSr]    = useState(false)
 
   // ── PATCH helper ──────────────────────────────────────────────────────────────
   async function patchPolicy(fields: Record<string, unknown>) {
@@ -584,6 +595,29 @@ export function PolicyDetailClient({
     finally { setQueuingReview(false) }
   }
 
+  // ── New Service Request ───────────────────────────────────────────────────────
+  async function handleCreateSR() {
+    if (!srType) { setErr('Please select a request type'); return }
+    setCreatingSr(true); setErr(null)
+    try {
+      const res  = await fetch('/api/service-requests', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          policy_id:    initial.id,
+          request_type: srType,
+          notes:        srNotes.trim() || undefined,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to create service request')
+      setSrModalOpen(false)
+      setSrType(''); setSrNotes('')
+      router.push(`/service/${json.data.id}`)
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Failed to create service request') }
+    finally { setCreatingSr(false) }
+  }
+
   // ── Derived ───────────────────────────────────────────────────────────────────
   const currentAgency = agencies.find(a => a.id === agencyId)
   const hasOpenReview = reviews.some(r => ['prep', 'scheduled', 'in_progress'].includes(r.status))
@@ -618,6 +652,13 @@ export function PolicyDetailClient({
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => { setSrModalOpen(true); setErr(null) }}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              New Service Request
+            </button>
             {editing ? (
               <>
                 <button
@@ -1049,6 +1090,84 @@ export function PolicyDetailClient({
         </div>
 
       </div>
+
+      {/* New Service Request Modal */}
+      {srModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60"
+          onClick={() => setSrModalOpen(false)}
+        >
+          <div
+            className="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md p-6 space-y-4 shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between">
+              <h2 className="text-white font-semibold text-sm">New Service Request</h2>
+              <button onClick={() => setSrModalOpen(false)} className="text-slate-500 hover:text-slate-300">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="space-y-0.5">
+              <p className="text-xs text-slate-500 font-mono">{initial.policy_number}</p>
+              {customerName && <p className="text-xs text-slate-500">{customerName}</p>}
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">
+                  Request Type <span className="text-red-400">*</span>
+                </label>
+                <select
+                  value={srType}
+                  onChange={e => setSrType(e.target.value)}
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none focus:border-slate-500"
+                >
+                  <option value="">— Select type —</option>
+                  {SR_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Notes (optional)</label>
+                <textarea
+                  value={srNotes}
+                  onChange={e => setSrNotes(e.target.value)}
+                  rows={3}
+                  placeholder="Add any relevant details…"
+                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-slate-500 resize-none"
+                />
+              </div>
+            </div>
+
+            {err && (
+              <p className="text-xs text-red-400 flex items-center gap-1.5">
+                <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                {err}
+              </p>
+            )}
+
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                onClick={() => { setSrModalOpen(false); setErr(null) }}
+                className="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 border border-slate-700 text-slate-400 hover:text-slate-200 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleCreateSR}
+                disabled={creatingSr || !srType}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                style={{ backgroundColor: '#1F3864' }}
+              >
+                <Plus className="w-3.5 h-3.5" />
+                {creatingSr ? 'Creating…' : 'Create SR'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }
