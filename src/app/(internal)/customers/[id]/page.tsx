@@ -226,10 +226,18 @@ export default async function CustomerCardPage({
       .map(p => (p as { source_case_id?: string | null }).source_case_id)
       .filter((x): x is string => Boolean(x))
   )
+  // Also clear the amber row when a service_policy with the same policy number already exists
+  // (covers policies added manually via the Add form, which don't set source_case_id).
+  const policiedNumbers = new Set(
+    (policiesRaw ?? [])
+      .map(p => p.policy_number?.trim().toUpperCase())
+      .filter((x): x is string => Boolean(x))
+  )
   const pendingCasePolicies = ((cases ?? []) as unknown as LinkedCase[])
     .filter(c =>
       (c.internal_status === 'placed' || Boolean(c.placed_at)) &&
-      !policiedCaseIds.has(c.id)
+      !policiedCaseIds.has(c.id) &&
+      !(c.policy_number && policiedNumbers.has(c.policy_number.trim().toUpperCase()))
     )
 
   const TERMINAL_STATUSES = new Set([
