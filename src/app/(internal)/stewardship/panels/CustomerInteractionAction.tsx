@@ -13,10 +13,11 @@ import {
   Mail, Phone, MessageSquare, Inbox, ExternalLink, Clock, Check, FileText, Hand, ArrowLeft,
 } from 'lucide-react'
 import { ActionPanel, WorkflowButton, Divider } from '@/components/workflow'
+import { ServicingFormDelivery } from './ServicingFormDelivery'
 import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { type InteractionSelection } from '@/lib/stewardship/customer-history'
-import type { Detail } from '../types'
+import type { Detail, Holding } from '../types'
 import { fullName } from '../shared'
 
 const INTERACTION_CHANNELS: { id: 'email' | 'call' | 'text'; label: string; icon: typeof Mail }[] = [
@@ -26,9 +27,11 @@ const INTERACTION_CHANNELS: { id: 'email' | 'call' | 'text'; label: string; icon
 ]
 
 export function CustomerInteractionAction({
-  detail, busy, note, act, reload, onAdvanceToNext, onSelectionChange,
+  detail, request, busy, note, act, reload, onAdvanceToNext, onSelectionChange,
 }: {
   detail: Detail
+  /** The request policies the authorization form covers. */
+  request: Holding[]
   busy: boolean
   note: string | null
   act: (action: unknown, successNote?: string, opts?: { advanceToNext?: boolean }) => void
@@ -63,7 +66,14 @@ export function CustomerInteractionAction({
   // preview switch to the follow-up after a communication was composed, and back
   // to the communication if they return to editing it. Null until the first
   // interaction, where the default compose preview applies.
-  const [activeGroup, setActiveGroup] = useState<'communication' | 'follow-up' | null>(null)
+  const [activeGroup, setActiveGroup] = useState<'communication' | 'form' | 'follow-up' | null>(null)
+  // Live state of the (re)send-the-form unit, reported up by ServicingFormDelivery
+  // so the preview describes exactly what confirming will record. `formKey` remounts
+  // the unit after a send so it can be used again (a second resend) from a clean state.
+  const [formMethod, setFormMethod] = useState<'email' | 'postal'>(detail.form_delivery_method ?? 'email')
+  const [formAlreadyHeld, setFormAlreadyHeld] = useState(false)
+  const [formGenerated, setFormGenerated] = useState(false)
+  const [formKey, setFormKey] = useState(0)
 
   // Awaiting the signed authorization: the form was SENT but not yet returned
   // (waiting-for-form with no recorded receipt). Such a customer is still in
@@ -144,6 +154,10 @@ export function CustomerInteractionAction({
       onSelectionChange({ kind: 'follow-up', date: followUpDate || null })
       return
     }
+    if (activeGroup === 'form') {
+      onSelectionChange({ kind: 'form', method: formMethod, alreadyHeld: formAlreadyHeld, generated: formGenerated })
+      return
+    }
     if (activeGroup === 'communication') {
       onSelectionChange(communicationPreview())
       return
@@ -152,7 +166,7 @@ export function CustomerInteractionAction({
     // communication, so preview that default compose selection.
     onSelectionChange(communicationPreview())
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onSelectionChange, resolveIntent, activeGroup, incoming, automated, channel, notes, followUpDate])
+  }, [onSelectionChange, resolveIntent, activeGroup, incoming, automated, channel, notes, followUpDate, formMethod, formAlreadyHeld, formGenerated])
 
   const ChannelIcon = INTERACTION_CHANNELS.find(c => c.id === channel)?.icon ?? Mail
   const noteBox = (note || localNote) && (
@@ -260,6 +274,47 @@ export function CustomerInteractionAction({
         <WorkflowButton icon={ChannelIcon} selected disabled={recBusy || busy} onClick={() => void recordCommunication()}>
           {recBusy ? 'Recording…' : incoming ? 'Record incoming response' : 'Record outgoing reply'}
         </WorkflowButton>
+      </div>
+
+      {/* Send (or re-send) the servicing-agent authorization form. The customer
+          may have lost the introductory email, or replied "yes, send it" by
+          voicemail/email/text, so the same form-delivery unit used on the call
+          screen is available here at any point in the conversation. Confirming
+          records the send in Customer History (form-sent) and leaves the
+          customer on this screen; for a customer already waiting on the signed
+          form it only logs the send and never moves them backward. */}
+      <div
+        className="space-y-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4"
+        onFocusCapture={() => setActiveGroup('form')}
+        onPointerDownCapture={() => setActiveGroup('form')}
+      >
+        <ServicingFormDelivery
+          key={formKey}
+          heading="Send the servicing-agent authorization form"
+          detail={detail}
+          request={request}
+          name={name}
+          busy={busy || recBusy}
+          act={act}
+          onMethodChange={setFormMethod}
+          onAlreadyHeldChange={setFormAlreadyHeld}
+          onGeneratedChange={setFormGenerated}
+          confirmLabelFor={(m, alreadyHeld) =>
+            alreadyHeld
+              ? 'Customer already has the form. Mark complete'
+              : m === 'postal' ? 'Form mailed to customer' : 'Form sent to customer'
+          }
+          onConfirm={(_m, alreadyHeld) => {
+            void Promise.resolve(
+              act(
+                { type: 'form-sent', alreadyHeld },
+                alreadyHeld
+                  ? 'Customer already has the form. Recorded in history.'
+                  : 'Form sent. Recorded in history.',
+              ),
+            ).then(() => setFormKey(k => k + 1))
+          }}
+        />
       </div>
 
       {/* Set a follow-up commitment and date — no phone call required. Engaging

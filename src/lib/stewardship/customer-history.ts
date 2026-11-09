@@ -1767,6 +1767,15 @@ export type InteractionSelection =
       /** The chosen follow-up date (YYYY-MM-DD), or null before one is picked. */
       date: string | null
     }
+  | {
+      kind: 'form'
+      /** Delivery channel chosen for the servicing-agent authorization form. */
+      method: 'email' | 'postal'
+      /** The customer already has the form, so nothing is sent. */
+      alreadyHeld: boolean
+      /** The form has been generated (and opened), so the preview reads past tense. */
+      generated: boolean
+    }
   | { kind: 'authorization' }
   | { kind: 'refusal' }
 
@@ -1818,6 +1827,18 @@ export function describeInteractionSelection(
           ? `Follow-up scheduled for ${when}.`
           : 'A follow-up will be scheduled on the date you choose.',
       }
+    }
+    case 'form': {
+      if (selection.alreadyHeld) {
+        return {
+          summary: 'Form Sent',
+          description: 'Customer already has the servicing-agent authorization form and agreed to sign and return it.',
+        }
+      }
+      const description = selection.generated
+        ? `Servicing-agent authorization form sent to the customer ${selection.method === 'postal' ? 'by postal mail' : 'by email'}.`
+        : `Servicing-agent authorization form to be ${selection.method === 'postal' ? 'mailed' : 'emailed'}.`
+      return { summary: 'Form Sent', description }
     }
     case 'authorization':
       return {
