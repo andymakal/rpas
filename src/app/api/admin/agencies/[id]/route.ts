@@ -8,6 +8,7 @@ const ALLOWED_FIELDS = new Set([
   'agent_number', 'allstate_partner_number', 'contact_phone', 'contact_email',
   'contact_street', 'contact_city', 'contact_state', 'contact_zip',
   'portal_pin', 'slug', 'is_securities_licensed',
+  'manager_name', 'manager_email', 'use_manager_for_lsp_email',
 ])
 
 export async function PATCH(

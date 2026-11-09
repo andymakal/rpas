@@ -348,8 +348,8 @@ export default function CustomersClient() {
                     >
                       {c.last_name}, {c.first_name ?? '—'}
                     </Link>
-                    {c.source_client_id && (
-                      <div className="text-xs text-slate-600 mt-0.5">{c.source_client_id}</div>
+                    {c.customer_number && (
+                      <div className="text-xs text-slate-600 mt-0.5 font-mono">{c.customer_number}</div>
                     )}
                   </td>
                   <td className="px-4 py-3">

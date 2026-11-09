@@ -462,12 +462,12 @@ const CARRIERS = [
 
 const POLICY_TYPES = ['Term', 'UL', 'VUL', 'Whole Life', 'IUL', 'GUL', 'LTC', 'Annuity', 'FA', 'MVA', 'Other']
 
-const PREMIUM_MODES = ['Annual', 'Semi-Annual', 'Quarterly', 'Monthly', 'EFT Monthly', 'Single']
+const PREMIUM_MODES = ['Annual', 'Semi-Annual', 'Quarterly', 'Monthly EFT', 'Single']
 const PAY_PERIODS   = ['Full Pay', '10-Pay', '20-Pay', 'Single Premium']
 
 const MODE_SHORT: Record<string, string> = {
   annual: 'ann', 'semi-annual': 'semi', quarterly: 'qtr',
-  monthly: '/mo', 'eft monthly': '/mo', single: 'single',
+  'monthly eft': '/mo', 'eft monthly': '/mo', monthly: '/mo', single: 'single',
 }
 
 function calcAP(amount: number | null, mode: string | null): number | null {
@@ -476,7 +476,7 @@ function calcAP(amount: number | null, mode: string | null): number | null {
   if (m === 'single') return null
   if (m === 'semi-annual') return amount * 2
   if (m === 'quarterly')   return amount * 4
-  if (m === 'monthly' || m === 'eft monthly') return amount * 12
+  if (m === 'monthly eft' || m === 'eft monthly' || m === 'monthly') return amount * 12
   return amount // annual or unknown → treat as annual
 }
 
@@ -530,6 +530,7 @@ export function CustomerCardClient({
   householdMembers = [],
   onboarding = { active: null, completed: null },
   researchAgainProjectId = null,
+  rateClasses = [],
 }: {
   customer:             CustomerDetail
   cases:                LinkedCase[]
@@ -543,6 +544,7 @@ export function CustomerCardClient({
   touchHistory:         TouchHistoryEntry[]
   householdMembers?:    HouseholdMember[]
   onboarding?:          CustomerOnboarding
+  rateClasses?:         { id: string; name: string }[]
   /** When set, the id of an active 1035 project in which this customer has been
    * researched-not-found. Enables a deliberate "research contact info again"
    * link into that project's Contact Review task. Null when not applicable. */
@@ -581,6 +583,7 @@ export function CustomerCardClient({
   const [addingPolicy,      setAddingPolicy]      = useState(false)
   const [newCarrier,        setNewCarrier]        = useState('')
   const [newRateClass,      setNewRateClass]      = useState('')
+  const [newTermLength,     setNewTermLength]     = useState('')
   const [newPolicyNum,      setNewPolicyNum]      = useState('')
   const [newProductType,    setNewProductType]    = useState('')
   const [newFaceAmount,     setNewFaceAmount]     = useState('')
@@ -600,6 +603,7 @@ export function CustomerCardClient({
   const [editPolPremiumMode,setEditPolPremiumMode]= useState('Annual')
   const [editPolPayPeriod,  setEditPolPayPeriod]  = useState('')
   const [editPolRateClass,  setEditPolRateClass]  = useState('')
+  const [editPolTermLength, setEditPolTermLength] = useState('')
   const [editPolStatus,     setEditPolStatus]     = useState('')
   const [editPolBene,       setEditPolBene]       = useState('')
   const [editPolSaving,     setEditPolSaving]     = useState(false)
@@ -776,6 +780,7 @@ export function CustomerCardClient({
         premium_mode:        null,
         pay_period:          null,
         rate_class:          null,
+        term_length:         null,
         coverage_status:     'active',
         sa_status:           'unknown',
         sa_form_sent_at:     null,
@@ -832,6 +837,7 @@ export function CustomerCardClient({
           premium_mode:   newPremiumMode  || null,
           pay_period:     newPayPeriod    || null,
           rate_class:     newRateClass    || null,
+          term_length:    newTermLength   || null,
           issue_date:     newIssueDate    || null,
         }),
       })
@@ -850,6 +856,7 @@ export function CustomerCardClient({
         premium_mode:        p.premium_mode ?? null,
         pay_period:          p.pay_period ?? null,
         rate_class:          p.rate_class ?? null,
+        term_length:         p.term_length ?? null,
         coverage_status:     p.coverage_status,
         sa_status:           p.sa_status,
         sa_form_sent_at:     null,
@@ -877,6 +884,7 @@ export function CustomerCardClient({
     setEditPolPremiumMode(p.premium_mode ?? 'Annual')
     setEditPolPayPeriod(p.pay_period ?? '')
     setEditPolRateClass(p.rate_class ?? '')
+    setEditPolTermLength(p.term_length ?? '')
     setEditPolStatus(p.coverage_status ?? 'active')
     setEditPolBene(p.primary_beneficiary ?? '')
     setEditPolErr(null)
@@ -901,6 +909,7 @@ export function CustomerCardClient({
           premium_mode:        editPolPremiumMode  || null,
           pay_period:          editPolPayPeriod    || null,
           rate_class:          editPolRateClass    || null,
+          term_length:         editPolTermLength   || null,
           coverage_status:     editPolStatus       || 'active',
           primary_beneficiary: editPolBene.trim()  || null,
         }),
@@ -1141,9 +1150,14 @@ export function CustomerCardClient({
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <h1 className="text-white text-xl font-semibold leading-tight">
-                      {displayFirst} {displayLast}
-                    </h1>
+                    <div className="flex items-baseline gap-2">
+                      <h1 className="text-white text-xl font-semibold leading-tight">
+                        {displayFirst} {displayLast}
+                      </h1>
+                      {customer.customer_number && (
+                        <span className="text-xs text-slate-500 font-mono">{customer.customer_number}</span>
+                      )}
+                    </div>
 
                     {/* Segment + Status controls */}
                     <div className="flex items-center gap-3 mt-1.5">
@@ -1518,11 +1532,17 @@ export function CustomerCardClient({
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs text-slate-500 mb-1">Product type</label>
-                  <select value={newProductType} onChange={e => setNewProductType(e.target.value)} className={inputCls}>
+                  <select value={newProductType} onChange={e => { setNewProductType(e.target.value); if (e.target.value !== 'Term') setNewTermLength('') }} className={inputCls}>
                     <option value="">—</option>
                     {POLICY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
+                {newProductType === 'Term' && (
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Term length</label>
+                    <input value={newTermLength} onChange={e => setNewTermLength(e.target.value)} placeholder="e.g. 20 Year" className={inputCls} />
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs text-slate-500 mb-1">Face amount</label>
                   <input value={newFaceAmount} onChange={e => setNewFaceAmount(e.target.value)} type="number" min="0" step="1000" placeholder="e.g. 500000" className={inputCls} />
@@ -1549,7 +1569,10 @@ export function CustomerCardClient({
                 </div>
                 <div>
                   <label className="block text-xs text-slate-500 mb-1">Rate class</label>
-                  <input value={newRateClass} onChange={e => setNewRateClass(e.target.value)} placeholder="e.g. Preferred Plus" className={inputCls} />
+                  <select value={newRateClass} onChange={e => setNewRateClass(e.target.value)} className={inputCls}>
+                    <option value="">—</option>
+                    {rateClasses.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs text-slate-500 mb-1">Issue date</label>
@@ -1657,7 +1680,11 @@ export function CustomerCardClient({
                             {c.agencies?.display_name ?? c.agencies?.name ?? '—'}
                           </p>
                         </td>
-                        <td className="px-4 py-3 font-mono text-slate-600 text-xs">—</td>
+                        <td className="px-4 py-3 font-mono text-xs">
+                          {c.policy_number
+                            ? <span className="text-slate-300">{c.policy_number}</span>
+                            : <span className="text-slate-600">—</span>}
+                        </td>
                         <td className="px-4 py-3">
                           {ptype
                             ? <TypeBadge type={ptype} />
@@ -1668,7 +1695,7 @@ export function CustomerCardClient({
                         </td>
                         <td className="px-4 py-3">
                           <span className="inline-flex items-center gap-1 text-xs bg-amber-900/40 text-amber-300 px-1.5 py-0.5 rounded-full">
-                            Placed — no policy #
+                            {c.policy_number ? 'Placed — add policy record above' : 'Placed — no policy #'}
                           </span>
                         </td>
                         <td className="px-4 py-3" />
@@ -1676,7 +1703,7 @@ export function CustomerCardClient({
                           <Link
                             href={`/cases/${c.id}`}
                             className="flex items-center justify-end text-amber-600 hover:text-amber-400 transition-colors"
-                            title="Open case to add policy number"
+                            title={c.policy_number ? 'Open case' : 'Open case to add policy number'}
                           >
                             <ChevronRight className="w-4 h-4" />
                           </Link>
@@ -1782,11 +1809,17 @@ export function CustomerCardClient({
                             <div className="grid grid-cols-4 gap-3">
                               <div>
                                 <label className="block text-xs text-slate-500 mb-1">Product type</label>
-                                <select value={editPolType} onChange={e => setEditPolType(e.target.value)} className={inputCls}>
+                                <select value={editPolType} onChange={e => { setEditPolType(e.target.value); if (e.target.value !== 'Term') setEditPolTermLength('') }} className={inputCls}>
                                   <option value="">—</option>
                                   {POLICY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                                 </select>
                               </div>
+                              {editPolType === 'Term' && (
+                                <div>
+                                  <label className="block text-xs text-slate-500 mb-1">Term length</label>
+                                  <input value={editPolTermLength} onChange={e => setEditPolTermLength(e.target.value)} placeholder="e.g. 20 Year" className={inputCls} />
+                                </div>
+                              )}
                               <div>
                                 <label className="block text-xs text-slate-500 mb-1">Face amount</label>
                                 <input value={editPolFace} onChange={e => setEditPolFace(e.target.value)} type="number" min="0" step="1000" className={inputCls} />
@@ -1823,7 +1856,10 @@ export function CustomerCardClient({
                               </div>
                               <div>
                                 <label className="block text-xs text-slate-500 mb-1">Rate class</label>
-                                <input value={editPolRateClass} onChange={e => setEditPolRateClass(e.target.value)} placeholder="e.g. Preferred Plus" className={inputCls} />
+                                <select value={editPolRateClass} onChange={e => setEditPolRateClass(e.target.value)} className={inputCls}>
+                                  <option value="">—</option>
+                                  {rateClasses.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                                </select>
                               </div>
                             </div>
                             <div>

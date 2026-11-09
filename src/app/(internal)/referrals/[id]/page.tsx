@@ -76,7 +76,7 @@ export type ReferralDetail = {
     preferred_language: string | null
     sms_opt_out: boolean
   } | null
-  agencies: { name: string; display_name: string | null; contact_email: string | null } | null
+  agencies: { name: string; display_name: string | null; contact_email: string | null; manager_email: string | null; use_manager_for_lsp_email: boolean } | null
   agents: { id: string; first_name: string; last_name: string; email: string | null } | null
   stage_translations: {
     agency_label: string
@@ -183,7 +183,7 @@ export default async function ReferralDetailPage({
       household_members:case_household_members!case_id ( id, first_name, last_name, date_of_birth, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, quoted_carrier, quoted_product_type, face_amount, linked_case_id ),
       notes, touches, last_contact_at, spiff_earned, spiff_earned_at, is_hot_lead, is_owner_referral, producer_id, lead_source, suspected_duplicate_customer_id,
       customers!customer_id ( first_name, last_name, phone, email, street, city, state, zip, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, preferred_language, customer_group_id, sms_opt_out ),
-      agencies ( name, display_name, contact_email ),
+      agencies ( name, display_name, contact_email, manager_email, use_manager_for_lsp_email ),
       agents ( id, first_name, last_name, email ),
       stage_translations ( agency_label, tier, is_active_case, is_won, is_lost )
     `)
