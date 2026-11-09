@@ -1148,7 +1148,7 @@ export function StewardshipTask({
             />
           ) : forceCustomerInteraction ? (
             <CustomerInteractionAction
-              detail={detail} busy={busy} note={note} act={act} reload={load}
+              detail={detail} request={request} busy={busy} note={note} act={act} reload={load}
               onAdvanceToNext={onAdvanceToNext}
               onSelectionChange={reportInteractionSelection}
             />
@@ -1255,6 +1255,9 @@ function sameInteractionSelection(a: InteractionSelection | null, b: Interaction
   }
   if (a.kind === 'follow-up' && b.kind === 'follow-up') {
     return (a.date ?? null) === (b.date ?? null)
+  }
+  if (a.kind === 'form' && b.kind === 'form') {
+    return a.method === b.method && a.alreadyHeld === b.alreadyHeld && a.generated === b.generated
   }
   // 'authorization' and 'refusal' carry no fields.
   return true
