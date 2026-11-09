@@ -123,6 +123,14 @@ and each developer has a different default path.
 - Promote reviewed work to production with a focused pull request into `main`,
   scoped to just the change under review rather than all of `development`.
   Merging to `main` deploys. Keep `development` current with `main` afterward.
+- To answer "what is on `development` that is not in production," compare CONTENT,
+  never commit history. Run `git fetch` and then `git diff --stat origin/main
+  origin/development` (and `git diff origin/main...origin/development` for what
+  `development` added). Do NOT report `git log origin/main..origin/development`:
+  work promoted by focused PR, squash, or cherry-pick lands in `main` under
+  different hashes, so the log lists already-shipped work as unpromoted. Report
+  only files whose content actually differs, and say plainly when the difference
+  is docs or notes only.
 - Do not deploy production as a side effect of routine work: never run
   `vercel --prod` / `vercel deploy --prod` for review builds, and do not push
   work-in-progress straight to `main`.
