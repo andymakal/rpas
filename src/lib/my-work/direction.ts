@@ -672,7 +672,7 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
             key: 'outreach:customer-interaction',
             title: 'Work active customer conversations',
             reason:
-              'These customers have responded and are in an active conversation, but the signed authorization has not come back yet. Record incoming responses, outgoing replies, conversation notes, and follow-up commitments; the signed form moves them on to Servicing Access.',
+              'Manage ongoing customer conversations, record responses and follow-up commitments, and obtain the signed authorization form to proceed to Servicing Access.',
             count: customerInteraction.count,
             actionLabel: 'Open Customer Interaction',
             route: customerInteraction.route,
