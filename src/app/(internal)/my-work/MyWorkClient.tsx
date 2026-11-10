@@ -55,7 +55,7 @@ import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
 import {
   Sparkles, ArrowRight, Phone, Mail, Users, CheckCircle2, Lock,
   ListChecks, ChevronRight, ChevronDown, SlidersHorizontal,
-  CalendarClock, Briefcase, Hourglass, Compass, PlayCircle, Clock,
+  CalendarClock, Hourglass, Compass, PlayCircle, Clock,
 } from 'lucide-react'
 import {
   Select,
@@ -869,13 +869,6 @@ function AssistantColumn({
           </p>
         </div>
       )}
-
-      {/* The standing responsibilities accompaniment — real capability routing
-          (primary/support), the employee's durable remit including activities
-          that are quiet right now. Folded in here (not a separate Practice
-          Direction column) so "what the agency routes to you" sits beside "what
-          to do next". */}
-      <ResponsibilitiesNote responsibilities={state.responsibilities} />
     </section>
   )
 }
@@ -957,43 +950,6 @@ function RecommendationCard({
         whenever it makes more sense.
       </p>
     </article>
-  )
-}
-
-/** The standing responsibilities accompaniment: real capability routing
- * (primary/support), the employee's durable remit. Compact; sits with the
- * Assistant rather than in its own column. Includes activities that are quiet
- * right now. No invented content. */
-function ResponsibilitiesNote({
-  responsibilities,
-}: {
-  responsibilities: MyWorkState['responsibilities']
-}) {
-  return (
-    <div className="rounded-xl border border-surface-border bg-surface-card p-3">
-      <p className="flex items-center gap-2 text-sm font-semibold leading-tight tracking-tight text-ink">
-        <Briefcase className="size-4 shrink-0 text-ink-supporting" aria-hidden /> Your
-        responsibilities
-      </p>
-      {responsibilities.length > 0 ? (
-        <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
-          {responsibilities.map((r) => (
-            <li key={r.workFunction} className="text-sm leading-snug">
-              <span className="font-medium text-ink">{r.label}</span>
-              <span className="text-ink-supporting">
-                {' '}
-                — {r.routedAs === 'primary' ? 'Primary' : 'Support'}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="mt-1 text-sm leading-snug text-ink-secondary">
-          No activities are routed to you yet. An administrator can assign them on
-          the Team page.
-        </p>
-      )}
-    </div>
   )
 }
 
@@ -1198,10 +1154,6 @@ function WorkStepCard({ item }: { item: AssistantItem }) {
         </div>
         <span className="shrink-0 text-xl font-semibold leading-none tabular-nums text-ink">{headline}</span>
       </div>
-
-      {/* Why it is here, in one line. Operational information stays OUTSIDE
-          mentoring, so this note is always visible. */}
-      {item.note && <p className="mt-1 text-xs text-ink-supporting">{item.note}</p>}
 
       {/* The explanatory description, available only when requested. */}
       {mentorOpen && (
