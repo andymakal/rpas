@@ -212,17 +212,15 @@ export function UnableToCallClient({
   return (
     <section className="space-y-5">
       <div className="flex items-center gap-3">
-        <p className="text-base font-semibold text-ink">About People We Can&apos;t Call</p>
+        <p className="text-base font-semibold text-ink">About Find Missing Phone Numbers</p>
         {!mentorOpen && (
-          <MentorCapButton size="text-base" onOpen={() => setMentorOpen(true)} label="Show mentoring on people we can't call" />
+          <MentorCapButton size="text-base" onOpen={() => setMentorOpen(true)} label="Show mentoring on finding missing phone numbers" />
         )}
       </div>
       {mentorOpen && (
         <MentorCapPanel onClose={() => setMentorOpen(false)}>
-          These customers have no phone on file, so we cannot call them. First try to find a number
-          using Gateway and the other lookup sources. If you find one, add it on the Customer Contact
-          card and the screen hands you straight into the call. If none can be found, send the
-          authorization by email and postal mail together — the form rides every email — and move on.
+          Find a working phone number for customers we cannot currently call. If none is available,
+          use email or postal mail to reach them.
         </MentorCapPanel>
       )}
 

@@ -631,7 +631,7 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
             key: 'outreach:calls-due',
             title: 'Make the calls that are due',
             reason:
-              'These customers are owed a call: a first call, a cadence retry whose business day has arrived, or a promised callback that has come due.',
+              'Call customers who are due for initial contact, a follow-up attempt, or a promised callback.',
             count: callsDue.count,
             actionLabel: 'Open Calls Due',
             // Due calls are emphasized only when there actually are some; an
@@ -647,11 +647,11 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
         if (unableToCall) {
           steps.push({
             key: 'outreach:unable-to-call',
-            title: "People we can't call",
+            title: 'Find missing phone numbers',
             reason:
-              'These customers are in outreach but have no phone number on file. Research a phone to drop them back into calling; if none can be found, reach them by email or postal mail.',
+              'Find a working phone number for customers we cannot currently call. If none is available, use email or postal mail to reach them.',
             count: unableToCall.count,
-            actionLabel: "Open People We Can't Call",
+            actionLabel: 'Open Find Missing Phone Numbers',
             route: unableToCall.route,
             emphasis,
           })
