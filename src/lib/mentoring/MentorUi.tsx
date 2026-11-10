@@ -198,16 +198,29 @@ export function useMentorDisclosure(): { open: boolean; setOpen: (v: boolean) =>
 
 /** The inline cap button (collapsed state): a large purple graduation-cap on the
  * item's line. Clicking it expands the coaching beneath the item. */
-export function MentorCapButton({ onOpen, label = 'Show mentoring tip' }: { onOpen: () => void; label?: string }) {
+export function MentorCapButton({
+  onOpen,
+  label = 'Show mentoring tip',
+  size = 'md',
+}: {
+  onOpen: () => void
+  label?: string
+  /** 'md' (default) pairs with large text (the Assistant cards). 'sm' pairs with
+   * small row text (about 14px), scaled in the same proportion (icon about 1.6x
+   * the text height). */
+  size?: 'md' | 'sm'
+}) {
   return (
     <button
       type="button"
       aria-label={label}
       aria-expanded={false}
       onClick={onOpen}
-      className="inline-flex size-10 shrink-0 items-center justify-center rounded-full text-purple-500 transition-colors hover:bg-purple-100 hover:text-purple-700"
+      className={`inline-flex shrink-0 items-center justify-center rounded-full text-purple-500 transition-colors hover:bg-purple-100 hover:text-purple-700 ${
+        size === 'sm' ? 'size-7' : 'size-10'
+      }`}
     >
-      <GraduationCap className="size-8" aria-hidden />
+      <GraduationCap className={size === 'sm' ? 'size-[22px]' : 'size-8'} aria-hidden />
     </button>
   )
 }

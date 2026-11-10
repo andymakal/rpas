@@ -1090,11 +1090,11 @@ function WorkClassStepRow({ step }: { step: PlanStep }) {
           ) : (
             <span className="truncate font-medium text-ink">{step.title}</span>
           )}
-          {/* The cap button is 40px tall; negative margins keep it from
-              stretching the row. */}
+          {/* Small cap sized to the 14px row text; negative margin keeps the
+              28px button from stretching the row. */}
           {!mentorOpen && (
-            <span className="-my-2 inline-flex">
-              <MentorCapButton onOpen={() => setMentorOpen(true)} />
+            <span className="-my-1 inline-flex">
+              <MentorCapButton size="sm" onOpen={() => setMentorOpen(true)} />
             </span>
           )}
         </span>
