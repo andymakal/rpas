@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 import {
   OperationalTag, type OperationalTone, NextNote,
-  QueueSection, QueueRow, QueueListHeader, CustomerQueueCard, QueueEmptyState,
+  QueueSection, QueueRow, QueueListHeader, CustomerQueueCard, QueueEmptyState, StatusPanel,
 } from '@/components/workflow'
 
 type Determination = 'candidate' | 'not_a_candidate'
@@ -289,9 +289,7 @@ export function Review1035Client({
       </div>
 
       {total === 0 ? (
-        <div className="rounded-2xl border border-dashed border-surface-border-strong bg-surface-card p-8 text-center text-ink-supporting">
-          No customers in this project yet.
-        </div>
+        <StatusPanel tone="empty">No customers in this project yet.</StatusPanel>
       ) : (
         <>
           {/* Side task: find the contact information missing from the import.

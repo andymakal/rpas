@@ -196,3 +196,5 @@ export {
   useCallbackPrecisionDraft,
   type CallbackPrecisionDraftApi,
 } from './CallbackPrecision'
+export { WorkCompleteState } from './WorkCompleteState'
+export { StatusPanel } from './StatusPanel'

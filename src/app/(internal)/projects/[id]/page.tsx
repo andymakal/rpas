@@ -9,6 +9,7 @@ import {
   WorkflowPageHeader,
   WorkflowBackLink,
   OperationalTag,
+  StatusPanel,
 } from '@/components/workflow'
 import { fmtDate } from '@/lib/fmt'
 import { ProjectWorkflowsClient } from './ProjectWorkflowsClient'
@@ -177,13 +178,11 @@ export default async function ProjectDetailPage({
           </div>
 
           {runList.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-surface-border-strong bg-surface-card p-8 text-center">
-              <p className="text-base text-ink-supporting">
-                {isArchived
-                  ? 'No population was built for this project.'
-                  : <>No population yet. Use <span className="font-semibold text-ink">Add Population</span> to build the first run.</>}
-              </p>
-            </div>
+            <StatusPanel tone="empty">
+              {isArchived
+                ? 'No population was built for this project.'
+                : <>No population yet. Use <span className="font-semibold text-ink">Add Population</span> to build the first run.</>}
+            </StatusPanel>
           ) : (
             <div className="overflow-hidden rounded-2xl border border-surface-border bg-surface-card">
               <table className="w-full text-left text-sm">

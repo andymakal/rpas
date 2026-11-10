@@ -45,8 +45,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Link from 'next/link'
-import { Loader2, Phone, CheckCircle2, ArrowLeft, RefreshCw } from 'lucide-react'
+import { Loader2, Phone, RefreshCw } from 'lucide-react'
+import { WorkCompleteState } from '@/components/workflow'
 import {
   MentorCapButton, MentorCapPanel, useMentorDisclosure,
 } from '@/lib/mentoring/MentorUi'
@@ -453,46 +453,13 @@ export function CallsDueClient({
         </MentorCapPanel>
       )}
 
-      <div className="flex flex-col items-center gap-4 rounded-2xl border border-surface-border bg-surface-card p-10 text-center">
-        <CheckCircle2 className="size-12 text-status-confirmed-strong" aria-hidden />
-        <div className="space-y-1">
-          <p className="text-xl font-semibold text-ink">
-            {handledCount > 0 ? copy.completeTitle : copy.emptyTitle}
-          </p>
-          <p className="text-lg text-ink-secondary">
-            {handledCount > 0 ? copy.completeBody(handledCount) : copy.emptyBody}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <Link
-            href="/my-work"
-            className="inline-flex items-center gap-2 rounded-xl bg-brand px-5 py-3 text-lg font-semibold text-white transition-colors hover:bg-brand-hover"
-          >
-            <ArrowLeft className="size-5" aria-hidden />
-            Back to My Work
-          </Link>
-          <button
-            type="button"
-            onClick={() => {
-              // Deliberately look again for newly-available customers without
-              // leaving the screen: reset the session and re-run the direct open.
-              setHandled(new Set())
-              directOpenedRef.current = false
-              setLoading(true)
-              void load()
-            }}
-            className="inline-flex items-center gap-2 rounded-xl border border-surface-border-strong px-5 py-3 text-lg font-medium text-ink-secondary transition-colors hover:bg-surface-muted"
-          >
-            <RefreshCw className="size-5" aria-hidden />
-            Check again
-          </button>
-        </div>
-        {/* A quiet marker tying the completion to the activity. */}
-        <p className="inline-flex items-center gap-1.5 text-sm text-ink-supporting">
-          <Phone className="size-4" aria-hidden />
-          {copy.footer}
-        </p>
-      </div>
+      <WorkCompleteState
+        title={handledCount > 0 ? copy.completeTitle : copy.emptyTitle}
+        body={handledCount > 0 ? copy.completeBody(handledCount) : copy.emptyBody}
+        onCheckAgain={() => { setHandled(new Set()); directOpenedRef.current = false; setLoading(true); void load() }}
+        footerIcon={Phone}
+        footerLabel={copy.footer}
+      />
     </section>
   )
 }

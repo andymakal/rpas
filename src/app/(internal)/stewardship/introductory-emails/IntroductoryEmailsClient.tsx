@@ -24,9 +24,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Link from 'next/link'
-import { Loader2, Mail, CheckCircle2, ArrowLeft, RefreshCw } from 'lucide-react'
-import { PrimaryAction } from '@/components/workflow'
+import { Loader2, Mail } from 'lucide-react'
+import { PrimaryAction, WorkCompleteState } from '@/components/workflow'
 import {
   MentorCapButton, MentorCapPanel, useMentorDisclosure,
 } from '@/lib/mentoring/MentorUi'
@@ -373,49 +372,17 @@ export function IntroductoryEmailsClient({
         </MentorCapPanel>
       )}
 
-      <div className="flex flex-col items-center gap-4 rounded-2xl border border-surface-border bg-surface-card p-10 text-center">
-        <CheckCircle2 className="size-12 text-status-confirmed-strong" aria-hidden />
-        <div className="space-y-1">
-          <p className="text-xl font-semibold text-ink">
-            {sentCount > 0 ? 'Introductory emails complete' : 'No introductory emails right now'}
-          </p>
-          <p className="text-lg text-ink-secondary">
-            {sentCount > 0
-              ? `You sent ${sentCount} introductory ${sentCount === 1 ? 'email' : 'emails'} this session. There are no more eligible customers to introduce.`
-              : 'There are no first-touch customers waiting for an introductory email. Check back as new customers become ready.'}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <Link
-            href="/my-work"
-            className="inline-flex items-center gap-2 rounded-xl bg-brand px-5 py-3 text-lg font-semibold text-white transition-colors hover:bg-brand-hover"
-          >
-            <ArrowLeft className="size-5" aria-hidden />
-            Back to My Work
-          </Link>
-          <button
-            type="button"
-            onClick={() => {
-              // Deliberately look again for newly-eligible customers without
-              // leaving the screen: reset the session and re-run the direct open.
-              setHandled(new Set())
-              directOpenedRef.current = false
-              setLoading(true)
-              void load()
-            }}
-            className="inline-flex items-center gap-2 rounded-xl border border-surface-border-strong px-5 py-3 text-lg font-medium text-ink-secondary transition-colors hover:bg-surface-muted"
-          >
-            <RefreshCw className="size-5" aria-hidden />
-            Check again
-          </button>
-        </div>
-        {/* A quiet marker tying the completion to the activity, consistent with
-            the light workflow look. */}
-        <p className="inline-flex items-center gap-1.5 text-sm text-ink-supporting">
-          <Mail className="size-4" aria-hidden />
-          Send Introductory Emails
-        </p>
-      </div>
+      <WorkCompleteState
+        title={sentCount > 0 ? 'Introductory emails complete' : 'No introductory emails right now'}
+        body={
+          sentCount > 0
+            ? `You sent ${sentCount} introductory ${sentCount === 1 ? 'email' : 'emails'} this session. There are no more eligible customers to introduce.`
+            : 'There are no first-touch customers waiting for an introductory email. Check back as new customers become ready.'
+        }
+        onCheckAgain={() => { setHandled(new Set()); directOpenedRef.current = false; setLoading(true); void load() }}
+        footerIcon={Mail}
+        footerLabel="Send Introductory Emails"
+      />
     </section>
   )
 }

@@ -22,8 +22,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { CircleCheck } from 'lucide-react'
-import { WorkflowButton, VerifyServicingAgentCard } from '@/components/workflow'
+import { WorkflowButton, VerifyServicingAgentCard, StatusPanel } from '@/components/workflow'
 
 type Policy = { id: string; policy_number: string | null; sa_status: string }
 
@@ -134,15 +133,11 @@ export function VerifyServicingAgentClient({ projectId }: { projectId: string })
   return (
     <div className="max-w-2xl space-y-4">
       {nothingToDo ? (
-        <div className="rounded-2xl border border-dashed border-surface-border-strong bg-surface-card p-8 text-center">
-          <p className="text-base text-ink-supporting">No policies to verify in this project.</p>
-        </div>
+        <StatusPanel tone="empty">No policies to verify in this project.</StatusPanel>
       ) : allDone ? (
-        <div className="rounded-2xl border border-status-confirmed-border bg-status-confirmed-soft p-8 text-center">
-          <CircleCheck className="mx-auto mb-2 size-8 text-teal-700" aria-hidden />
-          <p className="text-lg font-semibold text-ink">All policies verified.</p>
-          <p className="mt-1 text-sm text-ink-secondary">Every policy in this project has been checked.</p>
-        </div>
+        <StatusPanel tone="done" title="All policies verified.">
+          Every policy in this project has been checked.
+        </StatusPanel>
       ) : current ? (
         <VerifyServicingAgentCard
           policyNumber={current.policy_number}

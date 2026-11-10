@@ -26,9 +26,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Loader2, FileCheck2, CheckCircle2, ArrowLeft, RefreshCw, Search } from 'lucide-react'
+import { Loader2, FileCheck2, Search, RefreshCw } from 'lucide-react'
+import { WorkCompleteState } from '@/components/workflow'
 import {
   MentorCapButton, MentorCapPanel, useMentorDisclosure,
 } from '@/lib/mentoring/MentorUi'
@@ -316,40 +316,17 @@ export function ServicingAccessClient({
         </MentorCapPanel>
       )}
 
-      <div className="flex flex-col items-center gap-4 rounded-2xl border border-surface-border bg-surface-card p-10 text-center">
-        <CheckCircle2 className="size-12 text-status-confirmed-strong" aria-hidden />
-        <div className="space-y-1">
-          <p className="text-xl font-semibold text-ink">
-            {handledCount > 0 ? 'Servicing access complete' : 'No servicing access work right now'}
-          </p>
-          <p className="text-lg text-ink-secondary">
-            {handledCount > 0
-              ? `You handled ${handledCount} ${handledCount === 1 ? 'customer' : 'customers'} this session. There is no more servicing access work waiting.`
-              : 'No signed authorizations are waiting to be processed. When one arrives, find the customer above to start, or check back as forms come in.'}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center justify-center gap-3">
-          <Link
-            href="/my-work"
-            className="inline-flex items-center gap-2 rounded-xl bg-brand px-5 py-3 text-lg font-semibold text-white transition-colors hover:bg-brand-hover"
-          >
-            <ArrowLeft className="size-5" aria-hidden /> Back to My Work
-          </Link>
-          <button
-            type="button"
-            onClick={() => {
-              setHandled(new Set()); directOpenedRef.current = false
-              setLoading(true); void load()
-            }}
-            className="inline-flex items-center gap-2 rounded-xl border border-surface-border-strong px-5 py-3 text-lg font-medium text-ink-secondary transition-colors hover:bg-surface-muted"
-          >
-            <RefreshCw className="size-5" aria-hidden /> Check again
-          </button>
-        </div>
-        <p className="inline-flex items-center gap-1.5 text-sm text-ink-supporting">
-          <FileCheck2 className="size-4" aria-hidden /> Servicing Access
-        </p>
-      </div>
+      <WorkCompleteState
+        title={handledCount > 0 ? 'Servicing access complete' : 'No servicing access work right now'}
+        body={
+          handledCount > 0
+            ? `You handled ${handledCount} ${handledCount === 1 ? 'customer' : 'customers'} this session. There is no more servicing access work waiting.`
+            : 'No signed authorizations are waiting to be processed. When one arrives, find the customer above to start, or check back as forms come in.'
+        }
+        onCheckAgain={() => { setHandled(new Set()); directOpenedRef.current = false; setLoading(true); void load() }}
+        footerIcon={FileCheck2}
+        footerLabel="Servicing Access"
+      />
     </section>
   )
 }
