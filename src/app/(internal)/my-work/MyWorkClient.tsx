@@ -944,11 +944,6 @@ function RecommendationCard({
           ({alternative.step.count} waiting).
         </p>
       )}
-
-      <p className="mt-2.5 text-xs text-ink-supporting">
-        A recommendation, not a requirement. Pick anything from Available Work
-        whenever it makes more sense.
-      </p>
     </article>
   )
 }
@@ -1075,7 +1070,6 @@ function WorkClassCard({
         />
         <span className="min-w-0 flex-1">
           <span className="block text-base font-semibold leading-tight text-ink">{group.label}</span>
-          <span className="mt-0.5 block text-xs leading-snug text-ink-supporting">{group.purpose}</span>
         </span>
         <span className="shrink-0 rounded-full bg-surface-muted px-2.5 py-0.5 text-sm font-bold tabular-nums text-ink">
           {group.totalCount}
