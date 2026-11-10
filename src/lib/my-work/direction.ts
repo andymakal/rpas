@@ -561,7 +561,7 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
           key: 'verify_servicing_agent',
           title: 'Verify servicing agent',
           reason:
-            'Before anything else, confirm whether we are the servicing agent on each policy by looking it up in the Everlake portal. Until a policy has a definite answer, no capture or review work on it can proceed.',
+            'Check each policy in the Everlake portal to confirm whether we are the servicing agent. Do not begin policy capture or review until servicing status is verified.',
           count: actionableCountOf(a),
           actionLabel: 'Start verifying',
           route: primaryRouteFor(a),
@@ -584,7 +584,7 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
           key: 'research',
           title: 'Find missing contact information',
           reason:
-            'These customers are missing a usable email or phone — some have none at all, some are missing one. Finding a working contact method keeps them reachable and prepares them for outreach.',
+            'Find missing or unusable contact information, including email addresses, phone numbers, and mailing addresses, to prepare customers for outreach.',
           // The headline is only the customers NOT YET researched. Those already
           // researched without success are retry work (a separate, lowest-priority
           // Assistant step) and must not inflate the Available Work figure.
@@ -619,7 +619,7 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
             key: 'outreach:intro',
             title: 'Send introductory emails',
             reason:
-              'A first email (carrying the authorization form) is efficient initial outreach before calling, for customers not yet contacted.',
+              'Send an introductory email with the authorization form to customers who have not yet been contacted.',
             count: intro.count,
             actionLabel: 'Send introductory emails',
             route: intro.route,
