@@ -60,7 +60,7 @@
           },
           {
             "_id": "r6",
-            "_description": "Advance operations preparation. Being retired in a separate change; until then it sits beside servicing access.",
+            "_description": "Retry failed review handoffs. This is all that remains of the retired operations preparation step; it only appears when a handoff has failed.",
             "i1": "\"operations_prep\"", "i2": "", "i3": "", "i4": "", "i5": "",
             "o1": "\"late_stage\"", "o2": "12", "o3": "\"late_stage\""
           },

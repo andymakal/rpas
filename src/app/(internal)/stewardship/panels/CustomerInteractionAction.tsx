@@ -18,7 +18,7 @@ import { MentorGuidance } from '@/lib/mentoring/MentorUi'
 import { isCallbackDue } from '@/lib/daily-direction/business-calendar'
 import { type InteractionSelection } from '@/lib/stewardship/customer-history'
 import type { Detail, Holding } from '../types'
-import { fullName } from '../shared'
+import { fullName, FollowUpChase } from '../shared'
 
 const INTERACTION_CHANNELS: { id: 'email' | 'call' | 'text'; label: string; icon: typeof Mail }[] = [
   { id: 'email', label: 'Email', icon: Mail },
@@ -360,6 +360,14 @@ export function CustomerInteractionAction({
           both reusing existing transitions and the existing handoff/history. */}
       <div className="space-y-3 rounded-xl border border-surface-border bg-surface-card p-4">
         <p className="text-sm font-semibold uppercase tracking-wide text-ink-supporting">Resolve the conversation</p>
+
+        {/* Chase the signature. The form went out but has not come back, so the
+            follow-up on the signature belongs here, in the conversation, BEFORE
+            the signed authorization is recorded as received. Recording a chase
+            keeps the customer here and schedules the next follow-up. */}
+        {awaitingSignature && (
+          <FollowUpChase detail={detail} busy={busy || recBusy} act={act} label="Followed up on the signature" />
+        )}
 
         {/* Record receipt of the signed authorization → Servicing Access. Uses
             form-received when the form was already sent (waiting-for-form), else

@@ -455,7 +455,9 @@ test('plan: the full workflow spine stays visible at zero for an eligible worker
   // Verify leads; the empty downstream spine steps are present at zero.
   assert.equal(keys[0], 'verify_servicing_agent')
   assert.ok(keys.includes('research'), 'research visible at 0')
-  assert.ok(keys.includes('operations_prep'), 'operations prep visible at 0')
+  // Operations preparation is retired: it carries only failed handoff retries,
+  // so it does NOT stand at zero.
+  assert.ok(!keys.includes('operations_prep'), 'operations prep absent at 0')
   assert.ok(keys.includes('determination'), 'determination visible at 0')
   const research = d.workingPlan.find((s) => s.key === 'research')
   assert.equal(research!.count, 0)

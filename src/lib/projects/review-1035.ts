@@ -12,19 +12,14 @@
  *     Step 2 becomes unsatisfied again automatically — because this is derived
  *     live from service_policies, nothing needs to be reset by hand.
  *
- *   Step 3 — Prepare & Evaluate
- *     Operations collects the carrier statement and the reprojection for EACH
- *     known permanent policy (stored in policy_documents, scoped to this
- *     project + customer + policy). A customer can have several permanent
- *     policies, and policies not originally flagged may still become part of a
- *     1035 exchange, so all known permanent policies are shown and each can
- *     receive its own documents. Document completeness is INFORMATIONAL: it is
- *     shown per policy but does NOT gate advancement. Operations marks
- *     preparation complete to hand the customer to Bob even when supplemental
- *     policies are still missing documents. Bob then makes the single
- *     customer-level determination (Candidate / Not a Candidate), decides which
- *     policies are exchange candidates, and whether to combine them. Stored on
- *     project_customer_reviews; the determination stays customer-level.
+ *   Step 3 — Evaluate
+ *     Once Step 2 is satisfied the customer goes straight to the producer, who
+ *     makes the single customer-level determination (Candidate / Not a
+ *     Candidate), decides which policies are exchange candidates, and whether to
+ *     combine them. Stored on project_customer_reviews; the determination stays
+ *     customer-level. There is no operations-preparation stage: the carrier
+ *     statement / reprojection collection was retired, and the document fields
+ *     below are legacy, informational only, and gate nothing.
  *
  * The "whose turn is it" stage is DERIVED here from those facts; it is not a
  * stored column, so it can never drift from the underlying data.
@@ -73,9 +68,9 @@ export type PrepStatus = 'preparing' | 'ready_for_evaluation'
  * next" indicator renders.
  *   - stewardship:        Step 2 not satisfied — the existing Stewardship flow
  *                         owns the next action (establish servicing access).
- *   - operations_prep:    Step 2 satisfied, Step 3 preparation incomplete —
- *                         operations must collect/finish the documents.
- *   - bob_evaluation:     preparation complete, no determination yet — Bob's turn.
+ *   - bob_evaluation:     Step 2 satisfied, no determination yet — the producer's
+ *                         turn. Servicing access moves a customer straight here;
+ *                         there is no operations-preparation stage.
  *   - ready_for_outreach: Bob determined CANDIDATE. Step 3 is complete, but the
  *                         1035 work is NOT done — the customer must proceed to
  *                         Step 4 (Outreach & Scheduling), which is not built yet.
@@ -88,7 +83,6 @@ export type PrepStatus = 'preparing' | 'ready_for_evaluation'
  */
 export type WorkflowStage =
   | 'stewardship'
-  | 'operations_prep'
   | 'bob_evaluation'
   | 'ready_for_outreach'
   | 'complete'
@@ -149,39 +143,28 @@ export type CustomerWorkflow = {
   determined_at: string | null
   // derived
   stage: WorkflowStage
-  whose_turn: 'Stewardship' | 'Operations' | 'Bob' | 'Outreach' | 'Done'
+  whose_turn: 'Stewardship' | 'Bob' | 'Outreach' | 'Done'
 }
 
 function deriveStage(args: {
   step2: boolean
-  prepReady: boolean
-  /** Live document-readiness: every permanent policy's two required documents
-   * are addressed (uploaded or explicitly skipped) RIGHT NOW. */
-  prepGateSatisfied: boolean
   determination: Determination | null
 }): WorkflowStage {
   if (!args.step2) return 'stewardship'
-  // A recorded determination ENDS Step 3 and is preserved regardless of the
-  // current document state: once the producer has decided, later removing a
-  // document or reversing a skip must never retroactively undo that decision.
-  // Candidate hands off to Step 4 (not Done); Not a Candidate is terminal.
+  // A recorded determination ENDS Step 3. Candidate hands off to Step 4 (not
+  // Done); Not a Candidate is terminal.
   if (args.determination === 'candidate') return 'ready_for_outreach'
   if (args.determination === 'not_a_candidate') return 'complete'
-  // Not yet determined. The customer is ready for the producer's evaluation
-  // only when operations marked preparation complete AND every required
-  // document is CURRENTLY addressed. This is deliberately re-derived from live
-  // document state, so if an employee reverses a skip or removes a document
-  // after handoff, readiness falls back to operations_prep and no NEW
-  // determination can be made until the gap is addressed again. (The stored
-  // prep_status flag alone is not sufficient — it can go stale.)
-  if (args.prepReady && args.prepGateSatisfied) return 'bob_evaluation'
-  return 'operations_prep'
+  // Servicing access is established and nothing is decided yet: the customer
+  // goes straight to the producer's determination. There is no operations
+  // preparation step (carrier statements and reprojections are no longer
+  // collected by the system), so nothing else gates this.
+  return 'bob_evaluation'
 }
 
 function whoseTurn(stage: WorkflowStage): CustomerWorkflow['whose_turn'] {
   switch (stage) {
     case 'stewardship':        return 'Stewardship'
-    case 'operations_prep':    return 'Operations'
     case 'bob_evaluation':     return 'Bob'
     // Candidate: Step 4 Outreach & Scheduling is next (not built yet).
     case 'ready_for_outreach': return 'Outreach'
@@ -393,12 +376,7 @@ export async function buildProjectWorkflow(
     const prepStatus: PrepStatus = review?.prep_status ?? 'preparing'
     const determination = review?.determination ?? null
 
-    const stage = deriveStage({
-      step2: step2Satisfied,
-      prepReady: prepStatus === 'ready_for_evaluation',
-      prepGateSatisfied,
-      determination,
-    })
+    const stage = deriveStage({ step2: step2Satisfied, determination })
 
     out.push({
       customer_id: cid,
@@ -423,7 +401,7 @@ export async function buildProjectWorkflow(
   // Sort: active work first (stewardship, operations, bob), then the Step-4
   // handoff (ready_for_outreach), then the terminal complete; then by name.
   const order: Record<WorkflowStage, number> = {
-    stewardship: 0, operations_prep: 1, bob_evaluation: 2, ready_for_outreach: 3, complete: 4,
+    stewardship: 0, bob_evaluation: 1, ready_for_outreach: 2, complete: 3,
   }
   out.sort((a, b) => {
     if (order[a.stage] !== order[b.stage]) return order[a.stage] - order[b.stage]
@@ -437,7 +415,7 @@ export async function buildProjectWorkflow(
 /** Summary counts for the project header. */
 export function summarizeWorkflow(rows: CustomerWorkflow[]) {
   const by: Record<WorkflowStage, number> = {
-    stewardship: 0, operations_prep: 0, bob_evaluation: 0, ready_for_outreach: 0, complete: 0,
+    stewardship: 0, bob_evaluation: 0, ready_for_outreach: 0, complete: 0,
   }
   let candidates = 0
   let notCandidates = 0

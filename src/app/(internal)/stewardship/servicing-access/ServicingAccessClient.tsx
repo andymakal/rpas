@@ -2,7 +2,7 @@
 
 /**
  * Servicing Access — the continuous direct-workflow client for the stage
- * between Outreach and Operations Preparation.
+ * between Outreach and Determination.
  *
  * It applies the established direct-working-screen pattern (Send Introductory
  * Emails / Call Reachable Customers) to the servicing-access population: the
@@ -152,14 +152,14 @@ export function ServicingAccessClient({
     void load()
   }, [openId, remaining, load, release, reserveNext])
 
-  // The final servicing confirmation completed the request: open Operations
-  // Preparation for THIS customer immediately. operations_prep is a derived
-  // stage (the permanent policies are now all confirmed), so the customer is
-  // already in that stage on the project's review surface; we navigate there,
-  // focusing the customer. When no review-preparation project owns the customer
-  // (a non-project onboarding), there is no Operations Preparation surface to
-  // open, so we fall back to advancing to the next servicing-access customer.
-  const handleComplete = useCallback((info: { customerId: string | null; operationsPrepProjectId: string | null }) => {
+  // The final servicing confirmation completed the request: go straight to\r
+  // DETERMINATION for THIS customer. The determination stage is derived (the\r
+  // permanent policies are now all confirmed), so the customer is already in it on\r
+  // the project's review surface; we navigate there, focusing the customer. When\r
+  // no review project owns the customer (a non-project onboarding), there is no\r
+  // determination surface to open, so we advance to the next servicing-access\r
+  // customer.
+  const handleComplete = useCallback((info: { customerId: string | null; reviewProjectId: string | null }) => {
     // The just-completed customer has left the servicing-access population; drop
     // our reservation and mark them handled for the session tally.
     if (openId) {
@@ -167,14 +167,14 @@ export function ServicingAccessClient({
       setHandled(prev => { const next = new Set(prev); next.add(handledId); return next })
     }
     void release()
-    if (info.operationsPrepProjectId) {
+    if (info.reviewProjectId) {
       const url = info.customerId
-        ? `/projects/${info.operationsPrepProjectId}/review?customer_id=${encodeURIComponent(info.customerId)}`
-        : `/projects/${info.operationsPrepProjectId}/review`
+        ? `/projects/${info.reviewProjectId}/review?customer_id=${encodeURIComponent(info.customerId)}`
+        : `/projects/${info.reviewProjectId}/review`
       router.push(url)
       return
     }
-    // No project owns Operations Preparation for this customer: continue working.
+    // No project owns a determination for this customer: continue working.
     advanceToNext()
   }, [openId, release, router, advanceToNext])
 
@@ -277,9 +277,9 @@ export function ServicingAccessClient({
           // A recorded step that removes the customer from the servicing-access
           // population advances the sequence to the next eligible customer.
           onAdvanceToNext={advanceToNext}
-          // The FINAL servicing confirmation completes the request: open
-          // Operations Preparation for this customer immediately (or advance when
-          // no project owns prep). This is the dedicated completion path.
+          // The FINAL servicing confirmation completes the request: open the\r
+          // customer's determination immediately (or advance when no project\r
+          // owns one). This is the dedicated completion path.
           onComplete={handleComplete}
           // A non-advancing terminal path just refreshes the population; it must
           // never advance or leave the screen on its own.
@@ -306,12 +306,12 @@ export function ServicingAccessClient({
       </div>
       {mentorOpen && (
         <MentorCapPanel onClose={() => setMentorOpen(false)}>
-          Servicing access is the step between outreach and operations preparation. When a signed
+          Servicing access is the step between outreach and determination. When a signed
           servicing-agent authorization comes back, open the customer, save the signed form to their
           documents, then prepare the carrier email asking the carrier to process it. Attach the form,
           send it, and confirm Email Sent — that starts the seven-day carrier follow-up. Record each
           carrier confirmation as it arrives, or sooner if the carrier confirms early. Once every policy
-          is confirmed, the customer moves into Operations Preparation automatically. Everything is saved
+          is confirmed, the customer goes straight to determination. Everything is saved
           once and recorded in the customer&apos;s history.
         </MentorCapPanel>
       )}

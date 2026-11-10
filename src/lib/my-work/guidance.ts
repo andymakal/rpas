@@ -79,7 +79,7 @@ export const ACTIVITY_GUIDANCE: Record<WorkFunctionKey, ActivityGuidance> = {
   },
   operations_prep: {
     whatItIs:
-      'Collecting each policy’s carrier statement and reprojection and preparing the customer for evaluation, so a determination can be made.',
+      'Retrying Initial Analysis handoffs that failed, so the customer’s review gets created. Operations preparation as a 1035 stage has been retired.',
     workMode: 'quiet',
     note: WORK_MODE_NOTE.quiet,
   },

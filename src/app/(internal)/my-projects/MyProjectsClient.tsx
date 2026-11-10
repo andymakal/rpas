@@ -24,7 +24,6 @@ import type { WorkflowStage } from '@/lib/projects/review-1035'
 
 const PROGRESS_STAGES: WorkflowStage[] = [
   'stewardship',
-  'operations_prep',
   'bob_evaluation',
   'ready_for_outreach',
   'complete',

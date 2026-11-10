@@ -7,20 +7,13 @@ import { buildProjectWorkflow } from '@/lib/projects/review-1035'
 /**
  * PATCH /api/projects/[id]/review-1035/[customerId]
  *
- * Advance a customer's Step 3 state in a 1035 project. Two distinct actions,
- * one at a time:
- *
- *   { action: 'set_prep', prep_status: 'preparing' | 'ready_for_evaluation' }
- *     Operations marks preparation. 'ready_for_evaluation' is only allowed when
- *     Step 2 is satisfied AND both required documents are present — otherwise the
- *     customer cannot be surfaced to Bob. Enforced server-side against the live
- *     derived workflow so the state can never claim readiness it does not have.
+ * Record a customer's Step 3 determination in a 1035 project:
  *
  *   { action: 'set_determination', determination: 'candidate' | 'not_a_candidate',
  *     determined_by?: <producers.id>, notes?: string }
- *     Bob records the durable 1035 determination. Allowed only when the customer
- *     is actually ready for evaluation (Step 2 satisfied, documents complete,
- *     preparation marked ready). Pass determination: null to clear it.
+ *     The producer records the durable 1035 determination. Allowed only once
+ *     servicing access is established (Step 2 satisfied); there is no
+ *     operations-preparation gate. Pass determination: null to clear it.
  *
  * The project_customer_reviews row is created lazily on first write.
  */
@@ -34,14 +27,13 @@ export async function PATCH(
   const { id: projectId, customerId } = await params
   const supabase = createAdminClient()
 
-  // Archived projects are read-only: Step 3 prep/determination cannot advance
+  // Archived projects are read-only: the determination cannot advance
   // until the project is restored. The read model (GET) stays available.
   const active = await assertProjectActive(supabase, projectId)
   if (!active.ok) return Response.json({ error: active.error }, { status: active.status })
 
   let body: {
     action?: string
-    prep_status?: string
     determination?: string | null
     determined_by?: string | null
     notes?: string | null
@@ -60,61 +52,17 @@ export async function PATCH(
     return Response.json({ error: 'Customer is not in this project' }, { status: 404 })
   }
 
-  if (body.action === 'set_prep') {
-    const next = body.prep_status
-    if (next !== 'preparing' && next !== 'ready_for_evaluation') {
-      return Response.json({ error: "prep_status must be 'preparing' or 'ready_for_evaluation'" }, { status: 400 })
-    }
-    if (next === 'ready_for_evaluation') {
-      // Gate 1 — Step 2: all known permanent policies must have confirmed
-      // servicing access.
-      if (!wf.step2_satisfied) {
-        return Response.json(
-          { error: 'Servicing access (Step 2) is not established for all permanent policies; complete Stewardship first.' },
-          { status: 409 },
-        )
-      }
-      // Gate 2 — document readiness: every permanent policy's Carrier Statement
-      // and Reprojection must each be ADDRESSED — uploaded OR explicitly skipped
-      // as unavailable. This mirrors the UI and is enforced here against live
-      // state so the handoff can never bypass the requirement from the client.
-      if (!wf.prep_gate_satisfied) {
-        return Response.json(
-          { error: 'Every permanent policy needs its Carrier Statement and Reprojection uploaded or marked unavailable before the customer is ready for producer evaluation.' },
-          { status: 409 },
-        )
-      }
-    }
-    const { error } = await supabase
-      .from('project_customer_reviews')
-      .upsert(
-        { project_id: projectId, customer_id: customerId, prep_status: next },
-        { onConflict: 'project_id,customer_id' },
-      )
-    if (error) {
-      console.error('review-1035 set_prep error:', error)
-      return Response.json({ error: error.message }, { status: 500 })
-    }
-    return await freshState(supabase, projectId, customerId)
-  }
-
   if (body.action === 'set_determination') {
     const det = body.determination
     if (det !== 'candidate' && det !== 'not_a_candidate' && det !== null) {
       return Response.json({ error: "determination must be 'candidate', 'not_a_candidate', or null" }, { status: 400 })
     }
     if (det !== null) {
-      // A NEW determination requires the customer to be ready for evaluation
-      // RIGHT NOW: Step 2 satisfied, operations marked preparation complete, AND
-      // every required document currently addressed (uploaded or explicitly
-      // skipped). prep_gate_satisfied is re-derived from live document state, so
-      // if a skip was reversed or a document removed after handoff, a new
-      // determination is blocked until the gap is addressed again. (This does
-      // NOT touch an already-recorded determination — clearing one, det === null,
-      // is always allowed below.)
-      if (!wf.step2_satisfied || wf.prep_status !== 'ready_for_evaluation' || !wf.prep_gate_satisfied) {
+      // A NEW determination requires servicing access to be established RIGHT
+      // NOW. Clearing one (det === null) is always allowed.
+      if (!wf.step2_satisfied) {
         return Response.json(
-          { error: 'Customer is not ready for evaluation: it needs servicing access, operations to mark preparation complete, and every required document uploaded or marked unavailable.' },
+          { error: 'Customer is not ready for evaluation: servicing access is not established for every permanent policy.' },
           { status: 409 },
         )
       }
@@ -137,7 +85,7 @@ export async function PATCH(
     return await freshState(supabase, projectId, customerId)
   }
 
-  return Response.json({ error: "action must be 'set_prep' or 'set_determination'" }, { status: 400 })
+  return Response.json({ error: "action must be 'set_determination'" }, { status: 400 })
 }
 
 async function freshState(

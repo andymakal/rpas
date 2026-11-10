@@ -64,7 +64,7 @@ export interface MyProjectsState {
 }
 
 /** The active (non-terminal) stages that can represent a bottleneck. */
-const ACTIVE_STAGES: WorkflowStage[] = ['stewardship', 'operations_prep', 'bob_evaluation']
+const ACTIVE_STAGES: WorkflowStage[] = ['stewardship', 'bob_evaluation']
 
 export async function getMyProjects(authUserId: string): Promise<MyProjectsState> {
   const supabase = createAdminClient()
@@ -132,7 +132,7 @@ export async function getMyProjects(authUserId: string): Promise<MyProjectsState
     // project surface uses). For projects without the review workflow the
     // derived stage model does not apply; show totals only.
     let stageCounts: Record<WorkflowStage, number> = {
-      stewardship: 0, operations_prep: 0, bob_evaluation: 0, ready_for_outreach: 0, complete: 0,
+      stewardship: 0, bob_evaluation: 0, ready_for_outreach: 0, complete: 0,
     }
     let total = 0
     if (hasReviewWorkflow) {

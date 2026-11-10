@@ -928,9 +928,9 @@ export function StewardshipTask({
    * confirmed): the outreach row is gone and the customer has advanced out of
    * outreach. Carries the customer id and, when the customer belongs to an
    * active review-preparation project, that project id — so the caller can open
-   * Operations Preparation for this customer immediately. When omitted the task
+   * the customer's determination immediately. When omitted the task
    * falls back to onBack (the board/default behavior is unchanged). */
-  onComplete?: (info: { customerId: string | null; operationsPrepProjectId: string | null }) => void
+  onComplete?: (info: { customerId: string | null; reviewProjectId: string | null }) => void
   /** Drive the SERVICING ACCESS working screen: the signed-authorization stage
    * of the workflow (upload the signed form, prepare the carrier email, send +
    * confirm, run the 7-day carrier follow-up, record carrier confirmation).
@@ -938,7 +938,7 @@ export function StewardshipTask({
    * column regardless of whether the item sits in waiting-for-form or
    * waiting-for-carrier. Every other caller leaves this false, so their behavior
    * is unchanged. A confirmed-and-complete servicing request advances the
-   * customer into Operations Preparation via the existing handoff. */
+   * customer on to determination via the existing handoff. */
   forceServicingAccess?: boolean
   /** Suppress the task's own "All queues" back header AND its outer page wrapper.
    * Used only by the dedicated Send Introductory Emails direct working screen,
@@ -1062,13 +1062,13 @@ export function StewardshipTask({
         // Every request policy is confirmed: the outreach row is gone and the
         // customer has advanced out of outreach. When a completion handler is
         // supplied (the servicing-access screen), hand it the customer and the
-        // Operations Preparation project so it can open Operations Preparation
-        // for this customer immediately. Otherwise fall back to the default
+        // review project so it can open the customer's determination
+        // immediately. Otherwise fall back to the default
         // back navigation (the board behavior is unchanged).
         if (onComplete) {
           onComplete({
             customerId: (json.customer_id as string | null) ?? null,
-            operationsPrepProjectId: (json.operations_prep_project_id as string | null) ?? null,
+            reviewProjectId: (json.review_project_id as string | null) ?? null,
           })
         } else {
           onBack()

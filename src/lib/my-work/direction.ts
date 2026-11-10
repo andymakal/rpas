@@ -694,7 +694,7 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
             key: 'outreach:servicing-access',
             title: 'Process servicing access',
             reason:
-              'A signed servicing-agent authorization is in hand: save the form, send it to the carrier, follow up, and record confirmation, which opens Operations Preparation. Open it any time a signed authorization arrives.',
+              'A signed servicing-agent authorization is in hand: save the form, send it to the carrier, follow up, and record confirmation, which sends the customer on to determination. Open it any time a signed authorization arrives.',
             count: servicingAccess.count,
             actionLabel: 'Open Servicing Access',
             route: servicingAccess.route,
@@ -723,13 +723,18 @@ export function buildWorkingPlan(actionable: ActivityGroup[]): PlanStep[] {
         break
       }
       case 'operations_prep': {
+        // Operations preparation as a 1035 stage is retired. The activity now
+        // carries only failed Initial Analysis handoffs that need a retry, so it
+        // appears only when there is such work and is otherwise absent from the
+        // plan (no standing zero row).
+        if (actionableCountOf(a) <= 0) break
         steps.push({
           key: 'operations_prep',
-          title: 'Advance operations preparation',
+          title: 'Retry failed review handoffs',
           reason:
-            'This work is ready to move forward now, independently of ongoing outreach.',
+            'An Initial Analysis handoff failed after servicing access was confirmed. Retry it so the customer’s review is created.',
           count: actionableCountOf(a),
-          actionLabel: 'Open operations preparation',
+          actionLabel: 'Open failed handoffs',
           route: primaryRouteFor(a),
           emphasis,
         })

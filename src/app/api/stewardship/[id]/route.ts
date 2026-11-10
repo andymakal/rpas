@@ -1414,7 +1414,7 @@ export async function PATCH(
 
     // Re-read the request policies' live statuses to decide completion. Outreach
     // is finished only when every request policy — term and permanent alike — is
-    // confirmed. (The 1035 review advances to operations prep independently once
+    // confirmed. (The 1035 review goes to determination independently once
     // the permanent policies are confirmed; it does not wait on term policies.)
     const { data: statusRows, error: statusErr } = await supabase
       .from('service_policies')
@@ -1505,10 +1505,10 @@ export async function PATCH(
         console.error('stewardship carrier-confirm delete error:', delErr)
         return Response.json({ error: delErr.message }, { status: 500 })
       }
-      // Carry the customer and the Operations Preparation project (when the
+      // Carry the customer and the review project (when the
       // customer belongs to an active review-preparation project) so the
-      // servicing-access screen can OPEN Operations Preparation for this customer
-      // immediately after the final servicing confirmation. operations_prep is a
+      // servicing-access screen can OPEN the customer's determination
+      // immediately after the final servicing confirmation. Determination is a
       // DERIVED stage (service_policies.sa_status now all confirmed), so the
       // customer is already in that stage on the project's review surface; the
       // response just tells the UI where to go. Null project means no project
@@ -1517,7 +1517,7 @@ export async function PATCH(
         data: null,
         completed_outreach: true,
         customer_id: customerId,
-        operations_prep_project_id: handoff.reviewProjectId ?? null,
+        review_project_id: handoff.reviewProjectId ?? null,
       })
     }
 

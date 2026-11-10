@@ -5,7 +5,9 @@
  * record receipt, prepare + confirm the carrier email (the submit-to-carrier
  * transition), run the seven-day carrier follow-up, and record per-policy
  * carrier confirmation. When every request policy is confirmed, the existing
- * handoff advances the customer into Operations Preparation automatically.
+ * handoff sends the customer straight to determination. Chasing the customer
+ * for the signature is NOT done here: it belongs to Customer Interaction, before
+ * the signed authorization is recorded as received.
  */
 
 import { useRef, useState } from 'react'
@@ -18,7 +20,7 @@ import {
 } from '@/lib/stewardship/carrier-email'
 import { buildMailto } from '@/lib/templates'
 import type { Detail, Holding } from '../types'
-import { fullName, shortDate, openMailto, FollowUpChase } from '../shared'
+import { fullName, shortDate, openMailto } from '../shared'
 import { FormCoverage } from './FormCoverage'
 import { CarrierAction } from './CarrierAction'
 
@@ -211,7 +213,6 @@ function ServicingAccessSubmit({
           disabled={busy}
           onClick={() => act(receiptAction, 'Receipt recorded. Prepare the carrier email below.')}
         />
-        <FollowUpChase detail={detail} busy={busy} act={act} label="Followed up on the signature" />
         <NextNote>Recording receipt does not submit anything. After it is recorded, prepare the carrier email and confirm it sent.</NextNote>
       </div>
     )
@@ -257,11 +258,10 @@ function ServicingAccessSubmit({
           )}
         />
       </div>
-      <FollowUpChase detail={detail} busy={busy} act={act} label="Followed up on the signature" />
       <NextNote>
         Email Sent is the submission: {name} moves to Waiting for Carrier and the seven-day carrier follow-up
-        begins. Carrier confirmations are recorded there; once every policy is confirmed, {name} opens in
-        Operations Preparation automatically.
+        begins. Carrier confirmations are recorded there; once every policy is confirmed, {name} goes straight
+        to determination.
       </NextNote>
     </div>
   )

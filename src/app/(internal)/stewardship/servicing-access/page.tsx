@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
 
 /**
  * Servicing Access — the direct working surface for the stage between Outreach
- * and Operations Preparation. Clicking the activity in My Work lands straight on
+ * and Determination. Clicking the activity in My Work lands straight on
  * the first eligible customer whose signed servicing-agent authorization is in
  * hand (no intermediate customer-list screen), and a customer search lets an
  * employee open a specific customer the moment a signed authorization arrives.
@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic'
  * servicing-access flow (save the signed form, prepare the carrier email, send +
  * confirm, seven-day carrier follow-up, per-policy carrier confirmation), so
  * every business rule is reused unchanged. Confirming servicing access opens the
- * customer in Operations Preparation automatically via the existing handoff.
+ * customer in determination automatically via the existing handoff.
  *
  * The whole (internal) route group is gated to internal staff; the stewardship
  * API routes additionally enforce requireInternalAdmin and the capability/claim

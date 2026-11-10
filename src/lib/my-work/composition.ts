@@ -1539,7 +1539,6 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
     // passes below filter against.
     const workflow = workflowAll.filter((w) => !verifyBlockedCustomerIds.has(w.customer_id))
     const summary = summarizeWorkflow(workflow)
-    const prepCount = summary.by.operations_prep
     const determineCount = summary.by.bob_evaluation
 
     // These project activities are inherently scoped to this project, so
@@ -1643,7 +1642,6 @@ export async function getMyWork(options: MyWorkOptions): Promise<MyWorkState> {
       }
     }
 
-    addProjectActivity('operations_prep', prepCount)
     addProjectActivity('determination', determineCount)
 
     // Servicing Agent Onboarding — the first-touch OUTREACH populations, derived

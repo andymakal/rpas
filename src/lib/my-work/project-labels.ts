@@ -12,7 +12,6 @@ import type { WorkflowStage } from '@/lib/projects/review-1035'
 
 export const STAGE_LABEL: Record<WorkflowStage, string> = {
   stewardship: 'Establishing servicing access',
-  operations_prep: 'Operations preparation',
   bob_evaluation: 'Awaiting determination',
   ready_for_outreach: 'Ready for Step 4 outreach',
   complete: 'Complete',

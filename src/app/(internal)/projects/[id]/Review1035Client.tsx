@@ -1,31 +1,29 @@
 'use client'
 
 /**
- * 1035 Exchange Review — Step 2 / Step 3 operations surface for a project.
+ * 1035 Exchange Review — Step 2 / Step 3 surface for a project.
  *
  * Shows every project customer with their derived workflow stage and makes the
- * next owner of the work obvious: Stewardship (establish servicing access),
- * Operations (collect the carrier statement + reprojection, mark preparation
- * complete), or Bob (record Candidate / Not a Candidate). Light-theme workflow
- * tokens + shared OperationalTag.
+ * next owner of the work obvious: Stewardship (establish servicing access) or
+ * Bob (record Candidate / Not a Candidate). Servicing access goes straight to
+ * determination. Light-theme workflow tokens + shared OperationalTag.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import {
-  ShieldCheck, ShieldAlert, FileText, FileCheck2, Play, Check, X,
-  CircleUser, ClipboardCheck, Loader2, ShieldQuestion, Wrench, UserCheck,
-  Send, CheckCircle2, ChevronLeft, Upload, ArrowLeft,
+  ShieldCheck, ShieldAlert, Play, Check, X,
+  CircleUser, ClipboardCheck, Loader2, ShieldQuestion, UserCheck,
+  Send, CheckCircle2, ChevronLeft, ArrowLeft,
 } from 'lucide-react'
 import {
   OperationalTag, type OperationalTone, NextNote,
   QueueSection, QueueRow, QueueListHeader, CustomerQueueCard, QueueEmptyState,
 } from '@/components/workflow'
 
-type DocType = 'carrier_statement' | 'reprojection'
 type Determination = 'candidate' | 'not_a_candidate'
-type Stage = 'stewardship' | 'operations_prep' | 'bob_evaluation' | 'ready_for_outreach' | 'complete'
+type Stage = 'stewardship' | 'bob_evaluation' | 'ready_for_outreach' | 'complete'
 
 type PolicyAccess = {
   id: string
@@ -55,12 +53,10 @@ type CustomerWorkflow = {
   has_carrier_statement: boolean
   has_reprojection: boolean
   documents_complete: boolean
-  prep_gate_satisfied: boolean
-  prep_status: 'preparing' | 'ready_for_evaluation'
   determination: Determination | null
   determined_at: string | null
   stage: Stage
-  whose_turn: 'Stewardship' | 'Operations' | 'Bob' | 'Outreach' | 'Done'
+  whose_turn: 'Stewardship' | 'Bob' | 'Outreach' | 'Done'
 }
 
 type Summary = {
@@ -72,7 +68,6 @@ type Summary = {
 
 const STAGE_LABEL: Record<Stage, string> = {
   stewardship: 'Needs servicing access',
-  operations_prep: 'Operations preparation',
   bob_evaluation: 'Ready for producer evaluation',
   ready_for_outreach: 'Candidate · awaiting Step 4 outreach',
   complete: 'Not a candidate · 1035 review complete',
@@ -80,7 +75,6 @@ const STAGE_LABEL: Record<Stage, string> = {
 
 const TURN_TONE: Record<CustomerWorkflow['whose_turn'], OperationalTone> = {
   Stewardship: 'blocked',
-  Operations: 'reason',
   Bob: 'exception',
   // Candidate hands off to Step 4 Outreach — active next work, not Done.
   Outreach: 'reason',
@@ -99,7 +93,6 @@ const STAGE_STEPS: {
   tone: 'action' | 'waiting'
 }[] = [
   { stage: 'stewardship', label: 'Needs servicing access', blurb: 'Worked on the shared Stewardship board', icon: ShieldQuestion, tone: 'action' },
-  { stage: 'operations_prep', label: 'Operations preparation', blurb: 'Collect the carrier statement and reprojection', icon: Wrench, tone: 'action' },
   { stage: 'bob_evaluation', label: 'Ready for determination', blurb: 'Awaiting the Candidate / Not a candidate decision', icon: UserCheck, tone: 'action' },
   { stage: 'ready_for_outreach', label: 'Candidate · awaiting Step 4', blurb: 'Determined a candidate; Step 4 outreach not built yet', icon: Send, tone: 'waiting' },
   { stage: 'complete', label: 'Not a candidate · complete', blurb: '1035 review finished at Step 3', icon: CheckCircle2, tone: 'waiting' },
@@ -108,7 +101,7 @@ const STAGE_STEPS: {
 /** Stewardship-stage work is OWNED BY the shared Stewardship board (the IPF
  * shared-queue doctrine), so opening one of its customers hands off to the
  * board, deep-linked to that customer's actual outreach task. The project's own
- * stages (operations prep, determination, and the two terminal states) are
+ * stages (determination and the two terminal states) are
  * worked inline here in a focused single-customer task view. */
 function stageIsOnStewardshipBoard(stage: Stage): boolean {
   return stage === 'stewardship'
@@ -120,10 +113,10 @@ export function Review1035Client({
 }: {
   projectId: string
   /** When set (via ?customer_id=), open directly on this customer's task after
-   * load — used to OPEN Operations Preparation for a customer the moment their
+   * load — used to OPEN a customer's determination the moment their
    * servicing access is confirmed (the servicing-access screen routes here). The
    * customer's current derived stage decides which task view shows; for a
-   * just-confirmed customer that is Operations Preparation. */
+   * just-confirmed customer that is determination. */
   initialCustomerId?: string | null
 }) {
   const router = useRouter()
@@ -163,7 +156,7 @@ export function Review1035Client({
 
   // Deep-link focus: once rows are loaded, if a customer id was supplied and it
   // is a real project member, open their single-customer task directly. Their
-  // derived stage drives which task view renders (Operations Preparation for a
+  // derived stage drives which task view renders (determination for a
   // just-confirmed customer). Runs once so manual navigation afterward is free.
   useEffect(() => {
     if (seededRef.current || loading || !initialCustomerId) return
@@ -199,7 +192,7 @@ export function Review1035Client({
     )
   }
 
-  // Level 3 — a single customer's task (operations prep / determination / the
+  // Level 3 — a single customer's task (determination / the
   // terminal states). The existing per-customer servicing controls are reused
   // unchanged; only ONE customer is shown, so this is their actual task.
   if (openCustomerId) {
@@ -320,7 +313,7 @@ export function Review1035Client({
             <ArrowLeft className="size-5 shrink-0 rotate-180 text-surface-border-strong transition-colors group-hover:text-brand-icon" aria-hidden />
           </Link>
 
-          {/* Progress across the five steps, at a glance. */}
+          {/* Progress across the four steps, at a glance. */}
           <StepProgress summary={summary} total={total} />
 
           <QueueSection label="Work by step">
@@ -342,13 +335,12 @@ export function Review1035Client({
   )
 }
 
-/** A single, compact progress bar across the five workflow steps, so the whole
+/** A single, compact progress bar across the four workflow steps, so the whole
  * project's position is visible without opening any step. */
 function StepProgress({ summary, total }: { summary: Summary | null; total: number }) {
   if (!summary || total === 0) return null
   const segments: { stage: Stage; className: string }[] = [
     { stage: 'stewardship', className: 'bg-tag-blocked-text' },
-    { stage: 'operations_prep', className: 'bg-tag-reason-text' },
     { stage: 'bob_evaluation', className: 'bg-tag-exception-text' },
     { stage: 'ready_for_outreach', className: 'bg-brand' },
     { stage: 'complete', className: 'bg-ink-muted' },
@@ -357,7 +349,7 @@ function StepProgress({ summary, total }: { summary: Summary | null; total: numb
     <div
       className="flex h-2.5 w-full overflow-hidden rounded-full bg-surface-muted"
       role="img"
-      aria-label="Progress across the five 1035 workflow steps"
+      aria-label="Progress across the four 1035 workflow steps"
     >
       {segments.map(seg => {
         const n = summary.by[seg.stage] ?? 0
@@ -382,12 +374,8 @@ function customerStepDetail(r: CustomerWorkflow): string {
   switch (r.stage) {
     case 'stewardship':
       return `${r.unconfirmed_permanent_count} of ${r.permanent_count} not confirmed`
-    case 'operations_prep':
-      return r.documents_complete
-        ? `${policies} · documents complete`
-        : `${policies} · documents outstanding`
     case 'bob_evaluation':
-      return `${policies} · prepared, awaiting determination`
+      return `${policies} · awaiting determination`
     case 'ready_for_outreach':
       return `${policies} · candidate`
     case 'complete':
@@ -416,70 +404,6 @@ function CustomerRow({
       })
       const json = await res.json()
       if (!res.ok) { setRowError(json.error ?? 'Action failed'); return }
-      await onChanged()
-    } catch { setRowError('Network error') }
-    finally { setBusy(false) }
-  }
-
-  async function uploadDocument(policyId: string, documentType: DocType, file: File) {
-    setBusy(true); setRowError(null)
-    try {
-      const fd = new FormData()
-      fd.append('document_type', documentType)
-      fd.append('policy_id', policyId)
-      fd.append('file', file)
-      const res = await fetch(`/api/projects/${projectId}/review-1035/${row.customer_id}/documents`, {
-        method: 'POST',
-        body: fd, // multipart; browser sets the boundary
-      })
-      const json = await res.json()
-      if (!res.ok) { setRowError(json.error ?? 'Could not upload document'); return }
-      await onChanged()
-    } catch { setRowError('Network error') }
-    finally { setBusy(false) }
-  }
-
-  async function viewDocument(policyId: string, documentType: DocType) {
-    setRowError(null)
-    try {
-      const res = await fetch(
-        `/api/projects/${projectId}/review-1035/${row.customer_id}/documents?type=${documentType}&policy_id=${policyId}`,
-        { cache: 'no-store' },
-      )
-      const json = await res.json()
-      if (!res.ok) { setRowError(json.error ?? 'Could not open document'); return }
-      window.open(json.data.url, '_blank', 'noopener,noreferrer')
-    } catch { setRowError('Network error') }
-  }
-
-  // Mark a required document UNAVAILABLE (durable, reversible skip). It is not a
-  // received document — it just lets preparation proceed when the document
-  // genuinely cannot be obtained.
-  async function skipDocument(policyId: string, documentType: DocType) {
-    setBusy(true); setRowError(null)
-    try {
-      const res = await fetch(`/api/projects/${projectId}/review-1035/${row.customer_id}/documents/skip`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ document_type: documentType, policy_id: policyId }),
-      })
-      const json = await res.json()
-      if (!res.ok) { setRowError(json.error ?? 'Could not mark unavailable'); return }
-      await onChanged()
-    } catch { setRowError('Network error') }
-    finally { setBusy(false) }
-  }
-
-  // Reverse a skip: the document is no longer marked unavailable.
-  async function unskipDocument(policyId: string, documentType: DocType) {
-    setBusy(true); setRowError(null)
-    try {
-      const res = await fetch(
-        `/api/projects/${projectId}/review-1035/${row.customer_id}/documents/skip?type=${documentType}&policy_id=${policyId}`,
-        { method: 'DELETE' },
-      )
-      const json = await res.json()
-      if (!res.ok) { setRowError(json.error ?? 'Could not undo'); return }
       await onChanged()
     } catch { setRowError('Network error') }
     finally { setBusy(false) }
@@ -542,77 +466,15 @@ function CustomerRow({
           </ul>
         </div>
 
-        {/* Step 3 — documents (per policy) + readiness + determination */}
+        {/* Step 3 — the producer's determination. Servicing access is the only
+            gate: once every permanent policy is confirmed the customer is here. */}
         <div className="rounded-xl border border-surface-border bg-surface-muted/40 p-4">
-          <p className="text-base font-semibold text-ink">Step 3 · Prepare &amp; evaluate</p>
+          <p className="text-base font-semibold text-ink">Step 3 · Determination</p>
           <p className="mt-1 text-base text-ink-secondary">
-            For each permanent policy, upload the Carrier Statement and the Reprojection, or mark one
-            unavailable. Every required document must be addressed before the customer is ready for
-            producer evaluation.
+            {row.step2_satisfied
+              ? 'Servicing access is established. Record whether this customer is a 1035 candidate.'
+              : 'The determination opens once servicing access is established for every permanent policy.'}
           </p>
-
-          {row.permanent_count === 0 ? (
-            <p className="mt-3 text-base text-ink-secondary">
-              No permanent policies to evaluate, so no Step 3 documents are required.
-            </p>
-          ) : (
-            <div className="mt-3 space-y-3">
-              {row.permanent_policies.map(p => (
-                <PolicyDocuments
-                  key={p.id}
-                  policy={p}
-                  disabled={busy || !row.step2_satisfied}
-                  onUpload={(type, file) => uploadDocument(p.id, type, file)}
-                  onView={type => viewDocument(p.id, type)}
-                  onSkip={type => skipDocument(p.id, type)}
-                  onUnskip={type => unskipDocument(p.id, type)}
-                />
-              ))}
-            </div>
-          )}
-
-          {!row.step2_satisfied && (
-            <p className="mt-3 text-base text-ink-supporting">
-              Documents can be collected once servicing access is established.
-            </p>
-          )}
-
-          {/* Operations: mark preparation complete / reopen. The handoff stays
-              disabled until every required document is addressed (uploaded or
-              marked unavailable) — the same rule the server enforces. */}
-          {row.step2_satisfied && row.determination == null && (
-            <div className="mt-3 space-y-2">
-              <div className="flex flex-wrap items-center gap-2">
-                {row.prep_status !== 'ready_for_evaluation' ? (
-                  <button
-                    type="button"
-                    disabled={busy || !row.prep_gate_satisfied}
-                    title={row.prep_gate_satisfied ? undefined : 'Upload or mark unavailable every required document first'}
-                    onClick={() => patch({ action: 'set_prep', prep_status: 'ready_for_evaluation' })}
-                    className="inline-flex h-10 items-center gap-2 rounded-lg bg-brand px-4 text-base font-semibold text-brand-foreground transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <ClipboardCheck className="size-4" aria-hidden />
-                    Ready for Producer Evaluation
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => patch({ action: 'set_prep', prep_status: 'preparing' })}
-                    className="inline-flex h-10 items-center gap-2 rounded-lg border border-surface-border-strong px-4 text-base font-semibold text-ink-secondary transition-colors hover:bg-surface-muted"
-                  >
-                    Reopen preparation
-                  </button>
-                )}
-              </div>
-              {row.prep_status !== 'ready_for_evaluation' && !row.prep_gate_satisfied && (
-                <p className="text-base text-ink-secondary">
-                  Upload or mark unavailable each policy&apos;s Carrier Statement and Reprojection to continue.
-                </p>
-              )}
-            </div>
-          )}
-
           {/* Bob: determination */}
           {row.stage === 'bob_evaluation' && (
             <div className="mt-3 rounded-lg border border-tag-exception-border bg-tag-exception-fill/40 p-3">
@@ -684,134 +546,6 @@ function CustomerRow({
           {rowError}
         </p>
       )}
-    </div>
-  )
-}
-
-function PolicyDocuments({
-  policy, disabled, onUpload, onView, onSkip, onUnskip,
-}: {
-  policy: PolicyAccess
-  disabled: boolean
-  onUpload: (type: DocType, file: File) => void
-  onView: (type: DocType) => void
-  onSkip: (type: DocType) => void
-  onUnskip: (type: DocType) => void
-}) {
-  // A policy is READY when both required documents are addressed (uploaded or
-  // marked unavailable). Until then it still has outstanding items.
-  return (
-    <div className="rounded-xl border border-surface-border bg-surface-card p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <span className="text-base font-semibold text-ink">{policy.policy_number}</span>
-          <span className="text-sm text-ink-supporting">{policy.product_type ?? '—'}</span>
-        </div>
-        {policy.documents_addressed ? (
-          <OperationalTag tone="info" className="px-2.5 py-0.5 text-sm">Ready</OperationalTag>
-        ) : (
-          <OperationalTag tone="reason" className="px-2.5 py-0.5 text-sm">Needs attention</OperationalTag>
-        )}
-      </div>
-      <div className="mt-3 space-y-2.5">
-        <DocRow
-          label="Carrier Statement"
-          present={policy.has_carrier_statement}
-          skipped={policy.carrier_statement_skipped}
-          disabled={disabled}
-          onUpload={file => onUpload('carrier_statement', file)}
-          onView={() => onView('carrier_statement')}
-          onSkip={() => onSkip('carrier_statement')}
-          onUnskip={() => onUnskip('carrier_statement')}
-        />
-        <DocRow
-          label="Reprojection"
-          present={policy.has_reprojection}
-          skipped={policy.reprojection_skipped}
-          disabled={disabled}
-          onUpload={file => onUpload('reprojection', file)}
-          onView={() => onView('reprojection')}
-          onSkip={() => onSkip('reprojection')}
-          onUnskip={() => onUnskip('reprojection')}
-        />
-      </div>
-    </div>
-  )
-}
-
-/**
- * One required document for a policy. Three states, each with the right action:
- *   - uploaded ("Stored"): View + Replace
- *   - skipped ("Unavailable"): a reversible Undo
- *   - neither (outstanding): Upload or Skip (mark unavailable)
- * A skip is durable but reversible, and is never shown as a received document.
- */
-function DocRow({
-  label, present, skipped, disabled, onUpload, onView, onSkip, onUnskip,
-}: {
-  label: string
-  present: boolean
-  skipped: boolean
-  disabled: boolean
-  onUpload: (file: File) => void
-  onView: () => void
-  onSkip: () => void
-  onUnskip: () => void
-}) {
-  const inputRef = useRef<HTMLInputElement | null>(null)
-
-  function pick() { inputRef.current?.click() }
-  function onChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    // Reset the input so re-selecting the same filename still fires change.
-    e.target.value = ''
-    if (file) onUpload(file)
-  }
-
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 rounded-lg border border-surface-divider bg-surface-muted/40 px-3 py-2">
-      <span className="flex items-center gap-2 text-base text-ink">
-        {present
-          ? <FileCheck2 className="size-4 text-status-confirmed-foreground" aria-hidden />
-          : skipped
-            ? <FileText className="size-4 text-ink-muted" aria-hidden />
-            : <FileText className="size-4 text-ink-supporting" aria-hidden />}
-        {label}
-        {present && <span className="text-sm font-medium text-status-confirmed-foreground">· Stored</span>}
-        {skipped && <span className="text-sm font-medium text-ink-muted">· Unavailable</span>}
-      </span>
-
-      <input
-        ref={inputRef}
-        type="file"
-        accept="application/pdf,image/*"
-        className="hidden"
-        onChange={onChange}
-      />
-
-      <div className="flex items-center gap-3">
-        {present ? (
-          <>
-            <button type="button" onClick={onView}
-              className="text-sm font-semibold text-brand hover:text-brand-hover">View</button>
-            <button type="button" disabled={disabled} onClick={pick}
-              className="text-sm font-semibold text-brand hover:text-brand-hover disabled:cursor-not-allowed disabled:opacity-50">Replace</button>
-          </>
-        ) : skipped ? (
-          // Reversible: undo the skip to require the document again.
-          <button type="button" disabled={disabled} onClick={onUnskip}
-            className="text-sm font-semibold text-brand hover:text-brand-hover disabled:cursor-not-allowed disabled:opacity-50">Undo</button>
-        ) : (
-          <>
-            <button type="button" disabled={disabled} onClick={pick}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-sm font-semibold text-brand-foreground transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-50">
-              <Upload className="size-4" aria-hidden /> Upload
-            </button>
-            <button type="button" disabled={disabled} onClick={onSkip}
-              className="text-sm font-semibold text-ink-supporting underline-offset-2 hover:text-ink hover:underline disabled:cursor-not-allowed disabled:opacity-50">Skip</button>
-          </>
-        )}
-      </div>
     </div>
   )
 }
