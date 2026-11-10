@@ -1061,7 +1061,7 @@ function WorkClassCard({
       </button>
 
       {open && (
-        <ul className="border-t border-surface-border px-3 py-1.5">
+        <ul className="space-y-1 border-t border-surface-border px-3 py-2">
           {group.steps.map((step) => (
             <WorkClassStepRow key={step.key} step={step} />
           ))}
@@ -1078,7 +1078,7 @@ function WorkClassStepRow({ step }: { step: PlanStep }) {
   const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
   return (
     <li>
-      <div className="flex items-center justify-between gap-3 px-2 py-1 text-sm">
+      <div className="flex items-center justify-between gap-3 px-2 py-2 text-sm">
         <span className="flex min-w-0 items-center gap-2">
           {step.route ? (
             <Link
@@ -1090,13 +1090,7 @@ function WorkClassStepRow({ step }: { step: PlanStep }) {
           ) : (
             <span className="truncate font-medium text-ink">{step.title}</span>
           )}
-          {/* Small cap sized to the 14px row text; negative margin keeps the
-              28px button from stretching the row. */}
-          {!mentorOpen && (
-            <span className="-my-1 inline-flex">
-              <MentorCapButton size="sm" onOpen={() => setMentorOpen(true)} />
-            </span>
-          )}
+          {!mentorOpen && <MentorCapButton size="text-sm" onOpen={() => setMentorOpen(true)} />}
         </span>
         <span className="shrink-0 font-semibold tabular-nums text-ink">{step.count}</span>
       </div>
@@ -1143,7 +1137,7 @@ function WorkStepCard({ item }: { item: AssistantItem }) {
           )}
           {/* Mentoring: the description lives here; default follows the global
               Mentoring toggle. */}
-          {!mentorOpen && <MentorCapButton onOpen={() => setMentorOpen(true)} />}
+          {!mentorOpen && <MentorCapButton size="text-xl" onOpen={() => setMentorOpen(true)} />}
         </div>
         <span className="shrink-0 text-xl font-semibold leading-none tabular-nums text-ink">{headline}</span>
       </div>

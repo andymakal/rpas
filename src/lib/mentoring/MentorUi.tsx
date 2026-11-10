@@ -205,22 +205,22 @@ export function MentorCapButton({
 }: {
   onOpen: () => void
   label?: string
-  /** 'md' (default) pairs with large text (the Assistant cards). 'sm' pairs with
-   * small row text (about 14px), scaled in the same proportion (icon about 1.6x
-   * the text height). */
-  size?: 'md' | 'sm'
+  /** 'md' (default) is the large cap. 'text-sm' and 'text-xl' make the icon the
+   * same height as 14px / 20px text, so the cap sits level with a line of that
+   * size and does not stretch its row. */
+  size?: 'md' | 'text-sm' | 'text-xl'
 }) {
+  const box = size === 'text-sm' ? 'size-5' : size === 'text-xl' ? 'size-6' : 'size-10'
+  const icon = size === 'text-sm' ? 'size-3.5' : size === 'text-xl' ? 'size-5' : 'size-8'
   return (
     <button
       type="button"
       aria-label={label}
       aria-expanded={false}
       onClick={onOpen}
-      className={`inline-flex shrink-0 items-center justify-center rounded-full text-purple-500 transition-colors hover:bg-purple-100 hover:text-purple-700 ${
-        size === 'sm' ? 'size-7' : 'size-10'
-      }`}
+      className={`inline-flex shrink-0 items-center justify-center rounded-full text-purple-500 transition-colors hover:bg-purple-100 hover:text-purple-700 ${box}`}
     >
-      <GraduationCap className={size === 'sm' ? 'size-[22px]' : 'size-8'} aria-hidden />
+      <GraduationCap className={icon} aria-hidden />
     </button>
   )
 }
