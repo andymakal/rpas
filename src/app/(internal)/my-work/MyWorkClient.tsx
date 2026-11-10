@@ -54,7 +54,7 @@ import { useRouter } from 'next/navigation'
 import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
 import {
   Sparkles, ArrowRight, Phone, Mail, Users, CheckCircle2, Lock,
-  ListChecks, ChevronRight, ChevronDown, SlidersHorizontal,
+  ChevronDown, SlidersHorizontal,
   CalendarClock, Hourglass, Compass, PlayCircle, Clock,
 } from 'lucide-react'
 import {
@@ -94,6 +94,7 @@ import {
 import {
   deriveMyWorkDirection,
   type MyWorkDirection,
+  type PlanStep,
 } from '@/lib/my-work/direction'
 import {
   rankAssistantItems,
@@ -968,7 +969,6 @@ function AvailableWorkColumn({
   direction: MyWorkDirection
   state: MyWorkState
 }) {
-  const [showAll, setShowAll] = useState(false)
   const classes = useMemo(() => groupPlanByClass(direction.workingPlan), [direction.workingPlan])
 
   // Which classes are open. Held here (not inside each card) so one control can
@@ -1021,22 +1021,6 @@ function AvailableWorkColumn({
         </div>
       )}
 
-      {/* The complete per-activity inventory, on demand — same band-grouped
-          cards as before, preserving every source link, count, claim-state
-          breakdown, and per-item guidance. */}
-      <div className="pt-1">
-        <button
-          type="button"
-          onClick={() => setShowAll((v) => !v)}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-hover hover:underline"
-        >
-          <ListChecks className="size-4" aria-hidden />
-          {showAll ? 'Hide full work list' : 'See all available work'}
-          <ChevronRight className={cn('size-4 transition-transform', showAll && 'rotate-90')} aria-hidden />
-        </button>
-      </div>
-
-      {showAll && <FullInventory state={state} />}
     </section>
   )
 }
@@ -1078,33 +1062,43 @@ function WorkClassCard({
 
       {open && (
         <ul className="space-y-1 border-t border-surface-border px-3 py-2">
-          {group.steps.map((step) => {
-            const headline = step.count
-            return (
-              <li key={step.key}>
-                {step.route ? (
-                  <Link
-                    href={step.route}
-                    className="flex items-center justify-between gap-3 rounded-lg px-2 py-2 text-sm hover:bg-brand-wash"
-                  >
-                    <span className="flex min-w-0 items-center gap-2 text-brand-hover">
-                      <span className="truncate font-medium">{step.title}</span>
-                      <ArrowRight className="size-3.5 shrink-0" aria-hidden />
-                    </span>
-                    <span className="shrink-0 font-semibold tabular-nums text-ink">{headline}</span>
-                  </Link>
-                ) : (
-                  <span className="flex items-center justify-between gap-3 px-2 py-2 text-sm">
-                    <span className="truncate font-medium text-ink">{step.title}</span>
-                    <span className="shrink-0 font-semibold tabular-nums text-ink">{headline}</span>
-                  </span>
-                )}
-              </li>
-            )
-          })}
+          {group.steps.map((step) => (
+            <WorkClassStepRow key={step.key} step={step} />
+          ))}
         </ul>
       )}
     </article>
+  )
+}
+
+/** One activity row inside an open work class: the link to the work, the count,
+ * and a mentoring cap. The mentoring text is the step's own `reason`, the SAME
+ * text the Assistant's cards show for that step, so the two never drift. */
+function WorkClassStepRow({ step }: { step: PlanStep }) {
+  const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
+  return (
+    <li>
+      <div className="flex items-center justify-between gap-3 px-2 py-2 text-sm">
+        <span className="flex min-w-0 items-center gap-2">
+          {step.route ? (
+            <Link
+              href={step.route}
+              className="flex min-w-0 items-center gap-2 text-brand-hover hover:underline"
+            >
+              <span className="truncate font-medium">{step.title}</span>
+              <ArrowRight className="size-3.5 shrink-0" aria-hidden />
+            </Link>
+          ) : (
+            <span className="truncate font-medium text-ink">{step.title}</span>
+          )}
+          {!mentorOpen && <MentorCapButton onOpen={() => setMentorOpen(true)} />}
+        </span>
+        <span className="shrink-0 font-semibold tabular-nums text-ink">{step.count}</span>
+      </div>
+      {mentorOpen && (
+        <MentorCapPanel className="mb-1" onClose={() => setMentorOpen(false)}>{step.reason}</MentorCapPanel>
+      )}
+    </li>
   )
 }
 
