@@ -454,6 +454,7 @@ export function CallsDueClient({
       )}
 
       <WorkCompleteState
+        done={handledCount > 0}
         title={handledCount > 0 ? copy.completeTitle : copy.emptyTitle}
         body={handledCount > 0 ? copy.completeBody(handledCount) : copy.emptyBody}
         onCheckAgain={() => { setHandled(new Set()); directOpenedRef.current = false; setLoading(true); void load() }}

@@ -225,6 +225,7 @@ export function UnableToCallClient({
       )}
 
       <WorkCompleteState
+        done={handledCount > 0}
         title={handledCount > 0 ? 'All handled' : 'Nobody is unreachable by phone right now'}
         body={
           handledCount > 0

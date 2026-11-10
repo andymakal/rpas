@@ -317,6 +317,7 @@ export function ServicingAccessClient({
       )}
 
       <WorkCompleteState
+        done={handledCount > 0}
         title={handledCount > 0 ? 'Servicing access complete' : 'No servicing access work right now'}
         body={
           handledCount > 0

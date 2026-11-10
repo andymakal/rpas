@@ -10,13 +10,15 @@
  * between "you finished a run" and "there was nothing to do"), a way back to My
  * Work, a Check again control, and a quiet marker naming the activity.
  *
- * It owns the presentation only. The host supplies the wording and what "Check
+ * When the person actually finished work this session (done), the panel uses
+ * the same teal 'done' look as StatusPanel; when there was nothing to do it stays
+ * neutral. It owns the presentation only. The host supplies the wording and what "Check
  * again" does (reset the session and reload the list).
  */
 
 import type { ComponentType, ReactNode } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, CheckCircle2, RefreshCw } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, CircleCheck, RefreshCw } from 'lucide-react'
 
 export function WorkCompleteState({
   title,
@@ -25,6 +27,7 @@ export function WorkCompleteState({
   footerIcon: FooterIcon,
   footerLabel,
   backHref = '/my-work',
+  done = false,
 }: {
   title: ReactNode
   body: ReactNode
@@ -35,10 +38,22 @@ export function WorkCompleteState({
   /** Name of the activity, shown in the quiet marker. */
   footerLabel: string
   backHref?: string
+  /** True when work was completed this session (teal 'done' look). */
+  done?: boolean
 }) {
   return (
-    <div className="flex flex-col items-center gap-4 rounded-2xl border border-surface-border bg-surface-card p-10 text-center">
-      <CheckCircle2 className="size-12 text-status-confirmed-strong" aria-hidden />
+    <div
+      className={
+        done
+          ? 'flex flex-col items-center gap-4 rounded-2xl border border-status-confirmed-border bg-status-confirmed-soft p-10 text-center'
+          : 'flex flex-col items-center gap-4 rounded-2xl border border-surface-border bg-surface-card p-10 text-center'
+      }
+    >
+      {done ? (
+        <CircleCheck className="size-12 text-teal-700" aria-hidden />
+      ) : (
+        <CheckCircle2 className="size-12 text-status-confirmed-strong" aria-hidden />
+      )}
       <div className="space-y-1">
         <p className="text-xl font-semibold text-ink">{title}</p>
         <p className="text-lg text-ink-secondary">{body}</p>

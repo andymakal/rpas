@@ -373,6 +373,7 @@ export function IntroductoryEmailsClient({
       )}
 
       <WorkCompleteState
+        done={sentCount > 0}
         title={sentCount > 0 ? 'Introductory emails complete' : 'No introductory emails right now'}
         body={
           sentCount > 0
