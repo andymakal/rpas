@@ -205,13 +205,13 @@ export function MentorCapButton({
 }: {
   onOpen: () => void
   label?: string
-  /** 'md' (default) is the large cap. 'text-sm' and 'text-xl' make the icon the
-   * same height as 14px / 20px text, so the cap sits level with a line of that
-   * size and does not stretch its row. */
+  /** 'md' (default) is the large cap. 'text-sm' and 'text-xl' scale the icon to
+   * about 1.25x the height of 14px / 20px text (18px / 24px), in a 24px / 28px
+   * button, which also meets the 24px minimum target size. */
   size?: 'md' | 'text-sm' | 'text-xl'
 }) {
-  const box = size === 'text-sm' ? 'size-5' : size === 'text-xl' ? 'size-6' : 'size-10'
-  const icon = size === 'text-sm' ? 'size-3.5' : size === 'text-xl' ? 'size-5' : 'size-8'
+  const box = size === 'text-sm' ? 'size-6' : size === 'text-xl' ? 'size-7' : 'size-10'
+  const icon = size === 'text-sm' ? 'size-[18px]' : size === 'text-xl' ? 'size-6' : 'size-8'
   return (
     <button
       type="button"
