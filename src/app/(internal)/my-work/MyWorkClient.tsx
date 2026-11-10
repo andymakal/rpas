@@ -1061,7 +1061,7 @@ function WorkClassCard({
       </button>
 
       {open && (
-        <ul className="space-y-1 border-t border-surface-border px-3 py-2">
+        <ul className="border-t border-surface-border px-3 py-1.5">
           {group.steps.map((step) => (
             <WorkClassStepRow key={step.key} step={step} />
           ))}
@@ -1078,20 +1078,25 @@ function WorkClassStepRow({ step }: { step: PlanStep }) {
   const { open: mentorOpen, setOpen: setMentorOpen } = useMentorDisclosure()
   return (
     <li>
-      <div className="flex items-center justify-between gap-3 px-2 py-2 text-sm">
+      <div className="flex items-center justify-between gap-3 px-2 py-1 text-sm">
         <span className="flex min-w-0 items-center gap-2">
           {step.route ? (
             <Link
               href={step.route}
-              className="flex min-w-0 items-center gap-2 text-brand-hover hover:underline"
+              className="min-w-0 truncate font-medium text-brand-hover hover:underline"
             >
-              <span className="truncate font-medium">{step.title}</span>
-              <ArrowRight className="size-3.5 shrink-0" aria-hidden />
+              {step.title}
             </Link>
           ) : (
             <span className="truncate font-medium text-ink">{step.title}</span>
           )}
-          {!mentorOpen && <MentorCapButton onOpen={() => setMentorOpen(true)} />}
+          {/* The cap button is 40px tall; negative margins keep it from
+              stretching the row. */}
+          {!mentorOpen && (
+            <span className="-my-2 inline-flex">
+              <MentorCapButton onOpen={() => setMentorOpen(true)} />
+            </span>
+          )}
         </span>
         <span className="shrink-0 font-semibold tabular-nums text-ink">{step.count}</span>
       </div>
