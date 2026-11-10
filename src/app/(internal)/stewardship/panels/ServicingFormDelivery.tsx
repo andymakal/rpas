@@ -254,7 +254,7 @@ export function ServicingFormDelivery({
           selected={!alreadyHasForm}
           onClick={prepareAndOpen}
           disabled={preparing || !canGenerate || (method === 'postal' && !customerHasAddress)}
-          className="h-14 w-full justify-center text-lg"
+          className="h-auto min-h-14 w-full justify-center whitespace-normal py-2 text-center text-lg leading-tight"
         >
           {genLabel}
         </WorkflowButton>
@@ -263,7 +263,7 @@ export function ServicingFormDelivery({
           selected={alreadyHasForm}
           disabled={busy || preparing}
           onClick={() => setAlreadyHasForm(v => !v)}
-          className="h-14 w-full justify-center text-lg"
+          className="h-auto min-h-14 w-full justify-center whitespace-normal py-2 text-center text-lg leading-tight"
         >
           {method === 'postal' ? 'Already has packet' : 'Already has form'}
         </WorkflowButton>
