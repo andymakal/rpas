@@ -741,8 +741,7 @@ export function OutreachCallPanel({
           {decision === 'decline' && (
             <div className="space-y-2 rounded-xl border border-status-attention-border bg-status-attention-soft p-4">
               <p className="text-base text-ink-secondary">
-                Records an explicit decline. Outreach stops until someone deliberately reopens it. Nothing is
-                auto-closed, and this is reversible.
+                Record the customer&apos;s decision to decline. Outreach stops unless someone deliberately reopens it.
               </p>
               <WorkflowButton icon={CircleAlert} selected disabled={busy}
                 onClick={() => act(
