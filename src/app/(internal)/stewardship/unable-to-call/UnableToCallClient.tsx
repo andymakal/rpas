@@ -214,7 +214,7 @@ export function UnableToCallClient({
       <div className="flex items-center gap-3">
         <p className="text-base font-semibold text-ink">About People We Can&apos;t Call</p>
         {!mentorOpen && (
-          <MentorCapButton onOpen={() => setMentorOpen(true)} label="Show mentoring on people we can't call" />
+          <MentorCapButton size="text-base" onOpen={() => setMentorOpen(true)} label="Show mentoring on people we can't call" />
         )}
       </div>
       {mentorOpen && (

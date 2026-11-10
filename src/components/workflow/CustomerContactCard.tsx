@@ -1380,7 +1380,7 @@ function ContactMentoring({
           {name}
         </h3>
         {showMentoring && !open && (
-          <MentorCapButton onOpen={() => setOpen(true)} label="Show mentoring about these fields" />
+          <MentorCapButton size="text-display" onOpen={() => setOpen(true)} label="Show mentoring about these fields" />
         )}
       </div>
       {showMentoring && open && (

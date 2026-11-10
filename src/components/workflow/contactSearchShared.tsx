@@ -66,7 +66,7 @@ export function SourceHeader({ title, children }: { title: ReactNode; children: 
     <div className="space-y-1.5">
       <div className="flex items-center gap-2">
         {title}
-        {!open && <MentorCapButton onOpen={() => setOpen(true)} />}
+        {!open && <MentorCapButton size="text-lg" onOpen={() => setOpen(true)} />}
       </div>
       {open && <MentorCapPanel onClose={() => setOpen(false)}>{children}</MentorCapPanel>}
     </div>

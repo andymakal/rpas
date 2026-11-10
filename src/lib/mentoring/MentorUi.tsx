@@ -196,6 +196,21 @@ export function useMentorDisclosure(): { open: boolean; setOpen: (v: boolean) =>
   return { open, setOpen }
 }
 
+/** Cap sizes, each matched to the text it sits beside: the icon is about 1.25x
+ * the text height, in a button that meets the 24px minimum target size. 'md' is
+ * the original large cap. 'text-display' is for the 33px customer name. */
+export type MentorCapSize =
+  | 'md' | 'text-sm' | 'text-base' | 'text-lg' | 'text-xl' | 'text-2xl' | 'text-display'
+const CAP_SIZES: Record<MentorCapSize, { box: string; icon: string }> = {
+  md:             { box: 'size-10',     icon: 'size-8' },
+  'text-sm':      { box: 'size-6',      icon: 'size-[18px]' },
+  'text-base':    { box: 'size-6',      icon: 'size-5' },
+  'text-lg':      { box: 'size-7',      icon: 'size-[22px]' },
+  'text-xl':      { box: 'size-7',      icon: 'size-6' },
+  'text-2xl':     { box: 'size-9',      icon: 'size-[30px]' },
+  'text-display': { box: 'size-[46px]', icon: 'size-[41px]' },
+}
+
 /** The inline cap button (collapsed state): a large purple graduation-cap on the
  * item's line. Clicking it expands the coaching beneath the item. */
 export function MentorCapButton({
@@ -205,13 +220,10 @@ export function MentorCapButton({
 }: {
   onOpen: () => void
   label?: string
-  /** 'md' (default) is the large cap. 'text-sm' and 'text-xl' scale the icon to
-   * about 1.25x the height of 14px / 20px text (18px / 24px), in a 24px / 28px
-   * button, which also meets the 24px minimum target size. */
-  size?: 'md' | 'text-sm' | 'text-xl'
+  /** Match the size to the text the cap sits beside (see MentorCapSize). */
+  size?: MentorCapSize
 }) {
-  const box = size === 'text-sm' ? 'size-6' : size === 'text-xl' ? 'size-7' : 'size-10'
-  const icon = size === 'text-sm' ? 'size-[18px]' : size === 'text-xl' ? 'size-6' : 'size-8'
+  const { box, icon } = CAP_SIZES[size]
   return (
     <button
       type="button"

@@ -460,7 +460,7 @@ function WorkFilters({
           </button>
         )}
 
-        {!mentorOpen && <MentorCapButton onOpen={() => setMentorOpen(true)} />}
+        {!mentorOpen && <MentorCapButton size="text-sm" onOpen={() => setMentorOpen(true)} />}
       </div>
 
       {mentorOpen && (
@@ -763,7 +763,7 @@ function PriorityCard({
               {count}
             </span>
             {mentoring && !mentorOpen && (
-              <MentorCapButton onOpen={() => setMentorOpen(true)} />
+              <MentorCapButton size="text-2xl" onOpen={() => setMentorOpen(true)} />
             )}
             {route && (
               <Link
@@ -922,7 +922,7 @@ function RecommendationCard({
             <PlayCircle className="size-4" aria-hidden /> {step.actionLabel}
           </Link>
         )}
-        {!mentorOpen && <MentorCapButton onOpen={() => setMentorOpen(true)} />}
+        {!mentorOpen && <MentorCapButton size="text-sm" onOpen={() => setMentorOpen(true)} />}
       </div>
 
       {mentorOpen && (

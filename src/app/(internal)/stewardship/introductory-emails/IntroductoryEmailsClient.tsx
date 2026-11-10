@@ -356,6 +356,7 @@ export function IntroductoryEmailsClient({
         <p className="text-base font-semibold text-ink">About introductory emails</p>
         {!mentorOpen && (
           <MentorCapButton
+            size="text-base"
             onOpen={() => setMentorOpen(true)}
             label="Show mentoring on introductory emails"
           />

@@ -298,6 +298,7 @@ export function ServicingAccessClient({
         <p className="text-base font-semibold text-ink">About servicing access</p>
         {!mentorOpen && (
           <MentorCapButton
+            size="text-base"
             onOpen={() => setMentorOpen(true)}
             label="Show mentoring on servicing access"
           />

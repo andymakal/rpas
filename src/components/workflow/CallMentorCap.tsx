@@ -39,7 +39,7 @@ export function CallMentorCap({
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-lg font-semibold text-ink">{heading}</h2>
-        {!open && <MentorCapButton onOpen={() => setOpen(true)} label="Why you're calling" />}
+        {!open && <MentorCapButton size="text-lg" onOpen={() => setOpen(true)} label="Why you're calling" />}
       </div>
       {open && <MentorCapPanel onClose={() => setOpen(false)}>{children}</MentorCapPanel>}
     </div>

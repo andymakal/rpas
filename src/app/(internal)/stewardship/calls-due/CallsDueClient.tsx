@@ -432,6 +432,7 @@ export function CallsDueClient({
         <p className="text-base font-semibold text-ink">{copy.mentorHeading}</p>
         {!mentorOpen && (
           <MentorCapButton
+            size="text-base"
             onOpen={() => setMentorOpen(true)}
             label={copy.mentorButton}
           />
