@@ -36,7 +36,8 @@ export type PolicyForPrep = {
   riders:                string | null
   insured_first_name:    string | null
   insured_last_name:     string | null
-  primary_beneficiary:   string | null   // from most recent review if available
+  primary_beneficiary:              string | null   // from most recent review if available
+  primary_beneficiary_customer_id?: string | null
 }
 
 // ── Review type classification ────────────────────────────────────────────────
@@ -321,7 +322,7 @@ export function generateFlags(policy: PolicyForPrep): ReviewFlag[] {
   }
 
   // ── BENEFICIARY ─────────────────────────────────────────────────────────────
-  if (!policy.primary_beneficiary) {
+  if (!policy.primary_beneficiary && !policy.primary_beneficiary_customer_id) {
     flags.push({
       severity:    'warning',
       label:       'Beneficiary Not on File',
