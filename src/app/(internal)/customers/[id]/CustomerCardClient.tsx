@@ -66,18 +66,23 @@ function maskDob(iso: string | null): string {
   return `${mm}/xx/${yyyy}`
 }
 
+function normalizeProductType(raw: string): { label: string; color: string } {
+  const t = raw.toUpperCase().replace(/[\s_-]/g, '')
+  if (t.startsWith('TERM'))                                    return { label: 'Term', color: 'bg-blue-900/40 text-blue-300' }
+  if (t === 'VUL' || t.includes('VARIABLE'))                  return { label: 'VUL',  color: 'bg-purple-900/40 text-purple-300' }
+  if (t === 'IUL' || t.includes('INDEXED'))                   return { label: 'IUL',  color: 'bg-purple-900/40 text-purple-300' }
+  if (t === 'GUL' || t.includes('GUARANTEED'))                return { label: 'GUL',  color: 'bg-purple-900/40 text-purple-300' }
+  if (['UL','SUL','SVUL','CAUL'].includes(t) || t.includes('UNIVERSAL')) return { label: 'UL', color: 'bg-purple-900/40 text-purple-300' }
+  if (['WL','PERM','WLI','PAR','NONPAR'].includes(t) || t.includes('WHOLE') || t.includes('PERMANENT')) return { label: 'WL', color: 'bg-teal-900/40 text-teal-300' }
+  return { label: raw, color: 'bg-slate-700 text-slate-300' }
+}
+
 function TypeBadge({ type }: { type: string | null }) {
   if (!type) return <span className="text-slate-500 text-xs">—</span>
-  const colors: Record<string, string> = {
-    Term: 'bg-blue-900/40 text-blue-300',
-    UL:   'bg-purple-900/40 text-purple-300',
-    VUL:  'bg-purple-900/40 text-purple-300',
-    WL:   'bg-teal-900/40 text-teal-300',
-    PERM: 'bg-teal-900/40 text-teal-300',
-  }
+  const { label, color } = normalizeProductType(type)
   return (
-    <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${colors[type] ?? 'bg-slate-700 text-slate-300'}`}>
-      {type}
+    <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${color}`}>
+      {label}
     </span>
   )
 }
