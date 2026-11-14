@@ -2061,7 +2061,7 @@ export function CustomerCardClient({
                         <span className="text-slate-600">—</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 text-slate-400 text-xs">{abbrevProduct(p.product_type) ?? '—'}</td>
+                    <td className="px-4 py-3"><TypeBadge type={p.product_type} /></td>
                     <td className="px-4 py-3 text-right text-slate-200 text-sm">{fmt(p.face_amount)}</td>
                     <td className="px-4 py-3 text-right">
                       <Link href={`/policies/${p.id}`} className="text-xs text-slate-500 hover:text-slate-300 flex items-center justify-end gap-1">
