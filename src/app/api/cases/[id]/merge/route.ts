@@ -70,7 +70,13 @@ export async function POST(
   // 4. Move household members
   await supabase.from('case_household_members').update({ case_id: winnerId }).eq('case_id', loserId)
 
-  // 5. Build winner update — fill nulls from loser, resolve conflicts
+  // 5. Move spiff records
+  await supabase.from('spiff_records').update({ case_id: winnerId }).eq('case_id', loserId)
+
+  // 6. Re-point any policy review whose resulting_case_id points to the loser
+  await supabase.from('policy_reviews').update({ resulting_case_id: winnerId }).eq('resulting_case_id', loserId)
+
+  // 7. Build winner update — fill nulls from loser, resolve conflicts
   const winnerUpdate: Record<string, unknown> = { updated_at: now }
 
   const nullFillFields = [
@@ -116,7 +122,7 @@ export async function POST(
     await supabase.from('cases').update(winnerUpdate).eq('id', winnerId)
   }
 
-  // 6. Delete the loser
+  // 8. Delete the loser
   const { error: deleteErr } = await supabase.from('cases').delete().eq('id', loserId)
   if (deleteErr) {
     return Response.json({ error: `Merge failed during cleanup: ${deleteErr.message}` }, { status: 500 })

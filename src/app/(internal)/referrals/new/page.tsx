@@ -128,8 +128,9 @@ export default function NewReferralPage() {
   const [showMatchPanel,    setShowMatchPanel]    = useState(false)
   const [linkedCustomer,    setLinkedCustomer]    = useState<CustomerMatch | null>(null)
 
-  const [submitting, setSubmitting] = useState(false)
-  const [error,      setError]      = useState<string | null>(null)
+  const [submitting,            setSubmitting]            = useState(false)
+  const [error,                 setError]                 = useState<string | null>(null)
+  const [duplicateAcknowledged, setDuplicateAcknowledged] = useState(false)
 
   const needsAgency = leadSource === 'agency_referral'
 
@@ -200,6 +201,7 @@ export default function NewReferralPage() {
 
   function handleLinkCustomer(match: CustomerMatch) {
     setLinkedCustomer(match)
+    setDuplicateAcknowledged(false)
     setShowMatchPanel(false)
     setCustomerMatches([])
     // Pre-fill phone so the form displays it (field is hidden when linked, no validation needed)
@@ -230,6 +232,13 @@ export default function NewReferralPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+
+    // Guard: existing customer with open cases requires explicit acknowledgment
+    if (linkedCustomer && linkedCustomer.case_count > 0 && !duplicateAcknowledged) {
+      setError('Please confirm you want to open a new case for this customer who already has an active case.')
+      return
+    }
+
     setSubmitting(true)
     setError(null)
 
@@ -504,26 +513,62 @@ export default function NewReferralPage() {
 
             {/* Linked customer confirmation */}
             {linkedCustomer && (
-              <div className="bg-green-950/30 border border-green-800/60 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2 min-w-0">
-                  <UserCheck className="w-4 h-4 text-green-400 shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm text-green-300 font-medium">
-                      Linking to {linkedCustomer.first_name} {linkedCustomer.last_name}&apos;s existing record
-                    </p>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      New case will be added to their history · to update contact info, edit their Customer Card after saving
-                    </p>
+              <div className="space-y-2">
+                <div className="bg-green-950/30 border border-green-800/60 rounded-xl px-4 py-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <UserCheck className="w-4 h-4 text-green-400 shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-sm text-green-300 font-medium">
+                        Linking to {linkedCustomer.first_name} {linkedCustomer.last_name}&apos;s existing record
+                      </p>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        New case will be added to their history · to update contact info, edit their Customer Card after saving
+                      </p>
+                    </div>
                   </div>
+                  <button
+                    type="button"
+                    onClick={handleUnlinkCustomer}
+                    className="shrink-0 text-slate-400 hover:text-slate-200 transition-colors"
+                    title="Unlink — create a new customer record instead"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={handleUnlinkCustomer}
-                  className="shrink-0 text-slate-400 hover:text-slate-200 transition-colors"
-                  title="Unlink — create a new customer record instead"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+
+                {/* Duplicate-case warning */}
+                {linkedCustomer.case_count > 0 && (
+                  <div className={`rounded-xl border px-4 py-3 space-y-2 ${
+                    duplicateAcknowledged
+                      ? 'bg-slate-800/40 border-slate-700'
+                      : 'bg-amber-950/30 border-amber-800/60'
+                  }`}>
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className={`w-4 h-4 shrink-0 mt-0.5 ${duplicateAcknowledged ? 'text-slate-500' : 'text-amber-400'}`} />
+                      <div className="space-y-1 flex-1">
+                        <p className={`text-sm font-medium ${duplicateAcknowledged ? 'text-slate-400' : 'text-amber-300'}`}>
+                          {linkedCustomer.first_name} already has {linkedCustomer.case_count} active case{linkedCustomer.case_count !== 1 ? 's' : ''} in RPAS
+                        </p>
+                        <p className="text-xs text-slate-400">
+                          Check their Customer Card before logging a new case — this may be a duplicate.
+                        </p>
+                      </div>
+                    </div>
+                    {!duplicateAcknowledged ? (
+                      <button
+                        type="button"
+                        onClick={() => setDuplicateAcknowledged(true)}
+                        className="text-xs font-medium text-amber-400 hover:text-amber-300 border border-amber-800/60 hover:border-amber-700 rounded-lg px-3 py-1.5 transition-colors"
+                      >
+                        I checked — this is a new, separate case
+                      </button>
+                    ) : (
+                      <p className="text-xs text-slate-500 flex items-center gap-1">
+                        <CheckCircle className="w-3 h-3" /> Confirmed as a new separate case
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
