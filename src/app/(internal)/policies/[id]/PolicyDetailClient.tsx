@@ -515,7 +515,7 @@ function CategoryFieldsEdit({
               onLink={onPrimBenefLink}
               onUnlink={onPrimBenefUnlink}
               householdMembers={householdMembers}
-              excludeId={policyCustomerId}
+              excludeId={null}
             />
           ) : (
             <>
@@ -526,7 +526,7 @@ function CategoryFieldsEdit({
                 onLink={onPrimBenefLink}
                 onUnlink={onPrimBenefUnlink}
                 householdMembers={householdMembers}
-                excludeId={policyCustomerId}
+                excludeId={null}
               />
             </>
           )}
@@ -543,7 +543,7 @@ function CategoryFieldsEdit({
               onLink={onContBenefLink}
               onUnlink={onContBenefUnlink}
               householdMembers={householdMembers}
-              excludeId={policyCustomerId}
+              excludeId={null}
             />
           ) : (
             <>
@@ -554,7 +554,7 @@ function CategoryFieldsEdit({
                 onLink={onContBenefLink}
                 onUnlink={onContBenefUnlink}
                 householdMembers={householdMembers}
-                excludeId={policyCustomerId}
+                excludeId={null}
               />
             </>
           )}
@@ -1139,7 +1139,7 @@ export function PolicyDetailClient({
                             onLink={(id, name) => { setPrimBenefCxId(id); setPrimBenefCxName(name) }}
                             onUnlink={() => { setPrimBenefCxId(null); setPrimBenefCxName(null) }}
                             householdMembers={householdMembers}
-                            excludeId={customerId}
+                            excludeId={null}
                           />
                         ) : (
                           <>
@@ -1150,7 +1150,7 @@ export function PolicyDetailClient({
                               onLink={(id, name) => { setPrimBenefCxId(id); setPrimBenefCxName(name) }}
                               onUnlink={() => { setPrimBenefCxId(null); setPrimBenefCxName(null) }}
                               householdMembers={householdMembers}
-                              excludeId={customerId}
+                              excludeId={null}
                             />
                           </>
                         )}
@@ -1163,7 +1163,7 @@ export function PolicyDetailClient({
                             onLink={(id, name) => { setContBenefCxId(id); setContBenefCxName(name) }}
                             onUnlink={() => { setContBenefCxId(null); setContBenefCxName(null) }}
                             householdMembers={householdMembers}
-                            excludeId={customerId}
+                            excludeId={null}
                           />
                         ) : (
                           <>
@@ -1174,7 +1174,7 @@ export function PolicyDetailClient({
                               onLink={(id, name) => { setContBenefCxId(id); setContBenefCxName(name) }}
                               onUnlink={() => { setContBenefCxId(null); setContBenefCxName(null) }}
                               householdMembers={householdMembers}
-                              excludeId={customerId}
+                              excludeId={null}
                             />
                           </>
                         )}
