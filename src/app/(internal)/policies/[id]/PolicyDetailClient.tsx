@@ -395,7 +395,7 @@ function CategoryFieldsEdit({
                   onLink={onInsuredLink}
                   onUnlink={onInsuredUnlink}
                   householdMembers={householdMembers}
-                  excludeId={policyCustomerId}
+                  excludeId={null}
                 />
               ) : (
                 <>
@@ -416,7 +416,7 @@ function CategoryFieldsEdit({
                     onLink={onInsuredLink}
                     onUnlink={onInsuredUnlink}
                     householdMembers={householdMembers}
-                    excludeId={policyCustomerId}
+                    excludeId={null}
                   />
                 </>
               )}
@@ -1063,7 +1063,7 @@ export function PolicyDetailClient({
                                 onLink={(id, name) => { setInsuredCxId(id); setInsuredCxName(name) }}
                                 onUnlink={() => { setInsuredCxId(null); setInsuredCxName(null) }}
                                 householdMembers={householdMembers}
-                                excludeId={customerId}
+                                excludeId={null}
                               />
                             ) : (
                               <>
@@ -1084,7 +1084,7 @@ export function PolicyDetailClient({
                                   onLink={(id, name) => { setInsuredCxId(id); setInsuredCxName(name) }}
                                   onUnlink={() => { setInsuredCxId(null); setInsuredCxName(null) }}
                                   householdMembers={householdMembers}
-                                  excludeId={customerId}
+                                  excludeId={null}
                                 />
                               </>
                             )}
