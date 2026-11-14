@@ -532,6 +532,7 @@ export function CustomerCardClient({
   onboarding = { active: null, completed: null },
   researchAgainProjectId = null,
   rateClasses = [],
+  openMerge = false,
 }: {
   customer:             CustomerDetail
   cases:                LinkedCase[]
@@ -546,10 +547,8 @@ export function CustomerCardClient({
   householdMembers?:    HouseholdMember[]
   onboarding?:          CustomerOnboarding
   rateClasses?:         { id: string; name: string }[]
-  /** When set, the id of an active 1035 project in which this customer has been
-   * researched-not-found. Enables a deliberate "research contact info again"
-   * link into that project's Contact Review task. Null when not applicable. */
   researchAgainProjectId?: string | null
+  openMerge?:           boolean
 }) {
   const router = useRouter()
   const [cases,       setCases]       = useState<LinkedCase[]>(initialCases)
@@ -692,7 +691,7 @@ export function CustomerCardClient({
 
   const [editingContact,  setEditingContact]  = useState(false)
 
-  const [mergeModalOpen,  setMergeModalOpen]  = useState(false)
+  const [mergeModalOpen,  setMergeModalOpen]  = useState(openMerge)
   const [mergeTarget,     setMergeTarget]     = useState<{ id: string; first_name: string | null; last_name: string | null } | null>(null)
   const [merging,         setMerging]         = useState(false)
   const [mergeErr,        setMergeErr]        = useState<string | null>(null)

@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Search, ChevronRight, Plus, X } from 'lucide-react'
+import { Search, Plus, X, MoreHorizontal, Merge } from 'lucide-react'
 import type { CustomerRow } from './page'
 
 const SEGMENTS = [
@@ -46,6 +46,15 @@ export default function CustomersClient() {
   const [showFormerClients, setShowFormerClients] = useState(false)
   const [showProspects, setShowProspects]         = useState(false)
   const [noPoliciesOnly, setNoPoliciesOnly]       = useState(false)
+
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!openMenuId) return
+    function close() { setOpenMenuId(null) }
+    document.addEventListener('click', close)
+    return () => document.removeEventListener('click', close)
+  }, [openMenuId])
 
   // New customer modal
   const [showNewCustomer, setShowNewCustomer] = useState(false)
@@ -390,8 +399,25 @@ export default function CustomersClient() {
                       )}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-slate-600 group-hover:text-slate-400 transition-colors">
-                    <ChevronRight className="w-4 h-4" />
+                  <td className="px-4 py-3 relative" onClick={e => e.stopPropagation()}>
+                    <button
+                      onClick={() => setOpenMenuId(openMenuId === c.id ? null : c.id)}
+                      className="p-1 rounded text-slate-600 hover:text-slate-300 hover:bg-slate-700/50 transition-colors opacity-0 group-hover:opacity-100"
+                      title="More actions"
+                    >
+                      <MoreHorizontal className="w-4 h-4" />
+                    </button>
+                    {openMenuId === c.id && (
+                      <div className="absolute right-2 top-full mt-1 z-20 bg-slate-800 border border-slate-700 rounded-xl shadow-xl py-1 min-w-44">
+                        <button
+                          onClick={() => { setOpenMenuId(null); router.push(`/customers/${c.id}?merge=1`) }}
+                          className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-300 hover:bg-slate-700/60 hover:text-amber-300 transition-colors"
+                        >
+                          <Merge className="w-3.5 h-3.5 shrink-0" />
+                          Merge duplicate…
+                        </button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}

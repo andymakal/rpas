@@ -149,10 +149,14 @@ export type CustomerNote = {
 
 export default async function CustomerCardPage({
   params,
+  searchParams,
 }: {
-  params: Promise<{ id: string }>
+  params:       Promise<{ id: string }>
+  searchParams: Promise<Record<string, string | string[] | undefined>>
 }) {
-  const { id } = await params
+  const { id }     = await params
+  const sp         = await searchParams
+  const openMerge  = sp.merge === '1'
   const supabase = createAdminClient()
 
   // Fetch customer
@@ -440,6 +444,7 @@ export default async function CustomerCardPage({
       onboarding={onboarding}
       researchAgainProjectId={researchAgainPid}
       rateClasses={(rateClassResult.data ?? []) as { id: string; name: string }[]}
+      openMerge={openMerge}
     />
   )
 }
