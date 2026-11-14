@@ -29,7 +29,8 @@ export type StandardFields = Partial<{
   term_length:          string
   rate_class:           string
   riders:               string
-  primary_beneficiary:  string
+  primary_beneficiary:    string
+  contingent_beneficiary: string
 }>
 
 export type CategoryConfig = {
@@ -51,7 +52,8 @@ export const CATEGORY_CONFIGS: Record<PolicyCategory, CategoryConfig> = {
       term_length:         'Term Length',
       rate_class:          'Rate Class',
       riders:              'Riders',
-      primary_beneficiary: 'Primary Beneficiary',
+      primary_beneficiary:    'Primary Beneficiary',
+      contingent_beneficiary: 'Contingent Beneficiary',
     },
     typeDataFields: [],
   },
@@ -69,7 +71,8 @@ export const CATEGORY_CONFIGS: Record<PolicyCategory, CategoryConfig> = {
       premium_mode:         'Premium Mode',
       rate_class:           'Rate Class',
       riders:               'Riders',
-      primary_beneficiary:  'Primary Beneficiary',
+      primary_beneficiary:    'Primary Beneficiary',
+      contingent_beneficiary: 'Contingent Beneficiary',
     },
     typeDataFields: [
       {
@@ -91,7 +94,8 @@ export const CATEGORY_CONFIGS: Record<PolicyCategory, CategoryConfig> = {
       cost_basis:          'Cost Basis',
       annual_premium:      'Annual Contribution',
       premium_mode:        'Contribution Mode',
-      primary_beneficiary: 'Primary Beneficiary',
+      primary_beneficiary:    'Primary Beneficiary',
+      contingent_beneficiary: 'Contingent Beneficiary',
     },
     typeDataFields: [
       {
@@ -144,7 +148,8 @@ export const CATEGORY_CONFIGS: Record<PolicyCategory, CategoryConfig> = {
       annual_premium:      'Annual Premium',
       premium_mode:        'Premium Mode',
       riders:              'Riders',
-      primary_beneficiary: 'Primary Beneficiary',
+      primary_beneficiary:    'Primary Beneficiary',
+      contingent_beneficiary: 'Contingent Beneficiary',
     },
     typeDataFields: [
       { key: 'monthly_benefit', label: 'Monthly Benefit',      type: 'currency', placeholder: '—' },
@@ -197,7 +202,8 @@ export const CATEGORY_CONFIGS: Record<PolicyCategory, CategoryConfig> = {
       cash_value_amount:   'Account Value',
       cost_basis:          'Cost Basis',
       annual_premium:      'Annual Contribution',
-      primary_beneficiary: 'Primary Beneficiary',
+      primary_beneficiary:    'Primary Beneficiary',
+      contingent_beneficiary: 'Contingent Beneficiary',
     },
     typeDataFields: [
       {
@@ -222,7 +228,8 @@ export const CATEGORY_CONFIGS: Record<PolicyCategory, CategoryConfig> = {
       term_length:          'Term Length',
       rate_class:           'Rate Class',
       riders:               'Riders',
-      primary_beneficiary:  'Primary Beneficiary',
+      primary_beneficiary:    'Primary Beneficiary',
+      contingent_beneficiary: 'Contingent Beneficiary',
     },
     typeDataFields: [],
   },

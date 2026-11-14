@@ -6,6 +6,10 @@ import { PolicyDetailClient } from './PolicyDetailClient'
 
 export const dynamic = 'force-dynamic'
 
+export type HouseholdMember = { id: string; first_name: string; last_name: string }
+
+type LinkedCustomer = { id: string; first_name: string; last_name: string } | null
+
 export type PolicyDetail = {
   id:                   string
   client_name:          string
@@ -24,25 +28,35 @@ export type PolicyDetail = {
   premium_mode:         string | null
   rate_class:           string | null
   riders:               string | null
-  insured_first_name:   string | null
-  insured_last_name:    string | null
-  primary_beneficiary:  string | null
+  insured_first_name:         string | null
+  insured_last_name:          string | null
+  primary_beneficiary:        string | null
+  contingent_beneficiary:     string | null
   coverage_status:      string
   sa_status:            string
   sa_form_sent_at:      string | null
   notes:                string | null
   customer_id:          string | null
   agency_id:            string | null
+  // New linking fields
+  owner_is_insured:                    boolean
+  insured_customer_id:                 string | null
+  primary_beneficiary_customer_id:     string | null
+  contingent_beneficiary_customer_id:  string | null
   agencies: {
     id:           string
     name:         string
     display_name: string | null
   } | null
   customers: {
-    id:         string
-    first_name: string
-    last_name:  string
+    id:              string
+    first_name:      string
+    last_name:       string
+    customer_group_id: string | null
   } | null
+  insured_customer:              LinkedCustomer
+  primary_beneficiary_customer:  LinkedCustomer
+  contingent_beneficiary_customer: LinkedCustomer
 }
 
 export type RateClassOption = { id: string; name: string }
@@ -72,15 +86,34 @@ export default async function PolicyDetailPage({
       issue_date, term_length, face_amount, death_benefit_amount,
       cash_value_amount, cost_basis, annual_premium, premium_mode,
       rate_class, riders, insured_first_name, insured_last_name,
-      primary_beneficiary, coverage_status, sa_status, sa_form_sent_at,
+      primary_beneficiary, contingent_beneficiary, coverage_status, sa_status, sa_form_sent_at,
       notes, customer_id, agency_id,
+      owner_is_insured, insured_customer_id,
+      primary_beneficiary_customer_id, contingent_beneficiary_customer_id,
       agencies ( id, name, display_name ),
-      customers ( id, first_name, last_name )
+      customers!customer_id ( id, first_name, last_name, customer_group_id ),
+      insured_customer:customers!insured_customer_id ( id, first_name, last_name ),
+      primary_beneficiary_customer:customers!primary_beneficiary_customer_id ( id, first_name, last_name ),
+      contingent_beneficiary_customer:customers!contingent_beneficiary_customer_id ( id, first_name, last_name )
     `)
     .eq('id', id)
     .single()
 
   if (error || !policy) notFound()
+
+  // Fetch household members for the linked customer
+  let householdMembers: HouseholdMember[] = []
+  const customerGroupId = (policy as unknown as { customers?: { customer_group_id?: string | null } }).customers?.customer_group_id
+  if (customerGroupId && policy.customer_id) {
+    const { data: hm } = await supabase
+      .from('customers')
+      .select('id, first_name, last_name')
+      .eq('customer_group_id', customerGroupId)
+      .neq('id', policy.customer_id)
+      .eq('is_test', false)
+      .order('last_name')
+    householdMembers = (hm ?? []) as HouseholdMember[]
+  }
 
   // Fetch all agencies for dropdown
   const { data: agencies } = await supabase
@@ -111,6 +144,7 @@ export default async function PolicyDetailPage({
       rateClasses={(rateClasses ?? []) as RateClassOption[]}
       reviews={(reviews ?? []) as PolicyReviewRow[]}
       flags={flags}
+      householdMembers={householdMembers}
     />
   )
 }

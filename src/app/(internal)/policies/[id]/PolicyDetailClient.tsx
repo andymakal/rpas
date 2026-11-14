@@ -10,7 +10,7 @@ import {
   Link2, Link2Off, ClipboardList, Pencil, Save, Plus,
 } from 'lucide-react'
 import { CustomerSearch } from '@/components/CustomerSearch'
-import type { PolicyDetail, PolicyReviewRow, RateClassOption } from './page'
+import type { PolicyDetail, PolicyReviewRow, RateClassOption, HouseholdMember } from './page'
 import type { ReviewFlag } from '@/lib/reviews/prep'
 import {
   CATEGORY_CONFIGS, CATEGORY_OPTIONS,
@@ -144,6 +144,97 @@ function Row({ label, value }: { label: string; value: React.ReactNode }) {
 const inputCls = 'w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-slate-500 placeholder:text-slate-500'
 const selectCls = 'w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-slate-500'
 
+// ── Linked-person field ───────────────────────────────────────────────────────
+
+type PersonLink = { id: string; name: string } | null
+
+function PersonLinkField({
+  linked,
+  onLink,
+  onUnlink,
+  householdMembers,
+  excludeId,
+}: {
+  linked:            PersonLink
+  onLink:            (id: string, name: string) => void
+  onUnlink:          () => void
+  householdMembers:  HouseholdMember[]
+  excludeId:         string | null
+}) {
+  const [open, setOpen] = useState(false)
+
+  if (linked) {
+    return (
+      <div className="flex items-center gap-1.5 mt-1">
+        <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-900/30 border border-sky-800 text-sky-300 text-xs font-medium">
+          <Link2 className="w-3 h-3 shrink-0" />
+          {linked.name}
+        </span>
+        <button
+          type="button"
+          onClick={onUnlink}
+          title="Unlink customer"
+          className="text-slate-500 hover:text-red-400 transition-colors"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        className="mt-1 flex items-center gap-1.5 text-xs text-slate-500 hover:text-sky-400 transition-colors"
+      >
+        <Link2 className="w-3 h-3" />
+        Link to customer…
+      </button>
+      {open && (
+        <div className="mt-1 p-3 bg-slate-950 border border-slate-700 rounded-lg space-y-2 z-20 relative">
+          {householdMembers.length > 0 && (
+            <div>
+              <p className="text-xs text-slate-500 mb-1.5">From this household</p>
+              <div className="space-y-0.5">
+                {householdMembers.map(m => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => { onLink(m.id, `${m.first_name} ${m.last_name}`); setOpen(false) }}
+                    className="w-full text-left text-sm text-slate-300 hover:text-white px-2 py-1 rounded hover:bg-slate-800 transition-colors"
+                  >
+                    {m.first_name} {m.last_name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className={householdMembers.length > 0 ? 'pt-2 border-t border-slate-800' : ''}>
+            {householdMembers.length > 0 && (
+              <p className="text-xs text-slate-500 mb-1.5">Search all customers</p>
+            )}
+            <CustomerSearch
+              exclude={excludeId ?? undefined}
+              theme="dark"
+              autoFocus={householdMembers.length === 0}
+              onSelect={hit => { onLink(hit.id, `${hit.first_name} ${hit.last_name}`); setOpen(false) }}
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setOpen(false)}
+            className="w-full text-center text-xs text-slate-600 hover:text-slate-400 pt-1 transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Category-specific view section ───────────────────────────────────────────
 
 function CategoryFieldsView({
@@ -156,11 +247,30 @@ function CategoryFieldsView({
   const sf = config.standardFields
   const td = policy.type_data ?? {}
 
+  const insuredLink = policy.insured_customer
+    ? { id: policy.insured_customer.id, name: `${policy.insured_customer.first_name} ${policy.insured_customer.last_name}` }
+    : null
+  const primBenefLink = policy.primary_beneficiary_customer
+    ? { id: policy.primary_beneficiary_customer.id, name: `${policy.primary_beneficiary_customer.first_name} ${policy.primary_beneficiary_customer.last_name}` }
+    : null
+  const contBenefLink = policy.contingent_beneficiary_customer
+    ? { id: policy.contingent_beneficiary_customer.id, name: `${policy.contingent_beneficiary_customer.first_name} ${policy.contingent_beneficiary_customer.last_name}` }
+    : null
+
   return (
     <>
-      {sf.insured_name && (policy.insured_first_name || policy.insured_last_name) && (
-        <Row label={sf.insured_name}
-          value={`${policy.insured_first_name ?? ''} ${policy.insured_last_name ?? ''}`.trim() || '—'} />
+      {sf.insured_name && (
+        policy.owner_is_insured
+          ? <Row label={sf.insured_name} value={<span className="text-slate-500 italic">Same as owner</span>} />
+          : insuredLink
+            ? <Row label={sf.insured_name} value={
+                <Link href={`/customers/${insuredLink.id}`} className="text-sky-400 hover:underline flex items-center gap-1 justify-end">
+                  <Link2 className="w-3 h-3" />{insuredLink.name}
+                </Link>
+              } />
+            : (policy.insured_first_name || policy.insured_last_name)
+              ? <Row label={sf.insured_name} value={`${policy.insured_first_name ?? ''} ${policy.insured_last_name ?? ''}`.trim()} />
+              : null
       )}
       {sf.face_amount && <Row label={sf.face_amount} value={fmt(policy.face_amount)} />}
       {sf.death_benefit_amount && <Row label={sf.death_benefit_amount} value={fmt(policy.death_benefit_amount)} />}
@@ -184,7 +294,24 @@ function CategoryFieldsView({
       {sf.term_length && <Row label={sf.term_length} value={policy.term_length ?? '—'} />}
       {sf.rate_class && <Row label={sf.rate_class} value={policy.rate_class ?? '—'} />}
       {sf.riders && policy.riders && <Row label={sf.riders} value={policy.riders} />}
-      {sf.primary_beneficiary && <Row label={sf.primary_beneficiary} value={policy.primary_beneficiary ?? '—'} />}
+      {sf.primary_beneficiary && (
+        <Row label={sf.primary_beneficiary} value={
+          primBenefLink
+            ? <Link href={`/customers/${primBenefLink.id}`} className="text-sky-400 hover:underline flex items-center gap-1 justify-end">
+                <Link2 className="w-3 h-3" />{primBenefLink.name}
+              </Link>
+            : policy.primary_beneficiary ?? '—'
+        } />
+      )}
+      {sf.contingent_beneficiary && (contBenefLink || policy.contingent_beneficiary) && (
+        <Row label={sf.contingent_beneficiary} value={
+          contBenefLink
+            ? <Link href={`/customers/${contBenefLink.id}`} className="text-sky-400 hover:underline flex items-center gap-1 justify-end">
+                <Link2 className="w-3 h-3" />{contBenefLink.name}
+              </Link>
+            : policy.contingent_beneficiary ?? '—'
+        } />
+      )}
 
       {/* Type-data fields */}
       {config.typeDataFields.map(f => {
@@ -205,13 +332,39 @@ function CategoryFieldsEdit({
   rateClasses,
   typeData,
   setTypeData,
+  ownerIsInsured,
+  onOwnerIsInsured,
+  insuredLink,
+  onInsuredLink,
+  onInsuredUnlink,
+  primBenefLink,
+  onPrimBenefLink,
+  onPrimBenefUnlink,
+  contBenefLink,
+  onContBenefLink,
+  onContBenefUnlink,
+  householdMembers,
+  policyCustomerId,
 }: {
-  config:      CategoryConfig
-  editFields:  Record<string, string>
-  ef:          (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void
-  rateClasses: RateClassOption[]
-  typeData:    Record<string, string>
-  setTypeData: (fn: (prev: Record<string, string>) => Record<string, string>) => void
+  config:           CategoryConfig
+  editFields:       Record<string, string>
+  ef:               (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => void
+  rateClasses:      RateClassOption[]
+  typeData:         Record<string, string>
+  setTypeData:      (fn: (prev: Record<string, string>) => Record<string, string>) => void
+  ownerIsInsured:   boolean
+  onOwnerIsInsured: (v: boolean) => void
+  insuredLink:      PersonLink
+  onInsuredLink:    (id: string, name: string) => void
+  onInsuredUnlink:  () => void
+  primBenefLink:    PersonLink
+  onPrimBenefLink:  (id: string, name: string) => void
+  onPrimBenefUnlink:() => void
+  contBenefLink:    PersonLink
+  onContBenefLink:  (id: string, name: string) => void
+  onContBenefUnlink:() => void
+  householdMembers: HouseholdMember[]
+  policyCustomerId: string | null
 }) {
   const sf = config.standardFields
 
@@ -224,17 +377,51 @@ function CategoryFieldsEdit({
     <>
       {/* Insured name */}
       {sf.insured_name && (
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs text-slate-500 mb-1">Insured First Name</label>
-            <input value={editFields.insured_first_name} onChange={ef('insured_first_name')}
-              className={inputCls} placeholder="First" />
-          </div>
-          <div>
-            <label className="block text-xs text-slate-500 mb-1">Insured Last Name</label>
-            <input value={editFields.insured_last_name} onChange={ef('insured_last_name')}
-              className={inputCls} placeholder="Last" />
-          </div>
+        <div className="space-y-2">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={ownerIsInsured}
+              onChange={e => onOwnerIsInsured(e.target.checked)}
+              className="w-3.5 h-3.5 rounded bg-slate-700 border-slate-600 accent-sky-500"
+            />
+            <span className="text-xs text-slate-400">Owner is also the insured</span>
+          </label>
+          {!ownerIsInsured && (
+            <div className="pl-4 border-l border-slate-700 space-y-2">
+              {insuredLink ? (
+                <PersonLinkField
+                  linked={insuredLink}
+                  onLink={onInsuredLink}
+                  onUnlink={onInsuredUnlink}
+                  householdMembers={householdMembers}
+                  excludeId={policyCustomerId}
+                />
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">First Name</label>
+                      <input value={editFields.insured_first_name} onChange={ef('insured_first_name')}
+                        className={inputCls} placeholder="First" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Last Name</label>
+                      <input value={editFields.insured_last_name} onChange={ef('insured_last_name')}
+                        className={inputCls} placeholder="Last" />
+                    </div>
+                  </div>
+                  <PersonLinkField
+                    linked={null}
+                    onLink={onInsuredLink}
+                    onUnlink={onInsuredUnlink}
+                    householdMembers={householdMembers}
+                    excludeId={policyCustomerId}
+                  />
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -322,8 +509,55 @@ function CategoryFieldsEdit({
       {sf.primary_beneficiary && (
         <div>
           <label className="block text-xs text-slate-500 mb-1">{sf.primary_beneficiary}</label>
-          <input value={editFields.primary_beneficiary} onChange={ef('primary_beneficiary')}
-            className={inputCls} placeholder="e.g. Jane Doe (spouse)" />
+          {primBenefLink ? (
+            <PersonLinkField
+              linked={primBenefLink}
+              onLink={onPrimBenefLink}
+              onUnlink={onPrimBenefUnlink}
+              householdMembers={householdMembers}
+              excludeId={policyCustomerId}
+            />
+          ) : (
+            <>
+              <input value={editFields.primary_beneficiary} onChange={ef('primary_beneficiary')}
+                className={inputCls} placeholder="e.g. Jane Doe (spouse)" />
+              <PersonLinkField
+                linked={null}
+                onLink={onPrimBenefLink}
+                onUnlink={onPrimBenefUnlink}
+                householdMembers={householdMembers}
+                excludeId={policyCustomerId}
+              />
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Contingent beneficiary */}
+      {sf.contingent_beneficiary && (
+        <div>
+          <label className="block text-xs text-slate-500 mb-1">{sf.contingent_beneficiary}</label>
+          {contBenefLink ? (
+            <PersonLinkField
+              linked={contBenefLink}
+              onLink={onContBenefLink}
+              onUnlink={onContBenefUnlink}
+              householdMembers={householdMembers}
+              excludeId={policyCustomerId}
+            />
+          ) : (
+            <>
+              <input value={editFields.contingent_beneficiary} onChange={ef('contingent_beneficiary')}
+                className={inputCls} placeholder="e.g. Children equally" />
+              <PersonLinkField
+                linked={null}
+                onLink={onContBenefLink}
+                onUnlink={onContBenefUnlink}
+                householdMembers={householdMembers}
+                excludeId={policyCustomerId}
+              />
+            </>
+          )}
         </div>
       )}
 
@@ -378,12 +612,14 @@ export function PolicyDetailClient({
   rateClasses,
   reviews: initialReviews,
   flags,
+  householdMembers,
 }: {
-  policy:      PolicyDetail
-  agencies:    { id: string; name: string; display_name: string | null }[]
-  rateClasses: RateClassOption[]
-  reviews:     PolicyReviewRow[]
-  flags:       ReviewFlag[]
+  policy:           PolicyDetail
+  agencies:         { id: string; name: string; display_name: string | null }[]
+  rateClasses:      RateClassOption[]
+  reviews:          PolicyReviewRow[]
+  flags:            ReviewFlag[]
+  householdMembers: HouseholdMember[]
 }) {
   const router = useRouter()
 
@@ -395,6 +631,28 @@ export function PolicyDetailClient({
   const [customerName, setCustomerName] = useState<string | null>(
     initial.customers ? `${initial.customers.first_name} ${initial.customers.last_name}` : null
   )
+
+  // ── Insured / beneficiary link state ──────────────────────────────────────────
+  const [ownerIsInsured,  setOwnerIsInsured]  = useState(initial.owner_is_insured ?? true)
+  const [insuredCxId,     setInsuredCxId]     = useState<string | null>(initial.insured_customer_id ?? null)
+  const [insuredCxName,   setInsuredCxName]   = useState<string | null>(
+    initial.insured_customer
+      ? `${initial.insured_customer.first_name} ${initial.insured_customer.last_name}`
+      : null
+  )
+  const [primBenefCxId,   setPrimBenefCxId]   = useState<string | null>(initial.primary_beneficiary_customer_id ?? null)
+  const [primBenefCxName, setPrimBenefCxName] = useState<string | null>(
+    initial.primary_beneficiary_customer
+      ? `${initial.primary_beneficiary_customer.first_name} ${initial.primary_beneficiary_customer.last_name}`
+      : null
+  )
+  const [contBenefCxId,   setContBenefCxId]   = useState<string | null>(initial.contingent_beneficiary_customer_id ?? null)
+  const [contBenefCxName, setContBenefCxName] = useState<string | null>(
+    initial.contingent_beneficiary_customer
+      ? `${initial.contingent_beneficiary_customer.first_name} ${initial.contingent_beneficiary_customer.last_name}`
+      : null
+  )
+
   const [reviews, setReviews] = useState<PolicyReviewRow[]>(initialReviews)
 
   // ── Edit state ────────────────────────────────────────────────────────────────
@@ -414,8 +672,9 @@ export function PolicyDetailClient({
     rate_class:           initial.rate_class            ?? '',
     insured_first_name:   initial.insured_first_name    ?? '',
     insured_last_name:    initial.insured_last_name     ?? '',
-    primary_beneficiary:  initial.primary_beneficiary   ?? '',
-    riders:               initial.riders                ?? '',
+    primary_beneficiary:    initial.primary_beneficiary   ?? '',
+    contingent_beneficiary: initial.contingent_beneficiary ?? '',
+    riders:                 initial.riders                ?? '',
     coverage_status:      initial.coverage_status       ?? 'Active',
     notes:                initial.notes                 ?? '',
   })
@@ -480,12 +739,18 @@ export function PolicyDetailClient({
         issue_date:           editFields.issue_date                 || null,
         term_length:          editFields.term_length.trim()         || null,
         rate_class:           editFields.rate_class                 || null,
-        insured_first_name:   editFields.insured_first_name.trim()  || null,
-        insured_last_name:    editFields.insured_last_name.trim()   || null,
-        primary_beneficiary:  editFields.primary_beneficiary        || null,
+        insured_first_name:   ownerIsInsured ? null : (insuredCxId ? null : (editFields.insured_first_name.trim() || null)),
+        insured_last_name:    ownerIsInsured ? null : (insuredCxId ? null : (editFields.insured_last_name.trim()  || null)),
+        primary_beneficiary:  primBenefCxId  ? null : (editFields.primary_beneficiary      || null),
+        contingent_beneficiary: contBenefCxId ? null : (editFields.contingent_beneficiary  || null),
         riders:               editFields.riders                     || null,
         coverage_status:      editFields.coverage_status            || 'Active',
         notes:                editFields.notes                      || null,
+        // Linking fields
+        owner_is_insured:                    ownerIsInsured,
+        insured_customer_id:                 ownerIsInsured ? null : insuredCxId,
+        primary_beneficiary_customer_id:     primBenefCxId,
+        contingent_beneficiary_customer_id:  contBenefCxId,
         type_data:            Object.keys(parsedTypeData).length > 0 ? parsedTypeData : null,
       })
       setEditing(false)
@@ -763,21 +1028,68 @@ export function PolicyDetailClient({
                       rateClasses={rateClasses}
                       typeData={typeData}
                       setTypeData={setTypeData}
+                      ownerIsInsured={ownerIsInsured}
+                      onOwnerIsInsured={setOwnerIsInsured}
+                      insuredLink={insuredCxId && insuredCxName ? { id: insuredCxId, name: insuredCxName } : null}
+                      onInsuredLink={(id, name) => { setInsuredCxId(id); setInsuredCxName(name) }}
+                      onInsuredUnlink={() => { setInsuredCxId(null); setInsuredCxName(null) }}
+                      primBenefLink={primBenefCxId && primBenefCxName ? { id: primBenefCxId, name: primBenefCxName } : null}
+                      onPrimBenefLink={(id, name) => { setPrimBenefCxId(id); setPrimBenefCxName(name) }}
+                      onPrimBenefUnlink={() => { setPrimBenefCxId(null); setPrimBenefCxName(null) }}
+                      contBenefLink={contBenefCxId && contBenefCxName ? { id: contBenefCxId, name: contBenefCxName } : null}
+                      onContBenefLink={(id, name) => { setContBenefCxId(id); setContBenefCxName(name) }}
+                      onContBenefUnlink={() => { setContBenefCxId(null); setContBenefCxName(null) }}
+                      householdMembers={householdMembers}
+                      policyCustomerId={customerId}
                     />
                   ) : (
                     /* Fallback: show all fields for uncategorised policies */
                     <>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div>
-                          <label className="block text-xs text-slate-500 mb-1">Insured First Name</label>
-                          <input value={editFields.insured_first_name} onChange={ef('insured_first_name')}
-                            className={inputCls} placeholder="First" />
-                        </div>
-                        <div>
-                          <label className="block text-xs text-slate-500 mb-1">Insured Last Name</label>
-                          <input value={editFields.insured_last_name} onChange={ef('insured_last_name')}
-                            className={inputCls} placeholder="Last" />
-                        </div>
+                      <div className="space-y-2">
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={ownerIsInsured}
+                            onChange={e => setOwnerIsInsured(e.target.checked)}
+                            className="w-3.5 h-3.5 rounded bg-slate-700 border-slate-600 accent-sky-500"
+                          />
+                          <span className="text-xs text-slate-400">Owner is also the insured</span>
+                        </label>
+                        {!ownerIsInsured && (
+                          <div className="pl-4 border-l border-slate-700 space-y-2">
+                            {insuredCxId && insuredCxName ? (
+                              <PersonLinkField
+                                linked={{ id: insuredCxId, name: insuredCxName }}
+                                onLink={(id, name) => { setInsuredCxId(id); setInsuredCxName(name) }}
+                                onUnlink={() => { setInsuredCxId(null); setInsuredCxName(null) }}
+                                householdMembers={householdMembers}
+                                excludeId={customerId}
+                              />
+                            ) : (
+                              <>
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div>
+                                    <label className="block text-xs text-slate-500 mb-1">Insured First Name</label>
+                                    <input value={editFields.insured_first_name} onChange={ef('insured_first_name')}
+                                      className={inputCls} placeholder="First" />
+                                  </div>
+                                  <div>
+                                    <label className="block text-xs text-slate-500 mb-1">Insured Last Name</label>
+                                    <input value={editFields.insured_last_name} onChange={ef('insured_last_name')}
+                                      className={inputCls} placeholder="Last" />
+                                  </div>
+                                </div>
+                                <PersonLinkField
+                                  linked={null}
+                                  onLink={(id, name) => { setInsuredCxId(id); setInsuredCxName(name) }}
+                                  onUnlink={() => { setInsuredCxId(null); setInsuredCxName(null) }}
+                                  householdMembers={householdMembers}
+                                  excludeId={customerId}
+                                />
+                              </>
+                            )}
+                          </div>
+                        )}
                       </div>
                       {[
                         { label: 'Face Amount ($)',         key: 'face_amount'          },
@@ -821,8 +1133,51 @@ export function PolicyDetailClient({
                       </div>
                       <div>
                         <label className="block text-xs text-slate-500 mb-1">Primary Beneficiary</label>
-                        <input value={editFields.primary_beneficiary} onChange={ef('primary_beneficiary')}
-                          className={inputCls} placeholder="e.g. Jane Doe (spouse)" />
+                        {primBenefCxId && primBenefCxName ? (
+                          <PersonLinkField
+                            linked={{ id: primBenefCxId, name: primBenefCxName }}
+                            onLink={(id, name) => { setPrimBenefCxId(id); setPrimBenefCxName(name) }}
+                            onUnlink={() => { setPrimBenefCxId(null); setPrimBenefCxName(null) }}
+                            householdMembers={householdMembers}
+                            excludeId={customerId}
+                          />
+                        ) : (
+                          <>
+                            <input value={editFields.primary_beneficiary} onChange={ef('primary_beneficiary')}
+                              className={inputCls} placeholder="e.g. Jane Doe (spouse)" />
+                            <PersonLinkField
+                              linked={null}
+                              onLink={(id, name) => { setPrimBenefCxId(id); setPrimBenefCxName(name) }}
+                              onUnlink={() => { setPrimBenefCxId(null); setPrimBenefCxName(null) }}
+                              householdMembers={householdMembers}
+                              excludeId={customerId}
+                            />
+                          </>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-xs text-slate-500 mb-1">Contingent Beneficiary</label>
+                        {contBenefCxId && contBenefCxName ? (
+                          <PersonLinkField
+                            linked={{ id: contBenefCxId, name: contBenefCxName }}
+                            onLink={(id, name) => { setContBenefCxId(id); setContBenefCxName(name) }}
+                            onUnlink={() => { setContBenefCxId(null); setContBenefCxName(null) }}
+                            householdMembers={householdMembers}
+                            excludeId={customerId}
+                          />
+                        ) : (
+                          <>
+                            <input value={editFields.contingent_beneficiary} onChange={ef('contingent_beneficiary')}
+                              className={inputCls} placeholder="e.g. Children equally" />
+                            <PersonLinkField
+                              linked={null}
+                              onLink={(id, name) => { setContBenefCxId(id); setContBenefCxName(name) }}
+                              onUnlink={() => { setContBenefCxId(null); setContBenefCxName(null) }}
+                              householdMembers={householdMembers}
+                              excludeId={customerId}
+                            />
+                          </>
+                        )}
                       </div>
                     </>
                   )}
@@ -845,10 +1200,20 @@ export function PolicyDetailClient({
                   ) : (
                     /* Fallback for uncategorised policies */
                     <>
-                      {(initial.insured_first_name || initial.insured_last_name) && (
-                        <Row label="Insured"
-                          value={`${initial.insured_first_name ?? ''} ${initial.insured_last_name ?? ''}`.trim()} />
-                      )}
+                      {/* Insured */}
+                      {initial.owner_is_insured
+                        ? <Row label="Insured" value={<span className="text-slate-500 italic">Same as owner</span>} />
+                        : initial.insured_customer
+                          ? <Row label="Insured" value={
+                              <Link href={`/customers/${initial.insured_customer.id}`} className="text-sky-400 hover:underline flex items-center gap-1 justify-end">
+                                <Link2 className="w-3 h-3" />
+                                {`${initial.insured_customer.first_name} ${initial.insured_customer.last_name}`}
+                              </Link>
+                            } />
+                          : (initial.insured_first_name || initial.insured_last_name)
+                            ? <Row label="Insured" value={`${initial.insured_first_name ?? ''} ${initial.insured_last_name ?? ''}`.trim()} />
+                            : null
+                      }
                       <Row label="Face Amount"   value={fmt(initial.face_amount)} />
                       <Row label="Death Benefit" value={fmt(initial.death_benefit_amount)} />
                       <Row label="Cash Value"    value={fmt(initial.cash_value_amount)} />
@@ -864,7 +1229,26 @@ export function PolicyDetailClient({
                       )}
                       <Row label="Rate Class" value={editFields.rate_class || '—'} />
                       <Row label="Riders"     value={editFields.riders || '—'} />
-                      <Row label="Primary Beneficiary" value={editFields.primary_beneficiary || '—'} />
+                      {/* Primary beneficiary */}
+                      <Row label="Primary Beneficiary" value={
+                        initial.primary_beneficiary_customer
+                          ? <Link href={`/customers/${initial.primary_beneficiary_customer.id}`} className="text-sky-400 hover:underline flex items-center gap-1 justify-end">
+                              <Link2 className="w-3 h-3" />
+                              {`${initial.primary_beneficiary_customer.first_name} ${initial.primary_beneficiary_customer.last_name}`}
+                            </Link>
+                          : editFields.primary_beneficiary || '—'
+                      } />
+                      {/* Contingent beneficiary */}
+                      {(initial.contingent_beneficiary_customer || editFields.contingent_beneficiary) && (
+                        <Row label="Contingent Beneficiary" value={
+                          initial.contingent_beneficiary_customer
+                            ? <Link href={`/customers/${initial.contingent_beneficiary_customer.id}`} className="text-sky-400 hover:underline flex items-center gap-1 justify-end">
+                                <Link2 className="w-3 h-3" />
+                                {`${initial.contingent_beneficiary_customer.first_name} ${initial.contingent_beneficiary_customer.last_name}`}
+                              </Link>
+                            : editFields.contingent_beneficiary || '—'
+                        } />
+                      )}
                     </>
                   )}
 

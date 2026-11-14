@@ -31,6 +31,8 @@ export async function PATCH(
     'insured_state', 'policy_termination_date',
     'coverage_status', 'sa_status', 'sa_form_sent_at', 'notes',
     'agency_id', 'agent_id', 'customer_id',
+    'owner_is_insured', 'insured_customer_id',
+    'primary_beneficiary_customer_id', 'contingent_beneficiary_customer_id',
     'type_data',
   ]
   const patch: Record<string, unknown> = {}
