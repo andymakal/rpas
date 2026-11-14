@@ -24,7 +24,7 @@
  * the right choice for backfills and best-effort server coercion.
  */
 
-import { normalizeEmail as normalizeEmailLoose } from './fmt'
+import { normalizeEmail as normalizeEmailLoose, titleCaseIfAllCaps } from './fmt'
 
 /**
  * The outcome of normalizing a single contact field.
@@ -173,19 +173,20 @@ export function normalizeEmailInput(raw: string | null | undefined): ContactFiel
 /**
  * Normalize a person-name component (first or last name).
  *
- * Collapses runs of internal whitespace to a single space and trims the ends,
- * while preserving the capitalization exactly as typed. This mirrors IPF's
- * whitespace handling and intentionally does NOT title-case: names like
- * "McDonald", "DeLuca", or "van der Berg" keep their intended capitalization
- * rather than being flattened by a blind title-case pass.
+ * Collapses internal whitespace, then applies title case ONLY when the entire
+ * value is uppercase — an import artifact like "SMITH" becomes "Smith", while
+ * intentionally mixed-case names (McDonald, DeLuca, van der Berg) are
+ * preserved exactly as typed.
  *
- *   "  john   smith "   → valid  "john smith"
- *   "McDonald"          → valid  "McDonald"   (caps preserved)
+ *   "JOHN"              → valid  "John"       (all-caps import → title case)
+ *   "McDonald"          → valid  "McDonald"   (mixed case preserved)
  *   "van der Berg"      → valid  "van der Berg"
+ *   "  john   smith "   → valid  "john smith" (mixed — preserved, not up-cased)
  *   ""                  → empty
  */
 export function normalizeNameInput(raw: string | null | undefined): ContactFieldResult {
   if (!raw || !raw.trim()) return empty()
   const collapsed = raw.replace(/\s+/g, ' ').trim()
-  return collapsed ? valid(collapsed) : empty()
+  if (!collapsed) return empty()
+  return valid(titleCaseIfAllCaps(collapsed))
 }

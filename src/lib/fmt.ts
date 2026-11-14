@@ -47,6 +47,19 @@ const STREET_UPPERCASE = new Set([
   'PO', 'US', 'USA',
 ])
 
+/**
+ * Title-case a string ONLY when it is entirely uppercase (import artifact).
+ * Mixed-case input — McDonald, DeLuca, van der Berg — is returned unchanged.
+ *
+ *   "JOHN SMITH"  → "John Smith"
+ *   "McDonald"    → "McDonald"   (preserved)
+ *   "van der Berg"→ "van der Berg" (preserved)
+ */
+export function titleCaseIfAllCaps(raw: string): string {
+  if (raw !== raw.toUpperCase()) return raw
+  return raw.replace(/\b\w+/g, w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+}
+
 export function normalizeStreet(raw: string | null | undefined): string | null {
   if (!raw?.trim()) return null
   return raw.trim().replace(/\b\w+/g, w =>

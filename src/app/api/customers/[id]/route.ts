@@ -41,9 +41,8 @@ export async function PATCH(
   for (const [k, v] of Object.entries(body)) {
     if (!ALLOWED.has(k)) continue
     if (typeof v === 'string') {
-      // Preserve intentional capitalization (McAndrew, McDougal, La Bar): the
-      // shared name normalizer only collapses whitespace and trims. An empty
-      // value clears the field (null). Never title-case.
+      // All-caps input (import paste) is title-cased; mixed-case (McDonald,
+      // DeLuca, van der Berg) is preserved. Empty clears the field (null).
       if (NAME_FIELDS.has(k))   { updates[k] = normalizeNameInput(v).value;  continue }
       if (EMAIL_FIELDS.has(k))  { updates[k] = normalizeEmail(v)  ?? v;  continue }
       if (PHONE_FIELDS.has(k))  { updates[k] = normalizePhone(v)  ?? v;  continue }

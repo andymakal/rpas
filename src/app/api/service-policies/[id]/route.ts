@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { NextRequest } from 'next/server'
+import { titleCaseIfAllCaps } from '@/lib/fmt'
 
 /**
  * PATCH /api/service-policies/[id]
@@ -35,9 +36,21 @@ export async function PATCH(
     'primary_beneficiary_customer_id', 'contingent_beneficiary_customer_id',
     'type_data',
   ]
+  const NAME_TEXT = new Set([
+    'client_name', 'insured_first_name', 'insured_last_name',
+    'primary_beneficiary', 'contingent_beneficiary',
+  ])
+
   const patch: Record<string, unknown> = {}
   for (const key of allowed) {
-    if (key in body) patch[key] = body[key]
+    if (!(key in body)) continue
+    const v = body[key]
+    if (typeof v === 'string' && NAME_TEXT.has(key)) {
+      const trimmed = v.trim()
+      patch[key] = trimmed ? titleCaseIfAllCaps(trimmed.replace(/\s+/g, ' ')) : null
+    } else {
+      patch[key] = v
+    }
   }
 
   if (Object.keys(patch).length === 0) {
