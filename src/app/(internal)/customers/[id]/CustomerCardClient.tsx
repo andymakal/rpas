@@ -13,7 +13,7 @@ import {
   Merge,
 } from 'lucide-react'
 import type {
-  CustomerDetail, LinkedCase, LinkedPolicy, LinkedServiceRequest,
+  CustomerDetail, LinkedCase, LinkedPolicy, InsuredOnPolicy, LinkedServiceRequest,
   LinkedReview, ProducerOption,
   CaseStatusHistoryEntry, CustomerNote, TouchHistoryEntry, HouseholdMember,
   CustomerOnboarding,
@@ -521,6 +521,7 @@ export function CustomerCardClient({
   customer,
   cases: initialCases,
   policies: initialPolicies,
+  insuredOnPolicies,
   pendingCasePolicies,
   serviceRequests,
   policyReviews,
@@ -537,6 +538,7 @@ export function CustomerCardClient({
   customer:             CustomerDetail
   cases:                LinkedCase[]
   policies:             LinkedPolicy[]
+  insuredOnPolicies:    InsuredOnPolicy[]
   pendingCasePolicies:  LinkedCase[]
   serviceRequests:      LinkedServiceRequest[]
   policyReviews:        LinkedReview[]
@@ -2028,6 +2030,50 @@ export function CustomerCardClient({
             </table>
           )}
         </Section>
+
+        {/* Policies this customer is the insured on (owned by another household member) */}
+        {insuredOnPolicies.length > 0 && (
+          <Section title="Insured On" icon={Shield} count={insuredOnPolicies.length}>
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-800/60">
+                  <th className="px-5 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">Policy</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">Owner</th>
+                  <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">Type</th>
+                  <th className="px-4 py-2 text-right text-xs font-medium text-slate-500 uppercase tracking-wide">Face</th>
+                  <th className="px-4 py-2 text-xs font-medium text-slate-500 uppercase tracking-wide"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {insuredOnPolicies.map(p => (
+                  <tr key={p.id} className="hover:bg-slate-800/40 transition-colors">
+                    <td className="px-5 py-3">
+                      <p className="text-slate-200 text-sm font-mono">{p.policy_number}</p>
+                      <p className="text-slate-500 text-xs mt-0.5">{p.carrier}</p>
+                    </td>
+                    <td className="px-4 py-3">
+                      {p.owner ? (
+                        <Link href={`/customers/${p.owner.id}`} className="text-sky-400 hover:underline flex items-center gap-1 text-sm">
+                          <Link2 className="w-3 h-3 shrink-0" />
+                          {p.owner.first_name} {p.owner.last_name}
+                        </Link>
+                      ) : (
+                        <span className="text-slate-600">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-slate-400 text-xs">{abbrevProduct(p.product_type) ?? '—'}</td>
+                    <td className="px-4 py-3 text-right text-slate-200 text-sm">{fmt(p.face_amount)}</td>
+                    <td className="px-4 py-3 text-right">
+                      <Link href={`/policies/${p.id}`} className="text-xs text-slate-500 hover:text-slate-300 flex items-center justify-end gap-1">
+                        <ExternalLink className="w-3 h-3" /> View
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </Section>
+        )}
 
         {/* Servicing-Agent Onboarding — active workflow + completed summary */}
         <OnboardingSection onboarding={onboarding} customerId={customer.id} />

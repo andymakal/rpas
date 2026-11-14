@@ -109,6 +109,16 @@ export type LinkedPolicy = {
   agencies: { name: string; display_name: string | null } | null
 }
 
+export type InsuredOnPolicy = {
+  id:              string
+  policy_number:   string
+  carrier:         string
+  product_type:    string | null
+  face_amount:     number | null
+  coverage_status: string
+  owner: { id: string; first_name: string; last_name: string } | null
+}
+
 export type LinkedServiceRequest = {
   id:              string
   sr_number:       string | null
@@ -214,6 +224,17 @@ export default async function CustomerCardPage({
     .eq('is_test', false)
     .order('face_amount', { ascending: false, nullsFirst: false })
 
+  // Policies this customer is the insured on (but doesn't own)
+  const { data: insuredOnRaw, error: insuredOnError } = await supabase
+    .from('service_policies')
+    .select(`
+      id, policy_number, carrier, product_type, face_amount, coverage_status,
+      owner:customers!customer_id ( id, first_name, last_name )
+    `)
+    .eq('insured_customer_id', id)
+    .eq('is_test', false)
+    .order('face_amount', { ascending: false, nullsFirst: false })
+
   // A failed read of cases or policies must be visible, never silently rendered
   // as "no cases" / "no policies". Those sections drive real servicing decisions,
   // so an empty list has to mean genuinely empty, not "the query errored".
@@ -222,6 +243,9 @@ export default async function CustomerCardPage({
   }
   if (policiesError) {
     throw new Error(`Customer detail failed to load (policies): ${policiesError.message}`)
+  }
+  if (insuredOnError) {
+    throw new Error(`Customer detail failed to load (insured-on policies): ${insuredOnError.message}`)
   }
 
   // Placed cases that don't have a service_policies record yet —
@@ -271,6 +295,23 @@ export default async function CustomerCardPage({
       : generateFlags(p as unknown as Parameters<typeof generateFlags>[0]).length,
     agencies:        (Array.isArray(p.agencies) ? p.agencies[0] : p.agencies) as { name: string; display_name: string | null } | null,
   }))
+
+  const insuredOnPolicies: InsuredOnPolicy[] = (insuredOnRaw ?? []).map(p => {
+    const raw = p as unknown as Record<string, unknown>
+    const ownerRaw = raw.owner
+    const owner = ownerRaw && typeof ownerRaw === 'object' && !Array.isArray(ownerRaw)
+      ? ownerRaw as { id: string; first_name: string; last_name: string }
+      : Array.isArray(ownerRaw) ? (ownerRaw[0] as { id: string; first_name: string; last_name: string } | undefined) ?? null : null
+    return {
+      id:              p.id,
+      policy_number:   p.policy_number,
+      carrier:         p.carrier,
+      product_type:    p.product_type,
+      face_amount:     p.face_amount,
+      coverage_status: p.coverage_status ?? 'Active',
+      owner,
+    }
+  })
 
   const caseIds = (cases ?? []).map(c => c.id)
   let caseHistory: CaseStatusHistoryEntry[] = []
@@ -433,6 +474,7 @@ export default async function CustomerCardPage({
       customer={customer as unknown as CustomerDetail}
       cases={(cases ?? []) as unknown as LinkedCase[]}
       policies={policies}
+      insuredOnPolicies={insuredOnPolicies}
       pendingCasePolicies={pendingCasePolicies}
       serviceRequests={serviceRequests}
       policyReviews={policyReviews}
