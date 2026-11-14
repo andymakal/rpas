@@ -713,6 +713,10 @@ export function CustomerCardClient({
   const [editDriveUrl,    setEditDriveUrl]    = useState(customer.drive_folder_url ?? '')
   const [contactSaving,   setContactSaving]   = useState(false)
   const [contactMsg,      setContactMsg]      = useState<{ ok: boolean; text: string } | null>(null)
+  type HouseholdSyncField = { key: string; label: string; value: string | null }
+  const [householdSync,    setHouseholdSync]    = useState<{ fields: HouseholdSyncField[]; selectedIds: Set<string> } | null>(null)
+  const [householdSyncing, setHouseholdSyncing] = useState(false)
+  const [householdSyncErr, setHouseholdSyncErr] = useState<string | null>(null)
 
   const caseAgencyMap = new Map(cases.map(c => [c.id, c.agencies?.display_name ?? c.agencies?.name ?? null]))
 
@@ -1090,12 +1094,60 @@ export function CustomerCardClient({
         setDisplayFirst(editFirst.trim() || customer.first_name)
         setDisplayLast(editLast.trim()   || customer.last_name)
         setContactMsg({ ok: true, text: 'Saved' })
+
+        // Offer to propagate shared contact fields to household members
+        if (householdMembers.length > 0) {
+          const PROPAGATABLE: { key: string; label: string; newVal: string | null; oldVal: string | null }[] = [
+            { key: 'phone',  label: 'Phone',   newVal: editPhone.trim()  || null, oldVal: customer.phone  ?? null },
+            { key: 'street', label: 'Street',  newVal: editStreet.trim() || null, oldVal: customer.street ?? null },
+            { key: 'city',   label: 'City',    newVal: editCity.trim()   || null, oldVal: customer.city   ?? null },
+            { key: 'state',  label: 'State',   newVal: editState.trim()  || null, oldVal: customer.state  ?? null },
+            { key: 'zip',    label: 'ZIP',     newVal: editZip.trim()    || null, oldVal: customer.zip    ?? null },
+          ]
+          const changed = PROPAGATABLE.filter(f => f.newVal !== f.oldVal)
+          if (changed.length > 0) {
+            setHouseholdSync({
+              fields:      changed.map(f => ({ key: f.key, label: f.label, value: f.newVal })),
+              selectedIds: new Set(householdMembers.map(m => m.id)),
+            })
+            return // keep edit form open until user dismisses the sync panel
+          }
+        }
+
         setEditingContact(false)
         router.refresh()
         setTimeout(() => setContactMsg(null), 2000)
       }
     } catch { setContactMsg({ ok: false, text: 'Network error' }) }
     finally   { setContactSaving(false) }
+  }
+
+  async function handleHouseholdSync() {
+    if (!householdSync) return
+    setHouseholdSyncing(true); setHouseholdSyncErr(null)
+    const patch: Record<string, unknown> = {}
+    for (const f of householdSync.fields) patch[f.key] = f.value
+    try {
+      for (const memberId of householdSync.selectedIds) {
+        const res = await fetch(`/api/customers/${memberId}`, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        })
+        if (!res.ok) { const j = await res.json(); throw new Error(j.error ?? 'Save failed') }
+      }
+      setHouseholdSync(null)
+      setEditingContact(false)
+      setContactMsg(null)
+      router.refresh()
+    } catch (e) { setHouseholdSyncErr(e instanceof Error ? e.message : 'Error') }
+    finally     { setHouseholdSyncing(false) }
+  }
+
+  function handleHouseholdSyncSkip() {
+    setHouseholdSync(null)
+    setEditingContact(false)
+    setContactMsg(null)
+    router.refresh()
   }
 
   async function handleNewSR() {
@@ -1477,21 +1529,67 @@ export function CustomerCardClient({
                       <p className={`text-xs ${contactMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{contactMsg.text}</p>
                     )}
 
-                    <div className="flex items-center gap-2 pt-1">
-                      <button
-                        onClick={handleSaveContact}
-                        disabled={contactSaving}
-                        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg disabled:opacity-50 transition-colors"
-                      >
-                        {contactSaving ? '…' : <><Check className="w-3.5 h-3.5" /> Save</>}
-                      </button>
-                      <button
-                        onClick={() => { setEditingContact(false); setContactMsg(null) }}
-                        className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
+                    {householdSync ? (
+                      <div className="rounded-lg border border-slate-700 bg-slate-800/60 p-3 space-y-3">
+                        <div className="flex items-center gap-2">
+                          <Users className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+                          <span className="text-xs font-medium text-slate-200">Apply to household members?</span>
+                        </div>
+                        <p className="text-xs text-slate-400">
+                          {householdSync.fields.map(f => f.label).join(', ')} changed.
+                        </p>
+                        <div className="space-y-1.5">
+                          {householdMembers.map(m => (
+                            <label key={m.id} className="flex items-center gap-2 cursor-pointer select-none">
+                              <input
+                                type="checkbox"
+                                checked={householdSync.selectedIds.has(m.id)}
+                                onChange={e => {
+                                  const next = new Set(householdSync.selectedIds)
+                                  e.target.checked ? next.add(m.id) : next.delete(m.id)
+                                  setHouseholdSync({ ...householdSync, selectedIds: next })
+                                }}
+                                className="w-3.5 h-3.5 rounded bg-slate-700 border-slate-600 accent-sky-500"
+                              />
+                              <span className="text-xs text-slate-300">{m.first_name} {m.last_name}</span>
+                            </label>
+                          ))}
+                        </div>
+                        {householdSyncErr && <p className="text-xs text-red-400">{householdSyncErr}</p>}
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={handleHouseholdSync}
+                            disabled={householdSyncing || householdSync.selectedIds.size === 0}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-sky-700 hover:bg-sky-600 rounded-lg disabled:opacity-50 transition-colors"
+                          >
+                            {householdSyncing ? '…' : `Apply to ${householdSync.selectedIds.size} member${householdSync.selectedIds.size !== 1 ? 's' : ''}`}
+                          </button>
+                          <button
+                            onClick={handleHouseholdSyncSkip}
+                            disabled={householdSyncing}
+                            className="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+                          >
+                            Skip
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2 pt-1">
+                        <button
+                          onClick={handleSaveContact}
+                          disabled={contactSaving}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg disabled:opacity-50 transition-colors"
+                        >
+                          {contactSaving ? '…' : <><Check className="w-3.5 h-3.5" /> Save</>}
+                        </button>
+                        <button
+                          onClick={() => { setEditingContact(false); setContactMsg(null) }}
+                          className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
