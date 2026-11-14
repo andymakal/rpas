@@ -145,7 +145,9 @@ export async function POST() {
       const agencyId        = row.agency_id as string
       const placedAt        = (row.process_date ?? row.app_date) as string | null
 
-      // Match existing customer within the same agency by name
+      // Match existing customer by name — same-agency first, then any agency.
+      // The agency filter can miss manually-entered customers that were created
+      // without an agency_id or under a different agency assignment.
       let customerId: string | null = null
       if (last) {
         const { data: match } = await supabase
@@ -154,9 +156,22 @@ export async function POST() {
           .eq('agency_id', agencyId)
           .ilike('last_name', last)
           .ilike('first_name', first || '%')
+          .eq('is_test', false)
           .limit(1)
           .maybeSingle()
         customerId = match?.id ?? null
+
+        if (!customerId) {
+          const { data: broadMatch } = await supabase
+            .from('customers')
+            .select('id')
+            .ilike('last_name', last)
+            .ilike('first_name', first || '%')
+            .eq('is_test', false)
+            .limit(1)
+            .maybeSingle()
+          customerId = broadMatch?.id ?? null
+        }
       }
 
       // Create customer if no match

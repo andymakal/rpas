@@ -10,6 +10,7 @@ import {
   FolderKanban, Wrench, Link2, History, Compass, ChevronDown,
   Pencil, Check, MessageSquare, Clipboard, Plus, ClipboardCheck, Users,
   FileText, File, Image, FileSpreadsheet, Presentation, ExternalLink, RefreshCw,
+  Merge,
 } from 'lucide-react'
 import type {
   CustomerDetail, LinkedCase, LinkedPolicy, LinkedServiceRequest,
@@ -690,6 +691,12 @@ export function CustomerCardClient({
   const [displayLast,  setDisplayLast]  = useState(customer.last_name)
 
   const [editingContact,  setEditingContact]  = useState(false)
+
+  const [mergeModalOpen,  setMergeModalOpen]  = useState(false)
+  const [mergeTarget,     setMergeTarget]     = useState<{ id: string; first_name: string | null; last_name: string | null } | null>(null)
+  const [merging,         setMerging]         = useState(false)
+  const [mergeErr,        setMergeErr]        = useState<string | null>(null)
+
   const [editFirst,       setEditFirst]       = useState(customer.first_name)
   const [editLast,        setEditLast]        = useState(customer.last_name)
   const [editPhone,       setEditPhone]       = useState(formatPhone(customer.phone ?? ''))
@@ -1035,6 +1042,24 @@ export function CustomerCardClient({
     })
   }
 
+  async function handleMerge() {
+    if (!mergeTarget) return
+    setMerging(true); setMergeErr(null)
+    try {
+      const res = await fetch(`/api/customers/${customer.id}/merge`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ merge_into_id: mergeTarget.id }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Merge failed')
+      router.push(`/customers/${mergeTarget.id}`)
+    } catch (e) {
+      setMergeErr(e instanceof Error ? e.message : 'Merge failed')
+      setMerging(false)
+    }
+  }
+
   async function handleSaveContact() {
     setContactSaving(true); setContactMsg(null)
     try {
@@ -1121,6 +1146,7 @@ export function CustomerCardClient({
   const inputCls = 'w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 placeholder-slate-600'
 
   return (
+    <>
     <div className="p-8">
       <div className="max-w-5xl mx-auto space-y-5">
 
@@ -1270,14 +1296,23 @@ export function CustomerCardClient({
                     </div>{/* end flex row */}
                   </div>
 
-                  {/* Edit contact button */}
+                  {/* Edit contact + Merge buttons */}
                   {!editingContact && (
-                    <button
-                      onClick={() => setEditingContact(true)}
-                      className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-500 rounded-lg px-3 py-1.5 transition-colors shrink-0"
-                    >
-                      <Pencil className="w-3 h-3" /> Edit
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={() => { setMergeModalOpen(true); setMergeTarget(null); setMergeErr(null) }}
+                        className="inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-amber-400 border border-slate-700 hover:border-amber-800 rounded-lg px-3 py-1.5 transition-colors"
+                        title="Merge this duplicate into another customer record"
+                      >
+                        <Merge className="w-3 h-3" /> Merge
+                      </button>
+                      <button
+                        onClick={() => setEditingContact(true)}
+                        className="inline-flex items-center gap-1.5 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-500 rounded-lg px-3 py-1.5 transition-colors"
+                      >
+                        <Pencil className="w-3 h-3" /> Edit
+                      </button>
+                    </div>
                   )}
                 </div>
 
@@ -2659,5 +2694,96 @@ export function CustomerCardClient({
 
       </div>
     </div>
+
+    {/* ── Merge duplicate modal ─────────────────────────────────────────── */}
+    {mergeModalOpen && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+        onClick={() => { if (!merging) { setMergeModalOpen(false); setMergeTarget(null); setMergeErr(null) } }}
+      >
+        <div
+          className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6"
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between mb-5">
+            <div>
+              <h2 className="text-white font-semibold text-base">Merge duplicate customer</h2>
+              <p className="text-slate-400 text-xs mt-0.5">
+                This record will be deleted. All cases, policies, and service requests move to the target.
+              </p>
+            </div>
+            <button
+              onClick={() => { setMergeModalOpen(false); setMergeTarget(null); setMergeErr(null) }}
+              disabled={merging}
+              className="text-slate-500 hover:text-slate-300 transition-colors disabled:opacity-50"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Duplicate (this record) */}
+          <div className="mb-4">
+            <p className="text-xs text-slate-500 uppercase tracking-wide font-medium mb-1.5">Duplicate (will be deleted)</p>
+            <div className="bg-red-950/30 border border-red-900/40 rounded-xl px-4 py-3 text-sm text-red-300 font-medium">
+              {customer.first_name} {customer.last_name}
+              {customer.customer_number && (
+                <span className="text-red-500 font-mono ml-2 text-xs">{customer.customer_number}</span>
+              )}
+            </div>
+          </div>
+
+          {/* Target (keep) */}
+          <div className="mb-5">
+            <p className="text-xs text-slate-500 uppercase tracking-wide font-medium mb-1.5">Merge into (will be kept)</p>
+            {mergeTarget ? (
+              <div className="flex items-center justify-between bg-teal-950/30 border border-teal-900/40 rounded-xl px-4 py-3">
+                <span className="text-sm text-teal-300 font-medium">
+                  {mergeTarget.first_name} {mergeTarget.last_name}
+                </span>
+                <button
+                  onClick={() => setMergeTarget(null)}
+                  disabled={merging}
+                  className="text-slate-500 hover:text-slate-300 transition-colors disabled:opacity-50 ml-3"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : (
+              <CustomerSearch
+                placeholder="Search for the customer to keep…"
+                exclude={customer.id}
+                theme="dark"
+                autoFocus
+                onSelect={c => setMergeTarget({ id: c.id, first_name: c.first_name, last_name: c.last_name })}
+              />
+            )}
+          </div>
+
+          {mergeErr && (
+            <p className="text-xs text-red-400 mb-4">{mergeErr}</p>
+          )}
+
+          <div className="flex justify-end gap-3">
+            <button
+              onClick={() => { setMergeModalOpen(false); setMergeTarget(null); setMergeErr(null) }}
+              disabled={merging}
+              className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleMerge}
+              disabled={!mergeTarget || merging}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium bg-amber-600 hover:bg-amber-500 text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Merge className="w-3.5 h-3.5" />
+              {merging ? 'Merging…' : 'Merge & delete duplicate'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    </>
   )
 }
