@@ -206,7 +206,7 @@ export default async function CustomerCardPage({
       id, policy_number, client_name, carrier, product_type,
       face_amount, death_benefit_amount, annual_premium, cash_value_amount, cost_basis,
       premium_mode, pay_period, issue_date, term_length, rate_class, riders,
-      insured_first_name, insured_last_name, primary_beneficiary,
+      insured_first_name, insured_last_name, primary_beneficiary, primary_beneficiary_customer_id,
       coverage_status, sa_status, sa_form_sent_at, source_case_id,
       agencies ( name, display_name )
     `)
