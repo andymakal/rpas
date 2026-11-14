@@ -162,7 +162,7 @@ export async function GET(request: NextRequest) {
     let listQuery = applyScopeFilters(
       supabase
         .from('customers')
-        .select(scopedSelect('id, first_name, last_name, phone, email, city, state, segment, is_emoney_client, is_deceased, is_former_client, is_prospect, source_client_id, date_of_birth, created_at, service_policies(count)'))
+        .select(scopedSelect('id, first_name, last_name, phone, email, city, state, segment, is_emoney_client, is_deceased, is_former_client, is_prospect, source_client_id, date_of_birth, created_at, service_policies!customer_id(count)'))
         .eq('is_test', false),
     )
       .order('last_name')
