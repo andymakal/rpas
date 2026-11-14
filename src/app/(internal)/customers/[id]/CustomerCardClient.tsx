@@ -727,6 +727,12 @@ export function CustomerCardClient({
 
   const caseAgencyMap = new Map(cases.map(c => [c.id, c.agencies?.display_name ?? c.agencies?.name ?? null]))
 
+  const hasFinraProduct = policies.some(p =>
+    p.product_type ? normalizeProductType(p.product_type).label === 'VUL' : false
+  )
+  const isFinancialTier = ['pathfinder', 'voyageur', 'trailblazer'].includes(segment ?? '')
+  const showFinraPrompt = hasFinraProduct && !isFinancialTier
+
   const segmentRef = useRef<HTMLDivElement>(null)
   const statusRef  = useRef<HTMLDivElement>(null)
   const searchRef  = useRef<HTMLInputElement>(null)
@@ -1288,6 +1294,12 @@ export function CustomerCardClient({
                         </div>
                       )}
                     </div>
+
+                    {showFinraPrompt && (
+                      <span className="inline-flex items-center gap-1 text-xs text-amber-400 border border-amber-800/60 rounded-full px-2.5 py-0.5 whitespace-nowrap">
+                        <Shield className="w-3 h-3 shrink-0" /> FINRA product — consider Pathfinder+
+                      </span>
+                    )}
 
                     {/* Status badge + editor */}
                     <div ref={statusRef} className="relative">
