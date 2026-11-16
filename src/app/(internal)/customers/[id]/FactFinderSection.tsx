@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { formatPhoneDisplay } from '@/lib/contact-input'
+import { formatPhoneDisplay, formatPhoneAsTyped } from '@/lib/contact-input'
 import {
   ClipboardList, ChevronDown, ChevronUp,
   Check, AlertTriangle, Plus, Trash2, ShieldCheck, Printer,
@@ -400,7 +400,7 @@ function RelatedPersonPicker({
             </div>
           </div>
           <div><label className="block text-xs text-slate-500 mb-1">Phone (optional)</label>
-            <input value={newPhone} onChange={e => setNewPhone(e.target.value)} type="tel" className={inpSm} />
+            <input value={newPhone} onChange={e => setNewPhone(formatPhoneAsTyped(e.target.value))} type="tel" className={inpSm} />
           </div>
           <div className="flex gap-2">
             <button
@@ -715,7 +715,7 @@ export function FactFinderSection({
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-3">Primary Physician</p>
               <Row2>
                 <div><Label>Name</Label><input value={ff.physician_name} onChange={e => set('physician_name', e.target.value)} className={inp} /></div>
-                <div><Label>Phone</Label><input value={ff.physician_phone} onChange={e => set('physician_phone', e.target.value)} type="tel" className={inp} /></div>
+                <div><Label>Phone</Label><input value={ff.physician_phone} onChange={e => set('physician_phone', formatPhoneAsTyped(e.target.value))} type="tel" className={inp} /></div>
               </Row2>
               <div><Label>Address</Label><input value={ff.physician_address} onChange={e => set('physician_address', e.target.value)} className={inp} /></div>
               <Row3>
@@ -1313,7 +1313,7 @@ export function FactFinderSection({
                       <div className="grid grid-cols-3 gap-2">
                         <div><label className="block text-xs text-slate-500 mb-1">Date of birth</label><input value={bene.dob} onChange={e => setBene(arr, setArr, i, 'dob', formatDobInput(e.target.value))} type="text" placeholder="MM/DD/YYYY" className={inpSm} /></div>
                         <div><label className="block text-xs text-slate-500 mb-1">SSN</label><input value={bene.ssn} onChange={e => setBene(arr, setArr, i, 'ssn', e.target.value)} placeholder="XXX-XX-XXXX" className={inpSm} /></div>
-                        <div><label className="block text-xs text-slate-500 mb-1">Phone</label><input value={bene.phone} onChange={e => setBene(arr, setArr, i, 'phone', e.target.value)} type="tel" className={inpSm} /></div>
+                        <div><label className="block text-xs text-slate-500 mb-1">Phone</label><input value={bene.phone} onChange={e => setBene(arr, setArr, i, 'phone', formatPhoneAsTyped(e.target.value))} type="tel" className={inpSm} /></div>
                       </div>
                       <div><label className="block text-xs text-slate-500 mb-1">Email</label><input value={bene.email} onChange={e => setBene(arr, setArr, i, 'email', e.target.value)} type="email" className={inpSm} /></div>
                     </div>
