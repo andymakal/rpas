@@ -201,6 +201,12 @@ efficient-execution).
   engine, rule JSON, and fact/candidate shape; re-home the reads on Right Path's
   own records. (These file references are a reference catalog — reuse them when a
   task's outcome calls for Daily Direction, not a backlog to build proactively.)
+  The paths above are in the IPF repository (`ipf-stewardship`), NOT in this
+  repo and NOT in `bobpfromm/ipf-v2` (a different, multi-tenant IPF codebase
+  that has no ZEN or Daily Direction). Right Path already holds ported copies:
+  `src/lib/daily-direction/engine.ts` (engine), `types.ts` (shared types),
+  `stewardship.ts` (composition from the Stewardship board), and
+  `src/rules/next-best-action.json` (rule model). Extend those; do not re-port.
 - Assistant and Mentoring are two distinct surfaces and must stay distinct: the
   Assistant is a system-state explanation of what to do next (the teal
   `AssistantNotice` / `HardCommitmentNotice` treatment, driven by the Daily
