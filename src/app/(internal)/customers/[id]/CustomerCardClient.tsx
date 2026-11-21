@@ -460,10 +460,12 @@ const TERMINAL_COVERAGE = new Set([
 ])
 
 const CARRIERS = [
-  'Allstate Life', 'American General', 'Banner Life', 'Corebridge Financial',
+  'Allstate Life', 'American Funds', 'American General', 'Banner Life', 'Corebridge Financial',
   'Equitable', 'Everlake Assurance', 'Everlake Life', 'Foresters Financial',
-  'Gerber Life', 'John Hancock', 'Lincoln Benefit Life', 'Lincoln Financial',
-  'Pacific Life', 'Protective Life', 'Prudential', 'Sammons Financial', 'Other',
+  'Franklin Templeton', 'Gerber Life', 'Invesco', 'John Hancock',
+  'Lincoln Benefit Life', 'Lincoln Financial', 'Nationwide',
+  'Pacific Life', 'PIMCO', 'Protective Life', 'Prudential', 'Sammons Financial',
+  'Venerable', 'Voya Financial', 'Other',
 ]
 
 const POLICY_TYPES = ['Term', 'UL', 'VUL', 'Whole Life', 'IUL', 'GUL', 'LTC', 'Annuity', 'FA', 'MVA', 'Other']
