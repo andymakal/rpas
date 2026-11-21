@@ -78,6 +78,7 @@ insert into public.carriers (name, short_name, is_active) values
   ('Voya Financial',                               'Voya',                 true),
   ('Sammons Financial Group',                      'Sammons',              true),
   ('Franklin Templeton',                           'Franklin Templeton',   true),
+  ('PIMCO',                                        'PIMCO',                true),
   ('First Trust',                                  'First Trust',          true),
   ('American Funds',                               'American Funds',       true),
 
