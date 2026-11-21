@@ -23,7 +23,7 @@ export async function PATCH(
   }
 
   const allowed = [
-    'client_name', 'policy_number', 'carrier', 'product_type', 'product_category',
+    'client_name', 'policy_number', 'carrier', 'product_type', 'registration', 'product_category',
     'issue_date', 'term_length', 'face_amount', 'death_benefit_amount',
     'cash_value_amount', 'cash_value_as_of_date', 'cost_basis',
     'annual_premium', 'premium_mode', 'pay_period', 'rate_class', 'riders',

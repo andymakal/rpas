@@ -468,7 +468,14 @@ const CARRIERS = [
   'Venerable', 'Voya Financial', 'Other',
 ]
 
-const POLICY_TYPES = ['Term', 'UL', 'VUL', 'Whole Life', 'IUL', 'GUL', 'LTC', 'Annuity', 'FA', 'MVA', 'Other']
+const POLICY_TYPES = ['Term', 'UL', 'VUL', 'Whole Life', 'IUL', 'GUL', 'LTC', 'Annuity', 'FA', 'MVA', 'Money Market', 'Mutual Fund', 'UIT', 'Other']
+
+const REGISTRATIONS = [
+  'Individual', 'Joint', 'TOD', 'JTWROS',
+  'IRA', 'Roth IRA', 'Inherited IRA', 'Inherited Roth IRA',
+  'SEP IRA', '401(k)', '403(b)',
+  'Trust', 'Corporate',
+]
 
 const PREMIUM_MODES = ['Annual', 'Semi-Annual', 'Quarterly', 'Monthly EFT', 'Single']
 const PAY_PERIODS   = ['Full Pay', '10-Pay', '20-Pay', 'Single Premium']
@@ -598,6 +605,7 @@ export function CustomerCardClient({
   const [newFaceAmount,     setNewFaceAmount]     = useState('')
   const [newPremium,        setNewPremium]        = useState('')
   const [newPremiumMode,    setNewPremiumMode]    = useState('Annual')
+  const [newRegistration,   setNewRegistration]   = useState('')
   const [newPayPeriod,      setNewPayPeriod]      = useState('')
   const [newIssueDate,      setNewIssueDate]      = useState('')
   const [addPolicySaving,   setAddPolicySaving]   = useState(false)
@@ -614,7 +622,8 @@ export function CustomerCardClient({
   const [editPolRateClass,  setEditPolRateClass]  = useState('')
   const [editPolTermLength, setEditPolTermLength] = useState('')
   const [editPolStatus,     setEditPolStatus]     = useState('')
-  const [editPolBene,       setEditPolBene]       = useState('')
+  const [editPolBene,         setEditPolBene]         = useState('')
+  const [editPolRegistration, setEditPolRegistration] = useState('')
   const [editPolSaving,     setEditPolSaving]     = useState(false)
   const [editPolErr,        setEditPolErr]        = useState<string | null>(null)
 
@@ -800,6 +809,7 @@ export function CustomerCardClient({
         client_name:         p.client_name,
         carrier:             p.carrier,
         product_type:        p.product_type,
+        registration:        null,
         face_amount:         p.face_amount,
         annual_premium:      null,
         premium_mode:        null,
@@ -857,6 +867,7 @@ export function CustomerCardClient({
           policy_number:  newPolicyNum.trim(),
           carrier:        newCarrier,
           product_type:   newProductType  || null,
+          registration:   newRegistration || null,
           face_amount:    newFaceAmount   ? parseFloat(newFaceAmount)   : null,
           annual_premium: newPremium      ? parseFloat(newPremium)      : null,
           premium_mode:   newPremiumMode  || null,
@@ -876,6 +887,7 @@ export function CustomerCardClient({
         client_name:         p.client_name,
         carrier:             p.carrier,
         product_type:        p.product_type,
+        registration:        p.registration ?? null,
         face_amount:         p.face_amount,
         annual_premium:      p.annual_premium,
         premium_mode:        p.premium_mode ?? null,
@@ -891,7 +903,7 @@ export function CustomerCardClient({
       }, ...prev])
 
       // Reset form
-      setNewCarrier(''); setNewPolicyNum(''); setNewProductType('')
+      setNewCarrier(''); setNewPolicyNum(''); setNewProductType(''); setNewRegistration('')
       setNewFaceAmount(''); setNewPremium(''); setNewPremiumMode('Annual')
       setNewPayPeriod(''); setNewRateClass(''); setNewIssueDate('')
       setAddingPolicy(false)
@@ -912,6 +924,7 @@ export function CustomerCardClient({
     setEditPolTermLength(p.term_length ?? '')
     setEditPolStatus(p.coverage_status ?? 'active')
     setEditPolBene(p.primary_beneficiary ?? '')
+    setEditPolRegistration(p.registration ?? '')
     setEditPolErr(null)
   }
 
@@ -928,7 +941,8 @@ export function CustomerCardClient({
         body:    JSON.stringify({
           carrier:             editPolCarrier.trim(),
           policy_number:       editPolNumber.trim(),
-          product_type:        editPolType         || null,
+          product_type:        editPolType             || null,
+          registration:        editPolRegistration     || null,
           face_amount:         editPolFace         ? parseFloat(editPolFace)    : null,
           annual_premium:      editPolPremium      ? parseFloat(editPolPremium) : null,
           premium_mode:        editPolPremiumMode  || null,
@@ -1690,6 +1704,13 @@ export function CustomerCardClient({
                     {POLICY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Registration</label>
+                  <select value={newRegistration} onChange={e => setNewRegistration(e.target.value)} className={inputCls}>
+                    <option value="">—</option>
+                    {REGISTRATIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
                 {newProductType === 'Term' && (
                   <div>
                     <label className="block text-xs text-slate-500 mb-1">Term length</label>
@@ -1965,6 +1986,13 @@ export function CustomerCardClient({
                                 <select value={editPolType} onChange={e => { setEditPolType(e.target.value); if (e.target.value !== 'Term') setEditPolTermLength('') }} className={inputCls}>
                                   <option value="">—</option>
                                   {POLICY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs text-slate-500 mb-1">Registration</label>
+                                <select value={editPolRegistration} onChange={e => setEditPolRegistration(e.target.value)} className={inputCls}>
+                                  <option value="">—</option>
+                                  {REGISTRATIONS.map(r => <option key={r} value={r}>{r}</option>)}
                                 </select>
                               </div>
                               {editPolType === 'Term' && (
