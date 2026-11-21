@@ -10,7 +10,7 @@ import {
   FolderKanban, Wrench, Link2, History, Compass, ChevronDown,
   Pencil, Check, MessageSquare, Clipboard, Plus, ClipboardCheck, Users,
   FileText, File, Image, FileSpreadsheet, Presentation, ExternalLink, RefreshCw,
-  Merge,
+  Merge, TrendingUp,
 } from 'lucide-react'
 import type {
   CustomerDetail, LinkedCase, LinkedPolicy, InsuredOnPolicy, LinkedServiceRequest,
@@ -468,7 +468,8 @@ const CARRIERS = [
   'Venerable', 'Voya Financial', 'Other',
 ]
 
-const POLICY_TYPES = ['Term', 'UL', 'VUL', 'Whole Life', 'IUL', 'GUL', 'LTC', 'Annuity', 'FA', 'MVA', 'Money Market', 'Mutual Fund', 'UIT', 'Other']
+const POLICY_PRODUCT_TYPES  = ['Term', 'UL', 'VUL', 'Whole Life', 'IUL', 'GUL', 'LTC', 'Other']
+const ACCOUNT_PRODUCT_TYPES = ['Annuity', 'FA', 'MVA', 'Mutual Fund', 'UIT', 'Money Market', 'Brokerage', 'Other']
 
 const REGISTRATIONS = [
   'Individual', 'Joint', 'TOD', 'JTWROS',
@@ -624,6 +625,13 @@ export function CustomerCardClient({
   const [editPolStatus,     setEditPolStatus]     = useState('')
   const [editPolBene,         setEditPolBene]         = useState('')
   const [editPolRegistration, setEditPolRegistration] = useState('')
+  const [editPolRecordType,   setEditPolRecordType]   = useState<'policy' | 'account'>('policy')
+  const [editPolAccValue,     setEditPolAccValue]     = useState('')
+  const [editPolAccValueDate, setEditPolAccValueDate] = useState('')
+  const [addingAccount,       setAddingAccount]       = useState(false)
+  const [newAccValue,         setNewAccValue]         = useState('')
+  const [newAccValueDate,     setNewAccValueDate]     = useState('')
+  const [addAccountErr,       setAddAccountErr]       = useState<string | null>(null)
   const [editPolSaving,     setEditPolSaving]     = useState(false)
   const [editPolErr,        setEditPolErr]        = useState<string | null>(null)
 
@@ -736,6 +744,9 @@ export function CustomerCardClient({
   const [householdSyncing, setHouseholdSyncing] = useState(false)
   const [householdSyncErr, setHouseholdSyncErr] = useState<string | null>(null)
 
+  const insurancePolicies  = policies.filter(p => p.record_type !== 'account')
+  const investmentAccounts = policies.filter(p => p.record_type === 'account')
+
   const caseAgencyMap = new Map(cases.map(c => [c.id, c.agencies?.display_name ?? c.agencies?.name ?? null]))
 
   const hasFinraProduct = policies.some(p =>
@@ -810,6 +821,9 @@ export function CustomerCardClient({
         carrier:             p.carrier,
         product_type:        p.product_type,
         registration:        null,
+        record_type:         p.product_type && ACCOUNT_PRODUCT_TYPES.includes(p.product_type) ? 'account' : 'policy',
+        account_value:       null,
+        account_value_as_of: null,
         face_amount:         p.face_amount,
         annual_premium:      null,
         premium_mode:        null,
@@ -867,7 +881,7 @@ export function CustomerCardClient({
           policy_number:  newPolicyNum.trim(),
           carrier:        newCarrier,
           product_type:   newProductType  || null,
-          registration:   newRegistration || null,
+          record_type:    'policy',
           face_amount:    newFaceAmount   ? parseFloat(newFaceAmount)   : null,
           annual_premium: newPremium      ? parseFloat(newPremium)      : null,
           premium_mode:   newPremiumMode  || null,
@@ -888,6 +902,9 @@ export function CustomerCardClient({
         carrier:             p.carrier,
         product_type:        p.product_type,
         registration:        p.registration ?? null,
+        record_type:         'policy',
+        account_value:       null,
+        account_value_as_of: null,
         face_amount:         p.face_amount,
         annual_premium:      p.annual_premium,
         premium_mode:        p.premium_mode ?? null,
@@ -905,9 +922,67 @@ export function CustomerCardClient({
       // Reset form
       setNewCarrier(''); setNewPolicyNum(''); setNewProductType(''); setNewRegistration('')
       setNewFaceAmount(''); setNewPremium(''); setNewPremiumMode('Annual')
-      setNewPayPeriod(''); setNewRateClass(''); setNewIssueDate('')
+      setNewPayPeriod(''); setNewRateClass(''); setNewTermLength(''); setNewIssueDate('')
       setAddingPolicy(false)
     } catch { setAddPolicyErr('Network error') }
+    finally   { setAddPolicySaving(false) }
+  }
+
+  async function handleAddAccount() {
+    if (!newCarrier || !newPolicyNum.trim()) {
+      setAddAccountErr('Custodian and account number are required')
+      return
+    }
+    setAddPolicySaving(true); setAddAccountErr(null)
+    try {
+      const res = await fetch('/api/service-policies', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          customer_id:         customer.id,
+          client_name:         `${displayFirst} ${displayLast}`,
+          policy_number:       newPolicyNum.trim(),
+          carrier:             newCarrier,
+          product_type:        newProductType   || null,
+          registration:        newRegistration  || null,
+          record_type:         'account',
+          account_value:       newAccValue      ? parseFloat(newAccValue)      : null,
+          account_value_as_of: newAccValueDate  || null,
+          issue_date:          newIssueDate     || null,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setAddAccountErr(json.error ?? 'Failed to add account'); return }
+
+      const p = json.data
+      setPolicies(prev => [{
+        id:                  p.id,
+        policy_number:       p.policy_number,
+        client_name:         p.client_name,
+        carrier:             p.carrier,
+        product_type:        p.product_type,
+        registration:        p.registration        ?? null,
+        record_type:         'account',
+        account_value:       p.account_value       ?? null,
+        account_value_as_of: p.account_value_as_of ?? null,
+        face_amount:         null,
+        annual_premium:      null,
+        premium_mode:        null,
+        pay_period:          null,
+        rate_class:          null,
+        term_length:         null,
+        coverage_status:     p.coverage_status,
+        sa_status:           p.sa_status,
+        sa_form_sent_at:     null,
+        primary_beneficiary: null,
+        flag_count:          0,
+        agencies:            null,
+      }, ...prev])
+
+      setNewCarrier(''); setNewPolicyNum(''); setNewProductType(''); setNewRegistration('')
+      setNewAccValue(''); setNewAccValueDate(''); setNewIssueDate('')
+      setAddingAccount(false)
+    } catch { setAddAccountErr('Network error') }
     finally   { setAddPolicySaving(false) }
   }
 
@@ -925,6 +1000,9 @@ export function CustomerCardClient({
     setEditPolStatus(p.coverage_status ?? 'active')
     setEditPolBene(p.primary_beneficiary ?? '')
     setEditPolRegistration(p.registration ?? '')
+    setEditPolRecordType((p.record_type ?? 'policy') as 'policy' | 'account')
+    setEditPolAccValue(p.account_value != null ? String(p.account_value) : '')
+    setEditPolAccValueDate(p.account_value_as_of ?? '')
     setEditPolErr(null)
   }
 
@@ -943,6 +1021,8 @@ export function CustomerCardClient({
           policy_number:       editPolNumber.trim(),
           product_type:        editPolType             || null,
           registration:        editPolRegistration     || null,
+          account_value:       editPolAccValue         ? parseFloat(editPolAccValue) : null,
+          account_value_as_of: editPolAccValueDate     || null,
           face_amount:         editPolFace         ? parseFloat(editPolFace)    : null,
           annual_premium:      editPolPremium      ? parseFloat(editPolPremium) : null,
           premium_mode:        editPolPremiumMode  || null,
@@ -960,6 +1040,9 @@ export function CustomerCardClient({
         carrier:             json.data.carrier,
         policy_number:       json.data.policy_number,
         product_type:        json.data.product_type,
+        registration:        json.data.registration        ?? null,
+        account_value:       json.data.account_value       ?? null,
+        account_value_as_of: json.data.account_value_as_of ?? null,
         face_amount:         json.data.face_amount,
         annual_premium:      json.data.annual_premium,
         premium_mode:        json.data.premium_mode ?? null,
@@ -1639,19 +1722,24 @@ export function CustomerCardClient({
             </div>
             <div className="w-px h-3 bg-slate-800" />
             <div className="flex items-center gap-1.5">
-              <span className="text-white font-semibold">{policies.length}</span>
-              <span className="text-slate-500 text-xs">Policies</span>
+              <span className="text-white font-semibold">{insurancePolicies.length}</span>
+              <span className="text-slate-500 text-xs">{insurancePolicies.length === 1 ? 'Policy' : 'Policies'}</span>
+            </div>
+            <div className="w-px h-3 bg-slate-800" />
+            <div className="flex items-center gap-1.5">
+              <span className="text-white font-semibold">{investmentAccounts.length}</span>
+              <span className="text-slate-500 text-xs">{investmentAccounts.length === 1 ? 'Account' : 'Accounts'}</span>
             </div>
             <div className="w-px h-3 bg-slate-800" />
             <div className="flex items-center gap-1.5">
               <span className="text-white font-semibold">{serviceRequests.length}</span>
               <span className="text-slate-500 text-xs">{serviceRequests.length === 1 ? 'Service Request' : 'Service Requests'}</span>
             </div>
-            {policies.filter(p => p.sa_status === 'confirmed').length > 0 && (
+            {insurancePolicies.filter(p => p.sa_status === 'confirmed').length > 0 && (
               <>
                 <div className="w-px h-3 bg-slate-800" />
                 <span className="text-xs text-slate-500">
-                  <span className="text-emerald-400 font-medium">{policies.filter(p => p.sa_status === 'confirmed').length}</span> SA confirmed
+                  <span className="text-emerald-400 font-medium">{insurancePolicies.filter(p => p.sa_status === 'confirmed').length}</span> SA confirmed
                 </span>
               </>
             )}
@@ -1662,12 +1750,12 @@ export function CustomerCardClient({
         <Section
           title="Policies"
           icon={Shield}
-          count={policies.length}
+          count={insurancePolicies.length}
           action={
             <div className="flex items-center gap-3">
-              {policies.filter(p => p.sa_status === 'confirmed').length > 0 && (
+              {insurancePolicies.filter(p => p.sa_status === 'confirmed').length > 0 && (
                 <span className="text-xs text-slate-500">
-                  {policies.filter(p => p.sa_status === 'confirmed').length} confirmed SA
+                  {insurancePolicies.filter(p => p.sa_status === 'confirmed').length} confirmed SA
                 </span>
               )}
               <button
@@ -1701,14 +1789,7 @@ export function CustomerCardClient({
                   <label className="block text-xs text-slate-500 mb-1">Product type</label>
                   <select value={newProductType} onChange={e => { setNewProductType(e.target.value); if (e.target.value !== 'Term') setNewTermLength('') }} className={inputCls}>
                     <option value="">—</option>
-                    {POLICY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-500 mb-1">Registration</label>
-                  <select value={newRegistration} onChange={e => setNewRegistration(e.target.value)} className={inputCls}>
-                    <option value="">—</option>
-                    {REGISTRATIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                    {POLICY_PRODUCT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
                 {newProductType === 'Term' && (
@@ -1891,11 +1972,11 @@ export function CustomerCardClient({
           )}
 
           {/* Policy list */}
-          {policies.length === 0 && pendingCasePolicies.length === 0 ? (
+          {insurancePolicies.length === 0 && pendingCasePolicies.length === 0 ? (
             <div className="px-5 py-8 text-center text-slate-500 text-sm">
               No policies linked — use the search above
             </div>
-          ) : policies.length === 0 ? null : (
+          ) : insurancePolicies.length === 0 ? null : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-slate-500 text-xs border-b border-slate-800/60">
@@ -1910,7 +1991,7 @@ export function CustomerCardClient({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60">
-                {policies.map(p => (
+                {insurancePolicies.map(p => (
                   <Fragment key={p.id}>
                     <tr className={`transition-colors ${editingPolicyId === p.id ? 'bg-slate-800/60' : 'hover:bg-slate-800/40'}`}>
                       <td className="px-5 py-3">
@@ -1985,14 +2066,7 @@ export function CustomerCardClient({
                                 <label className="block text-xs text-slate-500 mb-1">Product type</label>
                                 <select value={editPolType} onChange={e => { setEditPolType(e.target.value); if (e.target.value !== 'Term') setEditPolTermLength('') }} className={inputCls}>
                                   <option value="">—</option>
-                                  {POLICY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                                </select>
-                              </div>
-                              <div>
-                                <label className="block text-xs text-slate-500 mb-1">Registration</label>
-                                <select value={editPolRegistration} onChange={e => setEditPolRegistration(e.target.value)} className={inputCls}>
-                                  <option value="">—</option>
-                                  {REGISTRATIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                                  {POLICY_PRODUCT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
                                 </select>
                               </div>
                               {editPolType === 'Term' && (
@@ -2040,6 +2114,239 @@ export function CustomerCardClient({
                                 <select value={editPolRateClass} onChange={e => setEditPolRateClass(e.target.value)} className={inputCls}>
                                   <option value="">—</option>
                                   {rateClasses.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                                </select>
+                              </div>
+                            </div>
+                            <div>
+                              <label className="block text-xs text-slate-500 mb-1">Primary beneficiary</label>
+                              <input value={editPolBene} onChange={e => setEditPolBene(e.target.value)} className={inputCls} placeholder="Full name" />
+                            </div>
+                            {editPolErr && (
+                              <p className="text-xs text-red-400 flex items-center gap-1">
+                                <AlertTriangle className="w-3 h-3" /> {editPolErr}
+                              </p>
+                            )}
+                            <div className="flex items-center gap-2 pt-1">
+                              <button
+                                onClick={() => handleSaveEditPolicy(p.id)}
+                                disabled={editPolSaving}
+                                className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg disabled:opacity-50 transition-colors"
+                              >
+                                {editPolSaving ? '…' : <><Check className="w-3.5 h-3.5" /> Save</>}
+                              </button>
+                              <button
+                                onClick={() => { setEditingPolicyId(null); setEditPolErr(null) }}
+                                className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </Section>
+
+        {/* Investment Accounts */}
+        <Section
+          title="Accounts"
+          icon={TrendingUp}
+          count={investmentAccounts.length}
+          action={
+            <button
+              onClick={() => { setAddingAccount(o => !o); setAddAccountErr(null) }}
+              className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-slate-200 border border-slate-700 hover:border-slate-500 rounded-md px-2 py-1 transition-colors"
+            >
+              {addingAccount ? <X className="w-3 h-3" /> : '+'} {addingAccount ? 'Cancel' : 'Add account'}
+            </button>
+          }
+        >
+          {/* Add account form */}
+          {addingAccount && (
+            <div className="px-5 py-4 border-b border-slate-800/60 space-y-3 bg-slate-800/20">
+              <p className="text-xs font-medium text-slate-400">New account</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Custodian / Fund Co. <span className="text-red-500">*</span></label>
+                  <select value={newCarrier} onChange={e => setNewCarrier(e.target.value)} className={inputCls}>
+                    <option value="">Select…</option>
+                    {CARRIERS.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Account number <span className="text-red-500">*</span></label>
+                  <input value={newPolicyNum} onChange={e => setNewPolicyNum(e.target.value)} placeholder="e.g. 123-456789" className={inputCls} />
+                </div>
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Product type</label>
+                  <select value={newProductType} onChange={e => setNewProductType(e.target.value)} className={inputCls}>
+                    <option value="">—</option>
+                    {ACCOUNT_PRODUCT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Registration</label>
+                  <select value={newRegistration} onChange={e => setNewRegistration(e.target.value)} className={inputCls}>
+                    <option value="">—</option>
+                    {REGISTRATIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Account value ($)</label>
+                  <input value={newAccValue} onChange={e => setNewAccValue(e.target.value)} type="number" min="0" step="1000" placeholder="e.g. 125000" className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">As of</label>
+                  <input value={newAccValueDate} onChange={e => setNewAccValueDate(e.target.value)} type="date" className={inputCls} />
+                </div>
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Issue / open date</label>
+                  <input value={newIssueDate} onChange={e => setNewIssueDate(e.target.value)} type="date" className={inputCls} />
+                </div>
+              </div>
+              {addAccountErr && (
+                <p className="text-xs text-red-400 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" /> {addAccountErr}
+                </p>
+              )}
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  onClick={handleAddAccount}
+                  disabled={addPolicySaving}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 rounded-lg disabled:opacity-50 transition-colors"
+                >
+                  {addPolicySaving ? '…' : <><Check className="w-3.5 h-3.5" /> Add account</>}
+                </button>
+                <button onClick={() => { setAddingAccount(false); setAddAccountErr(null) }} className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Account list */}
+          {investmentAccounts.length === 0 ? (
+            <div className="px-5 py-8 text-center text-slate-500 text-sm">
+              No accounts linked — use Add account above
+            </div>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-slate-500 text-xs border-b border-slate-800/60">
+                  <th className="text-left px-5 py-2.5 font-medium">Custodian</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Account #</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Type</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Registration</th>
+                  <th className="text-right px-4 py-2.5 font-medium">Value</th>
+                  <th className="text-left px-4 py-2.5 font-medium">Status</th>
+                  <th className="px-4 py-2.5" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-800/60">
+                {investmentAccounts.map(p => (
+                  <Fragment key={p.id}>
+                    <tr className={`transition-colors ${editingPolicyId === p.id ? 'bg-slate-800/60' : 'hover:bg-slate-800/40'}`}>
+                      <td className="px-5 py-3">
+                        <p className="text-white font-medium text-sm">{p.carrier}</p>
+                        <p className="text-slate-500 text-xs truncate max-w-36">{p.client_name}</p>
+                      </td>
+                      <td className="px-4 py-3 font-mono text-slate-300 text-xs">{p.policy_number}</td>
+                      <td className="px-4 py-3"><TypeBadge type={p.product_type} /></td>
+                      <td className="px-4 py-3 text-xs text-slate-400">{p.registration ?? '—'}</td>
+                      <td className="px-4 py-3 text-right">
+                        {p.account_value != null ? (
+                          <div>
+                            <span className="text-slate-200 text-sm font-medium tabular-nums">{fmt(p.account_value)}</span>
+                            {p.account_value_as_of && (
+                              <p className="text-xs text-slate-500">
+                                as of {new Date(p.account_value_as_of + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                              </p>
+                            )}
+                          </div>
+                        ) : <span className="text-slate-600 text-xs">—</span>}
+                      </td>
+                      <td className="px-4 py-3">
+                        {TERMINAL_COVERAGE.has((p.coverage_status ?? '').toLowerCase()) ? (
+                          <span className="text-xs px-1.5 py-0.5 rounded bg-red-900/30 text-red-400 border border-red-800/50 font-medium">
+                            {fmtCoverageStatus(p.coverage_status ?? '')}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-slate-400">{p.coverage_status || 'Active'}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => editingPolicyId === p.id ? setEditingPolicyId(null) : startEditPolicy(p)}
+                            className={`p-0.5 transition-colors ${editingPolicyId === p.id ? 'text-blue-400' : 'text-slate-600 hover:text-slate-300'}`}
+                            title="Edit account"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <Link
+                            href={`/policies/${p.id}`}
+                            className="flex items-center text-slate-600 hover:text-slate-300 transition-colors"
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                    {editingPolicyId === p.id && (
+                      <tr>
+                        <td colSpan={7} className="px-5 py-4 border-t border-slate-700/50 bg-slate-800/30">
+                          <p className="text-xs font-medium text-slate-400 mb-3">Edit account</p>
+                          <div className="space-y-3">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div>
+                                <label className="block text-xs text-slate-500 mb-1">Custodian <span className="text-red-500">*</span></label>
+                                <select value={editPolCarrier} onChange={e => setEditPolCarrier(e.target.value)} className={inputCls}>
+                                  <option value="">Select…</option>
+                                  {CARRIERS.map(c => <option key={c} value={c}>{c}</option>)}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs text-slate-500 mb-1">Account number <span className="text-red-500">*</span></label>
+                                <input value={editPolNumber} onChange={e => setEditPolNumber(e.target.value)} className={inputCls} />
+                              </div>
+                            </div>
+                            <div className="grid grid-cols-4 gap-3">
+                              <div>
+                                <label className="block text-xs text-slate-500 mb-1">Product type</label>
+                                <select value={editPolType} onChange={e => setEditPolType(e.target.value)} className={inputCls}>
+                                  <option value="">—</option>
+                                  {ACCOUNT_PRODUCT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs text-slate-500 mb-1">Registration</label>
+                                <select value={editPolRegistration} onChange={e => setEditPolRegistration(e.target.value)} className={inputCls}>
+                                  <option value="">—</option>
+                                  {REGISTRATIONS.map(r => <option key={r} value={r}>{r}</option>)}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="block text-xs text-slate-500 mb-1">Account value ($)</label>
+                                <input value={editPolAccValue} onChange={e => setEditPolAccValue(e.target.value)} type="number" min="0" step="1000" className={inputCls} />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-slate-500 mb-1">As of</label>
+                                <input value={editPolAccValueDate} onChange={e => setEditPolAccValueDate(e.target.value)} type="date" className={inputCls} />
+                              </div>
+                              <div>
+                                <label className="block text-xs text-slate-500 mb-1">Account status</label>
+                                <select value={editPolStatus} onChange={e => setEditPolStatus(e.target.value)} className={inputCls}>
+                                  <option value="Active">Active</option>
+                                  <option value="Closed">Closed</option>
+                                  <option value="Transferred Out">Transferred Out</option>
+                                  <option value="Surrendered">Surrendered</option>
                                 </select>
                               </div>
                             </div>

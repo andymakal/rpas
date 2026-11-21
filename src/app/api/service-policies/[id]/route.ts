@@ -30,6 +30,7 @@ export async function PATCH(
     'insured_first_name', 'insured_last_name', 'primary_beneficiary', 'contingent_beneficiary',
     'insured_dob', 'insured_dob_year', 'insured_dob_month', 'insured_dob_precision',
     'insured_state', 'policy_termination_date',
+    'record_type', 'account_value', 'account_value_as_of',
     'coverage_status', 'sa_status', 'sa_form_sent_at', 'notes',
     'agency_id', 'agent_id', 'customer_id',
     'owner_is_insured', 'insured_customer_id',

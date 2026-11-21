@@ -13,7 +13,8 @@ export async function POST(request: NextRequest) {
 
   const {
     customer_id, policy_number, carrier, client_name,
-    product_type, registration, face_amount, annual_premium, premium_mode, pay_period, rate_class, term_length, issue_date,
+    product_type, registration, record_type, account_value, account_value_as_of,
+    face_amount, annual_premium, premium_mode, pay_period, rate_class, term_length, issue_date,
   } = body
 
   if (!customer_id || !policy_number || !carrier || !client_name) {
@@ -31,7 +32,10 @@ export async function POST(request: NextRequest) {
       carrier:        String(carrier),
       client_name:    String(client_name).trim(),
       product_type:   product_type   ? String(product_type)   : null,
-      registration:   registration   ? String(registration)   : null,
+      registration:        registration        ? String(registration)        : null,
+      record_type:         record_type         ? String(record_type)         : 'policy',
+      account_value:       account_value       ? Number(account_value)       : null,
+      account_value_as_of: account_value_as_of ? String(account_value_as_of) : null,
       face_amount:    face_amount    ? Number(face_amount)    : null,
       annual_premium: annual_premium ? Number(annual_premium) : null,
       premium_mode:   premium_mode   ? String(premium_mode)   : null,

@@ -96,6 +96,9 @@ export type LinkedPolicy = {
   carrier:             string
   product_type:        string | null
   registration:        string | null
+  record_type:         string
+  account_value:       number | null
+  account_value_as_of: string | null
   face_amount:         number | null
   annual_premium:      number | null
   premium_mode:        string | null
@@ -214,7 +217,7 @@ export default async function CustomerCardPage({
   const { data: policiesRaw, error: policiesError } = await supabase
     .from('service_policies')
     .select(`
-      id, policy_number, client_name, carrier, product_type, registration,
+      id, policy_number, client_name, carrier, product_type, registration, record_type, account_value, account_value_as_of,
       face_amount, death_benefit_amount, annual_premium, cash_value_amount, cost_basis,
       premium_mode, pay_period, issue_date, term_length, rate_class, riders,
       insured_first_name, insured_last_name, primary_beneficiary, primary_beneficiary_customer_id,
@@ -282,6 +285,9 @@ export default async function CustomerCardPage({
     carrier:         p.carrier,
     product_type:    p.product_type,
     registration:        (p as unknown as Record<string, unknown>).registration as string | null ?? null,
+    record_type:         ((p as unknown as Record<string, unknown>).record_type as string | null) ?? 'policy',
+    account_value:       (p as unknown as Record<string, unknown>).account_value as number | null ?? null,
+    account_value_as_of: (p as unknown as Record<string, unknown>).account_value_as_of as string | null ?? null,
     face_amount:         p.face_amount,
     annual_premium:      p.annual_premium,
     premium_mode:        (p as unknown as Record<string, unknown>).premium_mode as string | null ?? null,
