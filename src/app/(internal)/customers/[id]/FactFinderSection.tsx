@@ -501,10 +501,12 @@ export function FactFinderSection({
   customerId,
   initialData,
   initialVerifiedAt,
+  existingAccounts = [],
 }: {
-  customerId:       string
-  initialData:      Record<string, unknown> | null
+  customerId:        string
+  initialData:       Record<string, unknown> | null
   initialVerifiedAt: string | null
+  existingAccounts?: { carrier: string; product_type: string | null }[]
 }) {
   const [open,       setOpen]       = useState(false)
   const [ff,         setFf]         = useState<FF>(() => initFF(initialData))
@@ -1195,6 +1197,13 @@ export function FactFinderSection({
           {/* ── Investment & Brokerage Accounts ──────────────────────────── */}
           <SubSection id="investments" title="Investment & Brokerage Accounts"
             open={openSections.has('investments')} onToggle={() => toggleSec('investments')}>
+            {existingAccounts.length > 0 && (
+              <datalist id="ff-inv-institutions">
+                {[...new Set(existingAccounts.map(a => a.carrier))].map(c => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+            )}
             {investments.length === 0 && <p className="text-xs text-slate-600 italic">No investment accounts on file</p>}
             {investments.map((acct, i) => {
               const needsRelated = ['joint_spouse', 'joint_other', 'custodian'].includes(acct.ownership)
@@ -1218,7 +1227,9 @@ export function FactFinderSection({
                     <div><label className="block text-xs text-slate-500 mb-1">Institution</label>
                       <input value={acct.institution}
                         onChange={e => setInvestments(prev => prev.map((x, j) => j === i ? { ...x, institution: e.target.value } : x))}
-                        placeholder="Fidelity, Vanguard…" className={inpSm} />
+                        placeholder="Fidelity, Vanguard…"
+                        list={existingAccounts.length > 0 ? 'ff-inv-institutions' : undefined}
+                        className={inpSm} />
                     </div>
                     <div><label className="block text-xs text-slate-500 mb-1">Account type</label>
                       <select value={acct.account_type}

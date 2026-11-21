@@ -2762,6 +2762,7 @@ export function CustomerCardClient({
           customerId={customer.id}
           initialData={customer.fact_finder ?? null}
           initialVerifiedAt={customer.fact_finder_verified_at ?? null}
+          existingAccounts={investmentAccounts.map(p => ({ carrier: p.carrier, product_type: p.product_type }))}
         />
 
         {/* Documents (Google Drive) */}
