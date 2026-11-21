@@ -65,21 +65,27 @@ export async function POST(request: NextRequest) {
   return Response.json({ user: data.user, tempPass })
 }
 
-// PATCH — update a team member's name
+// PATCH — update a team member's name and/or email
 export async function PATCH(request: NextRequest) {
   const supabase = createAdminClient()
-  let body: { userId: string; full_name: string }
+  let body: { userId: string; full_name?: string; email?: string }
   try { body = await request.json() } catch {
     return Response.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  if (!body.userId || !body.full_name?.trim()) {
-    return Response.json({ error: 'userId and full_name are required' }, { status: 400 })
+  if (!body.userId) {
+    return Response.json({ error: 'userId is required' }, { status: 400 })
   }
 
-  const { data, error } = await supabase.auth.admin.updateUserById(body.userId, {
-    user_metadata: { full_name: body.full_name.trim() },
-  })
+  const authUpdate: Record<string, unknown> = {}
+  if (body.full_name?.trim()) authUpdate.user_metadata = { full_name: body.full_name.trim() }
+  if (body.email?.trim())     authUpdate.email          = body.email.trim().toLowerCase()
+
+  if (Object.keys(authUpdate).length === 0) {
+    return Response.json({ error: 'Nothing to update' }, { status: 400 })
+  }
+
+  const { data, error } = await supabase.auth.admin.updateUserById(body.userId, authUpdate)
 
   if (error) return Response.json({ error: error.message }, { status: 500 })
   return Response.json({ user: data.user })

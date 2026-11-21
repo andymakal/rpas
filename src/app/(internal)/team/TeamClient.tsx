@@ -13,6 +13,7 @@ import { fmtDate } from '@/lib/fmt'
 type FieldDef = { key: string; label: string; placeholder?: string; type?: string }
 
 const PROFILE_FIELDS: FieldDef[] = [
+  { key: 'email',             label: 'Email',              placeholder: 'producer@allstate.com', type: 'email' },
   { key: 'title',             label: 'Title',              placeholder: 'Life Insurance Specialist' },
   { key: 'phone',             label: 'Phone',              placeholder: '(555) 555-5555',  type: 'tel' },
   { key: 'allstate_id',       label: 'Allstate ID',        placeholder: 'A12345678' },
@@ -82,6 +83,7 @@ export function TeamClient({ members }: { members: Producer[] }) {
     const initial: EditState = {
       first_name:        m.first_name,
       last_name:         m.last_name,
+      email:             m.email ?? '',
       title:             m.title ?? '',
       phone:             m.phone ?? '',
       allstate_id:       m.allstate_id ?? '',
@@ -96,15 +98,20 @@ export function TeamClient({ members }: { members: Producer[] }) {
   async function handleSave(m: Producer) {
     setSaving(true); setSaveMsg(null)
     try {
-      // Update auth name if changed
+      // Update auth name and/or email if changed
       const newFullName = `${editState.first_name ?? ''} ${editState.last_name ?? ''}`.trim()
       const oldFullName = `${m.first_name} ${m.last_name}`.trim()
+      const newEmail    = editState.email?.trim().toLowerCase() ?? ''
+      const oldEmail    = (m.email ?? '').toLowerCase()
 
-      if (newFullName !== oldFullName) {
+      if (m.auth_user_id && (newFullName !== oldFullName || newEmail !== oldEmail)) {
+        const authPatch: Record<string, string> = { userId: m.auth_user_id }
+        if (newFullName !== oldFullName) authPatch.full_name = newFullName
+        if (newEmail && newEmail !== oldEmail) authPatch.email = newEmail
         await fetch('/api/admin/team', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ userId: m.auth_user_id, full_name: newFullName }),
+          body: JSON.stringify(authPatch),
         })
       }
 
@@ -112,6 +119,7 @@ export function TeamClient({ members }: { members: Producer[] }) {
       const producerUpdate: Record<string, unknown> = {
         first_name:        editState.first_name,
         last_name:         editState.last_name,
+        email:             editState.email?.trim().toLowerCase() || null,
         title:             editState.title   || null,
         phone:             editState.phone   || null,
         allstate_id:       editState.allstate_id   || null,
