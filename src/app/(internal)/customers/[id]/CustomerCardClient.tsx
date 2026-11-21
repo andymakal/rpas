@@ -1224,7 +1224,7 @@ export function CustomerCardClient({
         </Link>
 
         {/* Customer header — CRM contact card */}
-        <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+        <div className="bg-slate-900 border border-slate-800 rounded-xl">
           <div className="p-5">
             <div className="flex items-start gap-4">
 
