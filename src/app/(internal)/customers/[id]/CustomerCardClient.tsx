@@ -1006,11 +1006,12 @@ export function CustomerCardClient({
     setEditPolErr(null)
   }
 
-  async function handleSaveEditPolicy(policyId: string) {
+  async function handleSaveEditPolicy(policyId: string, recordTypeOverride?: 'policy' | 'account') {
     if (!editPolCarrier.trim() || !editPolNumber.trim()) {
       setEditPolErr('Carrier and policy number are required')
       return
     }
+    const finalRecordType = recordTypeOverride ?? editPolRecordType
     setEditPolSaving(true); setEditPolErr(null)
     try {
       const res = await fetch(`/api/service-policies/${policyId}`, {
@@ -1021,6 +1022,7 @@ export function CustomerCardClient({
           policy_number:       editPolNumber.trim(),
           product_type:        editPolType             || null,
           registration:        editPolRegistration     || null,
+          record_type:         finalRecordType,
           account_value:       editPolAccValue         ? parseFloat(editPolAccValue) : null,
           account_value_as_of: editPolAccValueDate     || null,
           face_amount:         editPolFace         ? parseFloat(editPolFace)    : null,
@@ -1041,6 +1043,7 @@ export function CustomerCardClient({
         policy_number:       json.data.policy_number,
         product_type:        json.data.product_type,
         registration:        json.data.registration        ?? null,
+        record_type:         json.data.record_type         ?? finalRecordType,
         account_value:       json.data.account_value       ?? null,
         account_value_as_of: json.data.account_value_as_of ?? null,
         face_amount:         json.data.face_amount,
@@ -2126,7 +2129,7 @@ export function CustomerCardClient({
                                 <AlertTriangle className="w-3 h-3" /> {editPolErr}
                               </p>
                             )}
-                            <div className="flex items-center gap-2 pt-1">
+                            <div className="flex items-center gap-2 pt-1 flex-wrap">
                               <button
                                 onClick={() => handleSaveEditPolicy(p.id)}
                                 disabled={editPolSaving}
@@ -2139,6 +2142,14 @@ export function CustomerCardClient({
                                 className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
                               >
                                 Cancel
+                              </button>
+                              <button
+                                onClick={() => handleSaveEditPolicy(p.id, 'account')}
+                                disabled={editPolSaving}
+                                className="ml-auto inline-flex items-center gap-1 text-xs text-slate-400 hover:text-teal-300 border border-slate-700 hover:border-teal-700 rounded-md px-2.5 py-1.5 disabled:opacity-50 transition-colors"
+                                title="Reclassify as an investment account"
+                              >
+                                Move to Accounts →
                               </button>
                             </div>
                           </div>
@@ -2359,7 +2370,7 @@ export function CustomerCardClient({
                                 <AlertTriangle className="w-3 h-3" /> {editPolErr}
                               </p>
                             )}
-                            <div className="flex items-center gap-2 pt-1">
+                            <div className="flex items-center gap-2 pt-1 flex-wrap">
                               <button
                                 onClick={() => handleSaveEditPolicy(p.id)}
                                 disabled={editPolSaving}
@@ -2372,6 +2383,14 @@ export function CustomerCardClient({
                                 className="px-4 py-2 text-sm text-slate-400 hover:text-slate-200 transition-colors"
                               >
                                 Cancel
+                              </button>
+                              <button
+                                onClick={() => handleSaveEditPolicy(p.id, 'policy')}
+                                disabled={editPolSaving}
+                                className="ml-auto inline-flex items-center gap-1 text-xs text-slate-400 hover:text-teal-300 border border-slate-700 hover:border-teal-700 rounded-md px-2.5 py-1.5 disabled:opacity-50 transition-colors"
+                                title="Reclassify as an insurance policy"
+                              >
+                                ← Move to Policies
                               </button>
                             </div>
                           </div>
