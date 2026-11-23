@@ -193,7 +193,8 @@ function TriageRow({
 
   const agency         = c.agencies?.display_name ?? c.agencies?.name ?? '—'
   const client         = buildHouseholdName(c.customers ?? null, c.household_members ?? [])
-  const lsp            = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : null
+  const lsp            = c.agents ? `${c.agents.first_name} ${c.agents.last_name}` : (c.lsp_name ?? null)
+  const lspEmail       = c.agents?.email ?? c.lsp_email ?? null
   const clientAge      = age(c.customers?.date_of_birth ?? null)
   const parsed         = parseNotes(c.notes)
   const staleDays      = daysSinceTouched(c)
@@ -490,8 +491,8 @@ function TriageRow({
               {c.customers?.email && (
                 <span><span className="text-slate-500">Email </span>{c.customers.email}</span>
               )}
-              {c.agents?.email && (
-                <span><span className="text-slate-500">LSP email </span>{c.agents.email}</span>
+              {lspEmail && (
+                <span><span className="text-slate-500">LSP email </span>{lspEmail}</span>
               )}
               {(c.allstate_policy_number || parsed['Allstate Policy']) && (
                 <span>

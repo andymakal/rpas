@@ -32,6 +32,8 @@ export type TriageCase = {
   } | null
   agents: { id: string; first_name: string; last_name: string; email: string | null } | null
   household_members: { id: string; first_name: string; last_name: string }[]
+  lsp_name: string | null
+  lsp_email: string | null
 }
 
 export default async function TriagePage() {
@@ -55,7 +57,9 @@ export default async function TriagePage() {
       agencies ( id, name, display_name ),
       customers!customer_id ( first_name, last_name, phone, email, date_of_birth, preferred_language ),
       agents ( id, first_name, last_name, email ),
-      household_members:case_household_members!case_id ( id, first_name, last_name )
+      household_members:case_household_members!case_id ( id, first_name, last_name ),
+      lsp_name,
+      lsp_email
     `)
     .eq('internal_status', 'triage')
     .eq('is_test', false)

@@ -616,9 +616,9 @@ export function ReferralEditClient({
   // ── LSP editing ────────────────────────────────────────────────
   const [editingLsp,      setEditingLsp]      = useState(false)
   const [selectedAgentId, setSelectedAgentId] = useState(referral.agent_id ?? '')
-  const [lspFirstName,    setLspFirstName]    = useState(referral.agents?.first_name ?? '')
-  const [lspLastName,     setLspLastName]     = useState(referral.agents?.last_name  ?? '')
-  const [lspEmail,        setLspEmail]        = useState(referral.agents?.email      ?? '')
+  const [lspFirstName,    setLspFirstName]    = useState(referral.agents?.first_name ?? referral.lsp_name?.split(' ')[0] ?? '')
+  const [lspLastName,     setLspLastName]     = useState(referral.agents?.last_name  ?? referral.lsp_name?.split(' ').slice(1).join(' ') ?? '')
+  const [lspEmail,        setLspEmail]        = useState(referral.agents?.email      ?? referral.lsp_email ?? '')
   const [lspSaving,       setLspSaving]       = useState(false)
   const [lspMsg,          setLspMsg]          = useState<{ ok: boolean; text: string } | null>(null)
 
@@ -660,7 +660,7 @@ export function ReferralEditClient({
     )
   )
   const [displayAgent, setDisplayAgent] = useState(
-    referral.agents ? `${referral.agents.first_name} ${referral.agents.last_name}` : null
+    referral.agents ? `${referral.agents.first_name} ${referral.agents.last_name}` : (referral.lsp_name ?? null)
   )
 
   const agencyName     = displayAgencyName
@@ -1915,11 +1915,18 @@ export function ReferralEditClient({
                 </div>
               </div>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-1.5">
                 {displayAgent
-                  ? <p className="text-slate-200 text-sm font-medium">{displayAgent}</p>
+                  ? <>
+                      <p className="text-slate-200 text-sm font-medium">{displayAgent}</p>
+                      {!referral.agents && referral.lsp_name && (
+                        <p className="text-xs text-amber-500/80">Intake name — not yet linked to an agent record</p>
+                      )}
+                    </>
                   : <p className="text-slate-500 text-sm italic">No LSP assigned</p>}
-                {referral.agents?.email && <p className="text-xs text-slate-500">{referral.agents.email}</p>}
+                {(referral.agents?.email ?? referral.lsp_email) && (
+                  <p className="text-xs text-slate-500">{referral.agents?.email ?? referral.lsp_email}</p>
+                )}
                 {lspMsg && <p className={`text-xs ${lspMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{lspMsg.text}</p>}
               </div>
             )}

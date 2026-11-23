@@ -114,6 +114,8 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
           is_hot_lead:        form.is_hot_lead ?? false,
           notes:              updatedNotes,
           updated_at:         now,
+          lsp_name:           form.lsp_name.trim() || null,
+          lsp_email:          form.lsp_email?.trim() || null,
           ...(agentId ? { agent_id: agentId } : {}),
         }).eq('id', existingCase.id)
 
@@ -239,6 +241,8 @@ export async function submitReferral(data: ReferralFormData): Promise<SubmitRefe
         is_hot_lead:                      form.is_hot_lead ?? false,
         consent_given_at:                 new Date().toISOString(),
         suspected_duplicate_customer_id:  suspectedDuplicateId,
+        lsp_name:                         form.lsp_name.trim() || null,
+        lsp_email:                        form.lsp_email?.trim() || null,
         is_test:                          false,
       })
       .select('id')
