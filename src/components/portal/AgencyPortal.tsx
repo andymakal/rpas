@@ -37,6 +37,58 @@ export type Case = {
   stage_translations: StageTranslation | null
   products: { name: string; carriers: { short_name: string } | null } | null
   case_household_members: { first_name: string; last_name: string }[] | null
+  case_pending_requirements: {
+    agent_action_needed: boolean
+    resolved_at: string | null
+    pending_requirements: { name: string } | null
+  }[] | null
+}
+
+// 4-step portal tracker — combines internal stages into agency-visible steps
+const PORTAL_STEPS = [
+  { label: 'Submitted',    statuses: ['app_submitted'] },
+  { label: 'Underwriting', statuses: ['app_received_carrier', 'in_underwriting', 'awaiting_transfer'] },
+  { label: 'Approved',     statuses: ['approved'] },
+  { label: 'Issued',       statuses: ['issued'] },
+]
+
+function MiniTracker({ internalStatus }: { internalStatus: string }) {
+  const curIdx = PORTAL_STEPS.findIndex(s => s.statuses.includes(internalStatus))
+  if (curIdx < 0) return null
+  return (
+    <div className="flex items-start mt-2.5">
+      {PORTAL_STEPS.map((step, idx) => {
+        const done   = idx < curIdx
+        const active = idx === curIdx
+        const isLast = idx === PORTAL_STEPS.length - 1
+        return (
+          <div key={step.label} className="flex flex-1 flex-col items-center">
+            <div className="flex items-center w-full">
+              <div className={`flex-1 h-px ${idx === 0 ? 'opacity-0' : done || active ? 'bg-indigo-300' : 'bg-slate-200'}`} />
+              <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${
+                active ? 'border-indigo-500 bg-indigo-500'
+                : done  ? 'border-indigo-400 bg-indigo-50'
+                : 'border-slate-200 bg-white'
+              }`}>
+                {done && (
+                  <svg className="w-2.5 h-2.5 text-indigo-400" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5">
+                    <polyline points="2,5.5 4,7.5 8,3" />
+                  </svg>
+                )}
+                {active && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+              </div>
+              <div className={`flex-1 h-px ${isLast ? 'opacity-0' : done ? 'bg-indigo-300' : 'bg-slate-200'}`} />
+            </div>
+            <p className={`text-xs mt-0.5 text-center leading-tight ${
+              active ? 'text-indigo-600 font-semibold'
+              : done  ? 'text-slate-400'
+              : 'text-slate-300'
+            }`}>{step.label}</p>
+          </div>
+        )
+      })}
+    </div>
+  )
 }
 
 export type ServiceRequest = {
@@ -382,7 +434,6 @@ function ReferralCard({ c, bookLabel }: { c: Case; bookLabel?: string }) {
 }
 
 function PendingCard({ c, bookLabel }: { c: Case; bookLabel?: string }) {
-  const label       = c.stage_translations?.agency_label ?? c.internal_status
   const carrier     = c.products?.carriers?.short_name
   const product     = c.products?.name
   const face        = formatCurrency(c.face_amount)
@@ -392,29 +443,35 @@ function PendingCard({ c, bookLabel }: { c: Case; bookLabel?: string }) {
     ? `Last contact ${fmtDate(c.last_contact_at, { month: 'short', day: 'numeric' })}`
     : null
   const touchCount  = c.touches ?? 0
+  const flaggedReqs = (c.case_pending_requirements ?? [])
+    .filter(r => r.agent_action_needed && !r.resolved_at)
+    .map(r => r.pending_requirements?.name ?? '')
+    .filter(Boolean)
   return (
     <div className={`rounded-xl border px-4 py-3 ${c.is_hot_lead ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-100'}`}>
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold text-slate-900 flex items-center gap-1.5">
             {c.is_hot_lead && <span title="Hot Lead" className="text-base leading-none">🔥</span>}
             {buildHouseholdName(c.customers ?? null, c.case_household_members ?? [])}
           </p>
           {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
+          <MiniTracker internalStatus={c.internal_status} />
+          {flaggedReqs.length > 0 && (
+            <div className="mt-2 rounded-lg bg-amber-50 border border-amber-200 px-2.5 py-1.5">
+              <p className="text-xs font-semibold text-amber-800">Agent action needed</p>
+              <p className="text-xs text-amber-700 mt-0.5">{flaggedReqs.join(' · ')}</p>
+            </div>
+          )}
           {lastContact && (
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-400 mt-2">
               {lastContact}
               {touchCount > 0 && <span className="ml-1 text-slate-300">· {touchCount} touch{touchCount !== 1 ? 'es' : ''}</span>}
             </p>
           )}
         </div>
         <div className="flex flex-col items-end gap-1 flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <AgeBadge dateStr={c.created_at} />
-            <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${stageBadgeClass(c.stage_translations)}`}>
-              {label}
-            </span>
-          </div>
+          <AgeBadge dateStr={c.created_at} />
           {c.lead_source && c.lead_source !== 'agency_referral' && (
             <p className="text-xs font-medium text-indigo-500">EFS Generated</p>
           )}

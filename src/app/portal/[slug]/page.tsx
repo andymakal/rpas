@@ -106,7 +106,8 @@ export default async function PortalPage({
           agents ( first_name, last_name ),
           stage_translations ( agency_label, tier, is_active_case, is_won, is_lost, is_prospect ),
           products ( name, carriers ( short_name ) ),
-          case_household_members!case_id ( first_name, last_name )
+          case_household_members!case_id ( first_name, last_name ),
+          case_pending_requirements!case_id ( agent_action_needed, resolved_at, pending_requirements ( name ) )
         `)
         .in('agency_id', agencyIds)
         .eq('is_test', false)

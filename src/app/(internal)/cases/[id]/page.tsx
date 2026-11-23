@@ -102,6 +102,7 @@ export type CaseDetail = {
     ordered_at: string | null
     scheduled_at: string | null
     completed_at: string | null
+    agent_action_needed: boolean
     pending_requirements: { name: string } | null
   }[]
 }
@@ -203,7 +204,7 @@ export default async function CaseDetailPage({
         premium_modes ( id, name ),
         lost_reasons ( id, agency_label ),
         snooze_reasons ( id, agency_label ),
-        case_pending_requirements ( id, pending_requirement_id, resolved_at, ordered_at, scheduled_at, completed_at, pending_requirements ( name ) )
+        case_pending_requirements ( id, pending_requirement_id, resolved_at, ordered_at, scheduled_at, completed_at, agent_action_needed, pending_requirements ( name ) )
       `)
       .eq('id', id)
       .single(),

@@ -43,6 +43,7 @@ export async function PATCH(
     ordered_at?: string | null
     scheduled_at?: string | null
     completed_at?: string | null
+    agent_action_needed?: boolean
   }
   try { body = await request.json() } catch {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 })
@@ -58,9 +59,10 @@ export async function PATCH(
   if (typeof body.resolved === 'boolean') {
     updates.resolved_at = body.resolved ? new Date().toISOString() : null
   }
-  if ('ordered_at'   in body) updates.ordered_at   = body.ordered_at   ?? null
-  if ('scheduled_at' in body) updates.scheduled_at = body.scheduled_at ?? null
-  if ('completed_at' in body) updates.completed_at = body.completed_at ?? null
+  if ('ordered_at'           in body) updates.ordered_at           = body.ordered_at           ?? null
+  if ('scheduled_at'         in body) updates.scheduled_at         = body.scheduled_at         ?? null
+  if ('completed_at'         in body) updates.completed_at         = body.completed_at         ?? null
+  if ('agent_action_needed'  in body) updates.agent_action_needed  = body.agent_action_needed  ?? false
 
   if (Object.keys(updates).length === 0) {
     return Response.json({ error: 'No valid fields to update' }, { status: 400 })

@@ -8,7 +8,7 @@ import {
   Mail, PhoneCall, PhoneOff, MessageCircle,
   ChevronDown, ChevronUp, ChevronLeft, ChevronRight, DollarSign, Pencil, Check, X, MapPin,
   CalendarClock, History, Flame, Circle, AlertCircle, CheckCircle2,
-  Plus, GitMerge, ExternalLink, Send, ArrowRight,
+  Plus, GitMerge, ExternalLink, Send, ArrowRight, Flag,
 } from 'lucide-react'
 import type {
   CaseDetail, StageLookup, AgencyLookup, AgentOption, ProducerOption, ProductLookup,
@@ -379,6 +379,13 @@ export default function CaseEditClient({
     }
     return map
   })
+  const [reqAgentFlag, setReqAgentFlag] = useState<Record<string, boolean>>(() => {
+    const map: Record<string, boolean> = {}
+    for (const r of caseData.case_pending_requirements) {
+      if (r.agent_action_needed) map[r.pending_requirement_id] = true
+    }
+    return map
+  })
   const [reqDates, setReqDates] = useState<Record<string, { ordered_at: string; scheduled_at: string; completed_at: string }>>(() => {
     const map: Record<string, { ordered_at: string; scheduled_at: string; completed_at: string }> = {}
     for (const r of caseData.case_pending_requirements) {
@@ -419,6 +426,7 @@ export default function CaseEditClient({
     outstanding: Object.values(reqState).filter(s => s === 'outstanding').length,
     resolved:    Object.values(reqState).filter(s => s === 'resolved').length,
   }
+  const flaggedCount = Object.keys(reqAgentFlag).filter(id => reqAgentFlag[id] && reqState[id] === 'outstanding').length
 
   // ── Handlers ──────────────────────────────────────────────────
 
@@ -698,10 +706,21 @@ export default function CaseEditClient({
           body: JSON.stringify({ pending_requirement_id: reqId }),
         })
       }
-      if (res.ok) setReqState(prev => ({ ...prev, [reqId]: next }))
+      if (res.ok) {
+        setReqState(prev => ({ ...prev, [reqId]: next }))
+        if (next !== 'outstanding') setReqAgentFlag(prev => ({ ...prev, [reqId]: false }))
+      }
     } catch { /* silent */ } finally {
       setReqUpdating(prev => ({ ...prev, [reqId]: false }))
     }
+  }
+
+  async function handleAgentFlag(reqId: string, value: boolean) {
+    setReqAgentFlag(prev => ({ ...prev, [reqId]: value }))
+    await fetch(`/api/cases/${caseData.id}/requirements`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pending_requirement_id: reqId, agent_action_needed: value }),
+    })
   }
 
   async function handleReqDateChange(reqId: string, field: 'ordered_at' | 'scheduled_at' | 'completed_at', value: string) {
@@ -2108,7 +2127,12 @@ export default function CaseEditClient({
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-xs font-medium text-slate-400 uppercase tracking-wide">Requirements</h2>
-              <div className="text-xs">
+              <div className="flex items-center gap-2 text-xs">
+                {flaggedCount > 0 && (
+                  <span className="text-orange-400 font-medium flex items-center gap-1">
+                    <Flag className="w-3 h-3" /> {flaggedCount} need agent help
+                  </span>
+                )}
                 {reqCount.outstanding > 0
                   ? <span className="text-amber-400 font-medium">{reqCount.outstanding} outstanding</span>
                   : <span className="text-emerald-400">All clear</span>}
@@ -2123,28 +2147,45 @@ export default function CaseEditClient({
 
                 return (
                   <li key={req.id}>
-                    <button
-                      onClick={() => handleRequirementCycle(req.id)}
-                      disabled={updating}
-                      className={`w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left transition-all disabled:opacity-50 ${
-                        state === 'outstanding'
-                          ? 'bg-amber-950/40 hover:bg-amber-950/60'
-                          : state === 'resolved'
-                          ? 'bg-emerald-950/30 hover:bg-emerald-950/50'
-                          : 'hover:bg-slate-800/50'
-                      }`}
-                    >
-                      {state === 'inactive'    && <Circle       className="w-4 h-4 shrink-0 text-slate-600" />}
-                      {state === 'outstanding' && <AlertCircle  className="w-4 h-4 shrink-0 text-amber-400" />}
-                      {state === 'resolved'    && <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />}
-                      <span className={`text-sm ${
-                        state === 'outstanding' ? 'text-amber-200 font-medium' :
-                        state === 'resolved'    ? 'line-through text-slate-600' :
-                        'text-slate-500'
-                      }`}>
-                        {req.name}
-                      </span>
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleRequirementCycle(req.id)}
+                        disabled={updating}
+                        className={`flex-1 flex items-center gap-3 rounded-lg px-3 py-2 text-left transition-all disabled:opacity-50 ${
+                          state === 'outstanding'
+                            ? 'bg-amber-950/40 hover:bg-amber-950/60'
+                            : state === 'resolved'
+                            ? 'bg-emerald-950/30 hover:bg-emerald-950/50'
+                            : 'hover:bg-slate-800/50'
+                        }`}
+                      >
+                        {state === 'inactive'    && <Circle       className="w-4 h-4 shrink-0 text-slate-600" />}
+                        {state === 'outstanding' && <AlertCircle  className="w-4 h-4 shrink-0 text-amber-400" />}
+                        {state === 'resolved'    && <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />}
+                        <span className={`text-sm ${
+                          state === 'outstanding' ? 'text-amber-200 font-medium' :
+                          state === 'resolved'    ? 'line-through text-slate-600' :
+                          'text-slate-500'
+                        }`}>
+                          {req.name}
+                        </span>
+                      </button>
+                      {state === 'outstanding' && (
+                        <button
+                          type="button"
+                          onClick={() => handleAgentFlag(req.id, !reqAgentFlag[req.id])}
+                          disabled={updating}
+                          className={`p-1.5 rounded transition-colors flex-shrink-0 ${
+                            reqAgentFlag[req.id]
+                              ? 'text-orange-400 bg-orange-950/50'
+                              : 'text-slate-700 hover:text-slate-500'
+                          }`}
+                          title={reqAgentFlag[req.id] ? 'Flagged — needs agent help' : 'Flag for agent help'}
+                        >
+                          <Flag className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
 
                     {/* Date fields for labs/exam */}
                     {showDates && (
