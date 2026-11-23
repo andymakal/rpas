@@ -55,7 +55,7 @@ import { useRealtimeRefresh } from '@/lib/realtime/useRealtimeRefresh'
 import {
   Sparkles, ArrowRight, Phone, Mail, Users, CheckCircle2, Lock,
   ListChecks, ChevronRight, ChevronDown, SlidersHorizontal,
-  CalendarClock, Briefcase, Hourglass, Compass, PlayCircle, Clock,
+  CalendarClock, Briefcase, Hourglass, Compass, PlayCircle, Clock, AlertTriangle,
 } from 'lucide-react'
 import {
   Select,
@@ -85,6 +85,7 @@ import {
   type WorkMode,
 } from '@/lib/my-work/guidance'
 import type { ActivityGroup, MyWorkAppointment, MyWorkState, PriorityBand } from '@/lib/my-work/types'
+import type { QuoteFollowUp } from './page'
 import {
   ALL,
   applyWorkFilters,
@@ -162,6 +163,7 @@ export function MyWorkClient({
   initialProjectId = null,
   assistantVerdicts,
   nowIso,
+  quoteFollowUps = [],
 }: {
   state: MyWorkState
   /** Project pre-selected from a "Work Project" deep link (?project_id=…). */
@@ -172,6 +174,8 @@ export function MyWorkClient({
   /** The server's current instant, so the first render matches the server's and
    * hydration is stable. The clock then ticks on the client. */
   nowIso: string
+  /** Cases with quoted/quote_no_contact status whose follow_up_date is today or earlier. */
+  quoteFollowUps?: QuoteFollowUp[]
 }) {
   // The Assistant depends on the time of day (call hours). Start from the
   // server's instant (stable hydration), then tick so it flips at 9 am and 6 pm
@@ -325,7 +329,7 @@ export function MyWorkClient({
               share on a large screen. */}
           <div className="grid gap-6 lg:grid-cols-12 xl:gap-8">
             <div className="lg:col-span-3">
-              <PrioritiesColumn state={filteredState} />
+              <PrioritiesColumn state={filteredState} quoteFollowUps={quoteFollowUps} />
             </div>
             <div className="lg:col-span-5">
               <AssistantColumn
@@ -487,7 +491,7 @@ function WorkFilters({
 // what the employee has narrowed to.
 // ─────────────────────────────────────────────────────────────────────────────
 
-function PrioritiesColumn({ state }: { state: MyWorkState }) {
+function PrioritiesColumn({ state, quoteFollowUps = [] }: { state: MyWorkState; quoteFollowUps?: QuoteFollowUp[] }) {
   // Genuine commitments the system DOES record today: date-only promised
   // callbacks that have come due. Keyed off dueCount, NOT off the band: a due
   // callback on a focus-elevated activity is classified by ZEN into the `focus`
@@ -520,6 +524,39 @@ function PrioritiesColumn({ state }: { state: MyWorkState }) {
           for the kinds of commitment Right Path does not capture yet. */}
       <CommitmentsSummary dueTotal={dueTotal} items={commitmentActivities} />
 
+      {/* Quote follow-ups due today or earlier. */}
+      {quoteFollowUps.length > 0 && (
+        <div className={cn('rounded-xl border p-3', TONE.attention.card)}>
+          <p className={cn('flex items-center gap-2 text-sm font-semibold leading-tight tracking-tight', TONE.attention.label)}>
+            <AlertTriangle className="size-4" aria-hidden />
+            Quote Follow-ups Due
+            <span className={cn('ml-auto rounded-full px-2 py-0.5 text-xs font-bold', TONE.attention.badge)}>
+              {quoteFollowUps.length}
+            </span>
+          </p>
+          <ul className="mt-2 space-y-1.5">
+            {quoteFollowUps.map((qf) => {
+              const name = qf.customers
+                ? `${qf.customers.first_name} ${qf.customers.last_name}`
+                : 'Unknown'
+              const agency = qf.agencies?.display_name ?? qf.agencies?.name ?? null
+              const label = qf.stage_translations?.agency_label ?? qf.internal_status
+              return (
+                <li key={qf.id}>
+                  <Link
+                    href={`/cases/${qf.id}`}
+                    className="flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5 text-xs hover:bg-black/5 transition-colors"
+                  >
+                    <span className="font-medium text-ink truncate">{name}</span>
+                    <span className="shrink-0 text-ink-supporting">{agency ?? label}</span>
+                  </Link>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
+      )}
+
       {/* Focus-elevated work, when management has directed attention at work the
           employee can actually do. */}
       {focusActivities.map((a) => (
@@ -542,7 +579,7 @@ function PrioritiesColumn({ state }: { state: MyWorkState }) {
       {/* When nothing in this column needs attention, say so plainly without
           implying the system has established there is no OTHER work. Ordinary
           available work being present is NOT a reason to flag attention. */}
-      {dueTotal === 0 && focusActivities.length === 0 && state.appointments.length === 0 && (
+      {dueTotal === 0 && focusActivities.length === 0 && state.appointments.length === 0 && quoteFollowUps.length === 0 && (
         <div className="rounded-xl border border-surface-border bg-surface-card p-3">
           <p className="flex items-center gap-2 text-sm text-ink-secondary">
             <CheckCircle2 className="size-4 shrink-0 text-status-confirmed" aria-hidden />

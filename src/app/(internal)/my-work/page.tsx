@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { requireInternalAdmin } from '@/lib/stewardship/auth'
 import { getMyWork } from '@/lib/my-work/composition'
 import { evaluateAssistantVerdicts } from '@/lib/my-work/engine'
@@ -8,6 +9,15 @@ import type { AssistantVerdicts } from '@/lib/my-work/assistant'
 import type { MyWorkState } from '@/lib/my-work/types'
 import { getActorTimeZone } from '@/lib/time/actor-timezone-server'
 import { MyWorkClient } from './MyWorkClient'
+
+export type QuoteFollowUp = {
+  id: string
+  follow_up_date: string
+  internal_status: string
+  customers: { first_name: string; last_name: string } | null
+  agencies: { name: string; display_name: string | null } | null
+  stage_translations: { agency_label: string } | null
+}
 
 export const metadata: Metadata = { title: 'My Work' }
 export const dynamic = 'force-dynamic'
@@ -82,12 +92,34 @@ export default async function MyWorkPage({
     console.error('MY WORK assistant rule failed:', err)
   }
 
+  const today = new Date().toISOString().slice(0, 10)
+  let quoteFollowUps: QuoteFollowUp[] = []
+  try {
+    const admin = createAdminClient()
+    const { data } = await admin
+      .from('cases')
+      .select(`
+        id, follow_up_date, internal_status,
+        customers!customer_id ( first_name, last_name ),
+        agencies ( name, display_name ),
+        stage_translations ( agency_label )
+      `)
+      .in('internal_status', ['quoted', 'quote_no_contact'])
+      .lte('follow_up_date', today)
+      .eq('is_test', false)
+      .order('follow_up_date', { ascending: true })
+    quoteFollowUps = (data as unknown as QuoteFollowUp[]) ?? []
+  } catch (err) {
+    console.error('Quote follow-ups fetch failed:', err)
+  }
+
   return (
     <MyWorkClient
       state={state}
       initialProjectId={initialProjectId ?? null}
       assistantVerdicts={assistantVerdicts}
       nowIso={new Date().toISOString()}
+      quoteFollowUps={quoteFollowUps}
     />
   )
 }

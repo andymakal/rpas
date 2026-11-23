@@ -188,6 +188,11 @@ export default function CaseEditClient({
   const clientFirstName = caseData.customers?.first_name ?? ''
   const clientEmail = caseData.customers?.email ?? null
 
+  // ── Quote follow-up state ──────────────────────────────────────
+  const [quoteFollowUpNote, setQuoteFollowUpNote] = useState('')
+  const [quoteSending,      setQuoteSending]      = useState(false)
+  const [quoteMsg,          setQuoteMsg]          = useState<{ ok: boolean; text: string } | null>(null)
+
   // ── Case edit state ────────────────────────────────────────────
   const [status,       setStatus]       = useState(caseData.internal_status)
   const [followUpDate, setFollowUpDate] = useState(caseData.follow_up_date ?? '')
@@ -415,6 +420,23 @@ export default function CaseEditClient({
   }
 
   // ── Handlers ──────────────────────────────────────────────────
+
+  async function handleQuoteFollowUp(action: 'no_contact' | 'rewarm') {
+    setQuoteSending(true); setQuoteMsg(null)
+    try {
+      const res = await fetch(`/api/cases/${caseData.id}/quote-follow-up`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, note: quoteFollowUpNote }),
+      })
+      const json = await res.json()
+      if (!res.ok) { setQuoteMsg({ ok: false, text: json.error ?? 'Error' }); return }
+      setQuoteMsg({ ok: true, text: action === 'no_contact' ? 'Logged — follow-up extended 3 days.' : 'Sent back to warm queue.' })
+      setQuoteFollowUpNote('')
+      router.refresh()
+    } catch { setQuoteMsg({ ok: false, text: 'Network error' }) }
+    finally   { setQuoteSending(false) }
+  }
 
   async function handleReturnToTriage() {
     if (!confirm('Return this case to Triage? This will undo the Application Submitted status.')) return
@@ -1632,6 +1654,59 @@ export default function CaseEditClient({
                 <Mail className="w-3.5 h-3.5" />
                 {clientEmail ? 'Open in Outlook' : 'No client email on file'}
               </a>
+            </div>
+          )}
+
+          {/* Quote Follow-up Actions */}
+          {(caseData.internal_status === 'quoted' || caseData.internal_status === 'quote_no_contact') && (
+            <div className="rounded-xl border border-orange-800/40 bg-orange-950/20 p-5 space-y-3">
+              <div className="flex items-center gap-2">
+                <CalendarClock className="w-4 h-4 text-orange-400" />
+                <h2 className="text-sm font-semibold text-orange-300">Quote Follow-Up</h2>
+                {caseData.internal_status === 'quote_no_contact' && (
+                  <span className="ml-auto text-xs font-medium px-2 py-0.5 rounded-full bg-orange-800/50 text-orange-300">2nd attempt</span>
+                )}
+              </div>
+              <p className="text-xs text-slate-400">
+                {caseData.internal_status === 'quoted'
+                  ? `Log a no-answer attempt on the quoted case. This extends the follow-up by 3 days and moves the case to "Following Up."`
+                  : `Second attempt — log no contact or send ${clientFirstName || 'the client'} back to the warm queue.`}
+              </p>
+              <div>
+                <label className="block text-xs text-slate-500 mb-1">Additional note (optional)</label>
+                <textarea
+                  value={quoteFollowUpNote}
+                  onChange={e => setQuoteFollowUpNote(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. Tried cell and home — left voicemail."
+                  className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-orange-500 placeholder-slate-600 resize-none"
+                />
+              </div>
+              {quoteMsg && (
+                <p className={`text-xs ${quoteMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{quoteMsg.text}</p>
+              )}
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  type="button"
+                  onClick={() => handleQuoteFollowUp('no_contact')}
+                  disabled={quoteSending}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-white bg-orange-700 hover:bg-orange-600 disabled:opacity-50 transition-colors"
+                >
+                  <PhoneOff className="w-3.5 h-3.5" />
+                  No Contact — Extend 3 Days
+                </button>
+                {caseData.internal_status === 'quote_no_contact' && (
+                  <button
+                    type="button"
+                    onClick={() => handleQuoteFollowUp('rewarm')}
+                    disabled={quoteSending}
+                    className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium text-slate-200 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 transition-colors"
+                  >
+                    <ArrowRight className="w-3.5 h-3.5" />
+                    Send to Re-Warm
+                  </button>
+                )}
+              </div>
             </div>
           )}
 

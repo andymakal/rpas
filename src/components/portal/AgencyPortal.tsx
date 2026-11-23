@@ -31,6 +31,7 @@ export type Case = {
   lead_source: string | null
   touches: number | null
   last_contact_at: string | null
+  follow_up_date: string | null
   customers: { first_name: string; last_name: string } | null
   agents: { first_name: string; last_name: string } | null
   stage_translations: StageTranslation | null
@@ -339,6 +340,7 @@ function ReferralCard({ c, bookLabel }: { c: Case; bookLabel?: string }) {
     ? `Last contact ${fmtDate(c.last_contact_at, { month: 'short', day: 'numeric' })}`
     : null
   const touchCount  = c.touches ?? 0
+  const showFollowUp = (c.internal_status === 'quoted' || c.internal_status === 'quote_no_contact') && c.follow_up_date
   return (
     <div className={`rounded-xl border px-4 py-3 ${c.is_hot_lead ? 'bg-orange-50 border-orange-200' : 'bg-white border-slate-100'}`}>
       <div className="flex items-start justify-between gap-3">
@@ -352,6 +354,11 @@ function ReferralCard({ c, bookLabel }: { c: Case; bookLabel?: string }) {
             <p className="text-xs text-slate-400 mt-0.5">
               {lastContact}
               {touchCount > 0 && <span className="ml-1 text-slate-300">· {touchCount} touch{touchCount !== 1 ? 'es' : ''}</span>}
+            </p>
+          )}
+          {showFollowUp && (
+            <p className="text-xs text-orange-600 mt-0.5 font-medium">
+              Follow-up: {fmtDate(c.follow_up_date!, { month: 'short', day: 'numeric' })}
             </p>
           )}
         </div>
