@@ -42,6 +42,7 @@ export type ReferralDetail = {
   lead_source: string | null
   lsp_name: string | null
   lsp_email: string | null
+  quote_notes: string | null
   household_members: {
     id: string
     first_name: string
@@ -183,7 +184,7 @@ export default async function ReferralDetailPage({
       internal_status, created_at, status_entered_at, appointment_date,
       allstate_policy_number, lost_reason_id, follow_up_date, appointment_time, face_amount, quoted_carrier, quoted_product_type, annual_premium, policy_number,
       household_members:case_household_members!case_id ( id, first_name, last_name, date_of_birth, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, quoted_carrier, quoted_product_type, face_amount, linked_case_id ),
-      notes, touches, last_contact_at, spiff_earned, spiff_earned_at, is_hot_lead, is_owner_referral, producer_id, lead_source, lsp_name, lsp_email, suspected_duplicate_customer_id,
+      notes, touches, last_contact_at, spiff_earned, spiff_earned_at, is_hot_lead, is_owner_referral, producer_id, lead_source, lsp_name, lsp_email, quote_notes, suspected_duplicate_customer_id,
       customers!customer_id ( first_name, last_name, phone, email, street, city, state, zip, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, preferred_language, customer_group_id, sms_opt_out ),
       agencies ( name, display_name, contact_email, manager_email, use_manager_for_lsp_email ),
       agents ( id, first_name, last_name, email ),

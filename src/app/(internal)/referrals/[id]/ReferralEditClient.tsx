@@ -580,6 +580,10 @@ export function ReferralEditClient({
   )
   const [quotedCarrier,      setQuotedCarrier]      = useState(referral.quoted_carrier      ?? '')
   const [quotedProductType,  setQuotedProductType]  = useState(referral.quoted_product_type ?? '')
+  const [quotedModalPremium, setQuotedModalPremium] = useState(
+    referral.annual_premium ? String(referral.annual_premium) : ''
+  )
+  const [quoteNotes,         setQuoteNotes]         = useState(referral.quote_notes ?? '')
 
   // ── Close as existing service (no new SR needed) ──────────────
   const [closingSr, setClosingSr] = useState(false)
@@ -635,7 +639,24 @@ export function ReferralEditClient({
   const showProducerDropdown    = PRODUCER_STATUSES.has(status)
   const showRewarmEmail         = status === 'lsp_contact_needed'
   const showApptDate            = APPT_STATUSES.has(status)
-  const showFaceAmountInput     = status === 'quoted'
+  const showFaceAmountInput     = status === 'quoted' || status === 'quote_no_contact' || status === 'lsp_contact_needed'
+
+  // Referrals → Cases gate: Quote Info (DOB, gender, tobacco) + Quote Details (carrier, product type, face amount, modal premium) must all be filled
+  const quoteInfoComplete =
+    !!referral.customers?.date_of_birth &&
+    !!referral.customers?.gender &&
+    !!referral.customers?.tobacco_use
+  const quoteDetailsComplete =
+    !!quotedCarrier.trim() &&
+    !!quotedProductType.trim() &&
+    !!quotedFaceAmount.trim() &&
+    !!quotedModalPremium.trim()
+  const canSubmitApp = quoteInfoComplete && quoteDetailsComplete
+  const submitBlockReason = !quoteInfoComplete
+    ? 'Quote Info incomplete — DOB, gender, and tobacco use are required'
+    : !quoteDetailsComplete
+    ? 'Quote Details incomplete — carrier, product type, face amount, and modal premium are required'
+    : null
 
   // Filter lost reasons by pipeline stage: triage-side cases see triage+both;
   // producer-side cases see producer+both.
@@ -721,13 +742,18 @@ export function ReferralEditClient({
     body.lost_reason_id = (status === 'not_interested' && lostReasonId)
       ? lostReasonId
       : null
-    if (status === 'quoted') {
+    if (status === 'quoted' || status === 'quote_no_contact' || status === 'lsp_contact_needed') {
       if (quotedCarrier.trim())     body.quoted_carrier      = quotedCarrier.trim()
       if (quotedProductType.trim()) body.quoted_product_type = quotedProductType.trim()
       if (quotedFaceAmount.trim()) {
         const amt = parseFloat(quotedFaceAmount.replace(/[^0-9.]/g, ''))
         if (!isNaN(amt) && amt > 0) body.face_amount = amt
       }
+      if (quotedModalPremium.trim()) {
+        const prem = parseFloat(quotedModalPremium.replace(/[^0-9.]/g, ''))
+        if (!isNaN(prem) && prem > 0) body.annual_premium = prem
+      }
+      body.quote_notes = quoteNotes.trim() || null
     }
     try {
       const res = await fetch(`/api/cases/${referral.id}`, {
@@ -2258,15 +2284,15 @@ export function ReferralEditClient({
               </div>
             )}
 
-            {/* Carrier / Product / Face Amount — shown when Quote Provided is selected */}
+            {/* Quote Details — shown when Quote Provided (or follow-up statuses) */}
             {showFaceAmountInput && (
               <div className="space-y-3 rounded-lg border border-slate-700/60 bg-slate-800/30 p-3">
-                <p className="text-xs font-medium text-slate-400">Quote details <span className="text-slate-600 font-normal">(all optional)</span></p>
+                <p className="text-xs font-medium text-slate-400">Quote details</p>
 
                 {/* Carrier + Product type */}
                 <div className="grid grid-cols-2 gap-2">
                   <div>
-                    <label className="block text-xs text-slate-500 mb-1">Carrier</label>
+                    <label className="block text-xs text-slate-500 mb-1">Carrier <span className="text-red-500">*</span></label>
                     <select
                       value={quotedCarrier}
                       onChange={e => setQuotedCarrier(e.target.value)}
@@ -2277,7 +2303,7 @@ export function ReferralEditClient({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-500 mb-1">Product type</label>
+                    <label className="block text-xs text-slate-500 mb-1">Product type <span className="text-red-500">*</span></label>
                     <select
                       value={quotedProductType}
                       onChange={e => setQuotedProductType(e.target.value)}
@@ -2289,21 +2315,50 @@ export function ReferralEditClient({
                   </div>
                 </div>
 
-                {/* Face amount */}
-                <div>
-                  <label className="block text-xs text-slate-500 mb-1">Face amount</label>
-                  <div className="relative">
-                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
-                    <input
-                      type="number"
-                      min="0"
-                      step="1000"
-                      value={quotedFaceAmount}
-                      onChange={e => setQuotedFaceAmount(e.target.value)}
-                      placeholder="e.g. 500000"
-                      className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 placeholder-slate-600"
-                    />
+                {/* Face amount + Modal premium */}
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Face amount <span className="text-red-500">*</span></label>
+                    <div className="relative">
+                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+                      <input
+                        type="number"
+                        min="0"
+                        step="1000"
+                        value={quotedFaceAmount}
+                        onChange={e => setQuotedFaceAmount(e.target.value)}
+                        placeholder="e.g. 500000"
+                        className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 placeholder-slate-600"
+                      />
+                    </div>
                   </div>
+                  <div>
+                    <label className="block text-xs text-slate-500 mb-1">Modal premium <span className="text-red-500">*</span></label>
+                    <div className="relative">
+                      <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={quotedModalPremium}
+                        onChange={e => setQuotedModalPremium(e.target.value)}
+                        placeholder="e.g. 125"
+                        className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg pl-9 pr-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 placeholder-slate-600"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Notes */}
+                <div>
+                  <label className="block text-xs text-slate-500 mb-1">Notes</label>
+                  <textarea
+                    value={quoteNotes}
+                    onChange={e => setQuoteNotes(e.target.value)}
+                    rows={3}
+                    placeholder="Options quoted, reasons for recommendation, carrier considerations…"
+                    className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500/30 placeholder-slate-600 resize-none"
+                  />
                 </div>
               </div>
             )}
@@ -2431,24 +2486,28 @@ export function ReferralEditClient({
 
           {/* 2 — Application Bridge */}
           {referral.stage_translations?.tier === 1 && (
-            <div className="rounded-xl border border-emerald-800/40 bg-emerald-950/20 p-5 space-y-3">
+            <div className={`rounded-xl border p-5 space-y-3 ${canSubmitApp ? 'border-emerald-800/40 bg-emerald-950/20' : 'border-slate-700/40 bg-slate-800/20'}`}>
               <div className="flex items-center gap-2">
-                <Send className="w-4 h-4 text-emerald-400" />
-                <h2 className="text-sm font-semibold text-emerald-300">Ready to Apply?</h2>
+                <Send className={`w-4 h-4 ${canSubmitApp ? 'text-emerald-400' : 'text-slate-500'}`} />
+                <h2 className={`text-sm font-semibold ${canSubmitApp ? 'text-emerald-300' : 'text-slate-400'}`}>Ready to Apply?</h2>
               </div>
-              <p className="text-xs text-slate-400 leading-relaxed">
-                When the client is ready to move forward with a life insurance application,
-                use this to hand off to case management.
-                The record moves to the{' '}
-                <span className="text-slate-300 font-medium">Cases</span> pipeline.
-              </p>
+              {submitBlockReason ? (
+                <p className="text-xs text-amber-500/80">{submitBlockReason}</p>
+              ) : (
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  When the client is ready to move forward with a life insurance application,
+                  use this to hand off to case management.
+                  The record moves to the{' '}
+                  <span className="text-slate-300 font-medium">Cases</span> pipeline.
+                </p>
+              )}
               {submitMsg && (
                 <p className={`text-xs ${submitMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{submitMsg.text}</p>
               )}
               <button
                 onClick={handleSubmitApp}
-                disabled={submitting}
-                className="w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-white bg-emerald-700 hover:bg-emerald-600 transition-colors disabled:opacity-50"
+                disabled={submitting || !canSubmitApp}
+                className="w-full inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium text-white bg-emerald-700 hover:bg-emerald-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Send className="w-4 h-4" />
                 {submitting ? 'Submitting…' : 'Application Submitted'}
