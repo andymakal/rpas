@@ -2178,9 +2178,9 @@ export default function CaseEditClient({
                           className={`p-1.5 rounded transition-colors flex-shrink-0 ${
                             reqAgentFlag[req.id]
                               ? 'text-orange-400 bg-orange-950/50'
-                              : 'text-slate-700 hover:text-slate-500'
+                              : 'text-slate-500 hover:text-orange-400 hover:bg-orange-950/30'
                           }`}
-                          title={reqAgentFlag[req.id] ? 'Flagged — needs agent help' : 'Flag for agent help'}
+                          title={reqAgentFlag[req.id] ? 'Flagged — agent/LSP action needed (click to clear)' : 'Flag: needs agent/LSP to follow up with client'}
                         >
                           <Flag className="w-3.5 h-3.5" />
                         </button>
@@ -2209,7 +2209,7 @@ export default function CaseEditClient({
                 )
               })}
             </ul>
-            <p className="text-xs text-slate-600 mt-1 px-1">Tap to cycle: inactive → outstanding → resolved</p>
+            <p className="text-xs text-slate-600 mt-1 px-1">Click to cycle: inactive → outstanding → resolved · Flag icon on outstanding items signals agent/LSP action needed</p>
           </div>
 
           {/* 5 — Also on File */}
