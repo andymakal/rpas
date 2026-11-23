@@ -50,6 +50,15 @@ const TOBACCO_LABELS: Record<string, string> = {
   nicotine_replacement: 'Nicotine Replacement',
 }
 
+const TRACKER_STEPS = [
+  { status: 'app_submitted',        label: 'App Submitted',       short: 'Submitted'    },
+  { status: 'app_received_carrier', label: 'Received at Carrier', short: 'Received'     },
+  { status: 'in_underwriting',      label: 'In Underwriting',     short: 'Underwriting' },
+  { status: 'approved',             label: 'Approved',            short: 'Approved'     },
+  { status: 'issued',               label: 'Policy Issued',       short: 'Issued'       },
+  { status: 'placed',               label: 'Policy Placed',       short: 'Placed'       },
+]
+
 // Status grid is data-driven from stage_translations — no hardcoded lists needed
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -404,14 +413,6 @@ export default function CaseEditClient({
   const daysInStatus = status !== caseData.internal_status ? 0 : daysAgo(caseData.status_entered_at)
   const lastContactDays = daysAgo(lastContact)
 
-  // Active/won stages go in the main grid; lost/snoozed go in the close-out row.
-  // Progressive disclosure: once a case reaches a stage, hide earlier stages so
-  // the grid only shows where the case is now and what's still ahead.
-  const allPipelineStages = tier2Stages.filter(s => s.is_active_case || s.is_won)
-  const currentPipelineIdx = allPipelineStages.findIndex(s => s.internal_status === caseData.internal_status)
-  const pipelineStages = currentPipelineIdx >= 0
-    ? allPipelineStages.slice(currentPipelineIdx)
-    : allPipelineStages
   const terminalStages = tier2Stages.filter(s => !s.is_active_case && !s.is_won)
 
   const reqCount = {
@@ -455,6 +456,11 @@ export default function CaseEditClient({
 
   async function handleSave() {
     setSaving(true); setSaveMsg(null)
+    if (status === 'placed' && !policyNumber.trim()) {
+      setSaveMsg({ ok: false, text: 'Policy number required before marking as Policy Placed — enter it in Policy Details' })
+      setSaving(false)
+      return
+    }
     const body: Record<string, unknown> = {
       internal_status: status,
       follow_up_date:  followUpDate || null,
@@ -1254,6 +1260,95 @@ export default function CaseEditClient({
         {/* ═══════════════ RIGHT COLUMN ═══════════════ */}
         <div className="md:col-span-2 space-y-5">
 
+          {/* ── Underwriting Pipeline Tracker ───────────────────────────────── */}
+          {(caseData.stage_translations?.tier ?? 0) >= 2 && (
+            <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-4 ring-1 ring-slate-700/50">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-semibold text-slate-200">Underwriting Pipeline</h2>
+                {reqCount.outstanding > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-900/50 text-amber-300 border border-amber-800">
+                    <AlertCircle className="w-3 h-3" /> {reqCount.outstanding} req. outstanding
+                  </span>
+                )}
+                {reqCount.outstanding === 0 && reqCount.resolved > 0 && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-900/40 text-emerald-400 border border-emerald-800">
+                    <CheckCircle2 className="w-3 h-3" /> Requirements complete
+                  </span>
+                )}
+              </div>
+
+              {/* Step track */}
+              <div className="flex items-start">
+                {TRACKER_STEPS.map((step, idx) => {
+                  const curIdx = TRACKER_STEPS.findIndex(s => s.status === status)
+                  const done   = curIdx >= 0 && idx < curIdx
+                  const active = step.status === status
+                  const isLast = idx === TRACKER_STEPS.length - 1
+                  const isWonStep = step.status === 'placed'
+                  return (
+                    <div key={step.status} className="flex flex-1 flex-col items-center">
+                      <div className="flex items-center w-full">
+                        <div className={`flex-1 h-0.5 ${idx === 0 ? 'opacity-0' : done || active ? 'bg-blue-800' : 'bg-slate-700'}`} />
+                        <button
+                          type="button"
+                          onClick={() => setStatus(step.status)}
+                          className={`w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                            active && isWonStep
+                              ? 'border-emerald-500 bg-emerald-900/60 ring-2 ring-emerald-500/30'
+                            : active
+                              ? 'border-blue-500 bg-blue-900/60 ring-2 ring-blue-500/30'
+                            : done
+                              ? 'border-blue-700 bg-blue-900/40 hover:border-blue-600'
+                            : 'border-slate-700 bg-slate-800 hover:border-slate-500'
+                          }`}
+                          title={step.label}
+                        >
+                          {done
+                            ? <Check className="w-3 h-3 text-blue-400" />
+                          : active && isWonStep
+                            ? <div className="w-2 h-2 rounded-full bg-emerald-400" />
+                          : active
+                            ? <div className="w-2 h-2 rounded-full bg-blue-400" />
+                          : <div className="w-1.5 h-1.5 rounded-full bg-slate-600" />}
+                        </button>
+                        <div className={`flex-1 h-0.5 ${isLast ? 'opacity-0' : done ? 'bg-blue-800' : 'bg-slate-700'}`} />
+                      </div>
+                      <p className={`text-xs text-center mt-1.5 leading-tight px-0.5 ${
+                        active && isWonStep ? 'text-emerald-300 font-semibold'
+                        : active ? 'text-blue-300 font-semibold'
+                        : done   ? 'text-slate-400'
+                        : 'text-slate-600'
+                      }`}>{step.short}</p>
+                    </div>
+                  )
+                })}
+              </div>
+
+              {/* Gate + prompt notices */}
+              {status === 'app_received_carrier' && !policyNumber.trim() && (
+                <div className="rounded-lg border border-sky-800/50 bg-sky-950/30 px-3 py-2.5 flex items-center gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-sky-400 flex-shrink-0" />
+                  <p className="text-xs text-sky-300">Enter the carrier-assigned policy number in Policy Details below.</p>
+                </div>
+              )}
+              {status === 'placed' && !policyNumber.trim() && (
+                <div className="rounded-lg border border-amber-800/50 bg-amber-950/30 px-3 py-2.5 flex items-center gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                  <p className="text-xs text-amber-300">Policy number required before saving as Policy Placed — enter it in Policy Details.</p>
+                </div>
+              )}
+              {status === 'placed' && reqCount.outstanding > 0 && (
+                <div className="rounded-lg border border-amber-800/40 bg-amber-950/20 px-3 py-2.5 flex items-center gap-2.5">
+                  <AlertCircle className="w-4 h-4 text-amber-400 flex-shrink-0" />
+                  <p className="text-xs text-amber-300">{reqCount.outstanding} requirement{reqCount.outstanding !== 1 ? 's' : ''} still outstanding — resolve in Requirements below.</p>
+                </div>
+              )}
+              {status !== caseData.internal_status && TRACKER_STEPS.some(s => s.status === status) && (
+                <p className="text-xs text-amber-400 text-right">Unsaved — click Save Changes in Edit Case below</p>
+              )}
+            </div>
+          )}
+
           {/* 1 — Edit Case */}
           <div className="bg-slate-900 border border-slate-700 rounded-xl p-5 space-y-5 ring-1 ring-slate-700/50">
             <div className="flex items-center gap-2">
@@ -1261,59 +1356,39 @@ export default function CaseEditClient({
               <h2 className="text-sm font-semibold text-slate-200">Edit Case</h2>
             </div>
 
-            {/* Pipeline status — 2×2 card grid */}
-            <div>
-              <label className="block text-xs font-medium text-slate-300 mb-3">Status</label>
-              <div className="grid grid-cols-2 gap-2">
-                {pipelineStages.map(s => (
-                  <button
-                    key={s.internal_status}
-                    type="button"
-                    onClick={() => setStatus(s.internal_status)}
-                    className={`flex flex-col gap-1 p-3 rounded-lg border-2 text-left transition-all ${
-                      status === s.internal_status
-                        ? s.is_won
-                          ? 'border-emerald-600 bg-emerald-950/40'
-                          : 'border-blue-500 bg-blue-950/40'
-                        : 'border-slate-700 hover:border-slate-600'
-                    }`}
-                  >
-                    <span className={`text-xs font-semibold ${
-                      status === s.internal_status
-                        ? s.is_won ? 'text-emerald-300' : 'text-blue-300'
-                        : 'text-slate-300'
-                    }`}>
+            {/* Close-out statuses */}
+            {terminalStages.length > 0 && (
+              <div>
+                <p className="text-xs text-slate-500 mb-2">Close case as…</p>
+                <div className="flex flex-wrap gap-2">
+                  {terminalStages.map(s => (
+                    <button
+                      key={s.internal_status}
+                      type="button"
+                      onClick={() => setStatus(s.internal_status)}
+                      className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${
+                        status === s.internal_status
+                          ? s.is_snoozed
+                            ? 'border-yellow-700 bg-yellow-950/40 text-yellow-300'
+                            : 'border-slate-500 bg-slate-800 text-slate-300'
+                          : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-300'
+                      }`}
+                    >
                       {s.agency_label}
-                    </span>
-                  </button>
-                ))}
-              </div>
-
-              {/* Terminal / close-out statuses */}
-              {terminalStages.length > 0 && (
-                <div className="mt-3">
-                  <p className="text-xs text-slate-600 mb-2">Close case</p>
-                  <div className="flex flex-wrap gap-2">
-                    {terminalStages.map(s => (
-                      <button
-                        key={s.internal_status}
-                        type="button"
-                        onClick={() => setStatus(s.internal_status)}
-                        className={`px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${
-                          status === s.internal_status
-                            ? s.is_snoozed
-                              ? 'border-yellow-700 bg-yellow-950/40 text-yellow-300'
-                              : 'border-slate-500 bg-slate-800 text-slate-300'
-                            : 'border-slate-700 text-slate-500 hover:border-slate-600 hover:text-slate-300'
-                        }`}
-                      >
-                        {s.agency_label}
-                      </button>
-                    ))}
-                  </div>
+                    </button>
+                  ))}
                 </div>
-              )}
-            </div>
+                {!TRACKER_STEPS.some(s => s.status === status) && (
+                  <button
+                    type="button"
+                    onClick={() => setStatus(caseData.internal_status)}
+                    className="mt-2 text-xs text-slate-600 hover:text-slate-400 transition-colors"
+                  >
+                    ↩ Undo — return to {TRACKER_STEPS.find(s => s.status === caseData.internal_status)?.label ?? 'pipeline'}
+                  </button>
+                )}
+              </div>
+            )}
 
             {/* Lost reason */}
             {isLost && (
@@ -1367,37 +1442,6 @@ export default function CaseEditClient({
                 </select>
               </div>
             )}
-
-            {/* Hot Lead */}
-            <label className={`flex items-start gap-3 rounded-lg border-2 p-3 cursor-pointer transition-all ${
-              isHotLead ? 'border-orange-700 bg-orange-950/30' : 'border-slate-700 hover:border-slate-600'
-            }`}>
-              <input type="checkbox" checked={isHotLead} onChange={e => setIsHotLead(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded accent-orange-500 cursor-pointer" />
-              <div>
-                <div className="flex items-center gap-1.5">
-                  <Flame className={`w-3.5 h-3.5 ${isHotLead ? 'text-orange-400' : 'text-slate-500'}`} />
-                  <p className={`text-sm font-medium ${isHotLead ? 'text-orange-300' : 'text-slate-200'}`}>Hot Lead</p>
-                </div>
-                <p className="text-xs text-slate-500 mt-0.5">High priority — flag for immediate attention</p>
-              </div>
-            </label>
-
-            {/* Imported from Lead Manager */}
-            <label className={`flex items-start gap-3 rounded-lg border-2 p-3 cursor-pointer transition-all ${
-              isImported ? 'border-slate-600 bg-slate-800/40' : 'border-slate-700 hover:border-slate-600'
-            }`}>
-              <input type="checkbox" checked={isImported} onChange={e => setIsImported(e.target.checked)}
-                className="mt-0.5 h-4 w-4 rounded accent-slate-400 cursor-pointer" />
-              <div>
-                <p className={`text-sm font-medium ${isImported ? 'text-slate-300' : 'text-slate-400'}`}>
-                  Imported from Lead Manager
-                </p>
-                <p className="text-xs text-slate-600 mt-0.5">
-                  Excludes this case from time-in-pipeline and touch analytics
-                </p>
-              </div>
-            </label>
 
             {/* Lead Source */}
             <div>
