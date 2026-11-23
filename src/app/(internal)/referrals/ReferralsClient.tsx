@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useRouter, useSearchParams, usePathname } from 'next/navigation'
-import { Search, ChevronUp, ChevronDown, CalendarClock, AlertTriangle, Flame } from 'lucide-react'
+import { Search, ChevronUp, ChevronDown, CalendarClock, AlertTriangle, Flame, PhoneOff } from 'lucide-react'
 import type { CaseRow, StageTranslation } from './page'
 import { fmtDate, fmtDateShort } from '@/lib/fmt'
 import { setNavList } from '@/lib/nav-list'
@@ -95,7 +95,8 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
   const [sourceFilter, setSourceFilter] = useState(sp.get('source') ?? '')
   const [sortKey, setSortKey]           = useState<SortKey>((sp.get('sort') as SortKey) ?? 'date')
   const [sortDir, setSortDir]           = useState<'desc' | 'asc'>((sp.get('dir') as 'desc' | 'asc') ?? 'desc')
-  const [showStalled, setShowStalled]   = useState(sp.get('stalled') === '1')
+  const [showStalled,       setShowStalled]       = useState(sp.get('stalled') === '1')
+  const [showQuoteFollowUp, setShowQuoteFollowUp] = useState(sp.get('quotefu') === '1')
 
   function pushParams(updates: Record<string, string>) {
     const p = new URLSearchParams(sp.toString())
@@ -181,6 +182,15 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
       )
     }
 
+    if (showQuoteFollowUp) {
+      const today = new Date().toISOString().slice(0, 10)
+      list = list.filter(r =>
+        (r.internal_status === 'quoted' || r.internal_status === 'quote_no_contact') &&
+        r.follow_up_date != null &&
+        r.follow_up_date <= today
+      )
+    }
+
     list = [...list].sort((a, b) => {
       let diff = 0
       if (sortKey === 'client') {
@@ -206,7 +216,7 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
     })
 
     return list
-  }, [rows, tab, statusFilter, agencyFilter, sourceFilter, search, sortKey, sortDir, showStalled])
+  }, [rows, tab, statusFilter, agencyFilter, sourceFilter, search, sortKey, sortDir, showStalled, showQuoteFollowUp])
 
   const activeCount = rows.filter(r => r.stage_translations?.is_active_case === true).length
 
@@ -216,6 +226,15 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
       (r.last_contact_at === null || daysAgo(r.last_contact_at) >= 30)
     ).length
   , [rows])
+
+  const quoteFollowUpCount = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10)
+    return rows.filter(r =>
+      (r.internal_status === 'quoted' || r.internal_status === 'quote_no_contact') &&
+      r.follow_up_date != null &&
+      r.follow_up_date <= today
+    ).length
+  }, [rows])
 
   const tabs: { key: typeof tab; label: string }[] = [
     { key: 'active', label: `Active (${activeCount})` },
@@ -266,6 +285,22 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
           >
             <AlertTriangle className="w-3.5 h-3.5" />
             Stalled ({stalledCount})
+          </button>
+          <button
+            onClick={() => {
+              const next = !showQuoteFollowUp
+              setShowQuoteFollowUp(next)
+              if (next) { setSortKey('followup'); setSortDir('asc'); pushParams({ quotefu: '1', sort: 'followup', dir: 'asc' }) }
+              else { pushParams({ quotefu: '' }) }
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
+              showQuoteFollowUp
+                ? 'bg-orange-900/50 text-orange-300 border-orange-800'
+                : 'text-slate-400 border-slate-700 hover:text-slate-200 hover:border-slate-600'
+            }`}
+          >
+            <PhoneOff className="w-3.5 h-3.5" />
+            Quote Follow-ups ({quoteFollowUpCount})
           </button>
         </div>
 
@@ -370,13 +405,19 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r, i) => (
+              {filtered.map((r, i) => {
+                const today = new Date().toISOString().slice(0, 10)
+                const isQuoteFollowUpDue =
+                  (r.internal_status === 'quoted' || r.internal_status === 'quote_no_contact') &&
+                  r.follow_up_date != null &&
+                  r.follow_up_date <= today
+                return (
                 <tr
                   key={r.id}
                   onClick={() => { setNavList(filtered.map(x => x.id)); router.push(`/referrals/${r.id}`) }}
                   className={`cursor-pointer transition-colors hover:bg-slate-800/40 ${
                     i < filtered.length - 1 ? 'border-b border-slate-800/50' : ''
-                  }`}
+                  } ${isQuoteFollowUpDue ? 'border-l-2 border-l-orange-500' : ''}`}
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
@@ -462,7 +503,8 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
                     )}
                   </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         )}

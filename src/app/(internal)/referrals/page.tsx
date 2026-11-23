@@ -70,6 +70,7 @@ export default async function ReferralsPage() {
       'appointment_set',
       'appointment_missed',
       'quoted',
+      'quote_no_contact',
       'not_interested',
       'carrier_declined',
       'client_withdrew',
