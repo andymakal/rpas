@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Search, ChevronRight, ChevronDown, ChevronUp } from 'lucide-react'
 import type { ServiceRow } from './page'
 import { fmtDate as formatDate } from '@/lib/fmt'
@@ -48,15 +48,27 @@ type SortKey = 'sr' | 'client' | 'carrier' | 'type' | 'workflow' | 'received'
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ServiceClient({ rows }: { rows: ServiceRow[] }) {
-  const router = useRouter()
-  const [tab, setTab]           = useState<TabKey>('open')
+  const router   = useRouter()
+  const sp       = useSearchParams()
+  const pathname = usePathname()
+  const [tab, setTab]           = useState<TabKey>((sp.get('tab') as TabKey) ?? 'open')
   const [search, setSearch]     = useState('')
-  const [sortKey, setSortKey]   = useState<SortKey>('received')
-  const [sortDir, setSortDir]   = useState<'asc' | 'desc'>('desc')
+  const [sortKey, setSortKey]   = useState<SortKey>((sp.get('sort') as SortKey) ?? 'received')
+  const [sortDir, setSortDir]   = useState<'asc' | 'desc'>((sp.get('dir') as 'asc' | 'desc') ?? 'desc')
+
+  function pushParams(updates: Record<string, string>) {
+    const p = new URLSearchParams(sp.toString())
+    for (const [k, v] of Object.entries(updates)) {
+      if (v) p.set(k, v); else p.delete(k)
+    }
+    router.replace(`${pathname}?${p.toString()}`, { scroll: false })
+  }
 
   function handleSort(k: SortKey) {
-    if (sortKey === k) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortKey(k); setSortDir('asc') }
+    const newDir = sortKey === k ? (sortDir === 'asc' ? 'desc' : 'asc') : 'asc'
+    if (sortKey === k) setSortDir(newDir)
+    else { setSortKey(k); setSortDir(newDir) }
+    pushParams({ sort: k, dir: newDir })
   }
 
   const SortTh = ({ k, label, right }: { k: SortKey; label: string; right?: boolean }) => {
@@ -129,7 +141,7 @@ export function ServiceClient({ rows }: { rows: ServiceRow[] }) {
             { key: 'closed', label: `Closed (${closedCount})`     },
             { key: 'all',    label: `All (${rows.length})`        },
           ] as { key: TabKey; label: string }[]).map(t => (
-            <button key={t.key} onClick={() => setTab(t.key)}
+            <button key={t.key} onClick={() => { setTab(t.key); pushParams({ tab: t.key }) }}
               className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${tab === t.key ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'}`}>
               {t.label}
             </button>

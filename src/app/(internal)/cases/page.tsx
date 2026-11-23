@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import { createAdminClient } from '@/lib/supabase/admin'
 import CasesClient from './CasesClient'
 
@@ -73,7 +74,7 @@ export default async function CasesPage() {
           <h1 className="text-white text-2xl font-semibold">Cases</h1>
           <p className="text-slate-400 text-sm mt-0.5">Tier 2+ pipeline — cases in commitment &amp; execution</p>
         </div>
-        <CasesClient cases={cases} />
+        <Suspense fallback={null}><CasesClient cases={cases} /></Suspense>
       </div>
     </div>
   )

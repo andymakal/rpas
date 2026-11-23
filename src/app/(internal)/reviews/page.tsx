@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
@@ -72,10 +73,12 @@ export default async function ReviewsPage() {
             </p>
           </div>
         </div>
-        <ReviewsClient
-          reviews={(reviews as unknown as ReviewListRow[]) ?? []}
-          producers={(producers as unknown as AssigneeOption[]) ?? []}
-        />
+        <Suspense fallback={null}>
+          <ReviewsClient
+            reviews={(reviews as unknown as ReviewListRow[]) ?? []}
+            producers={(producers as unknown as AssigneeOption[]) ?? []}
+          />
+        </Suspense>
       </div>
     </div>
   )

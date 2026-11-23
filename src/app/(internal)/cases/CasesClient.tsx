@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { ChevronRight, ChevronUp, ChevronDown, Search, AlertTriangle, CalendarClock } from 'lucide-react'
 import type { CaseRow } from './page'
 import { fmtDate as formatDate, fmtDateShort } from '@/lib/fmt'
@@ -78,19 +78,30 @@ const TABS: { key: FilterTab; label: string }[] = [
 
 // ── Component ─────────────────────────────────────────────────
 export default function CasesClient({ cases }: { cases: CaseRow[] }) {
-  const router = useRouter()
-  const [tab, setTab]               = useState<FilterTab>('active')
+  const router   = useRouter()
+  const sp       = useSearchParams()
+  const pathname = usePathname()
+  const [tab, setTab]               = useState<FilterTab>((sp.get('tab') as FilterTab) ?? 'active')
   const [search, setSearch]         = useState('')
-  const [agencyFilter, setAgencyFilter]   = useState('')
-  const [statusFilter, setStatusFilter]   = useState('')
-  const [carrierFilter, setCarrierFilter] = useState('')
-  const [sortKey, setSortKey]       = useState<SortKey>('days')
-  const [sortDir, setSortDir]       = useState<'asc' | 'desc'>('desc')
+  const [agencyFilter, setAgencyFilter]   = useState(sp.get('agency') ?? '')
+  const [statusFilter, setStatusFilter]   = useState(sp.get('status') ?? '')
+  const [carrierFilter, setCarrierFilter] = useState(sp.get('carrier') ?? '')
+  const [sortKey, setSortKey]       = useState<SortKey>((sp.get('sort') as SortKey) ?? 'days')
+  const [sortDir, setSortDir]       = useState<'asc' | 'desc'>((sp.get('dir') as 'asc' | 'desc') ?? 'desc')
+
+  function pushParams(updates: Record<string, string>) {
+    const p = new URLSearchParams(sp.toString())
+    for (const [k, v] of Object.entries(updates)) {
+      if (v) p.set(k, v); else p.delete(k)
+    }
+    router.replace(`${pathname}?${p.toString()}`, { scroll: false })
+  }
 
   function handleSort(key: SortKey) {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortKey(key); setSortDir(key === 'face' ? 'desc' : 'asc') }
-    // string sorts default asc; numeric/time sorts default as above
+    const newDir = sortKey === key ? (sortDir === 'asc' ? 'desc' : 'asc') : (key === 'face' ? 'desc' : 'asc')
+    if (sortKey === key) setSortDir(newDir)
+    else { setSortKey(key); setSortDir(newDir) }
+    pushParams({ sort: key, dir: newDir })
   }
 
   // Tier 2+ only
@@ -247,26 +258,26 @@ export default function CasesClient({ cases }: { cases: CaseRow[] }) {
       <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 flex-wrap">
         <div className="flex items-center rounded-lg bg-slate-900 border border-slate-800 p-0.5 gap-0.5">
           {TABS.map(t => (
-            <button key={t.key} onClick={() => { setTab(t.key); setAgencyFilter(''); setStatusFilter(''); setCarrierFilter('') }}
+            <button key={t.key} onClick={() => { setTab(t.key); setAgencyFilter(''); setStatusFilter(''); setCarrierFilter(''); pushParams({ tab: t.key, agency: '', status: '', carrier: '' }) }}
               className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${tab === t.key ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'}`}>
               {t.label}
             </button>
           ))}
         </div>
 
-        <select value={agencyFilter} onChange={e => setAgencyFilter(e.target.value)}
+        <select value={agencyFilter} onChange={e => { setAgencyFilter(e.target.value); pushParams({ agency: e.target.value }) }}
           className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-slate-500">
           <option value="">All agencies</option>
           {agencyOptions.map(a => <option key={a} value={a}>{a}</option>)}
         </select>
 
-        <select value={carrierFilter} onChange={e => setCarrierFilter(e.target.value)}
+        <select value={carrierFilter} onChange={e => { setCarrierFilter(e.target.value); pushParams({ carrier: e.target.value }) }}
           className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-slate-500">
           <option value="">All carriers</option>
           {carrierOptions.map(c => <option key={c} value={c}>{c}</option>)}
         </select>
 
-        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+        <select value={statusFilter} onChange={e => { setStatusFilter(e.target.value); pushParams({ status: e.target.value }) }}
           className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-slate-500">
           <option value="">All statuses</option>
           {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}

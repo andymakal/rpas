@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { ClipboardList, AlertTriangle, CheckCircle2, Phone, Search, Plus, RefreshCw } from 'lucide-react'
 import type { ReviewListRow, AssigneeOption } from './page'
 import { fmtDate as fmt } from '@/lib/fmt'
@@ -247,14 +247,24 @@ function NewReviewModal({ onClose, producers }: { onClose: (id?: string) => void
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ReviewsClient({ reviews, producers }: { reviews: ReviewListRow[]; producers: AssigneeOption[] }) {
-  const router = useRouter()
+  const router   = useRouter()
+  const sp       = useSearchParams()
+  const pathname = usePathname()
 
   const [search,      setSearch]      = useState('')
-  const [statusFilter, setStatusFilter] = useState<string>('all')
-  const [typeFilter,   setTypeFilter]   = useState<string>('all')
-  const [assignFilter, setAssignFilter] = useState<string>('all')
-  const [tobaccoOnly,  setTobaccoOnly]  = useState(false)
+  const [statusFilter, setStatusFilter] = useState<string>(sp.get('status') ?? 'all')
+  const [typeFilter,   setTypeFilter]   = useState<string>(sp.get('type') ?? 'all')
+  const [assignFilter, setAssignFilter] = useState<string>(sp.get('assign') ?? 'all')
+  const [tobaccoOnly,  setTobaccoOnly]  = useState(sp.get('tobacco') === '1')
   const [showModal,    setShowModal]    = useState(false)
+
+  function pushParams(updates: Record<string, string>) {
+    const p = new URLSearchParams(sp.toString())
+    for (const [k, v] of Object.entries(updates)) {
+      if (v && v !== 'all') p.set(k, v); else p.delete(k)
+    }
+    router.replace(`${pathname}?${p.toString()}`, { scroll: false })
+  }
 
   const filtered = useMemo(() => {
     let rows = reviews
@@ -326,21 +336,21 @@ export function ReviewsClient({ reviews, producers }: { reviews: ReviewListRow[]
             />
           </div>
 
-          <FilterSelect value={statusFilter} onChange={setStatusFilter} options={[
+          <FilterSelect value={statusFilter} onChange={v => { setStatusFilter(v); pushParams({ status: v }) }} options={[
             { value: 'all',       label: 'All statuses' },
             { value: 'prep',      label: 'Prep' },
             { value: 'complete',  label: 'Complete' },
             { value: 'no_contact', label: 'No Contact' },
           ]} />
 
-          <FilterSelect value={typeFilter} onChange={setTypeFilter} options={[
+          <FilterSelect value={typeFilter} onChange={v => { setTypeFilter(v); pushParams({ type: v }) }} options={[
             { value: 'all',          label: 'All types' },
             { value: 'term',         label: 'Term' },
             { value: 'permanent_ul', label: 'Universal Life' },
             { value: 'permanent_wl', label: 'Whole Life' },
           ]} />
 
-          <FilterSelect value={assignFilter} onChange={setAssignFilter} options={[
+          <FilterSelect value={assignFilter} onChange={v => { setAssignFilter(v); pushParams({ assign: v }) }} options={[
             { value: 'all',        label: 'All producers' },
             ...producers.map(p => ({
               value: `${p.first_name} ${p.last_name}`,
@@ -354,7 +364,7 @@ export function ReviewsClient({ reviews, producers }: { reviews: ReviewListRow[]
               type="checkbox"
               className="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-0"
               checked={tobaccoOnly}
-              onChange={e => setTobaccoOnly(e.target.checked)}
+              onChange={e => { setTobaccoOnly(e.target.checked); pushParams({ tobacco: e.target.checked ? '1' : '' }) }}
             />
             <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
             Tobacco only

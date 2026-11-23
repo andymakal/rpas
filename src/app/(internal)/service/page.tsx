@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
@@ -84,7 +85,7 @@ export default async function ServicePage() {
           </Link>
         </div>
 
-        <ServiceClient rows={rows} />
+        <Suspense fallback={null}><ServiceClient rows={rows} /></Suspense>
       </div>
     </div>
   )

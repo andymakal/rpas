@@ -1,4 +1,5 @@
 ﻿import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import { createAdminClient } from '@/lib/supabase/admin'
 import ProductionClient from './ProductionClient'
 
@@ -56,7 +57,7 @@ export default async function ProductionPage() {
           <h1 className="text-white text-2xl font-semibold">Production</h1>
           <p className="text-slate-400 text-sm mt-0.5">All placed policies — in-force tracker</p>
         </div>
-        <ProductionClient cases={cases} />
+        <Suspense fallback={null}><ProductionClient cases={cases} /></Suspense>
       </div>
     </div>
   )

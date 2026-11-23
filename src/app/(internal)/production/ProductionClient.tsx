@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { ChevronRight, ChevronUp, ChevronDown, Search, Target, UserCircle } from 'lucide-react'
 import type { PlacedCase } from './page'
 import { fmtDate as formatDate } from '@/lib/fmt'
@@ -48,16 +48,28 @@ const ANNUAL_GOAL = 1_000_000_000 // $1B
 
 // ── Component ─────────────────────────────────────────────────
 export default function ProductionClient({ cases }: { cases: PlacedCase[] }) {
-  const router = useRouter()
-  const [period, setPeriod]         = useState<Period>('ytd')
-  const [agencyFilter, setAgency]   = useState('')
+  const router   = useRouter()
+  const sp       = useSearchParams()
+  const pathname = usePathname()
+  const [period, setPeriod]         = useState<Period>((sp.get('period') as Period) ?? 'ytd')
+  const [agencyFilter, setAgency]   = useState(sp.get('agency') ?? '')
   const [search, setSearch]         = useState('')
-  const [sortKey, setSortKey]       = useState<SortKey>('date')
-  const [sortDir, setSortDir]       = useState<'asc' | 'desc'>('desc')
+  const [sortKey, setSortKey]       = useState<SortKey>((sp.get('sort') as SortKey) ?? 'date')
+  const [sortDir, setSortDir]       = useState<'asc' | 'desc'>((sp.get('dir') as 'asc' | 'desc') ?? 'desc')
+
+  function pushParams(updates: Record<string, string>) {
+    const p = new URLSearchParams(sp.toString())
+    for (const [k, v] of Object.entries(updates)) {
+      if (v) p.set(k, v); else p.delete(k)
+    }
+    router.replace(`${pathname}?${p.toString()}`, { scroll: false })
+  }
 
   function handleSort(key: SortKey) {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortKey(key); setSortDir(key === 'face' || key === 'premium' ? 'desc' : 'asc') }
+    const newDir = sortKey === key ? (sortDir === 'asc' ? 'desc' : 'asc') : (key === 'face' || key === 'premium' ? 'desc' : 'asc')
+    if (sortKey === key) setSortDir(newDir)
+    else { setSortKey(key); setSortDir(newDir) }
+    pushParams({ sort: key, dir: newDir })
   }
 
   const SortTh = ({ k, label }: { k: SortKey; label: string }) => {
@@ -199,14 +211,14 @@ export default function ProductionClient({ cases }: { cases: PlacedCase[] }) {
         {/* Period tabs */}
         <div className="flex items-center rounded-lg bg-slate-900 border border-slate-800 p-0.5 gap-0.5">
           {PERIODS.map(p => (
-            <button key={p.key} onClick={() => setPeriod(p.key)}
+            <button key={p.key} onClick={() => { setPeriod(p.key); pushParams({ period: p.key }) }}
               className={`px-3 py-1.5 text-xs rounded-md font-medium transition-colors ${period === p.key ? 'bg-slate-700 text-white' : 'text-slate-400 hover:text-slate-200'}`}>
               {p.label}
             </button>
           ))}
         </div>
 
-        <select value={agencyFilter} onChange={e => setAgency(e.target.value)}
+        <select value={agencyFilter} onChange={e => { setAgency(e.target.value); pushParams({ agency: e.target.value }) }}
           className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-slate-500">
           <option value="">All agencies</option>
           {agencyOptions.map(a => <option key={a} value={a}>{a}</option>)}
