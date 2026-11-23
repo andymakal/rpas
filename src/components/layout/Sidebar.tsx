@@ -36,33 +36,54 @@ import {
 } from 'lucide-react'
 import { NotificationBell } from '@/components/layout/NotificationBell'
 
-const navItems = [
-  { href: '/dashboard',              icon: LayoutDashboard, label: 'Dashboard'        },
-  { href: '/my-work',                icon: ListTodo,        label: 'My Work'          },
-  { href: '/my-projects',            icon: FolderGit2,      label: 'My Projects'      },
-  { href: '/triage',                 icon: Inbox,           label: 'Triage'           },
-  { href: '/referrals',              icon: GitMerge,        label: 'Referrals'        },
-  { href: '/spiff',                  icon: DollarSign,      label: 'SPIFF'            },
-  { href: '/agencies',               icon: Building2,       label: 'Agencies'         },
-  { href: '/cases',                  icon: FolderKanban,    label: 'Cases'            },
-  { href: '/production',             icon: TrendingUp,      label: 'Production'       },
-  { href: '/service',                icon: Wrench,          label: 'Service'          },
-  { href: '/policies',               icon: BookOpen,        label: 'Policies'         },
-  { href: '/reviews',                icon: ClipboardCheck,  label: 'Reviews'          },
-  { href: '/forms',                  icon: FileText,        label: 'Forms'            },
-  { href: '/financial-review',       icon: BarChart2,       label: 'Financial Review' },
-  { href: '/projects',               icon: FolderGit2,      label: 'Projects'         },
-  { href: '/customers',               icon: Users,           label: 'Customers'        },
-  { href: '/team',                   icon: Users,           label: 'Team'             },
-  { href: '/admin/todays-focus',      icon: Sparkles,        label: "Today's Focus"    },
-  { href: '/admin/scorecard',         icon: LayoutList,      label: 'Scorecard'        },
-  { href: '/admin/gdc-import',       icon: Upload,          label: 'GDC Import'       },
-  { href: '/admin/policy-import',    icon: FileSpreadsheet, label: 'Policy Import'    },
-  { href: '/admin/book-import',      icon: BookOpen,        label: 'Book Import'      },
-  { href: '/admin/lead-import',      icon: Users,           label: 'Lead Import'      },
-  { href: '/admin/pending-import',   icon: ClipboardList,   label: 'Pending Import'   },
-  { href: '/settings/products',      icon: Package,         label: 'Products'         },
-  { href: '/settings',               icon: Settings,        label: 'Settings'         },
+type NavItem =
+  | { href: string; icon: React.ElementType; label: string; separator?: never }
+  | { separator: true; label?: string; href?: never; icon?: never }
+
+const navItems: NavItem[] = [
+  // ── Daily ──────────────────────────────────────────────────────
+  { separator: true, label: 'Daily' },
+  { href: '/admin/todays-focus', icon: Sparkles,       label: "Today's Focus"    },
+  { href: '/my-work',            icon: ListTodo,        label: 'My Work'          },
+  { href: '/my-projects',        icon: FolderGit2,      label: 'My Projects'      },
+
+  // ── Pipeline ───────────────────────────────────────────────────
+  { separator: true, label: 'Pipeline' },
+  { href: '/triage',             icon: Inbox,           label: 'Triage'           },
+  { href: '/referrals',          icon: GitMerge,        label: 'Referrals'        },
+  { href: '/cases',              icon: FolderKanban,    label: 'Cases'            },
+  { href: '/production',         icon: TrendingUp,      label: 'Production'       },
+
+  // ── Customer Work ──────────────────────────────────────────────
+  { separator: true, label: 'Customer Work' },
+  { href: '/customers',          icon: Users,           label: 'Customers'        },
+  { href: '/service',            icon: Wrench,          label: 'Service'          },
+  { href: '/policies',           icon: BookOpen,        label: 'Policies'         },
+  { href: '/reviews',            icon: ClipboardCheck,  label: 'Reviews'          },
+  { href: '/financial-review',   icon: BarChart2,       label: 'Financial Review' },
+  { href: '/forms',              icon: FileText,        label: 'Forms'            },
+
+  // ── Management ─────────────────────────────────────────────────
+  { separator: true, label: 'Management' },
+  { href: '/team',               icon: Users,           label: 'Team'             },
+  { href: '/agencies',           icon: Building2,       label: 'Agencies'         },
+  { href: '/admin/scorecard',    icon: LayoutList,      label: 'Scorecard'        },
+  { href: '/spiff',              icon: DollarSign,      label: 'SPIFF'            },
+  { href: '/settings/products',  icon: Package,         label: 'Products'         },
+  { href: '/projects',           icon: FolderGit2,      label: 'Projects'         },
+  { href: '/dashboard',          icon: LayoutDashboard, label: 'Dashboard'        },
+
+  // ── Imports ────────────────────────────────────────────────────
+  { separator: true, label: 'Imports' },
+  { href: '/admin/gdc-import',     icon: Upload,          label: 'GDC Import'     },
+  { href: '/admin/policy-import',  icon: FileSpreadsheet, label: 'Policy Import'  },
+  { href: '/admin/book-import',    icon: BookOpen,        label: 'Book Import'    },
+  { href: '/admin/lead-import',    icon: Users,           label: 'Lead Import'    },
+  { href: '/admin/pending-import', icon: ClipboardList,   label: 'Pending Import' },
+
+  // ── Settings ───────────────────────────────────────────────────
+  { separator: true },
+  { href: '/settings',           icon: Settings,        label: 'Settings'         },
 ]
 
 export function Sidebar({ userEmail }: { userEmail: string }) {
@@ -115,8 +136,21 @@ export function Sidebar({ userEmail }: { userEmail: string }) {
       </div>
 
       {/* Nav items */}
-      <nav className="flex-1 min-h-0 overflow-y-auto px-2 py-2 space-y-0.5">
-        {navItems.map(({ href, icon: Icon, label }) => {
+      <nav className="flex-1 min-h-0 overflow-y-auto px-2 py-2">
+        {navItems.map((item, i) => {
+          if (item.separator) {
+            return (
+              <div key={`sep-${i}`} className={cn('mt-2 mb-1', isCollapsed ? 'px-0' : 'px-1')}>
+                <div className="border-t border-slate-800" />
+                {!isCollapsed && item.label && (
+                  <p className="px-2 pt-1.5 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600">
+                    {item.label}
+                  </p>
+                )}
+              </div>
+            )
+          }
+          const { href, icon: Icon, label } = item
           const active =
             pathname === href ||
             (href !== '/dashboard' && pathname.startsWith(href + '/'))
