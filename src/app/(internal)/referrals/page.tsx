@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
@@ -97,7 +98,9 @@ export default async function ReferralsPage() {
           </Link>
         </div>
 
-        <ReferralsClient rows={rows} />
+        <Suspense fallback={null}>
+          <ReferralsClient rows={rows} />
+        </Suspense>
       </div>
     </div>
   )

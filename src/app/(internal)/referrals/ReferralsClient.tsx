@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams, usePathname } from 'next/navigation'
 import { Search, ChevronUp, ChevronDown, CalendarClock, AlertTriangle, Flame } from 'lucide-react'
 import type { CaseRow, StageTranslation } from './page'
 import { fmtDate, fmtDateShort } from '@/lib/fmt'
@@ -82,23 +82,39 @@ function StatusBadge({ translation, internal_status }: { translation: StageTrans
 type SortKey = 'client' | 'date' | 'touches' | 'stale' | 'followup'
 
 export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
-  const router = useRouter()
+  const router      = useRouter()
+  const pathname    = usePathname()
+  const sp          = useSearchParams()
+
   const [search, setSearch]             = useState('')
-  const [tab, setTab]                   = useState<'active' | 'all' | 'closed'>('active')
-  const [statusFilter, setStatusFilter] = useState('')
-  const [agencyFilter, setAgencyFilter] = useState('')
-  const [sourceFilter, setSourceFilter] = useState('')
-  const [sortKey, setSortKey]           = useState<SortKey>('date')
-  const [sortDir, setSortDir]           = useState<'desc' | 'asc'>('desc')
-  const [showStalled, setShowStalled]   = useState(false)
+  const [tab, setTab]                   = useState<'active' | 'all' | 'closed'>(
+    (sp.get('tab') as 'active' | 'all' | 'closed') ?? 'active'
+  )
+  const [statusFilter, setStatusFilter] = useState(sp.get('status') ?? '')
+  const [agencyFilter, setAgencyFilter] = useState(sp.get('agency') ?? '')
+  const [sourceFilter, setSourceFilter] = useState(sp.get('source') ?? '')
+  const [sortKey, setSortKey]           = useState<SortKey>((sp.get('sort') as SortKey) ?? 'date')
+  const [sortDir, setSortDir]           = useState<'desc' | 'asc'>((sp.get('dir') as 'desc' | 'asc') ?? 'desc')
+  const [showStalled, setShowStalled]   = useState(sp.get('stalled') === '1')
+
+  function pushParams(updates: Record<string, string>) {
+    const p = new URLSearchParams(sp.toString())
+    for (const [k, v] of Object.entries(updates)) {
+      if (v) p.set(k, v); else p.delete(k)
+    }
+    router.replace(`${pathname}?${p.toString()}`, { scroll: false })
+  }
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
-      setSortDir(d => d === 'desc' ? 'asc' : 'desc')
+      const newDir = sortDir === 'desc' ? 'asc' : 'desc'
+      setSortDir(newDir)
+      pushParams({ sort: key, dir: newDir })
     } else {
+      const newDir = key === 'client' || key === 'touches' || key === 'stale' || key === 'followup' ? 'asc' : 'desc'
       setSortKey(key)
-      // Default sort direction per key
-      setSortDir(key === 'client' || key === 'touches' || key === 'stale' || key === 'followup' ? 'asc' : 'desc')
+      setSortDir(newDir)
+      pushParams({ sort: key, dir: newDir })
     }
   }
 
@@ -224,7 +240,7 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
             {tabs.map(t => (
               <button
                 key={t.key}
-                onClick={() => { setTab(t.key); setStatusFilter(''); setAgencyFilter(''); setSourceFilter('') }}
+                onClick={() => { setTab(t.key); setStatusFilter(''); setAgencyFilter(''); setSourceFilter(''); pushParams({ tab: t.key, status: '', agency: '', source: '' }) }}
                 className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                   tab === t.key
                     ? 'bg-slate-700 text-white'
@@ -239,7 +255,8 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
             onClick={() => {
               const next = !showStalled
               setShowStalled(next)
-              if (next) { setSortKey('stale'); setSortDir('asc') }
+              if (next) { setSortKey('stale'); setSortDir('asc'); pushParams({ stalled: '1', sort: 'stale', dir: 'asc' }) }
+              else { pushParams({ stalled: '' }) }
             }}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
               showStalled
@@ -256,7 +273,7 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
         <div className="flex items-center gap-2 flex-wrap">
           <select
             value={sourceFilter}
-            onChange={e => setSourceFilter(e.target.value)}
+            onChange={e => { setSourceFilter(e.target.value); pushParams({ source: e.target.value }) }}
             className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-slate-500"
           >
             <option value="">All sources</option>
@@ -271,7 +288,7 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
 
           <select
             value={agencyFilter}
-            onChange={e => setAgencyFilter(e.target.value)}
+            onChange={e => { setAgencyFilter(e.target.value); pushParams({ agency: e.target.value }) }}
             className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-slate-500"
           >
             <option value="">All agencies</option>
@@ -282,7 +299,7 @@ export function ReferralsClient({ rows }: { rows: CaseRow[] }) {
 
           <select
             value={statusFilter}
-            onChange={e => setStatusFilter(e.target.value)}
+            onChange={e => { setStatusFilter(e.target.value); pushParams({ status: e.target.value }) }}
             className="bg-slate-800 border border-slate-700 text-slate-200 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-slate-500"
           >
             <option value="">All statuses</option>
