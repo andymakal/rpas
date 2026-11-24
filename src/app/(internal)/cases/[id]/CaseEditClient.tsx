@@ -2063,8 +2063,8 @@ export default function CaseEditClient({
               </div>
             )}
 
-            {/* Owner / Insured — also in Policy Details for placement workflow */}
-            <div className="rounded-lg border border-slate-700 bg-slate-800/40 p-3 space-y-2">
+            {/* Owner / Insured */}
+            <div className="rounded-lg border border-slate-700 bg-slate-800/40 p-4 space-y-3">
               <label className="flex items-center gap-2.5 cursor-pointer select-none">
                 <input
                   type="checkbox"
@@ -2081,17 +2081,113 @@ export default function CaseEditClient({
                 />
                 <span className="text-sm text-slate-300">Insured is the owner</span>
               </label>
-              {!ownerIsInsured && ownerDisplay && (
-                <div className="flex items-center gap-1.5 pl-6 text-sm text-slate-300">
-                  <User className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" />
-                  Owner: {ownerDisplay}
-                  {ownerCustomerId && (
-                    <Link href={`/customers/${ownerCustomerId}`} className="text-xs text-sky-400 hover:underline ml-1">Card</Link>
+
+              {!ownerIsInsured && (
+                <div className="space-y-3 pt-1">
+                  <p className="text-xs text-slate-500">Who owns this policy?</p>
+
+                  {/* Customer search */}
+                  <div className="relative">
+                    <label className="block text-xs text-slate-500 mb-1">Link to customer record</label>
+                    <input
+                      type="text"
+                      value={ownerDisplay || ownerQuery}
+                      onChange={e => { setOwnerDisplay(''); setOwnerCustomerId(''); handleOwnerSearch(e.target.value) }}
+                      placeholder="Search by name…"
+                      className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
+                    />
+                    {ownerCustomerId && (
+                      <button
+                        type="button"
+                        onClick={() => { setOwnerCustomerId(''); setOwnerDisplay(''); setOwnerQuery('') }}
+                        className="absolute right-2 top-7 text-slate-500 hover:text-slate-300"
+                        title="Clear"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {ownerHits.length > 0 && (
+                      <ul className="absolute z-10 mt-1 w-full bg-slate-800 border border-slate-600 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                        {ownerHits.map(h => (
+                          <li key={h.id}>
+                            <button
+                              type="button"
+                              onMouseDown={() => selectOwnerCustomer(h)}
+                              className="w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 transition-colors"
+                            >
+                              {h.first_name} {h.last_name}
+                            </button>
+                          </li>
+                        ))}
+                        {ownerSearching && <li className="px-3 py-2 text-xs text-slate-500">Searching…</li>}
+                      </ul>
+                    )}
+                  </div>
+
+                  {/* Free-text fallback when owner not yet in system */}
+                  {!ownerCustomerId && (
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Or enter name manually</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="text" value={ownerFirstName}
+                          onChange={e => setOwnerFirstName(e.target.value)}
+                          placeholder="First"
+                          className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
+                        />
+                        <input
+                          type="text" value={ownerLastName}
+                          onChange={e => setOwnerLastName(e.target.value)}
+                          placeholder="Last"
+                          className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
+                        />
+                      </div>
+                    </div>
                   )}
+
+                  {ownerMsg && (
+                    <p className={`text-xs ${ownerMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{ownerMsg.text}</p>
+                  )}
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={handleSaveOwner}
+                      disabled={ownerSaving || (!ownerCustomerId && !ownerFirstName.trim())}
+                      className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                      style={{ backgroundColor: '#1F3864' }}
+                    >
+                      <Check className="w-3.5 h-3.5" /> {ownerSaving ? 'Saving…' : 'Save Owner'}
+                    </button>
+                    {ownerDisplay && (
+                      <div className="flex items-center gap-1.5 text-sm text-slate-300">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                        {ownerDisplay}
+                        {ownerCustomerId && (
+                          <Link href={`/customers/${ownerCustomerId}`} className="text-xs text-sky-400 hover:underline ml-1">
+                            Card
+                          </Link>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
-              {!ownerIsInsured && !ownerDisplay && (
-                <p className="pl-6 text-xs text-amber-400">Set owner in Contact Info above ↑</p>
+
+              {ownerIsInsured && caseData.owner_is_insured === false && (
+                <div className="flex items-center gap-3">
+                  {ownerMsg && (
+                    <p className={`text-xs ${ownerMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{ownerMsg.text}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleSaveOwner}
+                    disabled={ownerSaving}
+                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                    style={{ backgroundColor: '#1F3864' }}
+                  >
+                    <Check className="w-3.5 h-3.5" /> {ownerSaving ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
               )}
             </div>
 
