@@ -232,7 +232,7 @@ export default async function CustomerCardPage({
   const { data: insuredOnRaw, error: insuredOnError } = await supabase
     .from('service_policies')
     .select(`
-      id, policy_number, carrier, product_type, face_amount, coverage_status,
+      id, policy_number, carrier, product_type, face_amount, coverage_status, source_case_id,
       owner:customers!customer_id ( id, first_name, last_name )
     `)
     .eq('insured_customer_id', id)
@@ -254,18 +254,24 @@ export default async function CustomerCardPage({
 
   // Placed cases that don't have a service_policies record yet —
   // shown in the Policies section as pending entries so the user knows to add the policy number.
-  const policiedCaseIds = new Set(
-    (policiesRaw ?? [])
+  const policiedCaseIds = new Set([
+    ...(policiesRaw ?? [])
       .map(p => (p as { source_case_id?: string | null }).source_case_id)
-      .filter((x): x is string => Boolean(x))
-  )
+      .filter((x): x is string => Boolean(x)),
+    ...(insuredOnRaw ?? [])
+      .map(p => (p as { source_case_id?: string | null }).source_case_id)
+      .filter((x): x is string => Boolean(x)),
+  ])
   // Also clear the amber row when a service_policy with the same policy number already exists
   // (covers policies added manually via the Add form, which don't set source_case_id).
-  const policiedNumbers = new Set(
-    (policiesRaw ?? [])
+  const policiedNumbers = new Set([
+    ...(policiesRaw ?? [])
       .map(p => p.policy_number?.trim().toUpperCase())
-      .filter((x): x is string => Boolean(x))
-  )
+      .filter((x): x is string => Boolean(x)),
+    ...(insuredOnRaw ?? [])
+      .map(p => p.policy_number?.trim().toUpperCase())
+      .filter((x): x is string => Boolean(x)),
+  ])
   const pendingCasePolicies = ((cases ?? []) as unknown as LinkedCase[])
     .filter(c =>
       (c.internal_status === 'placed' || Boolean(c.placed_at)) &&
