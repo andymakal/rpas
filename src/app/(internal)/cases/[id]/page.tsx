@@ -95,6 +95,11 @@ export type CaseDetail = {
   snooze_reasons: { id: string; agency_label: string } | null
   replaced_by_case_id: string | null
   replaces_case_id: string | null
+  owner_is_insured: boolean
+  owner_customer_id: string | null
+  owner_first_name: string | null
+  owner_last_name: string | null
+  owner_customers: { id: string; first_name: string; last_name: string } | null
   case_pending_requirements: {
     id: string
     pending_requirement_id: string
@@ -194,7 +199,9 @@ export default async function CaseDetailPage({
         exchange_cash_value, exchange_cost_basis, exchange_surrender_charges, exchange_net_transfer,
         agency_id, customer_id, agent_id, producer_id,
         replaced_by_case_id, replaces_case_id,
+        owner_is_insured, owner_customer_id, owner_first_name, owner_last_name,
         customers!customer_id ( first_name, last_name, email, phone, street, city, state, zip, date_of_birth, marital_status, gender, tobacco_use, height_ft, height_in, weight_lbs, health_notes, preferred_language, customer_group_id ),
+        owner_customers:customers!owner_customer_id ( id, first_name, last_name ),
         agencies ( id, name, display_name, slug ),
         agents ( first_name, last_name, email ),
         producers ( first_name, last_name ),

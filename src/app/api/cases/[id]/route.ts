@@ -39,6 +39,10 @@ const ALLOWED_FIELDS = new Set([
   'exchange_cost_basis',
   'exchange_surrender_charges',
   'exchange_net_transfer',
+  'owner_is_insured',
+  'owner_customer_id',
+  'owner_first_name',
+  'owner_last_name',
 ])
 
 // Maps product_types.name (long form) → service_policies.product_type (short form)
@@ -85,6 +89,7 @@ async function promoteCaseToPolicy(
       internal_status, policy_number, face_amount, annual_premium,
       quoted_carrier, quoted_product_type,
       customer_id, agency_id, agent_id,
+      owner_is_insured, owner_customer_id, owner_first_name, owner_last_name,
       customers!customer_id (first_name, last_name),
       products (carriers (short_name), product_types (name))
     `)
@@ -101,6 +106,22 @@ async function promoteCaseToPolicy(
 
   const product  = c.products  as unknown as ProductRow  | null
   const customer = c.customers as unknown as CustomerRow | null
+
+  const ownerIsInsured  = (c as unknown as Record<string, unknown>).owner_is_insured as boolean ?? true
+  const ownerCustomerId = (c as unknown as Record<string, unknown>).owner_customer_id as string | null ?? null
+  const ownerFirstName  = (c as unknown as Record<string, unknown>).owner_first_name  as string | null ?? null
+  const ownerLastName   = (c as unknown as Record<string, unknown>).owner_last_name   as string | null ?? null
+
+  // When owner ≠ insured and an owner customer record exists, fetch their name
+  let ownerCustomer: CustomerRow | null = null
+  if (!ownerIsInsured && ownerCustomerId) {
+    const { data: oc } = await supabase
+      .from('customers')
+      .select('first_name, last_name')
+      .eq('id', ownerCustomerId)
+      .single()
+    ownerCustomer = oc as CustomerRow | null
+  }
 
   // Use products table carrier if linked, fall back to the quoted_carrier text field
   const carrier = product?.carriers?.short_name
@@ -141,22 +162,43 @@ async function promoteCaseToPolicy(
       })
       .eq('id', existing.id)
   } else {
+    // For juvenile/owner-not-insured policies:
+    //   service_policy owner (customer_id) = the owner; insured tracked separately
+    const spCustomerId    = (!ownerIsInsured && ownerCustomerId) ? ownerCustomerId : c.customer_id
+    const spOwnerIsInsured = ownerIsInsured
+    const spInsuredCustomerId = (!ownerIsInsured && ownerCustomerId) ? c.customer_id : null
+    // insured name: use the insured customer record (cases.customer_id person)
+    const spInsuredFirst = (!ownerIsInsured && (ownerFirstName || ownerCustomer))
+      ? customer.first_name
+      : null
+    const spInsuredLast  = (!ownerIsInsured && (ownerLastName  || ownerCustomer))
+      ? customer.last_name
+      : null
+    // client_name shown on the policy list = owner name
+    const ownerName = ownerCustomer
+      ? `${ownerCustomer.first_name} ${ownerCustomer.last_name}`
+      : (ownerFirstName && ownerLastName)
+          ? `${ownerFirstName} ${ownerLastName}`
+          : `${customer.first_name} ${customer.last_name}`
+
     await supabase.from('service_policies').insert({
-      source_case_id:     caseId,
-      client_name:        `${customer.first_name} ${customer.last_name}`,
-      policy_number:      c.policy_number,
-      carrier:            carrier,
-      product_type:       productType,
-      face_amount:        c.face_amount    ?? null,
-      annual_premium:     c.annual_premium ?? null,
-      insured_first_name: customer.first_name,
-      insured_last_name:  customer.last_name,
-      customer_id:        c.customer_id,
-      agency_id:          (c.agency_id as string | null) ?? null,
-      agent_id:           (c.agent_id  as string | null) ?? null,
-      coverage_status:    'Active',
-      sa_status:          'unknown',
-      is_test:            false,
+      source_case_id:       caseId,
+      client_name:          ownerName,
+      policy_number:        c.policy_number,
+      carrier:              carrier,
+      product_type:         productType,
+      face_amount:          c.face_amount    ?? null,
+      annual_premium:       c.annual_premium ?? null,
+      insured_first_name:   spInsuredFirst ?? customer.first_name,
+      insured_last_name:    spInsuredLast  ?? customer.last_name,
+      customer_id:          spCustomerId,
+      insured_customer_id:  spInsuredCustomerId,
+      owner_is_insured:     spOwnerIsInsured,
+      agency_id:            (c.agency_id as string | null) ?? null,
+      agent_id:             (c.agent_id  as string | null) ?? null,
+      coverage_status:      'Active',
+      sa_status:            'unknown',
+      is_test:              false,
     })
   }
 

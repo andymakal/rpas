@@ -270,6 +270,24 @@ export default function CaseEditClient({
   const [policySaving,   setPolicySaving]   = useState(false)
   const [policyMsg,      setPolicyMsg]      = useState<{ ok: boolean; text: string } | null>(null)
 
+  // ── Owner / insured state ──────────────────────────────────────
+  const [ownerIsInsured,  setOwnerIsInsured]  = useState(caseData.owner_is_insured ?? true)
+  const [ownerCustomerId, setOwnerCustomerId] = useState(caseData.owner_customer_id ?? '')
+  const [ownerFirstName,  setOwnerFirstName]  = useState(caseData.owner_first_name ?? '')
+  const [ownerLastName,   setOwnerLastName]   = useState(caseData.owner_last_name  ?? '')
+  const [ownerDisplay,    setOwnerDisplay]    = useState(
+    caseData.owner_customers
+      ? `${caseData.owner_customers.first_name} ${caseData.owner_customers.last_name}`
+      : (caseData.owner_first_name && caseData.owner_last_name)
+          ? `${caseData.owner_first_name} ${caseData.owner_last_name}`
+          : ''
+  )
+  const [ownerQuery,      setOwnerQuery]      = useState('')
+  const [ownerHits,       setOwnerHits]       = useState<{ id: string; first_name: string | null; last_name: string | null }[]>([])
+  const [ownerSearching,  setOwnerSearching]  = useState(false)
+  const [ownerSaving,     setOwnerSaving]     = useState(false)
+  const [ownerMsg,        setOwnerMsg]        = useState<{ ok: boolean; text: string } | null>(null)
+
   // ── 1035 Exchange state ────────────────────────────────────────
   const [is1035,              setIs1035]              = useState(caseData.is_1035 ?? false)
   const [exchangeCarrier,     setExchangeCarrier]     = useState(caseData.exchange_carrier ?? '')
@@ -303,6 +321,57 @@ export default function CaseEditClient({
       setExchangeMsg(res.ok ? { ok: true, text: 'Saved' } : { ok: false, text: j.error ?? 'Save failed' })
     } catch { setExchangeMsg({ ok: false, text: 'Network error' }) }
     finally   { setExchangeSaving(false) }
+  }
+
+  // ── Owner search ──────────────────────────────────────────────
+  async function handleOwnerSearch(q: string) {
+    setOwnerQuery(q)
+    if (q.length < 2) { setOwnerHits([]); return }
+    setOwnerSearching(true)
+    try {
+      const res = await fetch(`/api/customers/search?q=${encodeURIComponent(q)}`)
+      const json = await res.json() as { data?: { id: string; first_name: string | null; last_name: string | null }[] }
+      setOwnerHits(json.data ?? [])
+    } catch { /* ignore */ }
+    finally { setOwnerSearching(false) }
+  }
+
+  function selectOwnerCustomer(hit: { id: string; first_name: string | null; last_name: string | null }) {
+    setOwnerCustomerId(hit.id)
+    const name = `${hit.first_name ?? ''} ${hit.last_name ?? ''}`.trim()
+    setOwnerDisplay(name)
+    setOwnerFirstName('')
+    setOwnerLastName('')
+    setOwnerQuery('')
+    setOwnerHits([])
+  }
+
+  async function handleSaveOwner() {
+    setOwnerSaving(true); setOwnerMsg(null)
+    try {
+      const body: Record<string, unknown> = { owner_is_insured: ownerIsInsured }
+      if (!ownerIsInsured) {
+        body.owner_customer_id = ownerCustomerId || null
+        body.owner_first_name  = ownerFirstName.trim()  || null
+        body.owner_last_name   = ownerLastName.trim()   || null
+      } else {
+        body.owner_customer_id = null
+        body.owner_first_name  = null
+        body.owner_last_name   = null
+      }
+      const res = await fetch(`/api/cases/${caseData.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const j = await res.json()
+        setOwnerMsg({ ok: false, text: j.error ?? 'Save failed' })
+      } else {
+        setOwnerMsg({ ok: true, text: 'Saved' })
+        setTimeout(() => setOwnerMsg(null), 2500)
+      }
+    } catch { setOwnerMsg({ ok: false, text: 'Network error' }) }
+    finally   { setOwnerSaving(false) }
   }
 
   // ── Contact edit state ─────────────────────────────────────────
@@ -1876,6 +1945,137 @@ export default function CaseEditClient({
                 )}
               </div>
             )}
+
+            {/* Owner / Insured */}
+            <div className="rounded-lg border border-slate-700 bg-slate-800/40 p-4 space-y-3">
+              <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={ownerIsInsured}
+                  onChange={e => {
+                    setOwnerIsInsured(e.target.checked)
+                    if (e.target.checked) {
+                      setOwnerCustomerId(''); setOwnerFirstName(''); setOwnerLastName('')
+                      setOwnerDisplay(''); setOwnerQuery(''); setOwnerHits([])
+                    }
+                  }}
+                  className="w-4 h-4 rounded border-slate-500 accent-blue-500 cursor-pointer"
+                />
+                <span className="text-sm text-slate-300">Insured is the owner</span>
+              </label>
+
+              {!ownerIsInsured && (
+                <div className="space-y-3 pt-1">
+                  <p className="text-xs text-slate-500">Who owns this policy?</p>
+
+                  {/* Customer search */}
+                  <div className="relative">
+                    <label className="block text-xs text-slate-500 mb-1">Link to customer record</label>
+                    <input
+                      type="text"
+                      value={ownerDisplay || ownerQuery}
+                      onChange={e => { setOwnerDisplay(''); setOwnerCustomerId(''); handleOwnerSearch(e.target.value) }}
+                      placeholder="Search by name…"
+                      className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
+                    />
+                    {ownerCustomerId && (
+                      <button
+                        type="button"
+                        onClick={() => { setOwnerCustomerId(''); setOwnerDisplay(''); setOwnerQuery('') }}
+                        className="absolute right-2 top-7 text-slate-500 hover:text-slate-300"
+                        title="Clear"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {ownerHits.length > 0 && (
+                      <ul className="absolute z-10 mt-1 w-full bg-slate-800 border border-slate-600 rounded-lg shadow-lg max-h-40 overflow-y-auto">
+                        {ownerHits.map(h => (
+                          <li key={h.id}>
+                            <button
+                              type="button"
+                              onMouseDown={() => selectOwnerCustomer(h)}
+                              className="w-full text-left px-3 py-2 text-sm text-slate-200 hover:bg-slate-700 transition-colors"
+                            >
+                              {h.first_name} {h.last_name}
+                            </button>
+                          </li>
+                        ))}
+                        {ownerSearching && <li className="px-3 py-2 text-xs text-slate-500">Searching…</li>}
+                      </ul>
+                    )}
+                  </div>
+
+                  {/* Free-text fallback */}
+                  {!ownerCustomerId && (
+                    <div>
+                      <label className="block text-xs text-slate-500 mb-1">Or enter name manually</label>
+                      <div className="grid grid-cols-2 gap-2">
+                        <input
+                          type="text" value={ownerFirstName}
+                          onChange={e => setOwnerFirstName(e.target.value)}
+                          placeholder="First"
+                          className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
+                        />
+                        <input
+                          type="text" value={ownerLastName}
+                          onChange={e => setOwnerLastName(e.target.value)}
+                          placeholder="Last"
+                          className="w-full bg-slate-800 border border-slate-600 text-slate-100 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500 placeholder-slate-600"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {ownerMsg && (
+                    <p className={`text-xs ${ownerMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{ownerMsg.text}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleSaveOwner}
+                    disabled={ownerSaving}
+                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                    style={{ backgroundColor: '#1F3864' }}
+                  >
+                    <Check className="w-3.5 h-3.5" /> {ownerSaving ? 'Saving…' : 'Save Owner'}
+                  </button>
+                </div>
+              )}
+
+              {ownerIsInsured && ownerMsg && (
+                <p className={`text-xs ${ownerMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{ownerMsg.text}</p>
+              )}
+
+              {!ownerIsInsured && ownerDisplay && !ownerQuery && (
+                <div className="flex items-center gap-1.5 pt-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 flex-shrink-0" />
+                  <span className="text-sm text-slate-200">{ownerDisplay}</span>
+                  {ownerCustomerId && (
+                    <Link href={`/customers/${ownerCustomerId}`} className="text-xs text-sky-400 hover:underline ml-1">
+                      Card
+                    </Link>
+                  )}
+                </div>
+              )}
+
+              {/* When checked, save immediately if the value changed from initial */}
+              {ownerIsInsured && (caseData.owner_is_insured === false) && (
+                <div className="flex items-center justify-end">
+                  {ownerMsg && (
+                    <p className={`text-xs mr-3 ${ownerMsg.ok ? 'text-emerald-400' : 'text-red-400'}`}>{ownerMsg.text}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={handleSaveOwner}
+                    disabled={ownerSaving}
+                    className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+                    style={{ backgroundColor: '#1F3864' }}
+                  >
+                    <Check className="w-3.5 h-3.5" /> {ownerSaving ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              )}
+            </div>
 
             {/* Policy number */}
             <div>
