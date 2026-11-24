@@ -10,6 +10,8 @@ type ImportResult = {
   row_count: number
   matched_count: number
   unmatched_count: number
+  life_case_matched: number
+  annuity_matched: number
   unrecognized_partners: string[]
   debug_map_keys: string[]
 }
@@ -366,6 +368,16 @@ export default function GdcImportPage() {
             <div className="text-xs text-slate-500 space-y-1">
               <p>Sheet: <span className="text-slate-300">{result.sheet_used}</span></p>
               <p>Batch ID: <span className="text-slate-300 font-mono">{result.batch_id}</span></p>
+              {result.life_case_matched > 0 && (
+                <p>
+                  <span className="text-emerald-400">{result.life_case_matched}</span> life row{result.life_case_matched !== 1 ? 's' : ''} matched to placed cases
+                </p>
+              )}
+              {result.annuity_matched > 0 && (
+                <p>
+                  <span className="text-emerald-400">{result.annuity_matched}</span> annuity row{result.annuity_matched !== 1 ? 's' : ''} matched to customers via service policy
+                </p>
+              )}
             </div>
 
             {result.unrecognized_partners.length > 0 && (

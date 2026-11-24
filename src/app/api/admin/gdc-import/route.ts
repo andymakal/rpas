@@ -118,12 +118,19 @@ export async function POST(req: NextRequest) {
     const credit = Number(row['Production Credit'] ?? 0)
     if (isNaN(credit)) continue
 
+    const product = String(row['Product'] ?? '').trim() || null
+    const productLower = (product ?? '').toLowerCase()
+    const productCategory =
+      productLower === 'mutual fund'   ? 'securities' :
+      productLower.includes('annuity') ? 'annuity'    : 'life'
+
     records.push({
       import_batch_id: batch.id,
       agency_id:               agencyId,
       policy_number:           String(row['Policy Number']  ?? '').trim() || null,
       insured_name:            String(row['Insured Name']   ?? '').trim() || null,
-      product:                 String(row['Product']        ?? '').trim() || null,
+      product,
+      product_category:        productCategory,
       production_credit:       credit,
       policy_count:            Number(row['Policy Count']   ?? 0),
       app_date:                parseDate(row['App Date']),
@@ -183,14 +190,83 @@ export async function POST(req: NextRequest) {
     .update({ matched_count: matchedCount, unmatched_count: unmatchedCount })
     .eq('id', batch.id)
 
+  // Auto-match life rows → placed cases by policy_number
+  // Auto-match annuity rows → service_policies by policy_number → customer
+  const { data: insertedRecords } = await supabase
+    .from('gdc_records')
+    .select('id, policy_number, product_category')
+    .eq('import_batch_id', batch.id)
+    .not('policy_number', 'is', null)
+
+  let lifeMatched = 0
+  let annuityMatched = 0
+
+  if (insertedRecords && insertedRecords.length > 0) {
+    const lifePolicyNumbers = insertedRecords
+      .filter(r => r.product_category === 'life' && r.policy_number)
+      .map(r => r.policy_number as string)
+
+    const annuityPolicyNumbers = insertedRecords
+      .filter(r => r.product_category === 'annuity' && r.policy_number)
+      .map(r => r.policy_number as string)
+
+    // Match life rows to placed cases
+    if (lifePolicyNumbers.length > 0) {
+      const { data: placedCases } = await supabase
+        .from('cases')
+        .select('id, policy_number')
+        .in('policy_number', lifePolicyNumbers)
+        .not('placed_at', 'is', null)
+        .eq('is_test', false)
+
+      if (placedCases) {
+        const caseByPolicy = new Map(placedCases.map(c => [c.policy_number, c.id]))
+        for (const rec of insertedRecords.filter(r => r.product_category === 'life')) {
+          const caseId = rec.policy_number ? caseByPolicy.get(rec.policy_number) : null
+          if (caseId) {
+            await supabase
+              .from('gdc_records')
+              .update({ linked_case_id: caseId })
+              .eq('id', rec.id)
+            lifeMatched++
+          }
+        }
+      }
+    }
+
+    // Match annuity rows to service_policies → customer
+    if (annuityPolicyNumbers.length > 0) {
+      const { data: svcPolicies } = await supabase
+        .from('service_policies')
+        .select('policy_number, customer_id')
+        .in('policy_number', annuityPolicyNumbers)
+
+      if (svcPolicies) {
+        const customerByPolicy = new Map(svcPolicies.map(p => [p.policy_number, p.customer_id]))
+        for (const rec of insertedRecords.filter(r => r.product_category === 'annuity')) {
+          const customerId = rec.policy_number ? customerByPolicy.get(rec.policy_number) : null
+          if (customerId) {
+            await supabase
+              .from('gdc_records')
+              .update({ linked_customer_id: customerId })
+              .eq('id', rec.id)
+            annuityMatched++
+          }
+        }
+      }
+    }
+  }
+
   return NextResponse.json({
-    batch_id:             batch.id,
-    sheet_used:           sheetName,
-    row_count:            rows.length,
-    matched_count:        matchedCount,
-    unmatched_count:      unmatchedCount,
-    report_start_date:    reportStartDate,
-    report_end_date:      reportEndDate,
+    batch_id:              batch.id,
+    sheet_used:            sheetName,
+    row_count:             rows.length,
+    matched_count:         matchedCount,
+    unmatched_count:       unmatchedCount,
+    life_case_matched:     lifeMatched,
+    annuity_matched:       annuityMatched,
+    report_start_date:     reportStartDate,
+    report_end_date:       reportEndDate,
     unrecognized_partners: Array.from(unrecognized).sort(),
     debug_map_keys:        Array.from(partnerMap.keys()).sort(),
   })
