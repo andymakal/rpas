@@ -2,8 +2,8 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, AlertCircle, AlertTriangle, Save, Pencil, User, Phone, Mail } from 'lucide-react'
-import type { ServiceRequestDetail, AgencyOption, AgentOption, SRNote, RelatedReview } from './page'
+import { ChevronLeft, ChevronRight, CheckCircle2, XCircle, AlertCircle, AlertTriangle, Save, Pencil, User, Phone, Mail, FileText, Download } from 'lucide-react'
+import type { ServiceRequestDetail, AgencyOption, AgentOption, SRNote, RelatedReview, CarrierFormLink } from './page'
 import { NotesLog } from '@/components/NotesLog'
 import type { NoteEntry } from '@/components/NotesLog'
 import { fmtDate as fmt } from '@/lib/fmt'
@@ -87,12 +87,14 @@ export function ServiceRequestClient({
   agents,
   initialNotes,
   relatedReviews = [],
+  carrierForms = [],
 }: {
   sr:             ServiceRequestDetail
   agencies:       AgencyOption[]
   agents:         AgentOption[]
   initialNotes:   SRNote[]
   relatedReviews?: RelatedReview[]
+  carrierForms?:   CarrierFormLink[]
 }) {
   const router = useRouter()
 
@@ -729,6 +731,61 @@ export function ServiceRequestClient({
             apiPath={`/api/service-requests/${sr.id}/notes`}
             defaultSection="producer"
           />
+
+          {/* ── Carrier Forms ───────────────────────────────────────── */}
+          {carrierForms.length > 0 && (
+            <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
+              <h2 className="text-sm font-semibold text-white mb-3">
+                <FileText className="w-4 h-4 inline mr-2 text-slate-400" />
+                Carrier Forms
+              </h2>
+              <div className="space-y-2">
+                {carrierForms.map(form => (
+                  <div
+                    key={form.id}
+                    className="flex items-start justify-between gap-3 rounded-lg border border-slate-700 bg-slate-800/40 px-3 py-2.5"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-slate-200 truncate">
+                        {form.form_name}
+                        {form.form_number && (
+                          <span className="ml-1.5 text-xs font-mono text-slate-500">
+                            {form.form_number}
+                          </span>
+                        )}
+                      </p>
+                      {form.description && (
+                        <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">{form.description}</p>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {form.fill_handler === 'everlake-sa-change' && policy?.id && (
+                        <a
+                          href={`/api/service-policies/${policy.id}/sa-change-form`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium text-teal-300 bg-teal-400/10 border border-teal-400/20 hover:bg-teal-400/20 transition-colors"
+                        >
+                          Fill Form
+                        </a>
+                      )}
+                      {form.downloadUrl && (
+                        <a
+                          href={form.downloadUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-medium text-slate-300 bg-slate-700 hover:bg-slate-600 border border-slate-600 transition-colors"
+                        >
+                          <Download className="w-3 h-3" />
+                          PDF
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ── Record Info ──────────────────────────────────────────── */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">

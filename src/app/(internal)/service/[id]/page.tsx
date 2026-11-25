@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { createClient } from '@/lib/supabase/server'
 import { notFound, redirect } from 'next/navigation'
 import { ServiceRequestClient } from './ServiceRequestClient'
+import { DOCUMENTS_BUCKET } from '@/lib/projects/review-1035'
 
 export const dynamic = 'force-dynamic'
 
@@ -55,6 +56,17 @@ export type RelatedReview = {
   review_type:    string | null
   status:         string
   scheduled_date: string | null
+}
+
+export type CarrierFormLink = {
+  id:           string
+  form_number:  string | null
+  form_name:    string
+  description:  string | null
+  sr_types:     string[] | null
+  is_fillable:  boolean
+  fill_handler: string | null
+  downloadUrl:  string | null
 }
 
 export async function generateMetadata(
@@ -136,15 +148,67 @@ export default async function ServiceRequestPage(
   const srNotes: SRNote[]             = (notesRaw ?? []) as SRNote[]
   const relatedReviews: RelatedReview[] = (relatedReviewsRaw ?? []) as RelatedReview[]
 
+  // ── Carrier forms ─────────────────────────────────────────────────────────
+  const srDetail = sr as unknown as ServiceRequestDetail
+  const carrierText  = srDetail.service_policies?.carrier ?? null
+  const requestType  = srDetail.request_type ?? null
+  let carrierForms: CarrierFormLink[] = []
+
+  if (carrierText) {
+    const { data: matchedCarrier } = await supabase
+      .from('carriers')
+      .select('id')
+      .ilike('short_name', carrierText)
+      .eq('is_active', true)
+      .maybeSingle()
+
+    if (matchedCarrier) {
+      const { data: formsRaw } = await supabase
+        .from('carrier_forms')
+        .select('id, form_number, form_name, description, sr_types, is_fillable, fill_handler, file_url')
+        .eq('carrier_id', matchedCarrier.id)
+        .eq('is_current', true)
+        .order('form_name')
+
+      if (formsRaw) {
+        const relevant = formsRaw.filter(f =>
+          !f.sr_types || f.sr_types.length === 0 ||
+          (requestType && f.sr_types.includes(requestType))
+        )
+
+        carrierForms = await Promise.all(relevant.map(async f => {
+          let downloadUrl: string | null = null
+          if (f.file_url) {
+            const { data: signed } = await supabase.storage
+              .from(DOCUMENTS_BUCKET)
+              .createSignedUrl(f.file_url, 1800)
+            downloadUrl = signed?.signedUrl ?? null
+          }
+          return {
+            id:           f.id,
+            form_number:  f.form_number,
+            form_name:    f.form_name,
+            description:  f.description,
+            sr_types:     f.sr_types,
+            is_fillable:  f.is_fillable,
+            fill_handler: f.fill_handler,
+            downloadUrl,
+          } satisfies CarrierFormLink
+        }))
+      }
+    }
+  }
+
   return (
     <div className="p-8">
       <div className="max-w-5xl mx-auto">
         <ServiceRequestClient
-          sr={(sr as unknown as ServiceRequestDetail)}
+          sr={srDetail}
           agencies={(agencies as AgencyOption[]) ?? []}
           agents={(agents as AgentOption[]) ?? []}
           initialNotes={srNotes}
           relatedReviews={relatedReviews}
+          carrierForms={carrierForms}
         />
       </div>
     </div>

@@ -75,6 +75,7 @@ const navItems: NavItem[] = [
 
   // ── Imports ────────────────────────────────────────────────────
   { separator: true, label: 'Imports' },
+  { href: '/admin/carrier-forms',  icon: FileText,        label: 'Carrier Forms'  },
   { href: '/admin/gdc-import',     icon: Upload,          label: 'GDC Import'     },
   { href: '/admin/policy-import',  icon: FileSpreadsheet, label: 'Policy Import'  },
   { href: '/admin/book-import',    icon: BookOpen,        label: 'Book Import'    },
