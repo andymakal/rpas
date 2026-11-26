@@ -13,23 +13,24 @@ const REQUEST_TYPES = [
 const FORMS_BUCKET_PREFIX = 'carrier-forms/'
 
 type FormState = {
-  carrier_id:   string
-  form_number:  string
-  form_name:    string
-  description:  string
-  sr_types:     string[]
-  states:       string
-  is_fillable:  boolean
-  fill_handler: string
-  is_current:   boolean
-  notes:        string
-  file:         File | null
+  form_category: string
+  carrier_id:    string
+  form_number:   string
+  form_name:     string
+  description:   string
+  sr_types:      string[]
+  states:        string
+  is_fillable:   boolean
+  fill_handler:  string
+  is_current:    boolean
+  notes:         string
+  file:          File | null
 }
 
 const EMPTY: FormState = {
-  carrier_id: '', form_number: '', form_name: '', description: '',
-  sr_types: [], states: '', is_fillable: false, fill_handler: '',
-  is_current: true, notes: '', file: null,
+  form_category: 'carrier', carrier_id: '', form_number: '', form_name: '',
+  description: '', sr_types: [], states: '', is_fillable: false,
+  fill_handler: '', is_current: true, notes: '', file: null,
 }
 
 function labelFor(form: CarrierFormRow): string {
@@ -53,9 +54,12 @@ export function CarrierFormsClient({
   const [deleting, setDeleting]     = useState(false)
   const [expandedCarrier, setExpandedCarrier] = useState<string | null>(null)
 
-  // Group forms by carrier
+  // Split misc vs carrier, then group carrier forms by carrier
+  const miscForms = forms.filter(f => (f.form_category ?? 'carrier') === 'misc')
+  const carrierForms = forms.filter(f => (f.form_category ?? 'carrier') !== 'misc')
+
   const grouped: Record<string, CarrierFormRow[]> = {}
-  for (const f of forms) {
+  for (const f of carrierForms) {
     const key = f.carrier_id ?? 'none'
     if (!grouped[key]) grouped[key] = []
     grouped[key].push(f)
@@ -76,17 +80,18 @@ export function CarrierFormsClient({
   function openEdit(form: CarrierFormRow) {
     setEditId(form.id)
     setState({
-      carrier_id:   form.carrier_id ?? '',
-      form_number:  form.form_number ?? '',
-      form_name:    form.form_name,
-      description:  form.description ?? '',
-      sr_types:     form.sr_types ?? [],
-      states:       (form.states ?? []).join(', '),
-      is_fillable:  form.is_fillable,
-      fill_handler: form.fill_handler ?? '',
-      is_current:   form.is_current,
-      notes:        form.notes ?? '',
-      file:         null,
+      form_category: form.form_category ?? 'carrier',
+      carrier_id:    form.carrier_id ?? '',
+      form_number:   form.form_number ?? '',
+      form_name:     form.form_name,
+      description:   form.description ?? '',
+      sr_types:      form.sr_types ?? [],
+      states:        (form.states ?? []).join(', '),
+      is_fillable:   form.is_fillable,
+      fill_handler:  form.fill_handler ?? '',
+      is_current:    form.is_current,
+      notes:         form.notes ?? '',
+      file:          null,
     })
     setErr(null)
     setModalOpen(true)
@@ -103,21 +108,24 @@ export function CarrierFormsClient({
 
   async function handleSave() {
     if (!state.form_name.trim()) { setErr('Form name is required.'); return }
-    if (!state.carrier_id)       { setErr('Carrier is required.');   return }
+    if (state.form_category === 'carrier' && !state.carrier_id) {
+      setErr('Carrier is required for carrier forms.'); return
+    }
 
     setSaving(true); setErr(null)
     try {
       const fd = new FormData()
-      fd.append('carrier_id',   state.carrier_id)
-      fd.append('form_number',  state.form_number.trim())
-      fd.append('form_name',    state.form_name.trim())
-      fd.append('description',  state.description.trim())
-      fd.append('sr_types',     state.sr_types.join(','))
-      fd.append('states',       state.states.trim())
-      fd.append('is_fillable',  String(state.is_fillable))
-      fd.append('fill_handler', state.fill_handler.trim())
-      fd.append('is_current',   String(state.is_current))
-      fd.append('notes',        state.notes.trim())
+      fd.append('form_category', state.form_category)
+      fd.append('carrier_id',    state.carrier_id)
+      fd.append('form_number',   state.form_number.trim())
+      fd.append('form_name',     state.form_name.trim())
+      fd.append('description',   state.description.trim())
+      fd.append('sr_types',      state.sr_types.join(','))
+      fd.append('states',        state.states.trim())
+      fd.append('is_fillable',   String(state.is_fillable))
+      fd.append('fill_handler',  state.fill_handler.trim())
+      fd.append('is_current',    String(state.is_current))
+      fd.append('notes',         state.notes.trim())
       if (state.file) fd.append('file', state.file)
 
       const url    = editId ? `/api/admin/carrier-forms/${editId}` : '/api/admin/carrier-forms'
@@ -172,15 +180,19 @@ export function CarrierFormsClient({
         </button>
       </div>
 
-      {/* Forms list grouped by carrier */}
-      {carrierOrder.length === 0 ? (
+      {/* Forms list */}
+      {carrierOrder.length === 0 && miscForms.length === 0 ? (
         <div className="rounded-xl border border-slate-800 bg-slate-900 p-12 text-center">
           <FileText className="w-8 h-8 text-slate-700 mx-auto mb-3" />
           <p className="text-slate-500 text-sm">No forms yet. Add the first one.</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {carrierOrder.map(carrierId => {
+        <div className="space-y-6">
+          {/* Carrier forms grouped by carrier */}
+          {carrierOrder.length > 0 && (
+            <div className="space-y-3">
+              <h2 className="text-xs font-medium text-slate-500 uppercase tracking-wide">Carrier Service Forms</h2>
+              {carrierOrder.map(carrierId => {
             const group = grouped[carrierId]
             const carrierName = group[0]?.carriers?.name ?? 'Unknown Carrier'
             const isExpanded = expandedCarrier === carrierId
@@ -278,7 +290,71 @@ export function CarrierFormsClient({
                 )}
               </div>
             )
-          })}
+            })}
+            </div>
+          )}
+
+          {/* Miscellaneous forms */}
+          {miscForms.length > 0 && (
+            <div className="space-y-3">
+              <h2 className="text-xs font-medium text-slate-500 uppercase tracking-wide">Miscellaneous Forms</h2>
+              <div className="rounded-xl border border-slate-800 bg-slate-900 overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-800/60">
+                      <th className="px-5 py-2.5 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">Form</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">Status</th>
+                      <th className="px-4 py-2.5 text-left text-xs font-medium text-slate-500 uppercase tracking-wide">File</th>
+                      <th className="px-4 py-2.5" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60">
+                    {miscForms.map(form => (
+                      <tr key={form.id} className="hover:bg-slate-800/40 transition-colors">
+                        <td className="px-5 py-3">
+                          <p className="text-slate-200 font-medium">{form.form_name}</p>
+                          {form.form_number && (
+                            <p className="text-xs text-slate-500 font-mono mt-0.5">{form.form_number}</p>
+                          )}
+                          {form.description && (
+                            <p className="text-xs text-slate-500 mt-0.5">{form.description}</p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3">
+                          {form.is_current
+                            ? <span className="text-xs text-emerald-400">Current</span>
+                            : <span className="text-xs text-slate-500">Superseded</span>}
+                        </td>
+                        <td className="px-4 py-3">
+                          {form.file_url
+                            ? <span className="text-xs text-sky-400">PDF attached</span>
+                            : <span className="text-xs text-amber-400">No file</span>}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2 justify-end">
+                            <button
+                              onClick={() => openEdit(form)}
+                              className="p-1.5 rounded text-slate-500 hover:text-slate-200 hover:bg-slate-700 transition-colors"
+                              title="Edit"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setDeleteId(form.id)}
+                              className="p-1.5 rounded text-slate-500 hover:text-red-400 hover:bg-red-900/20 transition-colors"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -294,9 +370,23 @@ export function CarrierFormsClient({
             </div>
 
             <div className="px-6 py-5 space-y-4">
+              <div>
+                <label className={labelCls}>Category *</label>
+                <select
+                  value={state.form_category}
+                  onChange={e => setState(s => ({ ...s, form_category: e.target.value }))}
+                  className={inputCls}
+                >
+                  <option value="carrier">Carrier Service Form</option>
+                  <option value="misc">Miscellaneous</option>
+                </select>
+              </div>
+
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className={labelCls}>Carrier *</label>
+                  <label className={labelCls}>
+                    Carrier {state.form_category === 'carrier' ? '*' : '(optional)'}
+                  </label>
                   <select
                     value={state.carrier_id}
                     onChange={e => setState(s => ({ ...s, carrier_id: e.target.value }))}
@@ -342,6 +432,7 @@ export function CarrierFormsClient({
                 />
               </div>
 
+              {state.form_category === 'carrier' && (
               <div>
                 <label className={labelCls}>Applies to SR Types (leave unchecked = all types)</label>
                 <div className="grid grid-cols-2 gap-1.5 mt-1">
@@ -358,6 +449,7 @@ export function CarrierFormsClient({
                   ))}
                 </div>
               </div>
+              )}
 
               <div>
                 <label className={labelCls}>States (comma-separated, leave blank = all states)</label>

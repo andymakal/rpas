@@ -4,20 +4,21 @@ import { CarrierFormsClient } from './CarrierFormsClient'
 export const dynamic = 'force-dynamic'
 
 export type CarrierFormRow = {
-  id:           string
-  carrier_id:   string | null
-  form_number:  string | null
-  form_name:    string
-  description:  string | null
-  sr_types:     string[] | null
-  states:       string[] | null
-  file_url:     string | null
-  is_fillable:  boolean
-  fill_handler: string | null
-  is_current:   boolean
-  notes:        string | null
-  created_at:   string
-  carriers:     { id: string; name: string; short_name: string } | null
+  id:            string
+  carrier_id:    string | null
+  form_category: string
+  form_number:   string | null
+  form_name:     string
+  description:   string | null
+  sr_types:      string[] | null
+  states:        string[] | null
+  file_url:      string | null
+  is_fillable:   boolean
+  fill_handler:  string | null
+  is_current:    boolean
+  notes:         string | null
+  created_at:    string
+  carriers:      { id: string; name: string; short_name: string } | null
 }
 
 export type CarrierOption = { id: string; name: string; short_name: string }

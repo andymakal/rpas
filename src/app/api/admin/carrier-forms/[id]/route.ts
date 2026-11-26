@@ -44,14 +44,15 @@ export async function PATCH(
 
   const updates: Record<string, unknown> = {}
 
-  if ('carrier_id'   in body) updates.carrier_id   = body.carrier_id   || null
-  if ('form_number'  in body) updates.form_number   = body.form_number  || null
-  if ('form_name'    in body) updates.form_name     = body.form_name
-  if ('description'  in body) updates.description   = body.description  || null
-  if ('fill_handler' in body) updates.fill_handler  = body.fill_handler || null
-  if ('notes'        in body) updates.notes         = body.notes        || null
-  if ('is_fillable'  in body) updates.is_fillable   = body.is_fillable === true || body.is_fillable === 'true'
-  if ('is_current'   in body) updates.is_current    = body.is_current   !== false && body.is_current !== 'false'
+  if ('form_category' in body) updates.form_category = body.form_category || 'carrier'
+  if ('carrier_id'    in body) updates.carrier_id    = body.carrier_id    || null
+  if ('form_number'   in body) updates.form_number   = body.form_number   || null
+  if ('form_name'     in body) updates.form_name     = body.form_name
+  if ('description'   in body) updates.description   = body.description   || null
+  if ('fill_handler'  in body) updates.fill_handler  = body.fill_handler  || null
+  if ('notes'         in body) updates.notes         = body.notes         || null
+  if ('is_fillable'   in body) updates.is_fillable   = body.is_fillable === true || body.is_fillable === 'true'
+  if ('is_current'    in body) updates.is_current    = body.is_current    !== false && body.is_current !== 'false'
 
   if ('sr_types' in body) {
     const raw = body.sr_types

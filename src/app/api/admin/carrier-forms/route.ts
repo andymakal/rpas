@@ -57,17 +57,18 @@ export async function POST(request: NextRequest) {
       : null
 
   const record: Record<string, unknown> = {
-    carrier_id:   body.carrier_id   || null,
-    form_number:  body.form_number  || null,
-    form_name:    body.form_name,
-    description:  body.description  || null,
-    sr_types:     srTypes,
-    states:       states,
-    file_url:     fileStoragePath ?? body.file_url ?? null,
-    is_fillable:  body.is_fillable === true || body.is_fillable === 'true',
-    fill_handler: body.fill_handler || null,
-    is_current:   body.is_current !== false && body.is_current !== 'false',
-    notes:        body.notes || null,
+    form_category: body.form_category || 'carrier',
+    carrier_id:    body.carrier_id    || null,
+    form_number:   body.form_number   || null,
+    form_name:     body.form_name,
+    description:   body.description   || null,
+    sr_types:      srTypes,
+    states:        states,
+    file_url:      fileStoragePath ?? body.file_url ?? null,
+    is_fillable:   body.is_fillable === true || body.is_fillable === 'true',
+    fill_handler:  body.fill_handler  || null,
+    is_current:    body.is_current !== false && body.is_current !== 'false',
+    notes:         body.notes || null,
   }
 
   if (!record.form_name) return Response.json({ error: 'form_name is required' }, { status: 400 })
