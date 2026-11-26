@@ -72,7 +72,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (!record.form_name) return Response.json({ error: 'form_name is required' }, { status: 400 })
-  if (!record.carrier_id) return Response.json({ error: 'carrier_id is required' }, { status: 400 })
+  if (record.form_category === 'carrier' && !record.carrier_id) return Response.json({ error: 'carrier_id is required for carrier forms' }, { status: 400 })
 
   const { data, error } = await supabase.from('carrier_forms').insert(record).select('*').single()
   if (error) return Response.json({ error: error.message }, { status: 500 })
