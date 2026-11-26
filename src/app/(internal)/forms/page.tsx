@@ -1,9 +1,11 @@
-import { FileText, Printer, Download } from 'lucide-react'
+import { Printer } from 'lucide-react'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { DOCUMENTS_BUCKET } from '@/lib/projects/review-1035'
+import { FormsLibraryClient } from './FormsLibraryClient'
+import type { CarrierGroup, FormEntry } from './FormsLibraryClient'
 
 export const dynamic = 'force-dynamic'
-export const metadata = { title: 'Forms' }
+export const metadata = { title: 'Forms Library' }
 
 const STATIC_FORMS = [
   {
@@ -15,22 +17,6 @@ const STATIC_FORMS = [
   },
 ]
 
-type FormEntry = {
-  id:            string
-  form_number:   string | null
-  form_name:     string
-  description:   string | null
-  form_category: string
-  is_fillable:   boolean
-  fill_handler:  string | null
-  downloadUrl:   string | null
-}
-
-type CarrierGroup = {
-  carrier: string
-  forms: FormEntry[]
-}
-
 export default async function FormsPage() {
   const supabase = createAdminClient()
 
@@ -40,7 +26,6 @@ export default async function FormsPage() {
     .eq('is_current', true)
     .order('form_name')
 
-  // Generate signed URLs, split by category, group carrier forms by carrier
   const carrierMap = new Map<string, CarrierGroup>()
   const miscEntries: FormEntry[] = []
 
@@ -54,17 +39,17 @@ export default async function FormsPage() {
     }
 
     const entry: FormEntry = {
-      id:            f.id,
-      form_number:   f.form_number,
-      form_name:     f.form_name,
-      description:   f.description,
-      form_category: (f.form_category as string | null) ?? 'carrier',
-      is_fillable:   f.is_fillable,
-      fill_handler:  f.fill_handler,
+      id:           f.id,
+      form_number:  f.form_number,
+      form_name:    f.form_name,
+      description:  f.description,
+      is_fillable:  f.is_fillable,
+      fill_handler: f.fill_handler,
       downloadUrl,
     }
 
-    if (entry.form_category === 'misc') {
+    const category = (f.form_category as string | null) ?? 'carrier'
+    if (category === 'misc') {
       miscEntries.push(entry)
     } else {
       const carrierName = (f.carriers as unknown as { name: string } | null)?.name ?? 'Other'
@@ -85,7 +70,7 @@ export default async function FormsPage() {
       <div className="mb-8">
         <h1 className="text-xl font-semibold text-white">Forms Library</h1>
         <p className="mt-1 text-sm text-slate-400">
-          Intake forms, carrier service forms, and other documents. Manage the carrier library at{' '}
+          Intake forms, carrier service forms, and other documents. Manage the library at{' '}
           <a href="/admin/carrier-forms" className="text-blue-400 hover:text-blue-300 transition-colors">
             Admin → Carrier Forms
           </a>
@@ -93,8 +78,8 @@ export default async function FormsPage() {
         </p>
       </div>
 
-      {/* ── Intake forms ──────────────────────────────────────────────────── */}
-      <section className="mb-8">
+      {/* ── Intake forms ───────────────────────────────────────────────────── */}
+      <section className="mb-10">
         <h2 className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-3">Intake</h2>
         <div className="space-y-3">
           {STATIC_FORMS.map(form => (
@@ -104,7 +89,7 @@ export default async function FormsPage() {
             >
               <div className="flex items-start gap-4">
                 <div className="mt-0.5 rounded-lg bg-slate-800 p-2">
-                  <FileText className="w-4 h-4 text-slate-400" />
+                  <Printer className="w-4 h-4 text-slate-400" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
@@ -128,121 +113,8 @@ export default async function FormsPage() {
         </div>
       </section>
 
-      {/* ── Carrier forms ─────────────────────────────────────────────────── */}
-      {(carrierGroups.length > 0 || miscEntries.length > 0) ? (
-        <section className="space-y-10">
-          {carrierGroups.length > 0 && (<div>
-          <h2 className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-3">Carrier Service Forms</h2>
-          <div className="space-y-6">
-            {carrierGroups.map(group => (
-              <div key={group.carrier}>
-                <h3 className="text-sm font-semibold text-slate-300 mb-2">{group.carrier}</h3>
-                <div className="space-y-2">
-                  {group.forms.map(form => (
-                    <div
-                      key={form.id}
-                      className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900 px-5 py-4"
-                    >
-                      <div className="flex items-start gap-4 min-w-0">
-                        <div className="mt-0.5 rounded-lg bg-slate-800 p-2 shrink-0">
-                          <FileText className="w-4 h-4 text-slate-400" />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="text-sm font-medium text-white">{form.form_name}</p>
-                            {form.form_number && (
-                              <span className="text-xs font-mono px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-500">
-                                {form.form_number}
-                              </span>
-                            )}
-                            {form.is_fillable && (
-                              <span className="text-xs px-1.5 py-0.5 rounded-full bg-teal-400/10 text-teal-400 border border-teal-400/20">
-                                Auto-fill
-                              </span>
-                            )}
-                          </div>
-                          {form.description && (
-                            <p className="mt-0.5 text-xs text-slate-500">{form.description}</p>
-                          )}
-                        </div>
-                      </div>
-                      <div className="ml-6 shrink-0 flex items-center gap-2">
-                        {form.downloadUrl && (
-                          <a
-                            href={form.downloadUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition-colors"
-                          >
-                            <Download className="w-3.5 h-3.5" />
-                            PDF
-                          </a>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-          </div>)}
-
-          {/* Miscellaneous forms */}
-          {miscEntries.length > 0 && (
-            <div>
-              <h2 className="text-xs font-medium text-slate-500 uppercase tracking-wide mb-3">Miscellaneous Forms</h2>
-              <div className="space-y-3">
-                {miscEntries.map(form => (
-                  <div
-                    key={form.id}
-                    className="flex items-center justify-between rounded-xl border border-slate-800 bg-slate-900 px-5 py-4"
-                  >
-                    <div className="flex items-start gap-4 min-w-0">
-                      <div className="mt-0.5 rounded-lg bg-slate-800 p-2 shrink-0">
-                        <FileText className="w-4 h-4 text-slate-400" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <p className="text-sm font-medium text-white">{form.form_name}</p>
-                          {form.form_number && (
-                            <span className="text-xs font-mono px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-500">
-                              {form.form_number}
-                            </span>
-                          )}
-                        </div>
-                        {form.description && (
-                          <p className="mt-0.5 text-xs text-slate-500">{form.description}</p>
-                        )}
-                      </div>
-                    </div>
-                    {form.downloadUrl && (
-                      <a
-                        href={form.downloadUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="ml-6 shrink-0 flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-700 hover:text-white transition-colors"
-                      >
-                        <Download className="w-3.5 h-3.5" />
-                        PDF
-                      </a>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
-      ) : (
-        <div className="rounded-xl border border-dashed border-slate-700 p-6 text-center">
-          <FileText className="mx-auto w-6 h-6 text-slate-600 mb-2" />
-          <p className="text-sm text-slate-500">
-            No carrier forms added yet.{' '}
-            <a href="/admin/carrier-forms" className="text-blue-400 hover:text-blue-300 transition-colors">
-              Add the first one →
-            </a>
-          </p>
-        </div>
-      )}
+      {/* ── Carrier + misc forms (collapsible) ─────────────────────────────── */}
+      <FormsLibraryClient carrierGroups={carrierGroups} miscEntries={miscEntries} />
     </div>
   )
 }

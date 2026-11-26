@@ -61,7 +61,7 @@ const navItems: NavItem[] = [
   { href: '/policies',           icon: BookOpen,        label: 'Policies'         },
   { href: '/reviews',            icon: ClipboardCheck,  label: 'Reviews'          },
   { href: '/financial-review',   icon: BarChart2,       label: 'Financial Review' },
-  { href: '/forms',              icon: FileText,        label: 'Forms'            },
+  { href: '/forms',              icon: FileText,        label: 'Forms Library'    },
 
   // ── Management ─────────────────────────────────────────────────
   { separator: true, label: 'Management' },
