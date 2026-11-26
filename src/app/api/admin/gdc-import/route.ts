@@ -90,6 +90,8 @@ export async function POST(req: NextRequest) {
 
   const records = []
   const unrecognized = new Set<string>()
+  // policy_number → premium_deposit for updating cases after matching
+  const premiumByPolicy = new Map<string, number>()
 
   for (const row of rows) {
     const rawPartner = String(row['Primary Partner Number'] ?? '').trim()
@@ -124,10 +126,18 @@ export async function POST(req: NextRequest) {
       productLower === 'mutual fund'   ? 'securities' :
       productLower.includes('annuity') ? 'annuity'    : 'life'
 
+    const premiumRaw = Number(row['Premium Deposit($)'] ?? 0)
+    const premiumDeposit = isNaN(premiumRaw) || premiumRaw <= 0 ? null : premiumRaw
+
+    const policyNum = String(row['Policy Number'] ?? '').trim() || null
+    if (policyNum && premiumDeposit) {
+      premiumByPolicy.set(policyNum, premiumDeposit)
+    }
+
     records.push({
       import_batch_id: batch.id,
       agency_id:               agencyId,
-      policy_number:           String(row['Policy Number']  ?? '').trim() || null,
+      policy_number:           policyNum,
       insured_name:            String(row['Insured Name']   ?? '').trim() || null,
       product,
       product_category:        productCategory,
@@ -228,6 +238,18 @@ export async function POST(req: NextRequest) {
               .from('gdc_records')
               .update({ linked_case_id: caseId })
               .eq('id', rec.id)
+
+            // Backfill annual_premium from the report's Premium Deposit column
+            // only where the case doesn't already have one set
+            const premium = rec.policy_number ? premiumByPolicy.get(rec.policy_number) : null
+            if (premium) {
+              await supabase
+                .from('cases')
+                .update({ annual_premium: premium })
+                .eq('id', caseId)
+                .is('annual_premium', null)
+            }
+
             lifeMatched++
           }
         }
