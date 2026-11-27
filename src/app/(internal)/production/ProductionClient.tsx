@@ -822,6 +822,7 @@ export default function ProductionClient({
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Agency</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Process Date</th>
                     <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Customer</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Case</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -850,6 +851,13 @@ export default function ProductionClient({
                             onLinked={(id, name) => updateGdcLink(r.id, id, name)}
                           />
                         )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <CaseLinker
+                          gdcId={r.id}
+                          currentCaseId={r.linked_case_id}
+                          onLinked={(caseId, _label) => updateCaseLink(r.id, caseId)}
+                        />
                       </td>
                     </tr>
                   ))}
