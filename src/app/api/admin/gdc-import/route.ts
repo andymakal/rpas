@@ -212,26 +212,23 @@ export async function POST(req: NextRequest) {
   let annuityMatched = 0
 
   if (insertedRecords && insertedRecords.length > 0) {
-    const lifePolicyNumbers = insertedRecords
-      .filter(r => r.product_category === 'life' && r.policy_number)
+    const allPolicyNumbers = insertedRecords
+      .filter(r => r.policy_number)
       .map(r => r.policy_number as string)
 
-    const annuityPolicyNumbers = insertedRecords
-      .filter(r => r.product_category === 'annuity' && r.policy_number)
-      .map(r => r.policy_number as string)
-
-    // Match life rows to placed cases
-    if (lifePolicyNumbers.length > 0) {
+    // Match ALL categories to placed cases first by policy number
+    const caseMatchedIds = new Set<string>()
+    if (allPolicyNumbers.length > 0) {
       const { data: placedCases } = await supabase
         .from('cases')
         .select('id, policy_number')
-        .in('policy_number', lifePolicyNumbers)
+        .in('policy_number', allPolicyNumbers)
         .not('placed_at', 'is', null)
         .eq('is_test', false)
 
       if (placedCases) {
         const caseByPolicy = new Map(placedCases.map(c => [c.policy_number, c.id]))
-        for (const rec of insertedRecords.filter(r => r.product_category === 'life')) {
+        for (const rec of insertedRecords) {
           const caseId = rec.policy_number ? caseByPolicy.get(rec.policy_number) : null
           if (caseId) {
             await supabase
@@ -239,8 +236,7 @@ export async function POST(req: NextRequest) {
               .update({ linked_case_id: caseId })
               .eq('id', rec.id)
 
-            // Backfill annual_premium from the report's Premium Deposit column
-            // only where the case doesn't already have one set
+            // Backfill annual_premium from Premium Deposit column where not already set
             const premium = rec.policy_number ? premiumByPolicy.get(rec.policy_number) : null
             if (premium) {
               await supabase
@@ -250,14 +246,20 @@ export async function POST(req: NextRequest) {
                 .is('annual_premium', null)
             }
 
-            lifeMatched++
+            caseMatchedIds.add(rec.id)
+            if (rec.product_category === 'life') lifeMatched++
+            else annuityMatched++
           }
         }
       }
     }
 
-    // Match annuity rows to service_policies → customer
-    if (annuityPolicyNumbers.length > 0) {
+    // Annuity rows not case-matched → fall back to service_policies → customer
+    const annuityUnmatched = insertedRecords.filter(
+      r => r.product_category === 'annuity' && r.policy_number && !caseMatchedIds.has(r.id)
+    )
+    if (annuityUnmatched.length > 0) {
+      const annuityPolicyNumbers = annuityUnmatched.map(r => r.policy_number as string)
       const { data: svcPolicies } = await supabase
         .from('service_policies')
         .select('policy_number, customer_id')
@@ -265,7 +267,7 @@ export async function POST(req: NextRequest) {
 
       if (svcPolicies) {
         const customerByPolicy = new Map(svcPolicies.map(p => [p.policy_number, p.customer_id]))
-        for (const rec of insertedRecords.filter(r => r.product_category === 'annuity')) {
+        for (const rec of annuityUnmatched) {
           const customerId = rec.policy_number ? customerByPolicy.get(rec.policy_number) : null
           if (customerId) {
             await supabase

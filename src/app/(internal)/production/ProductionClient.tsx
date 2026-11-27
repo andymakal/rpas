@@ -373,11 +373,11 @@ export default function ProductionClient({
 
   const cutoff = useMemo(() => periodStart(period), [period])
 
-  // Build a map from case id → GDC record for life matches
+  // Build a map from case id → GDC record (all categories — annuity cases can also be linked)
   const casGdcMap = useMemo(() => {
     const m = new Map<string, GdcRecord>()
     for (const r of gdcRecords) {
-      if (r.product_category === 'life' && r.linked_case_id) {
+      if (r.linked_case_id) {
         m.set(r.linked_case_id, r)
       }
     }
@@ -434,8 +434,8 @@ export default function ProductionClient({
       } else if (sortKey === 'premium') {
         diff = (a.annual_premium ?? 0) - (b.annual_premium ?? 0)
       } else if (sortKey === 'credit') {
-        const ag = casGdcMap.get(a.id)?.production_credit ?? 0
-        const bg = casGdcMap.get(b.id)?.production_credit ?? 0
+        const ag = casGdcMap.get(a.id)?.production_credit ?? ((a.annual_premium ?? 0) * (a.products?.gdc_multiplier ?? 0))
+        const bg = casGdcMap.get(b.id)?.production_credit ?? ((b.annual_premium ?? 0) * (b.products?.gdc_multiplier ?? 0))
         diff = ag - bg
       } else {
         diff = new Date(a.placed_at ?? '').getTime() - new Date(b.placed_at ?? '').getTime()
@@ -445,13 +445,32 @@ export default function ProductionClient({
     return rows
   }, [cases, cutoff, agencyFilter, search, sortKey, sortDir, casGdcMap])
 
-  const lifeStats = useMemo(() => ({
-    faceTotal:    filteredCases.reduce((s, c) => s + (c.face_amount ?? 0), 0),
-    premiumTotal: filteredCases.reduce((s, c) => s + (c.annual_premium ?? 0), 0),
-    count:        filteredCases.length,
-    gdcTotal:     filteredCases.reduce((s, c) => s + (casGdcMap.get(c.id)?.production_credit ?? 0), 0),
-    gdcMatched:   filteredCases.filter(c => casGdcMap.has(c.id)).length,
-  }), [filteredCases, casGdcMap])
+  const lifeStats = useMemo(() => {
+    let gdcActualTotal = 0, gdcEstTotal = 0, gdcActualCount = 0, gdcEstCount = 0
+    for (const c of filteredCases) {
+      const rec = casGdcMap.get(c.id)
+      if (rec) {
+        gdcActualTotal += rec.production_credit
+        gdcActualCount++
+      } else {
+        const ap = c.annual_premium ?? 0
+        const mult = c.products?.gdc_multiplier ?? 0
+        if (ap > 0 && mult > 0) {
+          gdcEstTotal += ap * mult
+          gdcEstCount++
+        }
+      }
+    }
+    return {
+      faceTotal:      filteredCases.reduce((s, c) => s + (c.face_amount ?? 0), 0),
+      premiumTotal:   filteredCases.reduce((s, c) => s + (c.annual_premium ?? 0), 0),
+      count:          filteredCases.length,
+      gdcActualTotal,
+      gdcEstTotal,
+      gdcActualCount,
+      gdcEstCount,
+    }
+  }, [filteredCases, casGdcMap])
 
   // ── Annuity / Securities tabs ─────────────────────────────────────────────
   const annuityRows = useMemo(() => {
@@ -574,8 +593,13 @@ export default function ProductionClient({
             </div>
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
               <p className="text-xs text-slate-500 uppercase tracking-wide font-medium mb-1">GDC Credit ({selectedYear})</p>
-              <p className="text-2xl font-bold text-emerald-400">{formatCredit(lifeStats.gdcTotal)}</p>
-              <p className="text-xs text-slate-600 mt-0.5">{lifeStats.gdcMatched} of {lifeStats.count} matched</p>
+              <p className="text-2xl font-bold text-emerald-400">{formatCredit(lifeStats.gdcActualTotal)}</p>
+              {lifeStats.gdcEstCount > 0 && (
+                <p className="text-xs text-amber-400/80 mt-0.5">
+                  +{formatCredit(lifeStats.gdcEstTotal)} est. ({lifeStats.gdcEstCount} unimported)
+                </p>
+              )}
+              <p className="text-xs text-slate-600 mt-0.5">{lifeStats.gdcActualCount} of {lifeStats.count} matched</p>
             </div>
             <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
               <p className="text-xs text-slate-500 uppercase tracking-wide font-medium mb-1">Unmatched GDC</p>
@@ -664,9 +688,17 @@ export default function ProductionClient({
                         <td className="px-4 py-3 text-right tabular-nums">
                           {gdcRec ? (
                             <span className="text-emerald-400 font-medium">{formatCredit(gdcRec.production_credit)}</span>
-                          ) : (
-                            <span className="text-slate-700 text-xs">No match</span>
-                          )}
+                          ) : (() => {
+                            const ap = c.annual_premium ?? 0
+                            const mult = c.products?.gdc_multiplier ?? 0
+                            return ap > 0 && mult > 0 ? (
+                              <span className="text-amber-400/70 text-xs font-medium" title="Estimated: annual premium × GDC multiplier">
+                                ~{formatCredit(ap * mult)}
+                              </span>
+                            ) : (
+                              <span className="text-slate-700 text-xs">—</span>
+                            )
+                          })()}
                         </td>
                         <td className="px-4 py-3 text-xs text-slate-400 whitespace-nowrap">{formatDate(c.placed_at)}</td>
                         <td className="px-4 py-3">
