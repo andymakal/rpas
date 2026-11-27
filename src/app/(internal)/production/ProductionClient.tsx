@@ -56,6 +56,130 @@ function periodStart(p: Period): string | null {
 
 const ANNUAL_GOAL = 1_000_000_000
 
+// ── Case Linker (for manually linking unmatched life GDC rows) ───────────────
+
+type CaseHit = {
+  id: string
+  policy_number: string | null
+  customers: { first_name: string | null; last_name: string | null } | null
+  products: { name: string; carriers: { short_name: string } | null } | null
+}
+
+function CaseLinker({
+  gdcId,
+  currentCaseId,
+  onLinked,
+}: {
+  gdcId: string
+  currentCaseId: string | null
+  onLinked: (caseId: string | null, label: string | null) => void
+}) {
+  const [open, setOpen]      = useState(false)
+  const [q, setQ]            = useState('')
+  const [hits, setHits]      = useState<CaseHit[]>([])
+  const [searching, setSrch] = useState(false)
+  const [saving, setSaving]  = useState(false)
+  const [err, setErr]        = useState<string | null>(null)
+  const [linkedLabel, setLinkedLabel] = useState<string | null>(null)
+
+  const search = useCallback(async (term: string) => {
+    if (term.length < 2) { setHits([]); return }
+    setSrch(true)
+    try {
+      const res = await fetch(`/api/cases/search?q=${encodeURIComponent(term)}`)
+      const json = await res.json() as { data?: CaseHit[] }
+      setHits(json.data ?? [])
+    } catch { /* ignore */ }
+    setSrch(false)
+  }, [])
+
+  const link = useCallback(async (caseId: string | null, label: string | null) => {
+    setSaving(true); setErr(null)
+    try {
+      const res = await fetch(`/api/admin/gdc-records/${gdcId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ linked_case_id: caseId }),
+      })
+      if (!res.ok) {
+        const j = await res.json() as { error?: string }
+        setErr(j.error ?? 'Save failed')
+      } else {
+        setLinkedLabel(label)
+        onLinked(caseId, label)
+        setOpen(false); setQ(''); setHits([])
+      }
+    } catch { setErr('Network error') }
+    setSaving(false)
+  }, [gdcId, onLinked])
+
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-blue-400 transition-colors"
+        title={currentCaseId ? 'Change case link' : 'Link to placed case'}
+      >
+        {currentCaseId ? (
+          <><Link2 className="w-3.5 h-3.5" />{linkedLabel ?? 'Linked'}</>
+        ) : (
+          <><Link2Off className="w-3.5 h-3.5 text-slate-600" />Link case…</>
+        )}
+      </button>
+    )
+  }
+
+  return (
+    <div className="bg-slate-800 border border-slate-700 rounded-lg p-3 space-y-2 w-64">
+      <input
+        autoFocus
+        type="text"
+        placeholder="Search insured name or policy #…"
+        value={q}
+        onChange={e => { setQ(e.target.value); void search(e.target.value) }}
+        className="w-full px-2.5 py-1.5 text-xs rounded border border-slate-600 bg-slate-900 text-white placeholder-slate-500 focus:outline-none focus:border-slate-400"
+      />
+      {searching && <Loader2 className="w-3.5 h-3.5 animate-spin text-slate-500" />}
+      {hits.length > 0 && (
+        <div className="space-y-0.5 max-h-48 overflow-y-auto">
+          {hits.map(h => {
+            const name = `${h.customers?.first_name ?? ''} ${h.customers?.last_name ?? ''}`.trim()
+            const carrier = h.products?.carriers?.short_name ?? h.products?.name ?? ''
+            return (
+              <button
+                key={h.id}
+                onClick={() => void link(h.id, name || h.policy_number)}
+                disabled={saving}
+                className="w-full text-left px-2 py-1.5 text-xs rounded hover:bg-slate-700 text-slate-200 transition-colors disabled:opacity-50"
+              >
+                <span className="font-medium">{name || '—'}</span>
+                {h.policy_number && <span className="text-slate-500 ml-1.5 font-mono">{h.policy_number}</span>}
+                {carrier && <span className="block text-slate-500 mt-0.5">{carrier}</span>}
+              </button>
+            )
+          })}
+        </div>
+      )}
+      {currentCaseId && (
+        <button
+          onClick={() => void link(null, null)}
+          disabled={saving}
+          className="text-xs text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+        >
+          Remove link
+        </button>
+      )}
+      {err && <p className="text-xs text-red-400">{err}</p>}
+      <button
+        onClick={() => { setOpen(false); setQ(''); setHits([]) }}
+        className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+      >
+        Cancel
+      </button>
+    </div>
+  )
+}
+
 // ── Customer Picker (for linking annuity/securities) ─────────────────────────
 
 type CustomerHit = { id: string; first_name: string | null; last_name: string | null }
@@ -208,6 +332,12 @@ export default function ProductionClient({
               : null,
           }
         : r
+    ))
+  }
+
+  function updateCaseLink(id: string, caseId: string | null) {
+    setGdcRecords(prev => prev.map(r =>
+      r.id === id ? { ...r, linked_case_id: caseId } : r
     ))
   }
 
@@ -581,6 +711,7 @@ export default function ProductionClient({
                       <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Policy #</th>
                       <th className="px-4 py-3 text-right text-xs font-medium text-slate-400">Credit</th>
                       <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Process Date</th>
+                      <th className="px-4 py-3 text-left text-xs font-medium text-slate-400">Case</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -591,6 +722,13 @@ export default function ProductionClient({
                         <td className="px-4 py-2.5 text-slate-400 text-xs font-mono">{r.policy_number ?? '—'}</td>
                         <td className="px-4 py-2.5 text-right text-amber-400 tabular-nums text-xs font-medium">{formatCredit(r.production_credit)}</td>
                         <td className="px-4 py-2.5 text-slate-500 text-xs">{formatDate(r.process_date)}</td>
+                        <td className="px-4 py-2.5">
+                          <CaseLinker
+                            gdcId={r.id}
+                            currentCaseId={r.linked_case_id}
+                            onLinked={(caseId, _label) => updateCaseLink(r.id, caseId)}
+                          />
+                        </td>
                       </tr>
                     ))}
                   </tbody>
