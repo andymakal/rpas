@@ -1212,20 +1212,39 @@ export function CustomerCardClient({
 
         // Offer to propagate shared contact fields to household members
         if (householdMembers.length > 0) {
-          const PROPAGATABLE: { key: string; label: string; newVal: string | null; oldVal: string | null }[] = [
-            { key: 'phone',  label: 'Phone',   newVal: editPhone.trim()  || null, oldVal: customer.phone  ?? null },
-            { key: 'street', label: 'Street',  newVal: editStreet.trim() || null, oldVal: customer.street ?? null },
-            { key: 'city',   label: 'City',    newVal: editCity.trim()   || null, oldVal: customer.city   ?? null },
-            { key: 'state',  label: 'State',   newVal: editState.trim()  || null, oldVal: customer.state  ?? null },
-            { key: 'zip',    label: 'ZIP',     newVal: editZip.trim()    || null, oldVal: customer.zip    ?? null },
-          ]
-          const changed = PROPAGATABLE.filter(f => f.newVal !== f.oldVal)
-          if (changed.length > 0) {
-            setHouseholdSync({
-              fields:      changed.map(f => ({ key: f.key, label: f.label, value: f.newVal })),
-              selectedIds: new Set(householdMembers.map(m => m.id)),
-            })
-            return // keep edit form open until user dismisses the sync panel
+          const phoneVal  = editPhone.trim()  || null
+          const streetVal = editStreet.trim() || null
+          const cityVal   = editCity.trim()   || null
+          const stateVal  = editState.trim()  || null
+          const zipVal    = editZip.trim()    || null
+
+          // Any field actually changed this save (triggers the prompt)
+          const anyChanged =
+            phoneVal  !== (customer.phone  ?? null) ||
+            streetVal !== (customer.street ?? null) ||
+            cityVal   !== (customer.city   ?? null) ||
+            stateVal  !== (customer.state  ?? null) ||
+            zipVal    !== (customer.zip    ?? null)
+
+          if (anyChanged) {
+            // Phone: only include if it changed (it's personal).
+            // Address: always include every non-null part — a household shares one
+            // address and members may not have it set yet even if it didn't change here.
+            const fields: HouseholdSyncField[] = []
+            if (phoneVal !== (customer.phone ?? null) && phoneVal !== null)
+              fields.push({ key: 'phone',  label: 'Phone',  value: phoneVal  })
+            if (streetVal !== null) fields.push({ key: 'street', label: 'Street', value: streetVal })
+            if (cityVal   !== null) fields.push({ key: 'city',   label: 'City',   value: cityVal   })
+            if (stateVal  !== null) fields.push({ key: 'state',  label: 'State',  value: stateVal  })
+            if (zipVal    !== null) fields.push({ key: 'zip',    label: 'ZIP',    value: zipVal    })
+
+            if (fields.length > 0) {
+              setHouseholdSync({
+                fields,
+                selectedIds: new Set(householdMembers.map(m => m.id)),
+              })
+              return // keep edit form open until user dismisses the sync panel
+            }
           }
         }
 
